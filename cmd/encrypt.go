@@ -34,7 +34,7 @@ func init() {
 	aesCmd.AddCommand(encryptCmd)
 
 	addKeyFlags(encryptCmd)
-	encryptCmd.Flags().BytesBase64P("iv", "i", []byte{}, "initialization vector to use for encryption, in base64. If not provided, a random IV will be generated.")
+	encryptCmd.Flags().BytesBase64("iv", []byte{}, "initialization vector to use for encryption, in base64. If not provided, a random IV will be generated.")
 }
 
 func getIV(cmd *cobra.Command, blockSize int) ([]byte, error) {
