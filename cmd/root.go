@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -8,6 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+// outputCloserKey is the context key under which PersistentPreRun stashes an
+// output filter's io.Closer, so PersistentPostRun can flush it once the
+// command has finished writing.
+type outputCloserKey struct{}
 
 var rootCmd = &cobra.Command{
 	Use: "cryptool",
@@ -21,8 +27,14 @@ var rootCmd = &cobra.Command{
 
 			switch format {
 			case "base64", "b64":
-				b64Filter(cmd)
+				closer := b64Filter(cmd)
+				cmd.SetContext(context.WithValue(cmd.Context(), outputCloserKey{}, closer))
 			}
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if closer, ok := cmd.Context().Value(outputCloserKey{}).(io.Closer); ok {
+			dieIf(closer.Close())
 		}
 	},
 }
@@ -66,7 +78,8 @@ func handleIORedirection(cmd *cobra.Command) error {
 	if o, err := cmd.Flags().GetString("output"); err != nil {
 		return fmt.Errorf("failed to read output flag: %w", err)
 	} else if o != "" {
-		f, err := os.OpenFile(o, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+		// 0600: output may contain key material or recovered plaintext
+		f, err := os.OpenFile(o, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fmt.Errorf("failed to open %s for writing: %w", o, err)
 		}
@@ -78,6 +91,7 @@ func handleIORedirection(cmd *cobra.Command) error {
 
 func init() {
 	rootCmd.PersistentFlags().StringP("format", "f", "raw", "format to use for input and output data (base64, hex, raw).")
+	rootCmd.PersistentFlags().StringP("output-format", "F", "text", "output format for structured data (text, long, json, pem, chain, fullchain)")
 
 	rootCmd.PersistentFlags().StringP("input", "i", "", "Redirect stdin to read from this file.")
 	rootCmd.MarkFlagFilename("input")

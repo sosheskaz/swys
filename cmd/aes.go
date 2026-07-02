@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -35,7 +36,7 @@ func getKey(cmd *cobra.Command) ([]byte, error) {
 	keyFlag := cmd.Flags().Lookup("key")
 	keyfile := cmd.Flags().Lookup("keyfile")
 	if keyFlag.Changed == keyfile.Changed {
-		return nil, fmt.Errorf("exactly one of either key or keyfile must be set")
+		return nil, errors.New("exactly one of either key or keyfile must be set")
 	}
 
 	if keyFlag.Changed {

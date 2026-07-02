@@ -4,8 +4,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sosheskaz/cryptool/internal/crypter"
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz/cryptool/internal/crypter"
 )
 
 var decryptCmd = &cobra.Command{

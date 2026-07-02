@@ -21,7 +21,9 @@ var genkeyCmd = &cobra.Command{
 		}
 		keySize := int64(bits / 8)
 
-		io.CopyN(cmd.OutOrStdout(), rand.Reader, keySize)
+		if _, err := io.CopyN(cmd.OutOrStdout(), rand.Reader, keySize); err != nil {
+			dieIf(fmt.Errorf("failed to write key: %w", err))
+		}
 	},
 }
 

@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/docker/go-units"
+
 	"github.com/sosheskaz/cryptool/internal/sys"
 )
 
@@ -77,7 +78,7 @@ func (a *AESCrypter) Encrypt(iv []byte, plaintext io.Reader, ciphertext io.Write
 					padding = aes.BlockSize
 				}
 
-				for i := 0; i < padding; i++ {
+				for i := range padding {
 					inputBuf[n+i] = byte(padding)
 				}
 

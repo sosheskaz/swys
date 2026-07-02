@@ -1,0 +1,301 @@
+# golangci-lint configuration for cryptool
+# golangci-lint v2 configuration format
+#
+# Adapted from sosheskaz/healthchecksio-cli with cryptool-specific changes:
+# - performance linters emphasized (perfsprint, prealloc, gocritic performance
+#   tag, govet fieldalignment) per this project's low-allocation goals
+# - SQL/HTTP-client linters dropped (no database or HTTP client code)
+# - (io.Closer).Close errcheck exclusion NOT carried over: unclosed/unchecked
+#   writers have already caused real data-truncation bugs here
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+  allow-parallel-runners: true
+
+output:
+  formats:
+    text:
+      path: stdout
+
+linters:
+  default: none
+  enable:
+    # Bugs and correctness
+    - errcheck        # Check for unchecked errors
+    - govet           # Reports suspicious constructs (enable-all incl. fieldalignment)
+    - ineffassign     # Detect ineffectual assignments
+    - staticcheck     # Go static analysis
+    - unused          # Check for unused code
+    - asasalint       # Check for pass []any as any in variadic func(...any)
+    - asciicheck      # Check for non-ASCII identifiers
+    - bidichk         # Check for dangerous unicode character sequences
+    - contextcheck    # Check whether the function uses a non-inherited context
+    - copyloopvar     # Detect places where loop variables are copied
+    - durationcheck   # Check for two durations multiplied together
+    - errname         # Check that error types are named FooError
+    - errorlint       # Find code that will cause problems with Go 1.13 error wrapping
+    - exhaustive      # Check exhaustiveness of enum switch statements
+    - gocritic        # Opinionated Go source code checker
+    - goprintffuncname # Check that printf-like functions are named with f at the end
+    - gosec           # Inspect source code for security problems
+    - intrange        # Find places where for loops could use an integer range
+    - makezero        # Find slice declarations with non-zero initial length
+    - mirror          # Reports wrong mirror patterns of bytes/strings usage
+    - musttag         # Enforce field tags in (un)marshaled structs
+    - nilerr          # Find code that returns nil even if it checks that the error is not nil
+    - nilnil          # Check that there is no simultaneous return of nil error and invalid value
+    - nosprintfhostport # Check for misuse of Sprintf to construct a host with port in a URL
+    - predeclared     # Find code that shadows one of Go's predeclared identifiers
+    - reassign        # Check that package variables are not reassigned
+    - revive          # Fast, configurable, extensible, flexible, and beautiful linter for Go
+    - tparallel       # Detects inappropriate usage of t.Parallel() method in Go tests
+    - usetesting      # Reports uses of functions with replacement inside the testing package
+    - unconvert       # Remove unnecessary type conversions
+    - unparam         # Report unused function parameters
+    - usestdlibvars   # Detect the possibility to use variables/constants from the Go standard library
+    - wastedassign    # Find wasted assignment statements
+    - whitespace      # Detect leading and trailing whitespace
+
+    # Performance (project goal: minimal allocations, small footprint)
+    - prealloc        # Find slice declarations that could potentially be pre-allocated
+    - perfsprint      # Replace fmt.Sprintf with faster alternatives
+    - exptostd        # Replace golang.org/x/exp usages with std equivalents
+
+    # Code quality and style
+    - containedctx    # Detect struct that contains a context.Context field
+    - dogsled         # Check for too many blank identifiers (e.g. x, _, _, _, := f())
+    - dupl            # Code clone detection
+    - dupword         # Check for duplicate words in comments
+    - errchkjson      # Check types passed to the json encoding functions
+    - forcetypeassert # Find forced type assertions
+    - gocognit        # Compute and check the cognitive complexity of functions
+    - goconst         # Find repeated strings that could be replaced by a constant
+    - gocyclo         # Compute and check the cyclomatic complexity of functions
+    - godot           # Check if comments end in a period
+    - gomoddirectives # Manage the use of 'replace', 'retract', and 'excludes' directives in go.mod
+    - grouper         # Analyze expression groups
+    - inamedparam     # Report interfaces with unnamed method parameters
+    - interfacebloat  # Check the number of methods inside an interface
+    - lll             # Report long lines
+    - maintidx        # Measure the maintainability index of each function
+    - misspell        # Find commonly misspelled English words in comments
+    - nakedret        # Find naked returns in functions greater than a specified function length
+    - nestif          # Report deeply nested if statements
+    - nolintlint      # Report ill-formed or insufficient nolint directives
+    - nonamedreturns  # Report all named returns
+    - tagliatelle     # Check struct tags
+    - thelper         # Detect test helpers without t.Helper() call
+    - forbidigo       # Forbid use of banned identifiers
+    - wrapcheck       # Check that errors from external packages are wrapped
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    govet:
+      enable-all: true
+      settings:
+        shadow:
+          strict: true
+
+    gocyclo:
+      min-complexity: 15
+
+    gocognit:
+      min-complexity: 30
+
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - whyNoLint
+        - unnamedResult
+
+    gosec:
+      confidence: medium
+      severity: medium
+      excludes:
+        - G104
+
+    lll:
+      line-length: 160
+      tab-width: 1
+
+    misspell:
+      locale: US
+
+    nakedret:
+      max-func-lines: 30
+
+    nestif:
+      min-complexity: 5
+
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+
+    revive:
+      confidence: 0.8
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          arguments:
+            - "checkPrivateReceivers"
+            - "sayRepetitiveInsteadOfStutters"
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: waitgroup-by-value
+        - name: unconditional-recursion
+        - name: struct-tag
+        - name: early-return
+        - name: defer
+          arguments:
+            - ["call-chain", "loop", "method-call", "recover", "return"]
+
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+      ignore-package-globs:
+        - github.com/sosheskaz/cryptool/*
+
+    forbidigo:
+      forbid:
+        - pattern: ^log\.
+          pkg: log
+          msg: use internal/sys (logr) instead of the log package
+        - pattern: ^fmt\.Print
+          pkg: fmt
+          msg: write to the command's writer (cmd.OutOrStdout / cmd.ErrOrStderr), not process-global stdout
+      analyze-types: true
+
+    usetesting:
+      context-background: true
+      context-todo: true
+
+    whitespace:
+      multi-if: true
+      multi-func: true
+
+    interfacebloat:
+      max: 10
+
+    maintidx:
+      under: 20
+
+  exclusions:
+    rules:
+      # Relax complexity/duplication heuristics for table-driven tests
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - dupl
+          - gosec
+          - goconst
+          - gocognit
+          - maintidx
+          - lll
+
+      # Exclude lll issues for long lines with go:generate
+      - linters:
+          - lll
+        source: "^//go:generate "
+
+      # Exclude shadow check on err variables
+      - linters:
+          - govet
+        text: "declaration of \"err\" shadows declaration"
+
+      # InsecureSkipVerify in conn.go is intentional: the tool inspects remote
+      # certs (including invalid/expired ones), it does not trust the connection
+      - path: internal/asym/conn\.go
+        linters:
+          - gosec
+        text: "G402"
+
+    paths:
+      - vendor
+      - third_party
+      - testdata
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: github.com/sosheskaz/cryptool
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - github.com/sosheskaz/cryptool
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/sosheskaz/cryptool)
+      custom-order: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+  fix: false
+
+severity:
+  default: warning
+  rules:
+    - linters:
+        - dupl
+      severity: info
+    - linters:
+        - errcheck
+        - govet
+        - staticcheck
+      severity: error
