@@ -2,7 +2,7 @@
 
 ## Project
 
-`cryptool` is a Go CLI for operator-friendly cryptographic and X.509 tasks. It
+`npc` is a Go CLI for operator-friendly cryptographic and X.509 tasks. It
 uses Cobra and favors streaming I/O, small dependency and allocation footprints,
 and explicit error handling.
 

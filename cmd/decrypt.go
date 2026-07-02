@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz/cryptool/internal/crypter"
+	"github.com/sosheskaz-systems/npc/internal/crypter"
 )
 
 var decryptCmd = &cobra.Command{

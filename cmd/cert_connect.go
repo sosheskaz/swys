@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz/cryptool/internal/asym"
+	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
 var connectCmd = &cobra.Command{

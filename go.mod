@@ -1,4 +1,4 @@
-module github.com/sosheskaz/cryptool
+module github.com/sosheskaz-systems/npc
 
 go 1.25.3
 

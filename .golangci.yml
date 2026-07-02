@@ -1,7 +1,7 @@
-# golangci-lint configuration for cryptool
+# golangci-lint configuration for npc
 # golangci-lint v2 configuration format
 #
-# Adapted from sosheskaz/healthchecksio-cli with cryptool-specific changes:
+# Adapted from sosheskaz/healthchecksio-cli with npc-specific changes:
 # - performance linters emphasized (perfsprint, prealloc, gocritic performance
 #   tag, govet fieldalignment) per this project's low-allocation goals
 # - SQL/HTTP-client linters dropped (no database or HTTP client code)
@@ -202,7 +202,7 @@ linters:
         - errors.Unwrap(
         - errors.Join(
       ignore-package-globs:
-        - github.com/sosheskaz/cryptool/*
+        - github.com/sosheskaz-systems/npc/*
 
     forbidigo:
       forbid:
@@ -269,13 +269,13 @@ formatters:
     - gofumpt
   settings:
     gofumpt:
-      module-path: github.com/sosheskaz/cryptool
+      module-path: github.com/sosheskaz-systems/npc
       extra-rules: true
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/sosheskaz/cryptool)
+        - prefix(github.com/sosheskaz-systems/npc)
       custom-order: true
 
 issues:

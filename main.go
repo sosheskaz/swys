@@ -1,16 +1,16 @@
-// Command cryptool provides operator-friendly cryptographic utilities.
+// Command npc provides operator-friendly cryptographic utilities.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/sosheskaz/cryptool/cmd"
+	"github.com/sosheskaz-systems/npc/cmd"
 )
 
 func main() {
 	if err := cmd.Execute(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "cryptool: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "npc: %v\n", err)
 		os.Exit(1)
 	}
 }

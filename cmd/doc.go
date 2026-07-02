@@ -1,2 +1,2 @@
-// Package cmd implements the cryptool command-line interface.
+// Package cmd implements the npc command-line interface.
 package cmd

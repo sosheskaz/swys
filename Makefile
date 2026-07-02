@@ -2,7 +2,7 @@
 
 # Development build
 build:
-	go build -o cryptool .
+	go build -o npc .
 
 # Run linters
 lint:
@@ -17,7 +17,7 @@ check: lint test
 
 # Optimized release build
 build-release:
-	go build -ldflags="-s -w" -trimpath -o cryptool .
+	go build -ldflags="-s -w" -trimpath -o npc .
 
 # Run tests
 test:
@@ -41,4 +41,4 @@ bench-mem:
 
 # Clean build artifacts
 clean:
-	rm -f cryptool *.prof
+	rm -f npc *.prof

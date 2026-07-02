@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/sosheskaz/cryptool/internal/asym"
+	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
 var certFormatters = map[string]func() asym.CertFormatter{

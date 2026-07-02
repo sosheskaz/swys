@@ -13,7 +13,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:           "cryptool",
+	Use:           "npc",
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

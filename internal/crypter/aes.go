@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/sosheskaz/cryptool/internal/sys"
+	"github.com/sosheskaz-systems/npc/internal/sys"
 )
 
 const cryptBufferSize = 64 * 1024
