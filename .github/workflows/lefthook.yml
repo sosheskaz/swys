@@ -1,0 +1,69 @@
+name: Lefthook
+
+on:
+  pull_request: {}
+  merge_group: {} # runs the all-files path; see the run step
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lefthook:
+    name: Changed-file checks
+    runs-on: sosheskaz
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up mise
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          install_args: >-
+            go golangci-lint goreleaser lefthook yamllint zizmor
+            aqua:rhysd/actionlint aqua:koalaman/shellcheck
+          cache: true
+
+      - name: Register problem matchers
+        run: |
+          echo "::add-matcher::.github/problem-matchers/actionlint.json"
+          echo "::add-matcher::.github/problem-matchers/shellcheck-gcc.json"
+
+      - name: Run pre-commit checks
+        env:
+          MISE_EXEC_AUTO_INSTALL: 'false'
+          MISE_TASK_RUN_AUTO_INSTALL: 'false'
+          YAMLLINT_FORMAT: github
+          # Feeds the shellcheck problem matcher (repo-local variable read by
+          # the lefthook shellcheck job; deliberately NOT SHELLCHECK_OPTS,
+          # which would break actionlint's embedded JSON-mode shellcheck).
+          SHELLCHECK_FORMAT: gcc
+          # Covered more strictly by ci.yml (tidy -diff, full lint suite).
+          LEFTHOOK_EXCLUDE: go-mod-tidy,golangci-lint
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            mapfile -t files < <(git diff --name-only --diff-filter=ACMR "$base" "$head")
+            if [ "${#files[@]}" -eq 0 ]; then
+              echo "no changed files; skipping"
+              exit 0
+            fi
+            args=()
+            for f in "${files[@]}"; do
+              args+=(--file "$f")
+            done
+            mise exec -- lefthook run pre-commit "${args[@]}"
+          else
+            mise exec -- lefthook run pre-commit --all-files
+          fi

@@ -1,0 +1,69 @@
+# Pre-commit hooks. Install with `mise run install:hooks`.
+# Every job is glob-scoped so only relevant changes pay its cost; CI runs the
+# same suite against the PR's changed files (.github/workflows/lefthook.yml).
+pre-commit:
+  parallel: true
+  jobs:
+    # go-mod-tidy and golangci-lint are excluded in the CI lefthook run
+    # (LEFTHOOK_EXCLUDE in .github/workflows/lefthook.yml): ci.yml covers both
+    # properly (tidy -diff fails on drift; lint runs the full suite).
+    - name: go-mod-tidy
+      glob: "{go.mod,go.sum,**/*.go}"
+      run: mise exec -- go mod tidy
+      stage_fixed: true
+
+    - name: golangci-lint
+      glob: "**/*.go"
+      run: mise exec -- golangci-lint run
+
+    - name: actionlint
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: mise exec -- actionlint {staged_files}
+
+    - name: zizmor
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: mise exec -- zizmor {staged_files}
+
+    # SHELLCHECK_FORMAT is a repo-local variable (default: shellcheck's tty
+    # output). CI sets it to gcc to feed a problem matcher; a generic env var
+    # like SHELLCHECK_OPTS would leak into actionlint's embedded shellcheck,
+    # which requires JSON output.
+    - name: shellcheck
+      glob: "{mise-tasks/**,**/*.sh}"
+      run: mise exec -- shellcheck -f "${SHELLCHECK_FORMAT:-tty}" -S error {staged_files}
+
+    - name: yamllint
+      glob: "**/*.{yml,yaml}"
+      run: mise exec -- yamllint -c .yamllint.yaml {staged_files}
+
+    - name: goreleaser-check
+      glob: ".goreleaser.{yml,yaml}"
+      run: mise exec -- goreleaser check
+
+    - name: golangci-lint-config-verify
+      glob: ".golangci.{yml,yaml}"
+      run: mise exec -- golangci-lint config verify
+
+    - name: renovate-config-validator
+      glob: "renovate.json"
+      # renovate is preinstalled on CI runners, not mise-managed (it is a
+      # ~200MB npm package). Locally this degrades to a warning; CI validates
+      # for real in .github/workflows/renovate.yml.
+      run: |
+        if command -v renovate-config-validator >/dev/null 2>&1; then
+          renovate-config-validator renovate.json
+        else
+          echo "warn: renovate-config-validator not installed; validated in CI" >&2
+        fi
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        commit_msg_file="{1}"
+        pattern='^(feat|fix|refactor|test|docs|chore|build|ci|perf|deps)(\([a-z0-9-]+\))?!?: .+'
+        if ! grep -Eq "$pattern" "$commit_msg_file"; then
+          echo "invalid commit message. use conventional commits: type(scope): subject"
+          echo "types: feat fix refactor test docs chore build ci perf deps"
+          exit 1
+        fi

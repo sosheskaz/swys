@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REF: ${{ inputs.release_tag || github.ref }}
+
+jobs:
+  goreleaser:
+    name: GoReleaser + ko
+    runs-on: sosheskaz-buildkit
+    timeout-minutes: 120
+    # Serialize releases: concurrent runs would race on the ghcr.io
+    # latest/major tags, letting an older release finish last and win.
+    # A queued release displaced from the pending slot can be replayed via
+    # workflow_dispatch with its release_tag.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      # cache: false — published artifacts must never be built from state a
+      # PR-writable cache could have poisoned; releases pay for pristine
+      # toolchains.
+      - name: Set up mise
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          install_args: 'go goreleaser ko'
+          cache: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise exec -- goreleaser release --clean

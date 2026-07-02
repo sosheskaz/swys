@@ -1,0 +1,50 @@
+name: GoReleaser
+
+# Path-filtered: NOT suitable as a required branch-protection check (a PR
+# that doesn't touch these paths would leave the check pending forever).
+# ci.yml and lefthook.yml are the always-run candidates for required checks.
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - mise.toml
+      - .github/workflows/goreleaser.yml
+      - .github/workflows/release.yml
+      - .release-please-manifest.json
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: '0'
+
+jobs:
+  snapshot:
+    name: Snapshot build
+    runs-on: sosheskaz
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up mise
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          install_args: 'go goreleaser ko'
+          cache: true
+
+      - name: Validate configuration
+        run: mise exec -- goreleaser check
+
+      - name: Snapshot release (no publish)
+        run: mise exec -- goreleaser release --snapshot --clean

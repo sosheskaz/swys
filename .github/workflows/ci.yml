@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  pull_request: {}
+  merge_group: {}
+  push:
+    branches: [main]
+  # Weekly run on an unchanged main: new CVEs surface without code changes
+  # (govulncheck), and the coverage baseline artifact stays fresh.
+  schedule:
+    - cron: '0 14 * * 1'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CGO_ENABLED: '0'
+
+jobs:
+  go:
+    name: Build, test, lint
+    runs-on: sosheskaz
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # download the coverage baseline from main runs
+      pull-requests: write # sticky coverage comment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # The go matcher annotates compile errors and lint findings from every
+      # step below (build, tidy, tests, benchmarks, lint) — file:line:col
+      # output from the Go toolchain and golangci-lint share one shape.
+      - name: Register problem matcher
+        run: echo "::add-matcher::.github/problem-matchers/go.json"
+
+      - name: Set up mise
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          install_args: 'go golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
+          cache: true
+
+      - name: Go caches
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+          # Arch in the key: runners are mixed amd64/arm64 and go-build cache
+          # entries are GOARCH-specific — a cross-arch restore is all misses
+          # and then clobbers the shared key with foreign objects.
+          key: ${{ runner.os }}-${{ runner.arch }}-golang-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-golang-
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Verify module integrity
+        run: go mod verify
+
+      - name: Build
+        run: go build ./...
+
+      - name: Verify go.mod is tidy
+        run: go mod tidy -diff -v
+
+      - name: Test (with coverage)
+        run: mise run test:unit -- -shuffle=on -coverprofile=coverage.out -covermode=atomic -coverpkg=./...
+
+      - name: Test (race detector)
+        run: mise run test:race -- -shuffle=on
+
+      - name: Benchmark smoke test
+        run: mise run bench -- -benchtime=1x
+
+      - name: Vulnerability scan
+        run: mise run scan:vuln
+
+      - name: Lint
+        run: mise run lint:go -- --output.text.path=stdout --output.text.print-issued-lines=false --output.text.colors=false
+
+      - name: Publish coverage baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: coverage-main
+          path: coverage.out
+          retention-days: 90
+
+      - name: Fetch coverage baseline from main
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(gh run list --workflow ci.yml --branch main --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --name coverage-main --dir .coverage-base \
+              || echo "::notice::no coverage-main artifact on run ${run_id}; reporting without delta"
+          else
+            echo "::notice::no successful main CI run found; reporting without delta"
+          fi
+          if [ -f .coverage-base/coverage.out ]; then
+            mv .coverage-base/coverage.out coverage-base.out
+          fi
+
+      - name: Coverage report
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: mise run report:coverage coverage.out coverage-base.out

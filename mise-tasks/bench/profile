@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Per-package benchmarks with profiling: bench:profile <cpu|mem> [go test flags]"
+set -euo pipefail
+
+mode="${1:?usage: bench:profile <cpu|mem> [extra go test flags]}"
+shift
+case "$mode" in
+  cpu) flag="-cpuprofile" ;;
+  mem) flag="-memprofile" ;;
+  *)
+    echo "unknown profile mode: ${mode} (want cpu or mem)" >&2
+    exit 2
+    ;;
+esac
+
+# go test rejects profile flags across multiple packages, so each benchmarked
+# package runs separately. Packages are discovered by the presence of
+# Benchmark functions: newly benchmarked packages join automatically.
+# Profiles land in the repo root as <package_path>.<mode>.prof alongside the
+# <pkg>.test binary pprof needs.
+found=0
+while IFS= read -r dir; do
+  found=1
+  pkg="./${dir#./}"
+  out="$(echo "${dir#./}" | tr '/' '_').${mode}.prof"
+  echo "==> ${pkg} -> ${out}" >&2
+  go test -run='^$' -bench=. -benchmem "${flag}=${out}" "$@" "$pkg"
+done < <(grep -rlE '^func Benchmark' --include='*_test.go' . | xargs -n1 dirname | sort -u)
+
+if [ "$found" -eq 0 ]; then
+  echo "no Benchmark functions found in any package" >&2
+fi

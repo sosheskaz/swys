@@ -10,10 +10,13 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/internal/version"
 )
 
 var rootCmd = &cobra.Command{
 	Use:           "npc",
+	Version:       version.Get().String(),
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

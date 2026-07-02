@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build a stripped, reproducible-path release binary"
+set -euo pipefail
+exec go build -ldflags="-s -w" -trimpath -o npc "$@" .

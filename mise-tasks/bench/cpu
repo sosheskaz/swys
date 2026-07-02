@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Per-package benchmarks with CPU profiling (writes <pkg>.cpu.prof per benched package)"
+set -euo pipefail
+exec "$(dirname "$0")/profile" cpu "$@"

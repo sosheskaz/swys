@@ -1,5 +1,7 @@
 # npc
 
+[![CI](https://github.com/sosheskaz-systems/npc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sosheskaz-systems/npc/actions/workflows/ci.yml)
+
 **N**etworking, **P**rotocols, **C**rypto — an operator's tool that makes
 wire behavior and cryptographic operations legible, ergonomic, and safe by
 default. One static binary replacing manual `openssl`, `netcat`, and ad-hoc
@@ -110,7 +112,8 @@ are bugs, and where possible they are enforced by tests rather than review.
 
 8. **Streaming and low-allocation.** Encryption and I/O paths stream; buffer
    sizes are benchmarked, not guessed. Performance claims require benchmark
-   evidence (`make bench`, compared with `benchstat`) before they are made.
+   evidence (`mise run bench`, compared with `benchstat`) before they are
+   made.
 
 ## Commands today
 
@@ -132,19 +135,27 @@ Work is organized in two tiers:
   analysis, byte utilities, gRPC), each of which will decompose into
   multiple sub-issues when its predecessor work settles.
 
+Tooling is managed by [mise](https://mise.jdx.dev): `mise install` provisions
+the pinned toolchain, `mise tasks` lists every task, and `mise run
+install:hooks` installs the pre-commit hooks. CI runs the same tasks against
+the same pins. Task names follow verb:noun; a bare verb implies "all"
+(`bench` runs every benchmark, `bench:cpu` narrows).
+
 ```sh
-make build          # development binary
-make test           # unit tests
-make test-race      # race detector
-make lint           # golangci-lint suite
-make check          # lint and unit tests
-make bench          # benchmarks
+mise run build:dev      # development binary
+mise run test:unit      # unit tests
+mise run test:race      # race detector
+mise run test:cover     # coverage + HTML report
+mise run lint:go        # golangci-lint suite
+mise run check          # lint and unit tests
+mise run bench          # benchmarks
+mise run scan:vuln      # govulncheck scan
 ```
 
-Testing conventions: regression tests accompany every bug fix; boundary
-sizes (0 bytes, one block, block±1), malformed inputs, and output-writer
-failures are first-class test cases; failing tests are fixed at the root,
-never deleted or skipped.
+Testing policy lives in [TESTING.md](TESTING.md) — the short version: every
+fix ships with a regression test, coverage is maintained or increased by
+every change, cryptographic code gets adversarial-input tests up front, and
+unbounded-input code proves bounded memory in benchmarks.
 
 ## Open decisions
 

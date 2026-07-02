@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    flags:
+      - -trimpath
+    # CommitDate/CommitTimestamp (not build time) keep builds reproducible.
+    ldflags:
+      - -s -w
+      - -X github.com/sosheskaz-systems/npc/internal/version.version={{ .Version }}
+      - -X github.com/sosheskaz-systems/npc/internal/version.commit={{ .FullCommit }}
+      - -X github.com/sosheskaz-systems/npc/internal/version.date={{ .CommitDate }}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# Multi-arch OCI images to GHCR, built by ko through goreleaser.
+# Disabled for snapshot builds so PR validation never pushes.
+kos:
+  - repositories:
+      - ghcr.io/sosheskaz-systems/npc
+    disable: "{{ .IsSnapshot }}"
+    tags:
+      - "{{ .Version }}"
+      - "{{ .Major }}"
+      - "{{ .Major }}.{{ .Minor }}"
+      - latest
+    bare: true
+    preserve_import_paths: false
+    sbom: none
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+# No Homebrew cask while the repository is private; add one (see
+# sosheskaz/healthchecksio-cli) at public launch.

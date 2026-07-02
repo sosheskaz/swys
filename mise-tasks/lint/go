@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run the golangci-lint suite"
+set -euo pipefail
+exec golangci-lint run "$@"

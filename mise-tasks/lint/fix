@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run golangci-lint and apply auto-fixes"
+set -euo pipefail
+exec golangci-lint run --fix "$@"

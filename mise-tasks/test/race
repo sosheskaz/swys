@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run unit tests under the race detector"
+set -euo pipefail
+CGO_ENABLED=1 exec go test -race "$@" ./...

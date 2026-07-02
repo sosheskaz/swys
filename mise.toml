@@ -1,0 +1,40 @@
+# Tool and task definitions for npc. CI installs these same pins via
+# jdx/mise-action, so local and CI toolchains cannot drift.
+# Tasks live in mise-tasks/ as standalone scripts; run `mise tasks` to list.
+[tools]
+go = "1.26.4"
+golangci-lint = "2.12.2"
+goreleaser = "2.16.0"
+ko = "0.18.1"
+lefthook = "2.1.9"
+yamllint = "1.38.0"
+"aqua:rhysd/actionlint" = "1.7.12"
+"aqua:koalaman/shellcheck" = "0.11.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.1.4"
+zizmor = "1.26.1"
+
+[env]
+CGO_ENABLED = "0"
+# The mise-pinned Go IS the toolchain: forbid go from silently downloading a
+# different version to satisfy go.mod toolchain directives. A mismatch should
+# fail loudly and be fixed by bumping the pin.
+GOTOOLCHAIN = "local"
+
+# Bare verbs imply "all"; nouns narrow the scope (bench:cpu, test:race, ...).
+# bench lives inline because a file task named bench cannot coexist with the
+# bench/ directory that namespaces its cpu/mem variants.
+[tasks.bench]
+description = "Run all benchmarks across the repository"
+run = "go test -run='^$' -bench=. -benchmem ./..."
+
+[tasks.check]
+description = "Run all local validation (lint + test)"
+depends = ["lint:go", "test:unit"]
+
+[tasks."clean:artifacts"]
+description = "Remove build artifacts and coverage/profile output"
+run = "rm -f npc cryptool *.prof *.test coverage.out coverage-base.out"
+
+[tasks."install:hooks"]
+description = "Install git hooks via lefthook"
+run = "lefthook install"

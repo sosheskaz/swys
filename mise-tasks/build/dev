@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build the development binary"
+set -euo pipefail
+exec go build -o npc "$@" .

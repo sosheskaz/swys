@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Per-package benchmarks with memory profiling (writes <pkg>.mem.prof per benched package)"
+set -euo pipefail
+exec "$(dirname "$0")/profile" mem "$@"

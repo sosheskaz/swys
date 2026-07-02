@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Scan for known vulnerabilities with govulncheck"
+set -euo pipefail
+exec govulncheck "$@" ./...

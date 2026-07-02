@@ -8,14 +8,21 @@ and explicit error handling.
 
 ## Commands
 
+Tasks are managed by mise (`mise tasks` lists everything; scripts live in
+`mise-tasks/`). Tool versions are pinned in `mise.toml` and shared with CI.
+
 ```fish
-make build          # development binary
-make build-release  # stripped, reproducible-path binary
-make test           # unit tests
-make test-race      # race detector
-make lint           # configured golangci-lint suite
-make check          # lint and unit tests
-make bench          # all internal package benchmarks
+mise run build:dev       # development binary
+mise run build:release   # stripped, reproducible-path binary
+mise run test:unit       # unit tests (go test flags pass through after --)
+mise run test:race       # race detector
+mise run test:cover      # coverage run + HTML report
+mise run lint:go         # configured golangci-lint suite
+mise run lint:fix        # golangci-lint with auto-fixes
+mise run check           # lint and unit tests
+mise run bench           # all internal package benchmarks
+mise run scan:vuln       # govulncheck vulnerability scan
+mise run install:hooks   # install lefthook git hooks (once per clone)
 ```
 
 ## Architecture
@@ -38,6 +45,8 @@ make bench          # all internal package benchmarks
 - Keep encryption and decryption streaming. Benchmark allocation changes before
   claiming a performance improvement.
 - Add regression tests for boundary sizes, malformed ciphertext, output writer
-  failures, and certificate-chain behavior.
-- Run `make check` after changes; use `make test-race` for concurrency-sensitive
-  work.
+  failures, and certificate-chain behavior. TESTING.md is the normative test
+  policy: fixes ship with regression tests; coverage is maintained or
+  increased by every change; crypto code gets adversarial-input tests first.
+- Run `mise run check` after changes; use `mise run test:race` for
+  concurrency-sensitive work.

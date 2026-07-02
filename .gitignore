@@ -1,0 +1,19 @@
+# Build artifacts
+/npc
+/cryptool
+/dist/
+*.test
+*.prof
+coverage.out
+coverage-base.out
+
+# Key material and certificates must never be committed
+*.pem
+*.key
+*.crt
+*.der
+
+# Environment and editor
+.env
+.DS_Store
+.vscode/
