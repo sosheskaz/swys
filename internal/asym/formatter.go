@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -14,15 +15,18 @@ import (
 var (
 	systemCertPool     *x509.CertPool
 	systemCertPoolOnce sync.Once
-	systemCertPoolErr  error
+	errSystemCertPool  error
 )
 
 // getSystemCertPool returns a cached system certificate pool.
 func getSystemCertPool() (*x509.CertPool, error) {
 	systemCertPoolOnce.Do(func() {
-		systemCertPool, systemCertPoolErr = x509.SystemCertPool()
+		systemCertPool, errSystemCertPool = x509.SystemCertPool()
 	})
-	return systemCertPool, systemCertPoolErr
+	if errSystemCertPool != nil {
+		return nil, fmt.Errorf("load system certificate pool: %w", errSystemCertPool)
+	}
+	return systemCertPool, nil
 }
 
 // Package-level lookup tables to avoid allocation on each call.
@@ -60,36 +64,38 @@ var extKeyUsageNames = map[x509.ExtKeyUsage]string{
 
 // ChainCertInfo holds summarized info for certificates in a verification chain.
 type ChainCertInfo struct {
-	Subject string `json:"subject"`
-	Issuer  string `json:"issuer"`
+	Subject    string `json:"subject"`
+	Issuer     string `json:"issuer"`
+	CommonName string `json:"-"`
 }
 
 // CertInfo holds all relevant certificate information for formatting.
 type CertInfo struct {
-	NotBefore          time.Time `json:"not_before"`
-	NotAfter           time.Time `json:"not_after"`
-	cert               *x509.Certificate
-	VerifyError        string `json:"verify_error,omitempty"`
-	publicKeyBase64    string
-	SerialNumber       string `json:"serial_number"`
-	Issuer             string `json:"issuer"`
-	RemainingTime      string `json:"remaining_time"`
-	signatureBase64    string
-	SignatureAlgorithm string `json:"signature_algorithm"`
-	PublicKeyAlgorithm string `json:"public_key_algorithm"`
-	issuerCN           string
-	Subject            string `json:"subject"`
-	subjectCN          string
-	SHA256Fingerprint  string            `json:"sha256_fingerprint"`
-	KeyUsage           []string          `json:"key_usage,omitempty"`
-	Chains             [][]ChainCertInfo `json:"chains,omitempty"`
-	RawDER             []byte            `json:"-"`
-	ExtKeyUsage        []string          `json:"ext_key_usage,omitempty"`
-	IPAddresses        []string          `json:"ip_addresses"`
+	Subject            string            `json:"subject"`
+	Issuer             string            `json:"issuer"`
+	SerialNumber       string            `json:"serial_number"`
 	DNSNames           []string          `json:"dns_names"`
+	IPAddresses        []string          `json:"ip_addresses"`
+	NotBefore          time.Time         `json:"not_before"`
+	NotAfter           time.Time         `json:"not_after"`
+	RemainingTime      string            `json:"remaining_time"`
+	SignatureAlgorithm string            `json:"signature_algorithm"`
+	PublicKeyAlgorithm string            `json:"public_key_algorithm"`
+	KeyUsage           []string          `json:"key_usage,omitempty"`
+	ExtKeyUsage        []string          `json:"ext_key_usage,omitempty"`
+	Chains             [][]ChainCertInfo `json:"chains,omitempty"`
+	SHA256Fingerprint  string            `json:"sha256_fingerprint"`
+	VerifyError        string            `json:"verify_error,omitempty"`
+	RawDER             []byte            `json:"-"`
 	Verified           bool              `json:"verified"`
 	IsCA               bool              `json:"is_ca"`
 	IsExpired          bool              `json:"is_expired"`
+
+	cert            *x509.Certificate
+	subjectCN       string
+	issuerCN        string
+	signatureBase64 string
+	publicKeyBase64 string
 }
 
 // SignatureBase64 returns the base64-encoded signature (lazy-loaded).
@@ -101,23 +107,26 @@ func (c *CertInfo) SignatureBase64() string {
 }
 
 // PublicKeyBase64 returns the base64-encoded public key (lazy-loaded).
-func (c *CertInfo) PublicKeyBase64() string {
+func (c *CertInfo) PublicKeyBase64() (string, error) {
 	if c.publicKeyBase64 == "" && c.cert != nil {
-		if pubkeyBytes, err := x509.MarshalPKIXPublicKey(c.cert.PublicKey); err == nil {
-			c.publicKeyBase64 = base64.RawStdEncoding.EncodeToString(pubkeyBytes)
+		publicKey, err := x509.MarshalPKIXPublicKey(c.cert.PublicKey)
+		if err != nil {
+			return "", fmt.Errorf("marshal public key: %w", err)
 		}
+		c.publicKeyBase64 = base64.RawStdEncoding.EncodeToString(publicKey)
 	}
-	return c.publicKeyBase64
+	return c.publicKeyBase64, nil
 }
 
 // CertFormatter is the interface for certificate output formatters.
 type CertFormatter interface {
 	Format(info *CertInfo, w io.Writer) error
 	FormatMultiple(infos []*CertInfo, w io.Writer) error
+	RequiresChain() bool
 }
 
-// NewCertInfo creates a CertInfo from an x509 certificate without verification.
-func NewCertInfo(cert *x509.Certificate) (*CertInfo, error) {
+// NewCertInfo creates a CertInfo from an X.509 certificate without verification.
+func NewCertInfo(cert *x509.Certificate) *CertInfo {
 	now := time.Now()
 	remaining := cert.NotAfter.Sub(now)
 
@@ -128,18 +137,10 @@ func NewCertInfo(cert *x509.Certificate) (*CertInfo, error) {
 		remainingStr = formatDuration(remaining)
 	}
 
-	// Pre-compute serial number hex
-	serialBytes := cert.SerialNumber.Bytes()
-	serialHex := make([]byte, len(serialBytes)*2)
-	for i, b := range serialBytes {
-		serialHex[i*2] = "0123456789ABCDEF"[b>>4]
-		serialHex[i*2+1] = "0123456789ABCDEF"[b&0x0f]
-	}
-
 	info := &CertInfo{
 		Subject:            cert.Subject.String(),
 		Issuer:             cert.Issuer.String(),
-		SerialNumber:       string(serialHex),
+		SerialNumber:       fmt.Sprintf("%X", cert.SerialNumber),
 		DNSNames:           cert.DNSNames, // Direct reference, no copy needed
 		NotBefore:          cert.NotBefore,
 		NotAfter:           cert.NotAfter,
@@ -152,9 +153,14 @@ func NewCertInfo(cert *x509.Certificate) (*CertInfo, error) {
 		cert:               cert, // Keep for lazy loading
 	}
 
-	// Pre-compute common names
-	info.subjectCN = extractCN(info.Subject)
-	info.issuerCN = extractCN(info.Issuer)
+	info.subjectCN = cert.Subject.CommonName
+	if info.subjectCN == "" {
+		info.subjectCN = info.Subject
+	}
+	info.issuerCN = cert.Issuer.CommonName
+	if info.issuerCN == "" {
+		info.issuerCN = info.Issuer
+	}
 
 	// IP addresses - only allocate if there are any
 	if len(cert.IPAddresses) > 0 {
@@ -172,45 +178,104 @@ func NewCertInfo(cert *x509.Certificate) (*CertInfo, error) {
 	fingerprint := sha256.Sum256(cert.Raw)
 	info.SHA256Fingerprint = formatFingerprint(fingerprint[:])
 
-	return info, nil
+	return info
 }
 
-// NewCertInfoVerified creates a CertInfo with verification status.
-func NewCertInfoVerified(cert *x509.Certificate) (*CertInfo, error) {
-	info, err := NewCertInfo(cert)
+// NewCertInfoVerified creates a CertInfo using the supplied verification options.
+func NewCertInfoVerified(cert *x509.Certificate, options *x509.VerifyOptions) (*CertInfo, error) {
+	info := NewCertInfo(cert)
+	_, err := verifyCertInfo(info, cert, options)
 	if err != nil {
 		return nil, err
 	}
+	return info, nil
+}
 
-	certPool, err := getSystemCertPool()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load system cert pool: %w", err)
+func verifyCertInfo(
+	info *CertInfo,
+	cert *x509.Certificate,
+	options *x509.VerifyOptions,
+) ([][]*x509.Certificate, error) {
+	verifyOptions := x509.VerifyOptions{}
+	if options != nil {
+		verifyOptions = *options
 	}
 
-	chains, verifyErr := cert.Verify(x509.VerifyOptions{
-		Roots:       certPool,
-		CurrentTime: time.Now(),
-	})
+	if verifyOptions.Roots == nil {
+		certPool, poolErr := getSystemCertPool()
+		if poolErr != nil {
+			return nil, poolErr
+		}
+		verifyOptions.Roots = certPool
+	}
+	if verifyOptions.CurrentTime.IsZero() {
+		verifyOptions.CurrentTime = time.Now()
+	}
+
+	chains, verifyErr := cert.Verify(verifyOptions)
 	if verifyErr != nil {
 		info.Verified = false
 		info.VerifyError = verifyErr.Error()
 	} else {
 		info.Verified = true
-		if len(chains) > 0 {
-			info.Chains = make([][]ChainCertInfo, len(chains))
-			for i, chain := range chains {
-				info.Chains[i] = make([]ChainCertInfo, len(chain))
-				for j, c := range chain {
-					info.Chains[i][j] = ChainCertInfo{
-						Subject: c.Subject.String(),
-						Issuer:  c.Issuer.String(),
-					}
+		info.Chains = make([][]ChainCertInfo, len(chains))
+		for i, chain := range chains {
+			info.Chains[i] = make([]ChainCertInfo, len(chain))
+			for j, chainCert := range chain {
+				info.Chains[i][j] = ChainCertInfo{
+					Subject:    chainCert.Subject.String(),
+					Issuer:     chainCert.Issuer.String(),
+					CommonName: chainCert.Subject.CommonName,
 				}
 			}
 		}
 	}
+	return chains, nil
+}
 
-	return info, nil
+// NewCertInfos creates consistently verified information for a leaf-first certificate chain.
+func NewCertInfos(certs []*x509.Certificate, options *x509.VerifyOptions, includeChain bool) ([]*CertInfo, error) {
+	if len(certs) == 0 {
+		return nil, errors.New("certificate chain is empty")
+	}
+
+	intermediates := x509.NewCertPool()
+	for _, cert := range certs[1:] {
+		intermediates.AddCert(cert)
+	}
+
+	certOptions := x509.VerifyOptions{}
+	if options != nil {
+		certOptions = *options
+	}
+	certOptions.Intermediates = intermediates
+	leafInfo := NewCertInfo(certs[0])
+	verifiedChains, err := verifyCertInfo(leafInfo, certs[0], &certOptions)
+	if err != nil {
+		return nil, fmt.Errorf("inspect leaf certificate: %w", err)
+	}
+	infos := []*CertInfo{leafInfo}
+	if !includeChain {
+		return infos, nil
+	}
+
+	for _, cert := range certs[1:] {
+		info := NewCertInfo(cert)
+		info.Verified = certificateInChains(cert, verifiedChains)
+		infos = append(infos, info)
+	}
+	return infos, nil
+}
+
+func certificateInChains(cert *x509.Certificate, chains [][]*x509.Certificate) bool {
+	for _, chain := range chains {
+		for _, verified := range chain {
+			if cert.Equal(verified) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // NewCertInfoFromDER parses DER bytes and returns CertInfo with verification.
@@ -219,34 +284,7 @@ func NewCertInfoFromDER(der []byte) (*CertInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
-	return NewCertInfoVerified(cert)
-}
-
-// extractCN extracts the Common Name attribute value from an RFC 2253
-// distinguished name string, e.g. "CN=example.com,O=Acme,C=US" -> "example.com".
-// The CN attribute may appear anywhere in the DN, not just first. A comma is
-// only treated as an attribute separator when it isn't escaped with a
-// backslash, since RFC 2253 allows commas inside attribute values that way.
-// Returns the full DN unchanged if no CN attribute is found.
-func extractCN(dn string) string {
-	const prefix = "CN="
-	for i := 0; i+len(prefix) <= len(dn); i++ {
-		if i > 0 && dn[i-1] != ',' {
-			continue
-		}
-		if dn[i:i+len(prefix)] != prefix {
-			continue
-		}
-
-		start := i + len(prefix)
-		for j := start; j < len(dn); j++ {
-			if dn[j] == ',' && dn[j-1] != '\\' {
-				return dn[start:j]
-			}
-		}
-		return dn[start:]
-	}
-	return dn
+	return NewCertInfoVerified(cert, nil)
 }
 
 // formatDuration formats a duration in a human-friendly way.

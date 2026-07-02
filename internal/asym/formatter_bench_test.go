@@ -56,17 +56,14 @@ func init() {
 func BenchmarkNewCertInfo(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
-		_, err := NewCertInfo(benchCert)
-		if err != nil {
-			b.Fatal(err)
-		}
+		_ = NewCertInfo(benchCert)
 	}
 }
 
 func BenchmarkNewCertInfoVerified(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
-		_, err := NewCertInfoVerified(benchCert)
+		_, err := NewCertInfoVerified(benchCert, &x509.VerifyOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -75,12 +72,14 @@ func BenchmarkNewCertInfoVerified(b *testing.B) {
 
 func BenchmarkNewCertInfoVerifiedWarmed(b *testing.B) {
 	// Warm up the cert pool cache
-	_, _ = NewCertInfoVerified(benchCert)
+	if _, err := NewCertInfoVerified(benchCert, &x509.VerifyOptions{}); err != nil {
+		b.Fatal(err)
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		_, err := NewCertInfoVerified(benchCert)
+		_, err := NewCertInfoVerified(benchCert, &x509.VerifyOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -88,7 +87,7 @@ func BenchmarkNewCertInfoVerifiedWarmed(b *testing.B) {
 }
 
 func BenchmarkTextFormatterCompact(b *testing.B) {
-	info, _ := NewCertInfo(benchCert)
+	info := NewCertInfo(benchCert)
 	formatter := &TextFormatter{Long: false}
 	var buf bytes.Buffer
 
@@ -96,14 +95,16 @@ func BenchmarkTextFormatterCompact(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		buf.Reset()
-		_ = formatter.Format(info, &buf)
+		if err := formatter.Format(info, &buf); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 func BenchmarkTextFormatterLong(b *testing.B) {
-	info, _ := NewCertInfo(benchCert)
+	info := NewCertInfo(benchCert)
 	info.Chains = [][]ChainCertInfo{
-		{{Subject: "CN=test", Issuer: "CN=CA"}},
+		{{Subject: "CN=test", Issuer: "CN=CA", CommonName: "test"}},
 	}
 	formatter := &TextFormatter{Long: true}
 	var buf bytes.Buffer
@@ -112,12 +113,14 @@ func BenchmarkTextFormatterLong(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		buf.Reset()
-		_ = formatter.Format(info, &buf)
+		if err := formatter.Format(info, &buf); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 func BenchmarkJSONFormatter(b *testing.B) {
-	info, _ := NewCertInfo(benchCert)
+	info := NewCertInfo(benchCert)
 	formatter := &JSONFormatter{}
 	var buf bytes.Buffer
 
@@ -125,12 +128,14 @@ func BenchmarkJSONFormatter(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		buf.Reset()
-		_ = formatter.Format(info, &buf)
+		if err := formatter.Format(info, &buf); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 func BenchmarkPEMFormatter(b *testing.B) {
-	info, _ := NewCertInfo(benchCert)
+	info := NewCertInfo(benchCert)
 	formatter := &PEMFormatter{}
 	var buf bytes.Buffer
 
@@ -138,13 +143,17 @@ func BenchmarkPEMFormatter(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		buf.Reset()
-		_ = formatter.Format(info, &buf)
+		if err := formatter.Format(info, &buf); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 func BenchmarkFormatFingerprint(b *testing.B) {
 	fp := make([]byte, 32) // SHA256 size
-	rand.Read(fp)
+	if _, err := rand.Read(fp); err != nil {
+		b.Fatal(err)
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -154,7 +163,7 @@ func BenchmarkFormatFingerprint(b *testing.B) {
 }
 
 func BenchmarkCommonName(b *testing.B) {
-	info := &CertInfo{Subject: "CN=bench.example.com,O=Bench Org,C=US"}
+	info := &CertInfo{subjectCN: "bench.example.com"}
 
 	b.ReportAllocs()
 	b.ResetTimer()

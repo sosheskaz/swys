@@ -12,9 +12,9 @@ import (
 )
 
 var encryptCmd = &cobra.Command{
-	Use:     "encrypt",
+	Use:     "encrypt [plaintext]",
 	Aliases: []string{"enc", "e"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		var input io.Reader
 		if len(args) == 0 || args[0] == "-" {
 			input = cmd.InOrStdin()
@@ -22,33 +22,40 @@ var encryptCmd = &cobra.Command{
 			input = strings.NewReader(strings.Join(args, " "))
 		}
 
-		key := dieIfT(getKey(cmd))
-
-		c := dieIfT(crypter.NewAESCrypter(key))
-
-		iv := dieIfT(getIV(cmd, aes.BlockSize))
-		dieIf(c.Encrypt(iv, input, cmd.OutOrStdout()))
+		key, err := getKey(cmd)
+		if err != nil {
+			return err
+		}
+		cipher, err := crypter.NewAESCrypter(key)
+		if err != nil {
+			return err
+		}
+		iv, err := getIV(cmd, aes.BlockSize)
+		if err != nil {
+			return err
+		}
+		return cipher.Encrypt(iv, input, cmd.OutOrStdout())
 	},
 }
 
 func init() {
 	aesCmd.AddCommand(encryptCmd)
-
 	addKeyFlags(encryptCmd)
-	encryptCmd.Flags().BytesBase64("iv", []byte{}, "initialization vector to use for encryption, in base64. If not provided, a random IV will be generated.")
+	encryptCmd.Flags().BytesBase64("iv", nil, "initialization vector as base64; random when omitted")
 }
 
 func getIV(cmd *cobra.Command, blockSize int) ([]byte, error) {
 	ivFlag := cmd.Flags().Lookup("iv")
-	if ivFlag.Changed {
-		ivBase64, err := cmd.Flags().GetBytesBase64("iv")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get iv: %w", err)
-		}
-		if len(ivBase64) != blockSize {
-			return nil, fmt.Errorf("iv must be %d bytes long", blockSize)
-		}
-		return ivBase64, nil
+	if !ivFlag.Changed {
+		return generateIV(blockSize)
 	}
-	return generateIV(blockSize), nil
+
+	iv, err := cmd.Flags().GetBytesBase64("iv")
+	if err != nil {
+		return nil, fmt.Errorf("read IV flag: %w", err)
+	}
+	if len(iv) != blockSize {
+		return nil, fmt.Errorf("IV must be %d bytes, got %d", blockSize, len(iv))
+	}
+	return iv, nil
 }

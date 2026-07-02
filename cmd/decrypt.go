@@ -10,9 +10,9 @@ import (
 )
 
 var decryptCmd = &cobra.Command{
-	Use:     "decrypt",
+	Use:     "decrypt [ciphertext]",
 	Aliases: []string{"dec", "d"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		var input io.Reader
 		if len(args) == 0 || args[0] == "-" {
 			input = cmd.InOrStdin()
@@ -20,9 +20,15 @@ var decryptCmd = &cobra.Command{
 			input = strings.NewReader(strings.Join(args, " "))
 		}
 
-		key := dieIfT(getKey(cmd))
-		c := dieIfT(crypter.NewAESCrypter(key))
-		dieIf(c.Decrypt(input, cmd.OutOrStdout()))
+		key, err := getKey(cmd)
+		if err != nil {
+			return err
+		}
+		cipher, err := crypter.NewAESCrypter(key)
+		if err != nil {
+			return err
+		}
+		return cipher.Decrypt(input, cmd.OutOrStdout())
 	},
 }
 

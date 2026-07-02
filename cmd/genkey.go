@@ -11,23 +11,26 @@ import (
 var genkeyCmd = &cobra.Command{
 	Use:   "genkey",
 	Short: "Generate a new AES key",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		bits, err := cmd.Flags().GetInt("bits")
 		if err != nil {
-			dieIf(fmt.Errorf("failed to get bits: %w", err))
+			return fmt.Errorf("read bits flag: %w", err)
 		}
-		if remainder := bits % 8; remainder != 0 {
-			dieIf(fmt.Errorf("bits must be a multiple of 8, got %d (%d bytes, %d remained)", bits, bits/8, remainder))
+		switch bits {
+		case 128, 192, 256:
+		default:
+			return fmt.Errorf("AES key size must be 128, 192, or 256 bits, got %d", bits)
 		}
-		keySize := int64(bits / 8)
 
-		if _, err := io.CopyN(cmd.OutOrStdout(), rand.Reader, keySize); err != nil {
-			dieIf(fmt.Errorf("failed to write key: %w", err))
+		if _, err := io.CopyN(cmd.OutOrStdout(), rand.Reader, int64(bits/8)); err != nil {
+			return fmt.Errorf("generate key: %w", err)
 		}
+		return nil
 	},
 }
 
 func init() {
 	aesCmd.AddCommand(genkeyCmd)
-	genkeyCmd.Flags().IntP("bits", "b", 128, "size of the AES key to generate, in bits (128, 192, 256).")
+	genkeyCmd.Flags().IntP("bits", "b", 128, "AES key size in bits (128, 192, or 256)")
 }

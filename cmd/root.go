@@ -3,98 +3,183 @@ package cmd
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/spf13/cobra"
 )
 
-// outputCloserKey is the context key under which PersistentPreRun stashes an
-// output filter's io.Closer, so PersistentPostRun can flush it once the
-// command has finished writing.
-type outputCloserKey struct{}
-
 var rootCmd = &cobra.Command{
-	Use: "cryptool",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		handleIORedirection(cmd)
-
-		outputFlag := cmd.Flags().Lookup("format")
-		if outputFlag.Changed {
-			format, err := cmd.Flags().GetString("format")
-			dieIf(err)
-
-			switch format {
-			case "base64", "b64":
-				closer := b64Filter(cmd)
-				cmd.SetContext(context.WithValue(cmd.Context(), outputCloserKey{}, closer))
-			}
-		}
-	},
-	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		if closer, ok := cmd.Context().Value(outputCloserKey{}).(io.Closer); ok {
-			dieIf(closer.Close())
-		}
-	},
-}
-
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
-	}
-}
-
-func dieIf(err error) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "encountered fatal error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func dieIfT[T any](val T, err error) T {
-	dieIf(err)
-	return val
-}
-
-func generateIV(blockSize int) []byte {
-	iv := make([]byte, blockSize)
-	_ = dieIfT(io.ReadFull(rand.Reader, iv))
-	return iv
-}
-
-func handleIORedirection(cmd *cobra.Command) error {
-	if i, err := cmd.Flags().GetString("input"); err != nil {
-		return fmt.Errorf("failed to read input flag: %w", err)
-	} else if i != "" {
-		if f, err := os.Open(i); err != nil {
-			return fmt.Errorf("failed to open %s for reading: %w", i, err)
-		} else {
-			cmd.SetIn(f)
-		}
-	}
-
-	if o, err := cmd.Flags().GetString("output"); err != nil {
-		return fmt.Errorf("failed to read output flag: %w", err)
-	} else if o != "" {
-		// 0600: output may contain key material or recovered plaintext
-		f, err := os.OpenFile(o, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	Use:           "cryptool",
+	SilenceErrors: true,
+	SilenceUsage:  true,
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		cleanup, err := configureIO(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to open %s for writing: %w", o, err)
+			return err
 		}
-		cmd.SetOut(f)
+		state := &commandIO{cleanup: cleanup}
+		cmd.SetContext(context.WithValue(cmd.Context(), commandIOKey{}, state))
+		return nil
+	},
+	PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
+		return closeCommandIO(cmd)
+	},
+}
+
+type commandIOKey struct{}
+
+type commandIO struct {
+	cleanup func() error
+	once    sync.Once
+	err     error
+}
+
+func (state *commandIO) close() error {
+	closed := false
+	state.once.Do(func() {
+		closed = true
+		state.err = state.cleanup()
+	})
+	if closed {
+		return state.err
+	}
+	return nil
+}
+
+// Execute runs the root command.
+func Execute() error {
+	command, runErr := rootCmd.ExecuteC()
+	if err := errors.Join(runErr, closeCommandIO(command)); err != nil {
+		return fmt.Errorf("execute command: %w", err)
+	}
+	return nil
+}
+
+func closeCommandIO(cmd *cobra.Command) error {
+	if cmd == nil {
+		return nil
+	}
+	state, ok := cmd.Context().Value(commandIOKey{}).(*commandIO)
+	if !ok {
+		return nil
+	}
+	return state.close()
+}
+
+func generateIV(blockSize int) ([]byte, error) {
+	iv := make([]byte, blockSize)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return nil, fmt.Errorf("generate IV: %w", err)
+	}
+	return iv, nil
+}
+
+func configureIO(cmd *cobra.Command) (func() error, error) {
+	originalIn := cmd.InOrStdin()
+	originalOut := cmd.OutOrStdout()
+	var closers []io.Closer
+
+	cleanup := func() error {
+		cmd.SetIn(originalIn)
+		cmd.SetOut(originalOut)
+
+		var closeErr error
+		for i := len(closers) - 1; i >= 0; i-- {
+			closeErr = errors.Join(closeErr, closers[i].Close())
+		}
+		return closeErr
+	}
+	fail := func(err error) (func() error, error) {
+		return func() error { return nil }, errors.Join(err, cleanup())
 	}
 
+	inputPath, err := cmd.Flags().GetString("input")
+	if err != nil {
+		return fail(fmt.Errorf("read input flag: %w", err))
+	}
+	outputPath, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return fail(fmt.Errorf("read output flag: %w", err))
+	}
+	format, err := cmd.Flags().GetString("format")
+	if err != nil {
+		return fail(fmt.Errorf("read format flag: %w", err))
+	}
+	encoder, err := getOutputEncoder(format)
+	if err != nil {
+		return fail(err)
+	}
+	if err := rejectSameFile(inputPath, outputPath); err != nil {
+		return fail(err)
+	}
+
+	if inputPath != "" {
+		// The path is intentionally supplied by the CLI user.
+		input, openErr := os.Open(inputPath) //nolint:gosec // opening an explicitly user-selected CLI path is intended
+		if openErr != nil {
+			return fail(fmt.Errorf("open %q for reading: %w", inputPath, openErr))
+		}
+		closers = append(closers, input)
+		cmd.SetIn(input)
+	}
+
+	if outputPath != "" {
+		// The path is intentionally supplied by the CLI user.
+		output, openErr := os.OpenFile( //nolint:gosec // opening an explicitly user-selected CLI path is intended
+			outputPath,
+			os.O_CREATE|os.O_TRUNC|os.O_WRONLY,
+			0o600,
+		)
+		if openErr != nil {
+			return fail(fmt.Errorf("open %q for writing: %w", outputPath, openErr))
+		}
+		closers = append(closers, output)
+		cmd.SetOut(output)
+	}
+
+	output, closer := encoder(cmd.OutOrStdout())
+	if closer != nil {
+		closers = append(closers, closer)
+	}
+	cmd.SetOut(output)
+
+	return cleanup, nil
+}
+
+func rejectSameFile(inputPath, outputPath string) error {
+	if inputPath == "" || outputPath == "" {
+		return nil
+	}
+
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("stat input %q: %w", inputPath, err)
+	}
+	outputInfo, err := os.Stat(outputPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat output %q: %w", outputPath, err)
+	}
+	if os.SameFile(inputInfo, outputInfo) {
+		return fmt.Errorf("input and output refer to the same file: %q", inputPath)
+	}
 	return nil
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringP("format", "f", "raw", "format to use for input and output data (base64, hex, raw).")
-	rootCmd.PersistentFlags().StringP("output-format", "F", "text", "output format for structured data (text, long, json, pem, chain, fullchain)")
-
-	rootCmd.PersistentFlags().StringP("input", "i", "", "Redirect stdin to read from this file.")
-	rootCmd.MarkFlagFilename("input")
-	rootCmd.PersistentFlags().StringP("output", "o", "", "Redirect stdout to write to this file.")
-	rootCmd.MarkFlagFilename("output")
+	rootCmd.PersistentFlags().StringP("format", "f", "raw", "output encoding (base64, hex, raw)")
+	rootCmd.PersistentFlags().StringP("input", "i", "", "redirect stdin from this file")
+	if err := rootCmd.MarkPersistentFlagFilename("input"); err != nil {
+		panic(err)
+	}
+	rootCmd.PersistentFlags().StringP("output", "o", "", "redirect stdout to this file")
+	if err := rootCmd.MarkPersistentFlagFilename("output"); err != nil {
+		panic(err)
+	}
 }

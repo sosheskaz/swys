@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/rand"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -266,4 +267,74 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 			t.Error("expected error when decrypting ciphertext smaller than IV, got nil")
 		}
 	})
+
+	t.Run("decrypt IV without ciphertext", func(t *testing.T) {
+		outBuf := &bytes.Buffer{}
+		err := crypter.Decrypt(bytes.NewReader(make([]byte, aes.BlockSize)), outBuf)
+		if err == nil {
+			t.Error("expected error when decrypting an IV without ciphertext")
+		}
+	})
+
+	t.Run("encrypt with invalid IV length", func(t *testing.T) {
+		outBuf := &bytes.Buffer{}
+		err := crypter.Encrypt(make([]byte, aes.BlockSize-1), strings.NewReader("plaintext"), outBuf)
+		if err == nil {
+			t.Error("expected error for an invalid IV length")
+		}
+	})
+
+	t.Run("decrypt corrupted padding", func(t *testing.T) {
+		iv := make([]byte, aes.BlockSize)
+		ciphertext := &bytes.Buffer{}
+		if err := crypter.Encrypt(iv, strings.NewReader("plaintext"), ciphertext); err != nil {
+			t.Fatal(err)
+		}
+		ciphertext.Bytes()[ciphertext.Len()-1] ^= 0xff
+		if err := crypter.Decrypt(ciphertext, &bytes.Buffer{}); !errors.Is(err, errInvalidPadding) {
+			t.Fatalf("error = %v, want invalid padding", err)
+		}
+	})
+
+	t.Run("preserve ciphertext read error", func(t *testing.T) {
+		readErr := errors.New("storage read failed")
+		input := io.MultiReader(
+			bytes.NewReader(make([]byte, aes.BlockSize)),
+			&dataErrorReader{data: []byte{1}, err: readErr},
+		)
+		err := crypter.Decrypt(input, &bytes.Buffer{})
+		if !errors.Is(err, readErr) {
+			t.Fatalf("error = %v, want wrapped read error", err)
+		}
+	})
+}
+
+func TestAESCrypterPropagatesWriterFailures(t *testing.T) {
+	crypter, err := NewAESCrypter(make([]byte, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing := errorWriter{err: errors.New("write failed")}
+	if err := crypter.Encrypt(make([]byte, aes.BlockSize), strings.NewReader("plaintext"), failing); err == nil {
+		t.Fatal("Encrypt returned nil for a failing writer")
+	}
+}
+
+type errorWriter struct {
+	err error
+}
+
+type dataErrorReader struct {
+	data []byte
+	err  error
+}
+
+func (reader *dataErrorReader) Read(buffer []byte) (int, error) {
+	written := copy(buffer, reader.data)
+	reader.data = reader.data[written:]
+	return written, reader.err
+}
+
+func (w errorWriter) Write([]byte) (int, error) {
+	return 0, w.err
 }

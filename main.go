@@ -1,10 +1,16 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
+// Command cryptool provides operator-friendly cryptographic utilities.
 package main
 
-import "github.com/sosheskaz/cryptool/cmd"
+import (
+	"fmt"
+	"os"
+
+	"github.com/sosheskaz/cryptool/cmd"
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "cryptool: %v\n", err)
+		os.Exit(1)
+	}
 }

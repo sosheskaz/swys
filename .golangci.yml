@@ -25,7 +25,7 @@ linters:
   enable:
     # Bugs and correctness
     - errcheck        # Check for unchecked errors
-    - govet           # Reports suspicious constructs (enable-all incl. fieldalignment)
+    - govet           # Reports suspicious constructs
     - ineffassign     # Detect ineffectual assignments
     - staticcheck     # Go static analysis
     - unused          # Check for unused code
@@ -98,6 +98,10 @@ linters:
 
     govet:
       enable-all: true
+      disable:
+        # Struct layout is an API/readability tradeoff; optimize it only from
+        # benchmark or profile evidence rather than an automatic rewrite.
+        - fieldalignment
       settings:
         shadow:
           strict: true
@@ -127,8 +131,6 @@ linters:
     gosec:
       confidence: medium
       severity: medium
-      excludes:
-        - G104
 
     lll:
       line-length: 160
@@ -218,7 +220,7 @@ linters:
 
     whitespace:
       multi-if: true
-      multi-func: true
+      multi-func: false
 
     interfacebloat:
       max: 10
@@ -232,7 +234,6 @@ linters:
       - path: _test\.go
         linters:
           - gocyclo
-          - errcheck
           - dupl
           - gosec
           - goconst
@@ -265,16 +266,11 @@ linters:
 formatters:
   enable:
     - gci
-    - gofmt
     - gofumpt
-    - goimports
   settings:
     gofumpt:
       module-path: github.com/sosheskaz/cryptool
       extra-rules: true
-    goimports:
-      local-prefixes:
-        - github.com/sosheskaz/cryptool
     gci:
       sections:
         - standard

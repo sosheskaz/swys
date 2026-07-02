@@ -3,122 +3,116 @@ package crypter
 import (
 	"bytes"
 	"crypto/aes"
-	"crypto/rand"
+	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
-// This benchmark measures real memory usage by writing to io.Discard
-// instead of bytes.Buffer (which causes massive reallocations).
 func BenchmarkRealisticMemory(b *testing.B) {
 	sizes := []struct {
 		name string
 		size int
 	}{
-		{"1MB", 1024 * 1024},
-		{"10MB", 10 * 1024 * 1024},
-		{"64MB", 64 * 1024 * 1024},
+		{name: "1MB", size: 1024 * 1024},
+		{name: "10MB", size: 10 * 1024 * 1024},
+		{name: "64MB", size: 64 * 1024 * 1024},
 	}
 
 	for _, size := range sizes {
 		b.Run("Encrypt_"+size.name, func(b *testing.B) {
-			key := make([]byte, 32)
-			io.ReadFull(rand.Reader, key)
-			crypter, _ := NewAESCrypter(key)
-
+			crypter := newBenchmarkCrypter(b)
 			plaintext := make([]byte, size.size)
-			io.ReadFull(rand.Reader, plaintext)
-
 			iv := make([]byte, aes.BlockSize)
-			io.ReadFull(rand.Reader, iv)
 
-			b.ResetTimer()
+			b.ReportAllocs()
 			b.SetBytes(int64(size.size))
-
+			b.ResetTimer()
 			for range b.N {
-				reader := bytes.NewReader(plaintext)
-				// Use io.Discard to avoid bytes.Buffer reallocations
-				crypter.Encrypt(iv, reader, io.Discard)
+				if err := crypter.Encrypt(iv, bytes.NewReader(plaintext), io.Discard); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 
 		b.Run("Decrypt_"+size.name, func(b *testing.B) {
-			key := make([]byte, 32)
-			io.ReadFull(rand.Reader, key)
-			crypter, _ := NewAESCrypter(key)
+			crypter := newBenchmarkCrypter(b)
+			ciphertext := encryptBenchmarkData(b, crypter, size.size)
 
-			plaintext := make([]byte, size.size)
-			io.ReadFull(rand.Reader, plaintext)
-
-			iv := make([]byte, aes.BlockSize)
-			io.ReadFull(rand.Reader, iv)
-
-			// Encrypt once to get ciphertext
-			ciphertextBuf := &bytes.Buffer{}
-			crypter.Encrypt(iv, bytes.NewReader(plaintext), ciphertextBuf)
-			ciphertext := ciphertextBuf.Bytes()
-
-			b.ResetTimer()
+			b.ReportAllocs()
 			b.SetBytes(int64(size.size))
-
+			b.ResetTimer()
 			for range b.N {
-				reader := bytes.NewReader(ciphertext)
-				// Use io.Discard to avoid bytes.Buffer reallocations
-				crypter.Decrypt(reader, io.Discard)
+				if err := crypter.Decrypt(bytes.NewReader(ciphertext), io.Discard); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}
 }
 
-// Test with actual files to show real-world memory usage.
 func BenchmarkFileOperations(b *testing.B) {
-	key := make([]byte, 32)
-	io.ReadFull(rand.Reader, key)
-	crypter, _ := NewAESCrypter(key)
-
-	// Create a 10MB test file
-	testFile := b.TempDir() + "/test.bin"
-	encFile := b.TempDir() + "/test.enc"
-	decFile := b.TempDir() + "/test.dec"
-
-	plaintext := make([]byte, 10*1024*1024)
-	io.ReadFull(rand.Reader, plaintext)
-	os.WriteFile(testFile, plaintext, 0o644)
-
+	const dataSize = 10 * 1024 * 1024
+	crypter := newBenchmarkCrypter(b)
 	iv := make([]byte, aes.BlockSize)
-	io.ReadFull(rand.Reader, iv)
+	tempDir := b.TempDir()
+	plainPath := filepath.Join(tempDir, "plain.bin")
+	cipherPath := filepath.Join(tempDir, "cipher.bin")
+	decryptedPath := filepath.Join(tempDir, "decrypted.bin")
+	if err := os.WriteFile(plainPath, make([]byte, dataSize), 0o600); err != nil {
+		b.Fatal(err)
+	}
 
 	b.Run("Encrypt_File_10MB", func(b *testing.B) {
-		b.SetBytes(10 * 1024 * 1024)
-		b.ResetTimer()
-
+		b.SetBytes(dataSize)
 		for range b.N {
-			in, _ := os.Open(testFile)
-			out, _ := os.Create(encFile)
-			crypter.Encrypt(iv, in, out)
-			in.Close()
-			out.Close()
+			if err := encryptFile(crypter, iv, plainPath, cipherPath); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 
-	// Encrypt once for decrypt benchmark
-	in, _ := os.Open(testFile)
-	out, _ := os.Create(encFile)
-	crypter.Encrypt(iv, in, out)
-	in.Close()
-	out.Close()
-
+	if err := encryptFile(crypter, iv, plainPath, cipherPath); err != nil {
+		b.Fatal(err)
+	}
 	b.Run("Decrypt_File_10MB", func(b *testing.B) {
-		b.SetBytes(10 * 1024 * 1024)
-		b.ResetTimer()
-
+		b.SetBytes(dataSize)
 		for range b.N {
-			in, _ := os.Open(encFile)
-			out, _ := os.Create(decFile)
-			crypter.Decrypt(in, out)
-			in.Close()
-			out.Close()
+			if err := decryptFile(crypter, cipherPath, decryptedPath); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
+}
+
+func encryptFile(crypter *AESCrypter, iv []byte, inputPath, outputPath string) (runErr error) {
+	input, err := os.Open(inputPath)
+	if err != nil {
+		return fmt.Errorf("open benchmark plaintext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, input.Close()) }()
+
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open benchmark ciphertext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, output.Close()) }()
+	return crypter.Encrypt(iv, input, output)
+}
+
+func decryptFile(crypter *AESCrypter, inputPath, outputPath string) (runErr error) {
+	input, err := os.Open(inputPath)
+	if err != nil {
+		return fmt.Errorf("open benchmark ciphertext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, input.Close()) }()
+
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open benchmark plaintext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, output.Close()) }()
+	return crypter.Decrypt(input, output)
 }

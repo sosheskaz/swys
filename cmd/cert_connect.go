@@ -11,48 +11,37 @@ import (
 
 var connectCmd = &cobra.Command{
 	Aliases: []string{"c", "conn"},
-	Use:     "connect",
-	Short:   "Fetch and display certificate from a TLS connection",
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) != 1 {
-			dieIf(fmt.Errorf("expected exactly one argument, got %d", len(args)))
+	Use:     "connect host:port",
+	Short:   "Fetch and display certificates from a TLS connection",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		outputFormat, err := cmd.Flags().GetString("output-format")
+		if err != nil {
+			return fmt.Errorf("read output-format flag: %w", err)
+		}
+		formatter, err := getCertFormatter(outputFormat)
+		if err != nil {
+			return err
 		}
 
-		// Get output format
-		outputFormat := dieIfT(cmd.Flags().GetString("output-format"))
-		formatter := dieIfT(GetCertFormatter(outputFormat))
-
-		certs := dieIfT(asym.CertFromDial(args[0]))
-
-		// Determine which certs to include
-		// For chain/fullchain formats, always include all certs
-		// For other formats, respect the --chain flag
-		var printCerts []*x509.Certificate
-		if outputFormat == "chain" || outputFormat == "fullchain" {
-			printCerts = certs
-		} else if doChain, err := cmd.Flags().GetBool("chain"); err != nil {
-			dieIf(fmt.Errorf("got unexpected error when looking up chain flag: %w", err))
-		} else if doChain {
-			printCerts = certs
-		} else {
-			printCerts = certs[:1]
+		certs, dnsName, err := asym.CertFromDial(cmd.Context(), args[0])
+		if err != nil {
+			return err
 		}
-
-		// Convert to CertInfo
-		certInfos := make([]*asym.CertInfo, len(printCerts))
-		for i, cert := range printCerts {
-			certInfos[i] = dieIfT(asym.NewCertInfoVerified(cert))
+		includeChain, err := cmd.Flags().GetBool("chain")
+		if err != nil {
+			return fmt.Errorf("read chain flag: %w", err)
 		}
-
-		if len(certInfos) == 1 {
-			dieIf(formatter.Format(certInfos[0], cmd.OutOrStdout()))
-		} else {
-			dieIf(formatter.FormatMultiple(certInfos, cmd.OutOrStdout()))
+		includeChain = includeChain || formatter.RequiresChain()
+		certInfos, err := asym.NewCertInfos(certs, &x509.VerifyOptions{DNSName: dnsName}, includeChain)
+		if err != nil {
+			return err
 		}
+		return formatCertificates(formatter, certInfos, cmd.OutOrStdout())
 	},
 }
 
 func init() {
 	certCmd.AddCommand(connectCmd)
-	connectCmd.Flags().Bool("chain", false, "print the entire cert chain, instead of just the immediate certificate.")
+	connectCmd.Flags().Bool("chain", false, "include the peer-provided certificate chain")
 }

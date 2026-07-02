@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 var aesCmd = &cobra.Command{
@@ -16,16 +15,14 @@ var aesCmd = &cobra.Command{
 The length of the key implicitly determines the AES variant used (128, 192, or 256 bits).`,
 }
 
-func addKeyFlags(cmd *cobra.Command) pflag.FlagSet {
-	var flags pflag.FlagSet
-
-	cmd.Flags().BytesBase64P("key", "k", []byte{}, "key to use to decrypt the input, as an argument, in base64.")
-	cmd.Flags().StringP("keyfile", "K", "", "key to use to decrypt the input, read from the given file.")
-	cmd.MarkFlagFilename("keyfile")
+func addKeyFlags(cmd *cobra.Command) {
+	cmd.Flags().BytesBase64P("key", "k", nil, "key as a base64-encoded argument")
+	cmd.Flags().StringP("keyfile", "K", "", "read the raw key from this file")
+	if err := cmd.MarkFlagFilename("keyfile"); err != nil {
+		panic(err)
+	}
 	cmd.MarkFlagsMutuallyExclusive("key", "keyfile")
 	cmd.MarkFlagsOneRequired("key", "keyfile")
-
-	return flags
 }
 
 func init() {
@@ -34,26 +31,27 @@ func init() {
 
 func getKey(cmd *cobra.Command) ([]byte, error) {
 	keyFlag := cmd.Flags().Lookup("key")
-	keyfile := cmd.Flags().Lookup("keyfile")
-	if keyFlag.Changed == keyfile.Changed {
-		return nil, errors.New("exactly one of either key or keyfile must be set")
+	keyFileFlag := cmd.Flags().Lookup("keyfile")
+	if keyFlag.Changed == keyFileFlag.Changed {
+		return nil, errors.New("exactly one of key or keyfile must be set")
 	}
 
 	if keyFlag.Changed {
-		keyBase64, err := cmd.Flags().GetBytesBase64("key")
+		key, err := cmd.Flags().GetBytesBase64("key")
 		if err != nil {
-			return nil, fmt.Errorf("failed to get key: %w", err)
+			return nil, fmt.Errorf("read key flag: %w", err)
 		}
-		return keyBase64, nil
+		return key, nil
 	}
 
-	keyfilePath, err := cmd.Flags().GetString("keyfile")
+	keyFilePath, err := cmd.Flags().GetString("keyfile")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get keyfile: %w", err)
+		return nil, fmt.Errorf("read keyfile flag: %w", err)
 	}
-	key, err := os.ReadFile(keyfilePath)
+	// The path is intentionally supplied by the CLI user.
+	key, err := os.ReadFile(keyFilePath) //nolint:gosec // reading an explicitly user-selected CLI path is intended
 	if err != nil {
-		return nil, fmt.Errorf("failed to read keyfile %q: %w", keyfilePath, err)
+		return nil, fmt.Errorf("read keyfile %q: %w", keyFilePath, err)
 	}
 	return key, nil
 }

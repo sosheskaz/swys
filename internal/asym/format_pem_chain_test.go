@@ -10,7 +10,7 @@ import (
 
 func TestChainPEMFormatterSingle(t *testing.T) {
 	cert := generateTestCert(t)
-	info, _ := NewCertInfo(cert)
+	info := NewCertInfo(cert)
 
 	formatter := &ChainPEMFormatter{}
 	var buf bytes.Buffer
@@ -34,9 +34,9 @@ func TestChainPEMFormatterMultiple(t *testing.T) {
 		c.Subject.CommonName = "Root CA"
 	})
 
-	info1, _ := NewCertInfo(cert1)
-	info2, _ := NewCertInfo(cert2)
-	info3, _ := NewCertInfo(cert3)
+	info1 := NewCertInfo(cert1)
+	info2 := NewCertInfo(cert2)
+	info3 := NewCertInfo(cert3)
 
 	formatter := &ChainPEMFormatter{}
 	var buf bytes.Buffer
@@ -74,11 +74,11 @@ func TestChainPEMFormatterMultiple(t *testing.T) {
 	}
 }
 
-func TestFullChainPEMFormatterSingle(t *testing.T) {
+func TestPEMFormatterFullChainSingle(t *testing.T) {
 	cert := generateTestCert(t)
-	info, _ := NewCertInfo(cert)
+	info := NewCertInfo(cert)
 
-	formatter := &FullChainPEMFormatter{}
+	formatter := &PEMFormatter{FullChain: true}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestFullChainPEMFormatterSingle(t *testing.T) {
 	}
 }
 
-func TestFullChainPEMFormatterMultiple(t *testing.T) {
+func TestPEMFormatterFullChainMultiple(t *testing.T) {
 	cert1 := generateTestCert(t)
 	cert2 := generateTestCert(t, func(c *x509.Certificate) {
 		c.Subject.CommonName = "Intermediate CA"
@@ -103,11 +103,11 @@ func TestFullChainPEMFormatterMultiple(t *testing.T) {
 		c.Subject.CommonName = "Root CA"
 	})
 
-	info1, _ := NewCertInfo(cert1)
-	info2, _ := NewCertInfo(cert2)
-	info3, _ := NewCertInfo(cert3)
+	info1 := NewCertInfo(cert1)
+	info2 := NewCertInfo(cert2)
+	info3 := NewCertInfo(cert3)
 
-	formatter := &FullChainPEMFormatter{}
+	formatter := &PEMFormatter{FullChain: true}
 	var buf bytes.Buffer
 	err := formatter.FormatMultiple([]*CertInfo{info1, info2, info3}, &buf)
 	if err != nil {
@@ -145,7 +145,7 @@ func TestFullChainPEMFormatterMultiple(t *testing.T) {
 
 func TestChainPEMFormatterEmptyChain(t *testing.T) {
 	cert := generateTestCert(t)
-	info, _ := NewCertInfo(cert)
+	info := NewCertInfo(cert)
 
 	formatter := &ChainPEMFormatter{}
 	var buf bytes.Buffer

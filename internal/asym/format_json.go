@@ -2,13 +2,19 @@ package asym
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 )
 
 // JSONFormatter formats certificate info as JSON.
 type JSONFormatter struct {
-	Indent bool // If true, pretty-print with indentation (default behavior)
+	Indent bool
+}
+
+// RequiresChain reports whether JSON output needs peer chain certificates.
+func (f *JSONFormatter) RequiresChain() bool {
+	return false
 }
 
 // certInfoJSON is a JSON-serializable view of CertInfo that includes lazy-loaded fields.
@@ -36,7 +42,11 @@ type certInfoJSON struct {
 }
 
 // toJSON converts CertInfo to its JSON-serializable form.
-func (c *CertInfo) toJSON() *certInfoJSON {
+func (c *CertInfo) toJSON() (*certInfoJSON, error) {
+	publicKey, err := c.PublicKeyBase64()
+	if err != nil {
+		return nil, err
+	}
 	return &certInfoJSON{
 		Subject:            c.Subject,
 		Issuer:             c.Issuer,
@@ -50,7 +60,7 @@ func (c *CertInfo) toJSON() *certInfoJSON {
 		SignatureAlgorithm: c.SignatureAlgorithm,
 		SignatureBase64:    c.SignatureBase64(),
 		PublicKeyAlgorithm: c.PublicKeyAlgorithm,
-		PublicKeyBase64:    c.PublicKeyBase64(),
+		PublicKeyBase64:    publicKey,
 		IsCA:               c.IsCA,
 		KeyUsage:           c.KeyUsage,
 		ExtKeyUsage:        c.ExtKeyUsage,
@@ -58,23 +68,41 @@ func (c *CertInfo) toJSON() *certInfoJSON {
 		VerifyError:        c.VerifyError,
 		Chains:             c.Chains,
 		SHA256Fingerprint:  c.SHA256Fingerprint,
-	}
+	}, nil
 }
 
 // Format writes a single certificate's info as JSON.
 func (f *JSONFormatter) Format(info *CertInfo, w io.Writer) error {
 	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(info.toJSON())
+	if f.Indent {
+		encoder.SetIndent("", "  ")
+	}
+	jsonInfo, err := info.toJSON()
+	if err != nil {
+		return err
+	}
+	if err := encoder.Encode(jsonInfo); err != nil {
+		return fmt.Errorf("encode certificate JSON: %w", err)
+	}
+	return nil
 }
 
 // FormatMultiple writes multiple certificates' info as a JSON array.
 func (f *JSONFormatter) FormatMultiple(infos []*CertInfo, w io.Writer) error {
 	jsonInfos := make([]*certInfoJSON, len(infos))
 	for i, info := range infos {
-		jsonInfos[i] = info.toJSON()
+		jsonInfo, err := info.toJSON()
+		if err != nil {
+			return err
+		}
+		jsonInfos[i] = jsonInfo
 	}
 	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(jsonInfos)
+	if f.Indent {
+		encoder.SetIndent("", "  ")
+	}
+	if err := encoder.Encode(jsonInfos); err != nil {
+		return fmt.Errorf("encode certificate JSON: %w", err)
+	}
+	return nil
 }

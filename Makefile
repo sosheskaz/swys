@@ -1,4 +1,4 @@
-.PHONY: build build-release clean test bench lint lint-fix
+.PHONY: build build-release clean test test-race bench bench-cpu bench-mem lint lint-fix check
 
 # Development build
 build:
@@ -12,25 +12,24 @@ lint:
 lint-fix:
 	golangci-lint run --fix
 
+# Run all local validation.
+check: lint test
+
 # Optimized release build
 build-release:
 	go build -ldflags="-s -w" -trimpath -o cryptool .
 
-# Extremely optimized build (experimental)
-build-optimized:
-	go build \
-		-ldflags="-s -w" \
-		-trimpath \
-		-gcflags="all=-l -B" \
-		-o cryptool .
-
 # Run tests
 test:
-	go test -v ./...
+	go test ./...
+
+# Run tests with the race detector
+test-race:
+	go test -race ./...
 
 # Run benchmarks
 bench:
-	go test -bench=. -benchmem ./internal/crypter/
+	go test -run='^$$' -bench=. -benchmem ./internal/...
 
 # Run benchmarks with CPU profiling
 bench-cpu:
@@ -43,8 +42,3 @@ bench-mem:
 # Clean build artifacts
 clean:
 	rm -f cryptool *.prof
-
-# Build with different GC optimizations
-build-gc-off:
-	@echo "Building with GC target percentage set to off (for testing only)"
-	GOGC=off go build -o cryptool .

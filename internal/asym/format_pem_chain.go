@@ -2,6 +2,7 @@ package asym
 
 import (
 	"encoding/pem"
+	"fmt"
 	"io"
 )
 
@@ -9,8 +10,13 @@ import (
 // Useful for extracting intermediate/root certificates.
 type ChainPEMFormatter struct{}
 
+// RequiresChain reports that chain output needs peer chain certificates.
+func (f *ChainPEMFormatter) RequiresChain() bool {
+	return true
+}
+
 // Format writes nothing for a single certificate (no chain available).
-func (f *ChainPEMFormatter) Format(info *CertInfo, w io.Writer) error {
+func (f *ChainPEMFormatter) Format(_ *CertInfo, _ io.Writer) error {
 	// For a single cert, there's no chain to output
 	return nil
 }
@@ -25,38 +31,11 @@ func (f *ChainPEMFormatter) FormatMultiple(infos []*CertInfo, w io.Writer) error
 	// Skip the first cert (leaf), output the rest (chain)
 	for _, info := range infos[1:] {
 		block := &pem.Block{
-			Type:  "CERTIFICATE",
+			Type:  certificatePEMType,
 			Bytes: info.RawDER,
 		}
 		if err := pem.Encode(w, block); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// FullChainPEMFormatter outputs all certificates (leaf + chain) as PEM
-// Useful for saving complete certificate chains.
-type FullChainPEMFormatter struct{}
-
-// Format writes a single certificate as PEM (same as PEMFormatter).
-func (f *FullChainPEMFormatter) Format(info *CertInfo, w io.Writer) error {
-	block := &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: info.RawDER,
-	}
-	return pem.Encode(w, block)
-}
-
-// FormatMultiple writes all certificates as PEM blocks.
-func (f *FullChainPEMFormatter) FormatMultiple(infos []*CertInfo, w io.Writer) error {
-	for _, info := range infos {
-		block := &pem.Block{
-			Type:  "CERTIFICATE",
-			Bytes: info.RawDER,
-		}
-		if err := pem.Encode(w, block); err != nil {
-			return err
+			return fmt.Errorf("encode chain certificate PEM: %w", err)
 		}
 	}
 	return nil
