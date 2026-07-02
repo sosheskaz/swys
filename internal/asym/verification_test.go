@@ -61,6 +61,33 @@ func TestNewCertInfosVerifiesHostnameAndPeerIntermediates(t *testing.T) {
 	}
 }
 
+func TestNewCertInfosPreservesCommonNamesContainingCommas(t *testing.T) {
+	leaf, intermediate, root := generateCertificateChain(t)
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+
+	infos, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
+		DNSName: "service.example.com",
+		Roots:   roots,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := infos[0].CommonName(); got != "Service, Leaf" {
+		t.Fatalf("leaf common name = %q, want %q", got, "Service, Leaf")
+	}
+	if len(infos[0].Chains) != 1 || len(infos[0].Chains[0]) != 3 {
+		t.Fatalf("verified chains = %#v, want one three-certificate chain", infos[0].Chains)
+	}
+	chain := infos[0].Chains[0]
+	if got := chain[0].CommonName; got != "Service, Leaf" {
+		t.Fatalf("chain leaf common name = %q, want %q", got, "Service, Leaf")
+	}
+	if got := chain[2].CommonName; got != "Test, Root" {
+		t.Fatalf("chain root common name = %q, want %q", got, "Test, Root")
+	}
+}
+
 func TestNewCertInfoVerifiedDoesNotMutateOptions(t *testing.T) {
 	leaf, intermediate, root := generateCertificateChain(t)
 	roots := x509.NewCertPool()
@@ -111,7 +138,7 @@ func generateCertificateChain(t *testing.T) (*x509.Certificate, *x509.Certificat
 	leafKey := generateECDSAKey(t)
 	leafTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(3),
-		Subject:      pkix.Name{CommonName: "service.example.com"},
+		Subject:      pkix.Name{CommonName: "Service, Leaf"},
 		DNSNames:     []string{"service.example.com"},
 		NotBefore:    now.Add(-time.Hour),
 		NotAfter:     now.Add(6 * time.Hour),

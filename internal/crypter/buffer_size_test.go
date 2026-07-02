@@ -7,26 +7,27 @@ import (
 	"testing"
 )
 
+var benchmarkBufferSizes = []struct {
+	name string
+	size int
+}{
+	{name: "4KB", size: 4 * 1024},
+	{name: "8KB", size: 8 * 1024},
+	{name: "16KB", size: 16 * 1024},
+	{name: "32KB", size: 32 * 1024},
+	{name: "64KB", size: 64 * 1024},
+	{name: "128KB", size: 128 * 1024},
+	{name: "256KB", size: 256 * 1024},
+	{name: "512KB", size: 512 * 1024},
+	{name: "1MB", size: 1024 * 1024},
+}
+
 func BenchmarkBufferSizes(b *testing.B) {
-	bufferSizes := []struct {
-		name string
-		size int
-	}{
-		{name: "4KB", size: 4 * 1024},
-		{name: "8KB", size: 8 * 1024},
-		{name: "16KB", size: 16 * 1024},
-		{name: "32KB", size: 32 * 1024},
-		{name: "64KB", size: 64 * 1024},
-		{name: "128KB", size: 128 * 1024},
-		{name: "256KB", size: 256 * 1024},
-		{name: "512KB", size: 512 * 1024},
-		{name: "1MB", size: 1024 * 1024},
-	}
 	const dataSize = 64 * 1024 * 1024
 	plaintext := make([]byte, dataSize)
 	iv := make([]byte, aes.BlockSize)
 
-	for _, bufferSize := range bufferSizes {
+	for _, bufferSize := range benchmarkBufferSizes {
 		crypter, err := newAESCrypter(make([]byte, 32), bufferSize.size)
 		if err != nil {
 			b.Fatal(err)

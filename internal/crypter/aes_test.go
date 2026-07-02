@@ -295,18 +295,35 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 			t.Fatalf("error = %v, want invalid padding", err)
 		}
 	})
+}
 
-	t.Run("preserve ciphertext read error", func(t *testing.T) {
-		readErr := errors.New("storage read failed")
-		input := io.MultiReader(
-			bytes.NewReader(make([]byte, aes.BlockSize)),
-			&dataErrorReader{data: []byte{1}, err: readErr},
-		)
-		err := crypter.Decrypt(input, &bytes.Buffer{})
-		if !errors.Is(err, readErr) {
-			t.Fatalf("error = %v, want wrapped read error", err)
-		}
-	})
+func TestAESCrypterDecryptPreservesReadErrors(t *testing.T) {
+	crypter, err := NewAESCrypter(make([]byte, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readErr := errors.New("storage read failed")
+	input := io.MultiReader(
+		bytes.NewReader(make([]byte, aes.BlockSize)),
+		&dataErrorReader{data: []byte{1}, err: readErr},
+	)
+
+	err = crypter.Decrypt(input, &bytes.Buffer{})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("error = %v, want wrapped read error", err)
+	}
+}
+
+func TestAESCrypterDecryptEmptyInputWrapsEOF(t *testing.T) {
+	crypter, err := NewAESCrypter(make([]byte, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = crypter.Decrypt(bytes.NewReader(nil), &bytes.Buffer{})
+	if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("error = %v, want wrapped EOF", err)
+	}
 }
 
 func TestAESCrypterPropagatesWriterFailures(t *testing.T) {
