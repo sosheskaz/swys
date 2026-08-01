@@ -12,37 +12,54 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
-var certCmd = &cobra.Command{
-	Aliases: []string{"cert", "certificate", "x.509"},
-	Use:     "x509",
-	Short:   "Inspect X.509 certificates",
+var certCmd = compatibilityAliasCommand(structuredOutputCommand(&cobra.Command{
+	Aliases: []string{"x509", "certificate", "x.509"},
+	Use:     "cert",
+	Short:   "Inspect and retrieve X.509 certificates",
 	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		outputFormat, err := cmd.Flags().GetString("output-format")
-		if err != nil {
-			return fmt.Errorf("read output-format flag: %w", err)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !compatibilityAliasInvoked(cmd) {
+			return cmd.Help()
 		}
-		formatter, err := getCertFormatter(outputFormat)
-		if err != nil {
-			return err
+		if _, err := fmt.Fprintf(
+			cmd.ErrOrStderr(),
+			"warning: npc %s is deprecated; use npc cert inspect\n",
+			cmd.CalledAs(),
+		); err != nil {
+			return fmt.Errorf("write certificate alias deprecation warning: %w", err)
 		}
-
-		data, err := io.ReadAll(cmd.InOrStdin())
-		if err != nil {
-			return fmt.Errorf("read certificate input: %w", err)
-		}
-		certs, err := parsePEMCertificates(data)
-		if err != nil {
-			return err
-		}
-		certInfos, err := asym.NewCertInfos(certs, &x509.VerifyOptions{
-			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-		}, true)
-		if err != nil {
-			return err
-		}
-		return formatCertificates(formatter, certInfos, cmd.OutOrStdout())
+		return runCertInspect(cmd, args)
 	},
+}, certFormatNames))
+
+var certInspectCmd = structuredOutputCommand(&cobra.Command{
+	Use:   "inspect",
+	Short: "Inspect X.509 certificates",
+	Args:  cobra.NoArgs,
+	RunE:  runCertInspect,
+}, certFormatNames)
+
+func runCertInspect(cmd *cobra.Command, _ []string) error {
+	formatter, err := certFormatterFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+
+	data, err := io.ReadAll(cmd.InOrStdin())
+	if err != nil {
+		return fmt.Errorf("read certificate input: %w", err)
+	}
+	certs, err := parsePEMCertificates(data)
+	if err != nil {
+		return err
+	}
+	certInfos, err := asym.NewCertInfos(certs, &x509.VerifyOptions{
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}, true)
+	if err != nil {
+		return err
+	}
+	return formatCertificates(formatter, certInfos, cmd.OutOrStdout())
 }
 
 func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
@@ -72,5 +89,5 @@ func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
 
 func init() {
 	rootCmd.AddCommand(certCmd)
-	certCmd.PersistentFlags().StringP("output-format", "F", "text", "structured output format (text, long, json, pem, chain, fullchain)")
+	certCmd.AddCommand(certInspectCmd)
 }

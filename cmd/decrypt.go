@@ -1,23 +1,18 @@
 package cmd
 
 import (
-	"io"
-	"strings"
-
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/internal/crypter"
 )
 
-var decryptCmd = &cobra.Command{
+var decryptCmd = binaryOutputCommand(&cobra.Command{
 	Use:     "decrypt [ciphertext]",
 	Aliases: []string{"dec", "d"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var input io.Reader
-		if len(args) == 0 || args[0] == "-" {
-			input = cmd.InOrStdin()
-		} else {
-			input = strings.NewReader(strings.Join(args, " "))
+		input, err := commandInput(cmd, args)
+		if err != nil {
+			return err
 		}
 
 		key, err := getKey(cmd)
@@ -30,7 +25,7 @@ var decryptCmd = &cobra.Command{
 		}
 		return cipher.Decrypt(input, cmd.OutOrStdout())
 	},
-}
+}, true)
 
 func init() {
 	aesCmd.AddCommand(decryptCmd)

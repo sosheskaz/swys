@@ -33,7 +33,7 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	output, err := executeRoot(t, "x509", "--input", path)
+	output, err := executeRoot(t, "cert", "inspect", "--input", path)
 	if err == nil || !strings.Contains(err.Error(), "PRIVATE KEY") {
 		t.Fatalf("error = %v, want unexpected PRIVATE KEY block", err)
 	}
@@ -84,7 +84,7 @@ func TestConnectCommandUsesFormatterChainRequirement(t *testing.T) {
 
 			output, err := executeRoot(
 				t,
-				"x509", "connect", server.Listener.Addr().String(), "--output-format", formatName,
+				"cert", "connect", server.Listener.Addr().String(), "--format", formatName,
 			)
 			if err != nil {
 				t.Fatal(err)

@@ -9,17 +9,12 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
-var connectCmd = &cobra.Command{
+var connectCmd = networkCommand(structuredOutputCommand(&cobra.Command{
 	Aliases: []string{"c", "conn"},
 	Use:     "connect host:port",
 	Short:   "Fetch and display certificates from a TLS connection",
-	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		outputFormat, err := cmd.Flags().GetString("output-format")
-		if err != nil {
-			return fmt.Errorf("read output-format flag: %w", err)
-		}
-		formatter, err := getCertFormatter(outputFormat)
+		formatter, err := certFormatterFromCommand(cmd)
 		if err != nil {
 			return err
 		}
@@ -39,7 +34,7 @@ var connectCmd = &cobra.Command{
 		}
 		return formatCertificates(formatter, certInfos, cmd.OutOrStdout())
 	},
-}
+}, certFormatNames))
 
 func init() {
 	certCmd.AddCommand(connectCmd)

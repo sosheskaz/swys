@@ -3,6 +3,7 @@ package crypter
 import (
 	"bytes"
 	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"errors"
 	"io"
@@ -284,14 +285,23 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 		}
 	})
 
-	t.Run("decrypt corrupted padding", func(t *testing.T) {
-		iv := make([]byte, aes.BlockSize)
-		ciphertext := &bytes.Buffer{}
-		if err := crypter.Encrypt(iv, strings.NewReader("plaintext"), ciphertext); err != nil {
+	// Flipping a ciphertext byte randomizes the entire decrypted block, and
+	// random bytes parse as valid PKCS#7 padding whenever the final byte is
+	// 0x01 -- about 1 run in 256. Build the bad block deliberately instead: a
+	// trailing 0xff claims 255 bytes of padding, which no 16-byte block can
+	// satisfy, so this is invalid under every key rather than almost every key.
+	t.Run("decrypt invalid padding", func(t *testing.T) {
+		block, err := aes.NewCipher(key)
+		if err != nil {
 			t.Fatal(err)
 		}
-		ciphertext.Bytes()[ciphertext.Len()-1] ^= 0xff
-		if err := crypter.Decrypt(ciphertext, &bytes.Buffer{}); !errors.Is(err, errInvalidPadding) {
+		iv := make([]byte, aes.BlockSize)
+		unpaddable := bytes.Repeat([]byte{0xff}, aes.BlockSize)
+		ciphertext := make([]byte, aes.BlockSize)
+		cipher.NewCBCEncrypter(block, iv).CryptBlocks(ciphertext, unpaddable)
+
+		stream := io.MultiReader(bytes.NewReader(iv), bytes.NewReader(ciphertext))
+		if err := crypter.Decrypt(stream, &bytes.Buffer{}); !errors.Is(err, errInvalidPadding) {
 			t.Fatalf("error = %v, want invalid padding", err)
 		}
 	})

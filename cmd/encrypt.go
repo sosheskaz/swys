@@ -3,23 +3,19 @@ package cmd
 import (
 	"crypto/aes"
 	"fmt"
-	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/internal/crypter"
 )
 
-var encryptCmd = &cobra.Command{
+var encryptCmd = binaryOutputCommand(&cobra.Command{
 	Use:     "encrypt [plaintext]",
 	Aliases: []string{"enc", "e"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var input io.Reader
-		if len(args) == 0 || args[0] == "-" {
-			input = cmd.InOrStdin()
-		} else {
-			input = strings.NewReader(strings.Join(args, " "))
+		input, err := commandInput(cmd, args)
+		if err != nil {
+			return err
 		}
 
 		key, err := getKey(cmd)
@@ -36,7 +32,7 @@ var encryptCmd = &cobra.Command{
 		}
 		return cipher.Encrypt(iv, input, cmd.OutOrStdout())
 	},
-}
+}, true)
 
 func init() {
 	aesCmd.AddCommand(encryptCmd)

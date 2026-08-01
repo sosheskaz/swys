@@ -87,8 +87,10 @@ are bugs, and where possible they are enforced by tests rather than review.
 4. **`--format json` everywhere** structured output exists, for `jq`.
 
 5. **Secure by default.** Authenticated encryption (AES-GCM) by default,
-   0600 output files, modern key types (ed25519) as defaults, randomness only
-   from `crypto/rand`, legacy modes behind explicit flags — never silently.
+   modern key types (ed25519) as defaults, randomness only from
+   `crypto/rand`, legacy modes behind explicit flags — never silently. A
+   newly created `--output` file is `0600`; overwriting an existing
+   destination preserves its current permissions instead of resetting them.
    npc never modifies system trust stores.
 
 6. **Mechanical consistency.** Uniformity is enforced by shared machinery —
@@ -118,11 +120,38 @@ are bugs, and where possible they are enforced by tests rather than review.
 ## Commands today
 
 ```
-npc aes encrypt|decrypt|genkey     # AES-CBC today; GCM-by-default in progress
-npc x509 [connect]                 # certificate inspection and TLS probing
+npc aes encrypt|decrypt            # AES-CBC today; GCM-by-default in progress
+npc key generate                   # AES key generation; more key types are planned
+npc cert inspect|connect           # certificate inspection and TLS probing
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
+
+Binary input and output use `--input-encoding` and `--encoding/-e` with
+`raw`, `hex`, `base64` (or the compatibility alias `b64`), `base64url`, or
+`base32`. Structured certificate output uses `--format/-f`. This replaces the
+old binary `--format/-f` axis and structured `--output-format/-F` axis; for
+example, `cert connect -f hex` must be replaced with an applicable structured
+format rather than a byte encoding.
+
+The former `aes genkey` command remains available as a hidden compatibility
+command for one release and prints a migration warning; use `key generate` in
+new scripts. The legacy certificate aliases (`x509`, `certificate`, and
+`x.509`) likewise forward to `cert inspect` with a warning so existing
+inspection pipelines continue to produce certificate data. New invocations
+should use the noun-verb form.
+
+For regular `--output` paths, npc writes a sibling temporary file and
+atomically replaces the destination only after the command and all output
+filters close successfully. A newly created destination is `0600`;
+overwriting an existing destination preserves that destination's current
+permissions rather than resetting them. A destination symlink that points at
+a regular file (or at nothing yet) is replaced by the atomic rename rather
+than followed, leaving the symlink's former target untouched. A symlink to a
+non-regular destination — `/dev/stdout`, `/dev/fd/N`, FIFOs — is followed and
+streamed directly, like any other non-regular destination, since none of
+those can participate in an atomic rename; failed commands therefore cannot
+roll back bytes already sent to those sinks.
 
 ## Development
 
