@@ -104,10 +104,28 @@ func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
 	if string(data) != "preserve" {
 		t.Fatalf("failed command replaced output with %q", data)
 	}
-	assertNoStagedOutputs(t, path)
 }
 
-func TestDecryptFailureDoesNotCommitPartialPlaintext(t *testing.T) {
+func TestCommandErrorBeforeWriteLeavesEmptyOutputFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing")
+	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := executeRoot(t, "key", "generate", "--bits", "64", "--output", path)
+	if !errors.Is(err, errInvalidAESKeySize) {
+		t.Fatalf("error = %v, want invalid key size", err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(data) != 0 {
+		t.Fatalf("output length = %d, want empty file", len(data))
+	}
+}
+
+func TestDecryptFailureLeavesStreamedPlaintext(t *testing.T) {
 	dir := t.TempDir()
 	plaintextPath := filepath.Join(dir, "plaintext")
 	ciphertextPath := filepath.Join(dir, "ciphertext")
@@ -145,10 +163,12 @@ func TestDecryptFailureDoesNotCommitPartialPlaintext(t *testing.T) {
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if string(output) != "preserve" {
-		t.Fatalf("failed decrypt replaced output with %d bytes", len(output))
+	if len(output) != 64*1024 {
+		t.Fatalf("failed decrypt output length = %d, want %d streamed bytes", len(output), 64*1024)
 	}
-	assertNoStagedOutputs(t, outputPath)
+	if !bytes.Equal(output[:len(output)-aes.BlockSize], plaintext[:len(output)-aes.BlockSize]) {
+		t.Fatal("failed decrypt did not preserve the valid streamed plaintext prefix")
+	}
 }
 
 func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
@@ -171,6 +191,33 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 	}
 }
 
+func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "missing")
+	outputPath := filepath.Join(dir, "output")
+	if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+
+	_, err := executeRoot(
+		t,
+		"aes", "encrypt", "--key", key,
+		"--input", inputPath,
+		"--output", outputPath,
+	)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("error = %v, want missing-input error", err)
+	}
+	data, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "preserve" {
+		t.Fatalf("output = %q, want preserved contents", data)
+	}
+}
+
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
 	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
@@ -190,7 +237,6 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("output permissions = %04o, want 0600", got)
 	}
-	assertNoStagedOutputs(t, path)
 }
 
 func TestOutputFileOverwriteKeepsExistingPermissions(t *testing.T) {
@@ -215,10 +261,32 @@ func TestOutputFileOverwriteKeepsExistingPermissions(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o644 {
 		t.Fatalf("output permissions = %04o, want preserved 0644", got)
 	}
-	assertNoStagedOutputs(t, path)
 }
 
-func TestOutputFileOverwritePreservesZeroPermissions(t *testing.T) {
+func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key")
+	alias := filepath.Join(dir, "key-alias")
+	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(path, alias); err != nil {
+		t.Skipf("create hard link: %v", err)
+	}
+
+	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 32 {
+		t.Fatalf("hard-linked output length = %d, want 32", len(data))
+	}
+}
+
+func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file permissions; skipping under root")
 	}
@@ -229,17 +297,131 @@ func TestOutputFileOverwritePreservesZeroPermissions(t *testing.T) {
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
-		t.Fatal(err)
+	if _, err := executeRoot(t, "key", "generate", "--output", path); err == nil {
+		t.Fatal("execute command succeeded, want output-open error")
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := info.Mode().Perm(); got != 0o000 {
-		t.Fatalf("output permissions = %04o, want preserved 0000", got)
+		t.Fatalf("output permissions = %04o, want unchanged 0000", got)
 	}
-	assertNoStagedOutputs(t, path)
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "old contents" {
+		t.Fatalf("output = %q, want original contents", data)
+	}
+}
+
+func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
+	tests := []struct {
+		modeText string
+		want     os.FileMode
+	}{
+		{modeText: "0640", want: 0o640},
+		{modeText: "640", want: 0o640},
+		{modeText: "0000", want: 0o000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.modeText, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "key")
+			if _, err := executeRoot(t, "key", "generate", "--output", path, "--mode", tt.modeText); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != tt.want {
+				t.Fatalf("output permissions = %04o, want %04o", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOutputModeOverridesExistingPermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRoot(t, "key", "generate", "--output", path, "--mode", "0400"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o400 {
+		t.Fatalf("output permissions = %04o, want 0400 override", got)
+	}
+}
+
+func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "empty", mode: ""},
+		{name: "invalid-octal-digit", mode: "999"},
+		{name: "invalid-octal-digit-leading-zero", mode: "0778"},
+		{name: "non-numeric", mode: "abc"},
+		{name: "exceeds-0777", mode: "1000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "existing")
+			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := executeRoot(t, "key", "generate", "--output", path, "--mode", tt.mode)
+			if !errors.Is(err, errInvalidOutputMode) {
+				t.Fatalf("error = %v, want invalid output mode", err)
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(data) != "preserve" {
+				t.Fatalf("output = %q, want preserved content", data)
+			}
+		})
+	}
+}
+
+func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
+	_, err := executeRoot(t, "key", "generate", "--mode", "0640")
+	if !errors.Is(err, errModeRequiresRegularOutput) {
+		t.Fatalf("error = %v, want --mode-requires-regular-output", err)
+	}
+}
+
+func TestOutputModeIsRejectedOnWindows(t *testing.T) {
+	command := &cobra.Command{Use: "mode-test"}
+	command.Flags().String("mode", "", "")
+	if err := command.Flags().Set("mode", "0640"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := commandOutputOptionsForOS(command, "windows")
+	if !errors.Is(err, errOutputModeUnsupported) {
+		t.Fatalf("error = %v, want unsupported-output-mode", err)
+	}
+}
+
+func TestModeFlagRegisteredOnRoot(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("mode")
+	if flag == nil {
+		t.Fatal("mode flag not registered")
+	}
+	if flag.DefValue != "" {
+		t.Fatalf("mode default = %q, want empty (no override)", flag.DefValue)
+	}
 }
 
 func TestNonRegularOutputStreamsDirectly(t *testing.T) {
@@ -252,40 +434,87 @@ func TestNonRegularOutputStreamsDirectly(t *testing.T) {
 	}
 }
 
-func TestSymlinkOutputReplacesLinkWithoutModifyingTarget(t *testing.T) {
-	dir := t.TempDir()
-	targetPath := filepath.Join(dir, "target")
-	linkPath := filepath.Join(dir, "link")
-	if err := os.WriteFile(targetPath, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
+func TestSymlinkOutputFollowsTarget(t *testing.T) {
+	tests := []struct {
+		name     string
+		modeArgs []string
+		wantMode os.FileMode
+	}{
+		{name: "preserved-mode", wantMode: 0o600},
+		{name: "explicit-mode", modeArgs: []string{"--mode", "0640"}, wantMode: 0o640},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			targetPath := filepath.Join(dir, "target")
+			linkPath := filepath.Join(dir, "link")
+			if err := os.WriteFile(targetPath, []byte("preserve"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(targetPath, linkPath); err != nil {
+				t.Skipf("create symlink: %v", err)
+			}
+
+			args := append([]string{"key", "generate", "--output", linkPath}, tt.modeArgs...)
+			if _, err := executeRoot(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			target, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(target) != 32 {
+				t.Fatalf("symlink target length = %d, want 32", len(target))
+			}
+			info, err := os.Lstat(linkPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				t.Fatal("output path is no longer a symlink")
+			}
+			targetInfo, err := os.Stat(targetPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := targetInfo.Mode().Perm(); got != tt.wantMode {
+				t.Fatalf("output permissions = %04o, want %04o", got, tt.wantMode)
+			}
+		})
+	}
+}
+
+func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "missing-target")
+	linkPath := filepath.Join(dir, "link")
 	if err := os.Symlink(targetPath, linkPath); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	if _, err := executeRoot(t, "key", "generate", "--output", linkPath); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "--output", linkPath, "--mode", "0640"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.ReadFile(targetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(target) != "preserve" {
-		t.Fatalf("symlink target = %q, want preserved content", target)
+	if len(target) != 32 {
+		t.Fatalf("symlink target length = %d, want 32", len(target))
 	}
 	info, err := os.Lstat(linkPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("output path remains a symlink; want atomic replacement")
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("output path is no longer a symlink")
 	}
-	replacement, err := os.ReadFile(linkPath)
+	targetInfo, err := os.Stat(targetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(replacement) != 32 {
-		t.Fatalf("replacement length = %d, want 32", len(replacement))
+	if got := targetInfo.Mode().Perm(); got != 0o640 {
+		t.Fatalf("output permissions = %04o, want 0640", got)
 	}
 }
 
@@ -371,8 +600,7 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 		t.Fatalf("descendant hooks did not run: pre=%v post=%v", childPreRan, childPostRan)
 	}
 
-	// The root PersistentPreRunE owns --output and --encoding; the root
-	// PersistentPostRunE commits the staged file.
+	// The root PersistentPreRunE owns --output and --encoding.
 	data, err := os.ReadFile(outputPath)
 	if err != nil {
 		t.Fatalf("root hooks did not apply --output: %v", err)
@@ -380,7 +608,73 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 	if string(data) != "41" {
 		t.Fatalf("output = %q, want %q from the root hook's hex encoder", data, "41")
 	}
-	assertNoStagedOutputs(t, outputPath)
+}
+
+func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing")
+	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var observed []byte
+	command := binaryOutputCommand(&cobra.Command{
+		Use:    "live-output-test",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if _, err := io.WriteString(cmd.OutOrStdout(), "live"); err != nil {
+				return fmt.Errorf("write test output: %w", err)
+			}
+			var err error
+			observed, err = os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read live output: %w", err)
+			}
+			return nil
+		},
+	}, false)
+	rootCmd.AddCommand(command)
+	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
+
+	if _, err := executeRoot(t, "live-output-test", "--output", path); err != nil {
+		t.Fatal(err)
+	}
+	if string(observed) != "live" {
+		t.Fatalf("output observed during command = %q, want live data", observed)
+	}
+}
+
+func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing")
+	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var observed os.FileMode
+	command := binaryOutputCommand(&cobra.Command{
+		Use:    "output-mode-test",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			info, err := os.Stat(path)
+			if err != nil {
+				return fmt.Errorf("inspect output mode: %w", err)
+			}
+			observed = info.Mode().Perm()
+			_, err = io.WriteString(cmd.OutOrStdout(), "output")
+			if err != nil {
+				return fmt.Errorf("write test output: %w", err)
+			}
+			return nil
+		},
+	}, false)
+	rootCmd.AddCommand(command)
+	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
+
+	if _, err := executeRoot(t, "output-mode-test", "--output", path, "--mode", "0640"); err != nil {
+		t.Fatal(err)
+	}
+	if observed != 0o640 {
+		t.Fatalf("output permissions during command = %04o, want 0640", observed)
+	}
 }
 
 func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
@@ -419,7 +713,7 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 	}
 }
 
-func TestCommandErrorDoesNotCommitOutputFile(t *testing.T) {
+func TestCommandErrorLeavesWrittenOutputFile(t *testing.T) {
 	runErr := errTestCommandFailed
 	command := binaryOutputCommand(&cobra.Command{
 		Use:    "output-error-test",
@@ -446,20 +740,8 @@ func TestCommandErrorDoesNotCommitOutputFile(t *testing.T) {
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if string(data) != "preserve" {
-		t.Fatalf("failed command replaced output with %q", data)
-	}
-	assertNoStagedOutputs(t, path)
-}
-
-func assertNoStagedOutputs(t *testing.T, outputPath string) {
-	t.Helper()
-	matches, err := filepath.Glob(filepath.Join(filepath.Dir(outputPath), "."+filepath.Base(outputPath)+".tmp-*"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 0 {
-		t.Fatalf("staged outputs remain after failure: %v", matches)
+	if string(data) != "cmVwbGFjZW1lbnQ=" {
+		t.Fatalf("failed command output = %q, want flushed streamed data", data)
 	}
 }
 

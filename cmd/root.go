@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -24,6 +25,12 @@ var rootCmd = &cobra.Command{
 		if commandHasShape(cmd, compatibilityShape) && !compatibilityAliasInvoked(cmd) {
 			return nil
 		}
+		if err := cmd.ValidateRequiredFlags(); err != nil {
+			return fmt.Errorf("validate required flags: %w", err)
+		}
+		if err := cmd.ValidateFlagGroups(); err != nil {
+			return fmt.Errorf("validate flag groups: %w", err)
+		}
 		cleanup, err := configureIO(cmd)
 		if err != nil {
 			return err
@@ -33,7 +40,6 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 	PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
-		markCommandIOSuccessful(cmd)
 		return closeCommandIO(cmd)
 	},
 }
@@ -41,32 +47,21 @@ var rootCmd = &cobra.Command{
 type commandIOKey struct{}
 
 type commandIO struct {
-	err        error
-	cleanup    func(bool) error
-	once       sync.Once
-	successful bool
+	err     error
+	cleanup func() error
+	once    sync.Once
 }
 
 func (state *commandIO) close() error {
 	closed := false
 	state.once.Do(func() {
 		closed = true
-		state.err = state.cleanup(state.successful)
+		state.err = state.cleanup()
 	})
 	if closed {
 		return state.err
 	}
 	return nil
-}
-
-func markCommandIOSuccessful(cmd *cobra.Command) {
-	if cmd == nil {
-		return
-	}
-	state, ok := cmd.Context().Value(commandIOKey{}).(*commandIO)
-	if ok {
-		state.successful = true
-	}
 }
 
 // Execute runs the root command.
@@ -97,16 +92,12 @@ func generateIV(blockSize int) ([]byte, error) {
 	return iv, nil
 }
 
-func configureIO(cmd *cobra.Command) (func(bool) error, error) {
+func configureIO(cmd *cobra.Command) (func() error, error) {
 	originalIn := cmd.InOrStdin()
 	originalOut := cmd.OutOrStdout()
 	var closers []io.Closer
-	var stagedOutputPath string
-	var stagedOutputMode os.FileMode
-	var stagedOutputPreserveMode bool
-	var outputPath string
 
-	cleanup := func(commit bool) error {
+	cleanup := func() error {
 		cmd.SetIn(originalIn)
 		cmd.SetOut(originalOut)
 
@@ -114,19 +105,26 @@ func configureIO(cmd *cobra.Command) (func(bool) error, error) {
 		for i := len(closers) - 1; i >= 0; i-- {
 			closeErr = errors.Join(closeErr, closers[i].Close())
 		}
-		return finishStagedOutput(stagedOutputPath, outputPath, stagedOutputMode, stagedOutputPreserveMode, commit, closeErr)
+		return closeErr
 	}
-	fail := func(err error) (func(bool) error, error) {
-		return func(bool) error { return nil }, errors.Join(err, cleanup(false))
+	fail := func(err error) (func() error, error) {
+		return func() error { return nil }, errors.Join(err, cleanup())
 	}
 
 	inputPath, err := cmd.Flags().GetString("input")
 	if err != nil {
 		return fail(fmt.Errorf("read input flag: %w", err))
 	}
-	outputPath, err = cmd.Flags().GetString("output")
+	outputPath, err := cmd.Flags().GetString("output")
 	if err != nil {
 		return fail(fmt.Errorf("read output flag: %w", err))
+	}
+	outputOptions, err := commandOutputOptionsFromCommand(cmd)
+	if err != nil {
+		return fail(err)
+	}
+	if outputOptions.mode != nil && outputPath == "" {
+		return fail(fmt.Errorf("%w: --mode requires --output", errModeRequiresRegularOutput))
 	}
 	decoder, encoder, err := commandCodecs(cmd)
 	if err != nil {
@@ -150,24 +148,11 @@ func configureIO(cmd *cobra.Command) (func(bool) error, error) {
 
 	if outputPath != "" {
 		// The path is intentionally supplied by the CLI user.
-		output, temporaryPath, mode, preserveMode, openErr := openCommandOutput(outputPath)
+		output, openErr := openCommandOutput(outputPath, outputOptions)
 		if openErr != nil {
 			return fail(openErr)
 		}
-		stagedOutputPath = temporaryPath
-		stagedOutputMode = mode
-		stagedOutputPreserveMode = preserveMode
-		var outputCloser io.Closer = output
-		if temporaryPath != "" {
-			// Only staged (regular-file) outputs benefit from fsync: it
-			// forces the write durable to disk before the rename that makes
-			// it visible, so a crash between them can't leave a renamed-but-
-			// unflushed file. FIFOs and other non-regular targets stream
-			// directly and skip it, since fsync on them is meaningless or
-			// outright rejected by the OS.
-			outputCloser = syncingFile{output}
-		}
-		closers = append(closers, outputCloser)
+		closers = append(closers, output)
 		cmd.SetOut(output)
 	}
 
@@ -180,102 +165,97 @@ func configureIO(cmd *cobra.Command) (func(bool) error, error) {
 	return cleanup, nil
 }
 
-// openCommandOutput decides whether an output path should be staged (written
-// to a temporary file and atomically renamed into place) or opened directly.
-// /dev/stdout, /dev/stderr, and /dev/fd/N (process substitution) are symlinks
-// on Darwin and Linux, so the symlink bit alone can't decide this: staging a
-// symlink to a FIFO tries to os.CreateTemp("/dev/fd", ...), which fails.
-// Follow the symlink and stage only if the target is a regular file or does
-// not exist yet; anything else (FIFO, device, socket) streams directly.
-func openCommandOutput(outputPath string) (*os.File, string, os.FileMode, bool, error) {
-	info, err := os.Lstat(outputPath)
+type commandOutputOptions struct {
+	mode *os.FileMode
+}
+
+// openCommandOutput validates what it can before opening the final path, then
+// streams directly to it. Stat follows symlinks so output behaves like normal
+// shell redirection and file-writing tools.
+func openCommandOutput(outputPath string, options commandOutputOptions) (*os.File, error) {
+	info, err := os.Stat(outputPath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return createStagedOutput(outputPath, 0, false)
 	case err != nil:
-		return nil, "", 0, false, fmt.Errorf("inspect output %q: %w", outputPath, err)
-	case info.Mode()&os.ModeSymlink != 0:
-		target, targetErr := os.Stat(outputPath)
-		switch {
-		case errors.Is(targetErr, os.ErrNotExist):
-			return createStagedOutput(outputPath, 0, false)
-		case targetErr != nil:
-			return nil, "", 0, false, fmt.Errorf("inspect output %q: %w", outputPath, targetErr)
-		case target.IsDir():
-			return nil, "", 0, false, fmt.Errorf("%w: %q", errOutputIsDirectory, outputPath)
-		case target.Mode().IsRegular():
-			return createStagedOutput(outputPath, target.Mode().Perm(), true)
-		default:
-			return openDirectOutput(outputPath)
-		}
-	case info.Mode().IsRegular():
-		return createStagedOutput(outputPath, info.Mode().Perm(), true)
+		return nil, fmt.Errorf("inspect output %q: %w", outputPath, err)
 	case info.IsDir():
-		return nil, "", 0, false, fmt.Errorf("%w: %q", errOutputIsDirectory, outputPath)
-	default:
-		return openDirectOutput(outputPath)
+		return nil, fmt.Errorf("%w: %q", errOutputIsDirectory, outputPath)
+	case options.mode != nil && !info.Mode().IsRegular():
+		return nil, fmt.Errorf("%w: %q is not a regular file", errModeRequiresRegularOutput, outputPath)
 	}
-}
 
-func openDirectOutput(outputPath string) (*os.File, string, os.FileMode, bool, error) {
 	// The path is intentionally supplied by the CLI user.
-	output, openErr := os.OpenFile(outputPath, os.O_WRONLY, 0) //nolint:gosec // opening an explicitly user-selected CLI path is intended
-	if openErr != nil {
-		return nil, "", 0, false, fmt.Errorf("open non-regular output %q: %w", outputPath, openErr)
-	}
-	return output, "", 0, false, nil
-}
-
-// createStagedOutput opens a temporary file beside outputPath. mode is the
-// permission the destination should end up with once committed, and
-// preserveMode says whether that permission should actually be applied: true
-// when overwriting an existing destination (even one with mode 0), false for
-// a newly created destination, which keeps the temp file's own private
-// default. Staging only carries permission bits forward — setuid/setgid/
-// sticky, ownership, and xattrs are not preserved, since rename-based
-// staging always produces a fresh inode.
-func createStagedOutput(outputPath string, mode os.FileMode, preserveMode bool) (*os.File, string, os.FileMode, bool, error) {
-	output, err := os.CreateTemp(filepath.Dir(outputPath), "."+filepath.Base(outputPath)+".tmp-*")
+	output, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE, 0o600) //nolint:gosec // opening an explicitly user-selected CLI path is intended
 	if err != nil {
-		return nil, "", 0, false, fmt.Errorf("create temporary output for %q: %w", outputPath, err)
+		return nil, fmt.Errorf("open output %q: %w", outputPath, err)
 	}
-	temporaryPath := output.Name()
-	return output, temporaryPath, mode, preserveMode, nil
-}
-
-// syncingFile forces a staged output's contents to disk before it is closed,
-// so the rename that follows can't outrun the data it's making visible: a
-// crash between them would otherwise leave a renamed file with unflushed
-// (possibly zero) content instead of failing the command outright.
-type syncingFile struct {
-	*os.File
-}
-
-// Close syncs before closing so durability doesn't depend on close ordering.
-func (file syncingFile) Close() error {
-	return errors.Join(file.Sync(), file.File.Close())
-}
-
-func finishStagedOutput(temporaryPath, destinationPath string, mode os.FileMode, preserveMode, commit bool, closeErr error) error {
-	if temporaryPath == "" {
-		return closeErr
+	fail := func(err error) (*os.File, error) {
+		return nil, errors.Join(err, output.Close())
 	}
-	if commit && closeErr == nil && preserveMode {
-		if err := os.Chmod(temporaryPath, mode); err != nil {
-			closeErr = fmt.Errorf("preserve output %q permissions: %w", destinationPath, err)
+
+	info, err = output.Stat()
+	if err != nil {
+		return fail(fmt.Errorf("inspect opened output %q: %w", outputPath, err))
+	}
+	if options.mode != nil {
+		if !info.Mode().IsRegular() {
+			return fail(fmt.Errorf("%w: %q is not a regular file", errModeRequiresRegularOutput, outputPath))
+		}
+		if err := output.Chmod(*options.mode); err != nil {
+			return fail(fmt.Errorf("set output %q permissions: %w", outputPath, err))
 		}
 	}
-	if commit && closeErr == nil {
-		err := os.Rename(temporaryPath, destinationPath)
-		if err == nil {
-			return nil
+	if info.Mode().IsRegular() {
+		if err := output.Truncate(0); err != nil {
+			return fail(fmt.Errorf("truncate output %q: %w", outputPath, err))
 		}
-		closeErr = fmt.Errorf("commit output %q: %w", destinationPath, err)
 	}
-	if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		closeErr = errors.Join(closeErr, fmt.Errorf("remove temporary output %q: %w", temporaryPath, err))
+
+	return output, nil
+}
+
+var errInvalidOutputMode = errors.New("invalid output mode")
+
+var errModeRequiresRegularOutput = errors.New("--mode requires a regular file output")
+
+var errOutputModeUnsupported = errors.New("--mode is unsupported on this operating system")
+
+// commandOutputOptionsFromCommand reads and validates output-specific flags.
+// A nil mode means --mode was not set; an explicitly empty value is invalid.
+func commandOutputOptionsFromCommand(cmd *cobra.Command) (commandOutputOptions, error) {
+	return commandOutputOptionsForOS(cmd, runtime.GOOS)
+}
+
+func commandOutputOptionsForOS(cmd *cobra.Command, goos string) (commandOutputOptions, error) {
+	if !cmd.Flags().Changed("mode") {
+		return commandOutputOptions{}, nil
 	}
-	return closeErr
+	if goos == "windows" {
+		return commandOutputOptions{}, fmt.Errorf("%w: windows exposes only a read-only file attribute", errOutputModeUnsupported)
+	}
+	text, err := cmd.Flags().GetString("mode")
+	if err != nil {
+		return commandOutputOptions{}, fmt.Errorf("read mode flag: %w", err)
+	}
+	mode, err := parseOutputMode(text)
+	if err != nil {
+		return commandOutputOptions{}, err
+	}
+	return commandOutputOptions{mode: &mode}, nil
+}
+
+func parseOutputMode(text string) (os.FileMode, error) {
+	if text == "" {
+		return 0, fmt.Errorf("%w %q: must not be empty", errInvalidOutputMode, text)
+	}
+	value, err := strconv.ParseUint(text, 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("%w %q: %w", errInvalidOutputMode, text, err)
+	}
+	if value > 0o777 {
+		return 0, fmt.Errorf("%w %q: must be at most 0777", errInvalidOutputMode, text)
+	}
+	return os.FileMode(value), nil
 }
 
 func commandCodecs(cmd *cobra.Command) (inputDecoder, outputEncoder, error) {
@@ -335,4 +315,9 @@ func init() {
 	if err := rootCmd.MarkPersistentFlagFilename("output"); err != nil {
 		panic(err)
 	}
+	rootCmd.PersistentFlags().String(
+		"mode",
+		"",
+		"POSIX octal permissions for the --output file (e.g. 0640); overrides the default 0600 on create and preserved permissions on overwrite",
+	)
 }

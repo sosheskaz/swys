@@ -141,17 +141,21 @@ new scripts. The legacy certificate aliases (`x509`, `certificate`, and
 inspection pipelines continue to produce certificate data. New invocations
 should use the noun-verb form.
 
-For regular `--output` paths, npc writes a sibling temporary file and
-atomically replaces the destination only after the command and all output
-filters close successfully. A newly created destination is `0600`;
-overwriting an existing destination preserves that destination's current
-permissions rather than resetting them. A destination symlink that points at
-a regular file (or at nothing yet) is replaced by the atomic rename rather
-than followed, leaving the symlink's former target untouched. A symlink to a
-non-regular destination — `/dev/stdout`, `/dev/fd/N`, FIFOs — is followed and
-streamed directly, like any other non-regular destination, since none of
-those can participate in an atomic rename; failed commands therefore cannot
-roll back bytes already sent to those sinks.
+For `--output` paths, npc opens the destination and streams output to it as the
+command runs, following symlinks like normal shell redirection. Before opening
+the output, npc validates encodings and `--mode`, rejects directories and
+same-file input/output pairs, inspects existing target types, and opens a named
+input first. Errors after the output is opened can therefore leave an empty or
+partial destination; the command's non-zero exit status indicates that the
+output is incomplete.
+
+A newly created regular destination is `0600`; overwriting an existing file
+keeps that file's current permissions. `--mode` (an octal permission string
+such as `0640` or `640`) sets regular-file permissions explicitly on create or
+overwrite and is applied before the command runs. It is rejected for
+non-regular destinations, since npc has nothing there to chmod, and on Windows,
+where POSIX permission bits cannot be applied exactly. Non-regular destinations
+such as `/dev/stdout`, `/dev/fd/N`, and FIFOs stream directly as well.
 
 ## Development
 

@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -50,10 +51,32 @@ func TestFIFOOutputStreamsDirectly(t *testing.T) {
 	}
 }
 
-// TestSymlinkToFIFOOutputStreamsDirectly pins the fix for --output paths like
-// /dev/stdout or /dev/fd/N (process substitution): those are symlinks to
-// non-regular files on Darwin/Linux, so staging must follow the symlink and
-// decide from the target, not the symlink bit itself.
+// TestOutputModeWithFIFORejectsBeforeWriting pins that --mode errors on a
+// non-regular sink rather than silently ignoring it: npc never opens the
+// FIFO in this case, so no reader goroutine is needed to unblock the write.
+func TestOutputModeWithFIFORejectsBeforeWriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "output.fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := executeRoot(t, "key", "generate", "--output", path, "--mode", "0640")
+	if !errors.Is(err, errModeRequiresRegularOutput) {
+		t.Fatalf("error = %v, want --mode-requires-regular-output", err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeNamedPipe == 0 {
+		t.Fatalf("output mode = %v, want unchanged named pipe", info.Mode())
+	}
+}
+
+// TestSymlinkToFIFOOutputStreamsDirectly pins --output paths like /dev/stdout
+// or /dev/fd/N (process substitution), which are symlinks to non-regular files
+// on Darwin and Linux.
 func TestSymlinkToFIFOOutputStreamsDirectly(t *testing.T) {
 	dir := t.TempDir()
 	fifoPath := filepath.Join(dir, "output.fifo")
