@@ -16,6 +16,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/sosheskaz-systems/npc/internal/crypter"
 )
 
 var errTestCommandFailed = errors.New("command failed")
@@ -54,6 +56,16 @@ func TestGenkeyRejectsInvalidSize(t *testing.T) {
 	_, err := executeRoot(t, "key", "generate", "--bits", "64")
 	if !errors.Is(err, errInvalidAESKeySize) {
 		t.Fatalf("error = %v, want errInvalidAESKeySize", err)
+	}
+}
+
+func TestEncryptPreservesInvalidIVErrorIdentity(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(make([]byte, 16))
+	iv := base64.StdEncoding.EncodeToString(make([]byte, aes.BlockSize-1))
+
+	_, err := executeRoot(t, "aes", "encrypt", "plaintext", "--key", key, "--iv", iv)
+	if !errors.Is(err, crypter.ErrInvalidIVLength) {
+		t.Fatalf("error = %v, want crypter.ErrInvalidIVLength", err)
 	}
 }
 

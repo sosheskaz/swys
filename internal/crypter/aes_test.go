@@ -291,8 +291,8 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 		t.Parallel()
 		outBuf := &bytes.Buffer{}
 		err := crypter.Encrypt(make([]byte, aes.BlockSize-1), strings.NewReader("plaintext"), outBuf)
-		if err == nil {
-			t.Error("expected error for an invalid IV length")
+		if !errors.Is(err, ErrInvalidIVLength) {
+			t.Fatalf("error = %v, want ErrInvalidIVLength", err)
 		}
 	})
 
