@@ -47,4 +47,6 @@ jobs:
         run: mise exec -- goreleaser check
 
       - name: Snapshot release (no publish)
-        run: mise exec -- goreleaser release --snapshot --clean
+        # --parallelism caps concurrent builds. It defaults to GOMAXPROCS, which on
+        # a runner pod with no CPU limit is the host core count, not the pod's share.
+        run: mise exec -- goreleaser release --snapshot --clean --parallelism=2

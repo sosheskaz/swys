@@ -63,4 +63,6 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: mise exec -- goreleaser release --clean
+        # --parallelism caps concurrent builds. It defaults to GOMAXPROCS, which on
+        # a runner pod with no CPU limit is the host core count, not the pod's share.
+        run: mise exec -- goreleaser release --clean --parallelism=2
