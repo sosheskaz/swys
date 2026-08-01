@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -21,8 +22,11 @@ import (
 func TestParsePEMCertificatesRejectsNonCertificateBlock(t *testing.T) {
 	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not a key")})
 	_, err := parsePEMCertificates(data)
-	if err == nil || !strings.Contains(err.Error(), "PRIVATE KEY") {
-		t.Fatalf("error = %v, want unexpected PEM block type", err)
+	if !errors.Is(err, errUnexpectedPEMType) {
+		t.Fatalf("error = %v, want errUnexpectedPEMType", err)
+	}
+	if !strings.Contains(err.Error(), "PRIVATE KEY") {
+		t.Fatalf("error = %v, want the offending block type reported", err)
 	}
 }
 
@@ -34,8 +38,11 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 	}
 
 	output, err := executeRoot(t, "cert", "inspect", "--input", path)
-	if err == nil || !strings.Contains(err.Error(), "PRIVATE KEY") {
-		t.Fatalf("error = %v, want unexpected PRIVATE KEY block", err)
+	if !errors.Is(err, errUnexpectedPEMType) {
+		t.Fatalf("error = %v, want errUnexpectedPEMType", err)
+	}
+	if !strings.Contains(err.Error(), "PRIVATE KEY") {
+		t.Fatalf("error = %v, want the offending block type reported", err)
 	}
 	if output != "" {
 		t.Fatalf("output = %q, want no output for invalid input", output)

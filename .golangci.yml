@@ -1,12 +1,20 @@
 # golangci-lint configuration for npc
 # golangci-lint v2 configuration format
 #
-# Adapted from sosheskaz/healthchecksio-cli with npc-specific changes:
-# - performance linters emphasized (perfsprint, prealloc, gocritic performance
-#   tag, govet fieldalignment) per this project's low-allocation goals
-# - SQL/HTTP-client linters dropped (no database or HTTP client code)
-# - (io.Closer).Close errcheck exclusion NOT carried over: unclosed/unchecked
-#   writers have already caused real data-truncation bugs here
+# Tracks sosheskaz/healthchecksio-cli, taking the stricter setting wherever the
+# two configs disagree. npc-specific divergences:
+# - performance linters emphasized (perfsprint, prealloc, exptostd, gocritic
+#   performance tag) per this project's low-allocation goals
+# - SQL and testify linters omitted: no database/sql or testify dependency, so
+#   they cannot fire. Re-add rowserrcheck/sqlclosecheck/testifylint if that changes.
+# - bodyclose/noctx stay enabled despite no HTTP-client code today: internal/asym
+#   already dials TLS, and HTTP use is plausible near-term.
+# - stricter than healthchecksio-cli: no (io.Closer).Close or (*os.File).Close
+#   errcheck exclusion (unchecked writers have caused real data-truncation bugs
+#   here), no gosec G104 exclusion, no pkg/errors wrapcheck exemptions, and no
+#   main.go complexity exemption
+# - formatters stay gci + gofumpt: gofumpt is a superset of gofmt, and adding
+#   goimports alongside gci gives two tools competing to reorder imports
 version: "2"
 
 run:
@@ -32,6 +40,7 @@ linters:
     - asasalint       # Check for pass []any as any in variadic func(...any)
     - asciicheck      # Check for non-ASCII identifiers
     - bidichk         # Check for dangerous unicode character sequences
+    - bodyclose       # Check whether HTTP response body is closed
     - contextcheck    # Check whether the function uses a non-inherited context
     - copyloopvar     # Detect places where loop variables are copied
     - durationcheck   # Check for two durations multiplied together
@@ -47,6 +56,7 @@ linters:
     - musttag         # Enforce field tags in (un)marshaled structs
     - nilerr          # Find code that returns nil even if it checks that the error is not nil
     - nilnil          # Check that there is no simultaneous return of nil error and invalid value
+    - noctx           # Find sending HTTP requests without context.Context
     - nosprintfhostport # Check for misuse of Sprintf to construct a host with port in a URL
     - predeclared     # Find code that shadows one of Go's predeclared identifiers
     - reassign        # Check that package variables are not reassigned
@@ -70,6 +80,7 @@ linters:
     - dupl            # Code clone detection
     - dupword         # Check for duplicate words in comments
     - errchkjson      # Check types passed to the json encoding functions
+    - err113          # Check the errors handling expressions
     - forcetypeassert # Find forced type assertions
     - gocognit        # Compute and check the cognitive complexity of functions
     - goconst         # Find repeated strings that could be replaced by a constant
@@ -86,6 +97,8 @@ linters:
     - nestif          # Report deeply nested if statements
     - nolintlint      # Report ill-formed or insufficient nolint directives
     - nonamedreturns  # Report all named returns
+    - paralleltest    # Detect missing usage of t.Parallel() method in Go tests
+    - sloglint        # Ensure consistent code style when using log/slog
     - tagliatelle     # Check struct tags
     - thelper         # Detect test helpers without t.Helper() call
     - forbidigo       # Forbid use of banned identifiers
@@ -98,10 +111,6 @@ linters:
 
     govet:
       enable-all: true
-      disable:
-        # Struct layout is an API/readability tradeoff; optimize it only from
-        # benchmark or profile evidence rather than an automatic rewrite.
-        - fieldalignment
       settings:
         shadow:
           strict: true
@@ -194,6 +203,10 @@ linters:
         rules:
           json: snake
           yaml: snake
+          xml: camel
+          bson: camel
+          avro: snake
+          mapstructure: kebab
 
     wrapcheck:
       ignore-sigs:
@@ -220,6 +233,9 @@ linters:
 
     whitespace:
       multi-if: true
+      # multi-func stays off: it wants a blank line after a multi-line function
+      # signature, and gofumpt removes exactly that line. Enabling both makes
+      # `golangci-lint fmt` and `golangci-lint run` fight indefinitely.
       multi-func: false
 
     interfacebloat:
@@ -228,9 +244,16 @@ linters:
     maintidx:
       under: 20
 
+    paralleltest:
+      ignore-missing: false
+      ignore-missing-subtests: false
+
   exclusions:
     rules:
-      # Relax complexity/duplication heuristics for table-driven tests
+      # Relax complexity/duplication heuristics for table-driven tests, and
+      # prealloc: allocation shape in fixtures is not a production concern and
+      # its suggestions push toward less readable setup code. errcheck and lll
+      # deliberately still apply here.
       - path: _test\.go
         linters:
           - gocyclo
@@ -239,7 +262,16 @@ linters:
           - goconst
           - gocognit
           - maintidx
-          - lll
+          - prealloc
+
+      # cmd tests drive the package-global rootCmd (AddCommand, SetArgs,
+      # SetOut/SetErr), so t.Parallel() there is a data race rather than a
+      # speedup -- confirmed by `go test -race` reporting a write/read race in
+      # cobra's AddCommand. Removing this exemption requires a newRootCmd()
+      # constructor so each test can build its own command tree.
+      - path: cmd/.*_test\.go
+        linters:
+          - paralleltest
 
       # Exclude lll issues for long lines with go:generate
       - linters:

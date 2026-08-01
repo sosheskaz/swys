@@ -129,10 +129,10 @@ var errInvalidBase64URLPadding = errors.New("invalid base64url padding")
 
 type optionalPaddingReader struct {
 	source      io.Reader
+	pendingErr  error
 	dataChars   int
 	padding     int
 	seenPadding bool
-	pendingErr  error
 }
 
 func (reader *optionalPaddingReader) Read(buffer []byte) (int, error) {

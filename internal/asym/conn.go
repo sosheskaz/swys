@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net"
 )
@@ -29,11 +28,11 @@ func CertFromDial(ctx context.Context, address string) ([]*x509.Certificate, str
 
 	tlsConnection, ok := connection.(*tls.Conn)
 	if !ok {
-		return nil, "", errors.New("TLS dialer returned a non-TLS connection")
+		return nil, "", errNonTLSConnection
 	}
 	certs := tlsConnection.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
-		return nil, "", errors.New("TLS peer returned no certificates")
+		return nil, "", errNoPeerCertificates
 	}
 	return certs, host, nil
 }

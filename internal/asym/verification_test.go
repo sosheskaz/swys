@@ -14,6 +14,7 @@ import (
 )
 
 func TestNewCertInfosVerifiesHostnameAndPeerIntermediates(t *testing.T) {
+	t.Parallel()
 	leaf, intermediate, root := generateCertificateChain(t)
 	roots := x509.NewCertPool()
 	roots.AddCert(root)
@@ -62,6 +63,7 @@ func TestNewCertInfosVerifiesHostnameAndPeerIntermediates(t *testing.T) {
 }
 
 func TestNewCertInfosPreservesCommonNamesContainingCommas(t *testing.T) {
+	t.Parallel()
 	leaf, intermediate, root := generateCertificateChain(t)
 	roots := x509.NewCertPool()
 	roots.AddCert(root)
@@ -89,6 +91,7 @@ func TestNewCertInfosPreservesCommonNamesContainingCommas(t *testing.T) {
 }
 
 func TestNewCertInfoVerifiedDoesNotMutateOptions(t *testing.T) {
+	t.Parallel()
 	leaf, intermediate, root := generateCertificateChain(t)
 	roots := x509.NewCertPool()
 	roots.AddCert(root)

@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+var errTestWriteFailed = errors.New("write failed")
+
 func TestInputDecoders(t *testing.T) {
 	for _, name := range byteEncodingNames() {
 		t.Run(name+"/empty", func(t *testing.T) {
@@ -24,12 +26,12 @@ func TestInputDecoders(t *testing.T) {
 	}
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		encoding  string
 		input     string
 		want      string
 		wantErr   bool
-		wantErrIs error
 	}{
 		{name: "base64 padded", encoding: "base64", input: "aGVsbG8=", want: "hello"},
 		{name: "base64 truncated padding", encoding: "base64", input: "YQ=", wantErr: true},
@@ -84,7 +86,7 @@ func TestInputDecoders(t *testing.T) {
 }
 
 func TestOutputEncodersPropagateWriterFailures(t *testing.T) {
-	writeErr := errors.New("write failed")
+	writeErr := errTestWriteFailed
 	for _, name := range byteEncodingNames() {
 		t.Run(name, func(t *testing.T) {
 			encoder, err := getOutputEncoder(name)
@@ -134,8 +136,8 @@ func TestNewlineStrippingReaderDoesNotReturnZeroWithoutError(t *testing.T) {
 }
 
 type sequenceReader struct {
-	chunks [][]byte
 	err    error
+	chunks [][]byte
 }
 
 func (r *sequenceReader) Read(buffer []byte) (int, error) {

@@ -13,6 +13,7 @@ import (
 
 // TestAESCrypterRoundTrip tests basic encryption/decryption round trip.
 func TestAESCrypterRoundTrip(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		plaintext string
@@ -47,6 +48,7 @@ func TestAESCrypterRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			key := make([]byte, tt.keySize)
 			if _, err := io.ReadFull(rand.Reader, key); err != nil {
 				t.Fatalf("failed to generate key: %v", err)
@@ -88,6 +90,7 @@ func TestAESCrypterRoundTrip(t *testing.T) {
 // TestAESCrypterLargeData tests encryption/decryption with data larger than buffer size
 // This exposes issue #2 (buffer corruption bug) and #4 (decrypt buffer resize).
 func TestAESCrypterLargeData(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		size int
@@ -108,6 +111,7 @@ func TestAESCrypterLargeData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Generate random plaintext
 			plaintext := make([]byte, tt.size)
 			if _, err := io.ReadFull(rand.Reader, plaintext); err != nil {
@@ -169,6 +173,7 @@ func TestAESCrypterLargeData(t *testing.T) {
 // TestAESCrypterPaddingRemoval specifically tests that PKCS#7 padding is removed
 // This exposes issue #3 (missing padding removal).
 func TestAESCrypterPaddingRemoval(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		plaintext string
@@ -193,6 +198,7 @@ func TestAESCrypterPaddingRemoval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			key := make([]byte, 16)
 			if _, err := io.ReadFull(rand.Reader, key); err != nil {
 				t.Fatalf("failed to generate key: %v", err)
@@ -241,6 +247,7 @@ func TestAESCrypterPaddingRemoval(t *testing.T) {
 
 // TestAESCrypterInvalidInput tests error handling.
 func TestAESCrypterInvalidInput(t *testing.T) {
+	t.Parallel()
 	key := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		t.Fatalf("failed to generate key: %v", err)
@@ -252,6 +259,7 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 	}
 
 	t.Run("decrypt empty ciphertext", func(t *testing.T) {
+		t.Parallel()
 		emptyBuf := &bytes.Buffer{}
 		outBuf := &bytes.Buffer{}
 		err := crypter.Decrypt(emptyBuf, outBuf)
@@ -261,6 +269,7 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 	})
 
 	t.Run("decrypt ciphertext smaller than IV", func(t *testing.T) {
+		t.Parallel()
 		smallBuf := bytes.NewReader([]byte{1, 2, 3, 4, 5})
 		outBuf := &bytes.Buffer{}
 		err := crypter.Decrypt(smallBuf, outBuf)
@@ -270,6 +279,7 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 	})
 
 	t.Run("decrypt IV without ciphertext", func(t *testing.T) {
+		t.Parallel()
 		outBuf := &bytes.Buffer{}
 		err := crypter.Decrypt(bytes.NewReader(make([]byte, aes.BlockSize)), outBuf)
 		if err == nil {
@@ -278,6 +288,7 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 	})
 
 	t.Run("encrypt with invalid IV length", func(t *testing.T) {
+		t.Parallel()
 		outBuf := &bytes.Buffer{}
 		err := crypter.Encrypt(make([]byte, aes.BlockSize-1), strings.NewReader("plaintext"), outBuf)
 		if err == nil {
@@ -291,6 +302,7 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 	// trailing 0xff claims 255 bytes of padding, which no 16-byte block can
 	// satisfy, so this is invalid under every key rather than almost every key.
 	t.Run("decrypt invalid padding", func(t *testing.T) {
+		t.Parallel()
 		block, err := aes.NewCipher(key)
 		if err != nil {
 			t.Fatal(err)
@@ -308,11 +320,12 @@ func TestAESCrypterInvalidInput(t *testing.T) {
 }
 
 func TestAESCrypterDecryptPreservesReadErrors(t *testing.T) {
+	t.Parallel()
 	crypter, err := NewAESCrypter(make([]byte, 16))
 	if err != nil {
 		t.Fatal(err)
 	}
-	readErr := errors.New("storage read failed")
+	readErr := errTestStorageRead
 	input := io.MultiReader(
 		bytes.NewReader(make([]byte, aes.BlockSize)),
 		&dataErrorReader{data: []byte{1}, err: readErr},
@@ -325,6 +338,7 @@ func TestAESCrypterDecryptPreservesReadErrors(t *testing.T) {
 }
 
 func TestAESCrypterDecryptEmptyInputWrapsEOF(t *testing.T) {
+	t.Parallel()
 	crypter, err := NewAESCrypter(make([]byte, 16))
 	if err != nil {
 		t.Fatal(err)
@@ -337,23 +351,29 @@ func TestAESCrypterDecryptEmptyInputWrapsEOF(t *testing.T) {
 }
 
 func TestAESCrypterPropagatesWriterFailures(t *testing.T) {
+	t.Parallel()
 	crypter, err := NewAESCrypter(make([]byte, 16))
 	if err != nil {
 		t.Fatal(err)
 	}
-	failing := errorWriter{err: errors.New("write failed")}
+	failing := errorWriter{err: errTestWriteFailed}
 	if err := crypter.Encrypt(make([]byte, aes.BlockSize), strings.NewReader("plaintext"), failing); err == nil {
 		t.Fatal("Encrypt returned nil for a failing writer")
 	}
 }
+
+var (
+	errTestStorageRead = errors.New("storage read failed")
+	errTestWriteFailed = errors.New("write failed")
+)
 
 type errorWriter struct {
 	err error
 }
 
 type dataErrorReader struct {
-	data []byte
 	err  error
+	data []byte
 }
 
 func (reader *dataErrorReader) Read(buffer []byte) (int, error) {

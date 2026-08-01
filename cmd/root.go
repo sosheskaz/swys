@@ -41,10 +41,10 @@ var rootCmd = &cobra.Command{
 type commandIOKey struct{}
 
 type commandIO struct {
+	err        error
 	cleanup    func(bool) error
 	once       sync.Once
 	successful bool
-	err        error
 }
 
 func (state *commandIO) close() error {
@@ -202,7 +202,7 @@ func openCommandOutput(outputPath string) (*os.File, string, os.FileMode, bool, 
 		case targetErr != nil:
 			return nil, "", 0, false, fmt.Errorf("inspect output %q: %w", outputPath, targetErr)
 		case target.IsDir():
-			return nil, "", 0, false, fmt.Errorf("output %q is a directory", outputPath)
+			return nil, "", 0, false, fmt.Errorf("%w: %q", errOutputIsDirectory, outputPath)
 		case target.Mode().IsRegular():
 			return createStagedOutput(outputPath, target.Mode().Perm(), true)
 		default:
@@ -211,7 +211,7 @@ func openCommandOutput(outputPath string) (*os.File, string, os.FileMode, bool, 
 	case info.Mode().IsRegular():
 		return createStagedOutput(outputPath, info.Mode().Perm(), true)
 	case info.IsDir():
-		return nil, "", 0, false, fmt.Errorf("output %q is a directory", outputPath)
+		return nil, "", 0, false, fmt.Errorf("%w: %q", errOutputIsDirectory, outputPath)
 	default:
 		return openDirectOutput(outputPath)
 	}
@@ -315,7 +315,7 @@ func rejectSameFile(inputPath, outputPath string) error {
 		return fmt.Errorf("stat output %q: %w", outputPath, err)
 	}
 	if os.SameFile(inputInfo, outputInfo) {
-		return fmt.Errorf("input and output refer to the same file: %q", inputPath)
+		return fmt.Errorf("%w: %q", errSameInputOutput, inputPath)
 	}
 	return nil
 }

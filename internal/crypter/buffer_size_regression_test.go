@@ -7,6 +7,7 @@ import (
 )
 
 func TestAESCrypterBufferBoundaries(t *testing.T) {
+	t.Parallel()
 	bufferSizes := []struct {
 		name string
 		size int
@@ -17,6 +18,7 @@ func TestAESCrypterBufferBoundaries(t *testing.T) {
 	}
 	for _, bufferSize := range bufferSizes {
 		t.Run(bufferSize.name, func(t *testing.T) {
+			t.Parallel()
 			crypter, err := newAESCrypter(make([]byte, 32), bufferSize.size)
 			if err != nil {
 				t.Fatal(err)

@@ -64,6 +64,7 @@ func generateTestCert(t *testing.T, opts ...func(*x509.Certificate)) *x509.Certi
 }
 
 func TestNewCertInfo(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 
@@ -107,6 +108,7 @@ func TestNewCertInfo(t *testing.T) {
 }
 
 func TestCertInfoCommonName(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 
@@ -117,6 +119,7 @@ func TestCertInfoCommonName(t *testing.T) {
 }
 
 func TestTextFormatterCompact(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 	info.Verified = true
@@ -142,6 +145,7 @@ func TestTextFormatterCompact(t *testing.T) {
 }
 
 func TestTextFormatterCompactManyDNS(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t, func(c *x509.Certificate) {
 		c.DNSNames = []string{"a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.com"}
 	})
@@ -172,6 +176,7 @@ func TestTextFormatterCompactManyDNS(t *testing.T) {
 }
 
 func TestTextFormatterCompactUnverified(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 	info.Verified = false
@@ -198,6 +203,7 @@ func TestTextFormatterCompactUnverified(t *testing.T) {
 }
 
 func TestTextFormatterLong(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 	info.Verified = true
@@ -233,6 +239,7 @@ func TestTextFormatterLong(t *testing.T) {
 }
 
 func TestTextFormatterMultiple(t *testing.T) {
+	t.Parallel()
 	cert1 := generateTestCert(t)
 	cert2 := generateTestCert(t, func(c *x509.Certificate) {
 		c.Subject.CommonName = "other.example.com"
@@ -261,6 +268,7 @@ func TestTextFormatterMultiple(t *testing.T) {
 }
 
 func TestJSONFormatter(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 	info.Verified = true
@@ -288,6 +296,7 @@ func TestJSONFormatter(t *testing.T) {
 }
 
 func TestJSONFormatterMultiple(t *testing.T) {
+	t.Parallel()
 	cert1 := generateTestCert(t)
 	cert2 := generateTestCert(t, func(c *x509.Certificate) {
 		c.Subject.CommonName = "other.example.com"
@@ -315,6 +324,7 @@ func TestJSONFormatterMultiple(t *testing.T) {
 }
 
 func TestPEMFormatter(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 
@@ -352,6 +362,7 @@ func TestPEMFormatter(t *testing.T) {
 }
 
 func TestPEMFormatterMultiple(t *testing.T) {
+	t.Parallel()
 	cert1 := generateTestCert(t)
 	cert2 := generateTestCert(t)
 
@@ -375,6 +386,7 @@ func TestPEMFormatterMultiple(t *testing.T) {
 }
 
 func TestTextFormatterLongChainCNHandlesComma(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 	info.Verified = true
@@ -397,6 +409,7 @@ func TestTextFormatterLongChainCNHandlesComma(t *testing.T) {
 }
 
 func TestFormatDuration(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		expected string
 		duration time.Duration
@@ -417,6 +430,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestFormatFingerprint(t *testing.T) {
+	t.Parallel()
 	fp := []byte{0xAB, 0xCD, 0xEF, 0x12}
 	result := formatFingerprint(fp)
 	expected := "AB:CD:EF:12"
@@ -426,6 +440,7 @@ func TestFormatFingerprint(t *testing.T) {
 }
 
 func TestExpiredCertificate(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t, func(c *x509.Certificate) {
 		c.NotAfter = time.Now().Add(-24 * time.Hour) // Expired yesterday
 	})
@@ -441,6 +456,7 @@ func TestExpiredCertificate(t *testing.T) {
 }
 
 func TestCACertificate(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t, func(c *x509.Certificate) {
 		c.IsCA = true
 		c.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageCRLSign

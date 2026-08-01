@@ -9,6 +9,7 @@ import (
 )
 
 func TestChainPEMFormatterSingle(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 
@@ -26,6 +27,7 @@ func TestChainPEMFormatterSingle(t *testing.T) {
 }
 
 func TestChainPEMFormatterMultiple(t *testing.T) {
+	t.Parallel()
 	cert1 := generateTestCert(t)
 	cert2 := generateTestCert(t, func(c *x509.Certificate) {
 		c.Subject.CommonName = "Intermediate CA"
@@ -75,6 +77,7 @@ func TestChainPEMFormatterMultiple(t *testing.T) {
 }
 
 func TestPEMFormatterFullChainSingle(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 
@@ -95,6 +98,7 @@ func TestPEMFormatterFullChainSingle(t *testing.T) {
 }
 
 func TestPEMFormatterFullChainMultiple(t *testing.T) {
+	t.Parallel()
 	cert1 := generateTestCert(t)
 	cert2 := generateTestCert(t, func(c *x509.Certificate) {
 		c.Subject.CommonName = "Intermediate CA"
@@ -144,6 +148,7 @@ func TestPEMFormatterFullChainMultiple(t *testing.T) {
 }
 
 func TestChainPEMFormatterEmptyChain(t *testing.T) {
+	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 

@@ -3,7 +3,6 @@ package cmd
 import (
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io"
 
@@ -72,7 +71,7 @@ func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
 		}
 		remainder = rest
 		if block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("unexpected PEM block type %q; expected CERTIFICATE", block.Type)
+			return nil, fmt.Errorf("%w %q; expected CERTIFICATE", errUnexpectedPEMType, block.Type)
 		}
 
 		parsed, err := x509.ParseCertificates(block.Bytes)
@@ -82,7 +81,7 @@ func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
 		certs = append(certs, parsed...)
 	}
 	if len(certs) == 0 {
-		return nil, errors.New("no valid PEM certificates found")
+		return nil, errNoPEMCertificates
 	}
 	return certs, nil
 }

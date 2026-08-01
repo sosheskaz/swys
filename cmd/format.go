@@ -28,7 +28,7 @@ func getCertFormatter(format string) (asym.CertFormatter, error) {
 		if _, isEncoding := byteEncodings[format]; isEncoding {
 			return nil, fmt.Errorf("unknown output format %q (valid: %s): %w", format, strings.Join(certFormatNames(), ", "), errFormatSelectsStructuredOutput)
 		}
-		return nil, fmt.Errorf("unknown output format %q (valid: %s)", format, strings.Join(certFormatNames(), ", "))
+		return nil, fmt.Errorf("%w %q (valid: %s)", errUnknownCertFormat, format, strings.Join(certFormatNames(), ", "))
 	}
 	return constructor(), nil
 }

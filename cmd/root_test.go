@@ -18,11 +18,13 @@ import (
 	"github.com/spf13/pflag"
 )
 
+var errTestCommandFailed = errors.New("command failed")
+
 func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 	tests := []struct {
+		decode func(string) ([]byte, error)
 		name   string
 		format string
-		decode func(string) ([]byte, error)
 	}{
 		{name: "base64", format: "base64", decode: base64.StdEncoding.DecodeString},
 		{name: "b64", format: "b64", decode: base64.StdEncoding.DecodeString},
@@ -50,8 +52,8 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 
 func TestGenkeyRejectsInvalidSize(t *testing.T) {
 	_, err := executeRoot(t, "key", "generate", "--bits", "64")
-	if err == nil || !strings.Contains(err.Error(), "128, 192, or 256") {
-		t.Fatalf("error = %v, want invalid AES key size", err)
+	if !errors.Is(err, errInvalidAESKeySize) {
+		t.Fatalf("error = %v, want errInvalidAESKeySize", err)
 	}
 }
 
@@ -145,8 +147,8 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 	}
 
 	_, err := executeRoot(t, "key", "generate", "--input", path, "--output", path)
-	if err == nil || !strings.Contains(err.Error(), "same file") {
-		t.Fatalf("error = %v, want same-file rejection", err)
+	if !errors.Is(err, errSameInputOutput) {
+		t.Fatalf("error = %v, want errSameInputOutput", err)
 	}
 	data, readErr := os.ReadFile(path)
 	if readErr != nil {
@@ -370,7 +372,7 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 }
 
 func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
-	runErr := errors.New("command failed")
+	runErr := errTestCommandFailed
 	command := binaryOutputCommand(&cobra.Command{
 		Use:    "hook-error-test",
 		Hidden: true,
@@ -406,7 +408,7 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 }
 
 func TestCommandErrorDoesNotCommitOutputFile(t *testing.T) {
-	runErr := errors.New("command failed")
+	runErr := errTestCommandFailed
 	command := binaryOutputCommand(&cobra.Command{
 		Use:    "output-error-test",
 		Hidden: true,

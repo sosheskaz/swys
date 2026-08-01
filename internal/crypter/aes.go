@@ -12,7 +12,16 @@ import (
 
 const cryptBufferSize = 64 * 1024
 
-var errInvalidPadding = errors.New("invalid PKCS#7 padding")
+var (
+	errInvalidPadding        = errors.New("invalid PKCS#7 padding")
+	errInvalidBufferSize     = errors.New("invalid buffer size")
+	errMisalignedCiphertext  = errors.New("misaligned ciphertext")
+	errMissingCiphertextBody = errors.New("ciphertext contains an IV but no encrypted data")
+)
+
+// ErrInvalidIVLength is returned when an IV does not match the cipher's block size.
+// It is exported so callers can match it with errors.Is against wrapped errors.
+var ErrInvalidIVLength = errors.New("invalid IV length")
 
 // AESCrypter encrypts and decrypts AES-CBC streams using PKCS#7 padding.
 type AESCrypter struct {
@@ -27,7 +36,7 @@ func NewAESCrypter(key []byte) (*AESCrypter, error) {
 
 func newAESCrypter(key []byte, bufferSize int) (*AESCrypter, error) {
 	if bufferSize <= 0 || bufferSize%aes.BlockSize != 0 {
-		return nil, fmt.Errorf("buffer size must be a positive multiple of %d, got %d", aes.BlockSize, bufferSize)
+		return nil, fmt.Errorf("%w: must be a positive multiple of %d, got %d", errInvalidBufferSize, aes.BlockSize, bufferSize)
 	}
 	sys.Log().V(1).Info("creating new AES crypter", "bits", len(key)*8)
 	block, err := aes.NewCipher(key)
@@ -40,7 +49,7 @@ func newAESCrypter(key []byte, bufferSize int) (*AESCrypter, error) {
 // Encrypt writes the IV followed by AES-CBC ciphertext for plaintext.
 func (a *AESCrypter) Encrypt(iv []byte, plaintext io.Reader, ciphertext io.Writer) error {
 	if len(iv) != a.cipher.BlockSize() {
-		return fmt.Errorf("IV must be %d bytes, got %d", a.cipher.BlockSize(), len(iv))
+		return fmt.Errorf("%w: must be %d bytes, got %d", ErrInvalidIVLength, a.cipher.BlockSize(), len(iv))
 	}
 	if err := writeAll(ciphertext, iv); err != nil {
 		return fmt.Errorf("write IV: %w", err)
@@ -91,7 +100,7 @@ func (a *AESCrypter) Decrypt(ciphertext io.Reader, plaintext io.Writer) error {
 			return fmt.Errorf("read ciphertext: %w", err)
 		}
 		if n%aes.BlockSize != 0 {
-			return fmt.Errorf("ciphertext chunk is %d bytes; expected a multiple of %d", n, aes.BlockSize)
+			return fmt.Errorf("%w: chunk is %d bytes; expected a multiple of %d", errMisalignedCiphertext, n, aes.BlockSize)
 		}
 		if n > 0 {
 			stream.CryptBlocks(current[:n], current[:n])
@@ -109,7 +118,7 @@ func (a *AESCrypter) Decrypt(ciphertext io.Reader, plaintext io.Writer) error {
 			continue
 		case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 			if previousLen == 0 {
-				return errors.New("ciphertext contains an IV but no encrypted data")
+				return errMissingCiphertextBody
 			}
 			unpadded, paddingErr := unpadPKCS7(previous[:previousLen], aes.BlockSize)
 			if paddingErr != nil {

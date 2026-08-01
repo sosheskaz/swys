@@ -17,8 +17,8 @@ func TestFIFOOutputStreamsDirectly(t *testing.T) {
 	}
 
 	type readResult struct {
-		data []byte
 		err  error
+		data []byte
 	}
 	result := make(chan readResult, 1)
 	go func() {
@@ -66,8 +66,8 @@ func TestSymlinkToFIFOOutputStreamsDirectly(t *testing.T) {
 	}
 
 	type readResult struct {
-		data []byte
 		err  error
+		data []byte
 	}
 	result := make(chan readResult, 1)
 	go func() {

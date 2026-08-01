@@ -6,10 +6,11 @@ import (
 )
 
 func TestInfoString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
-		info Info
 		want string
+		info Info
 	}{
 		{
 			name: "release build",
@@ -40,6 +41,7 @@ func TestInfoString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.info.String(); got != tt.want {
 				t.Fatalf("String() = %q, want %q", got, tt.want)
 			}
@@ -48,6 +50,7 @@ func TestInfoString(t *testing.T) {
 }
 
 func TestGetReportsAVersion(t *testing.T) {
+	t.Parallel()
 	info := Get()
 	if info.Version == "" {
 		t.Fatal("Get() returned an empty version; expected ldflags value or build-info fallback")

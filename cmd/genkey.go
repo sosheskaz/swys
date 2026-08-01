@@ -49,7 +49,7 @@ func generateAESKey(bits int, output io.Writer) error {
 	switch bits {
 	case 128, 192, 256:
 	default:
-		return fmt.Errorf("AES key size must be 128, 192, or 256 bits, got %d", bits)
+		return fmt.Errorf("%w, got %d", errInvalidAESKeySize, bits)
 	}
 	if _, err := io.CopyN(output, rand.Reader, int64(bits/8)); err != nil {
 		return fmt.Errorf("generate AES key: %w", err)

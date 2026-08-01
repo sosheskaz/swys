@@ -51,7 +51,7 @@ func getIV(cmd *cobra.Command, blockSize int) ([]byte, error) {
 		return nil, fmt.Errorf("read IV flag: %w", err)
 	}
 	if len(iv) != blockSize {
-		return nil, fmt.Errorf("IV must be %d bytes, got %d", blockSize, len(iv))
+		return nil, fmt.Errorf("%w: must be %d bytes, got %d", crypter.ErrInvalidIVLength, blockSize, len(iv))
 	}
 	return iv, nil
 }

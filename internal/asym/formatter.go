@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -70,32 +69,42 @@ type ChainCertInfo struct {
 }
 
 // CertInfo holds all relevant certificate information for formatting.
+//
+// Field order satisfies govet's fieldalignment: pointer-dense types first,
+// then strings, then slices, then the pointer-free bools. Ordering within each
+// size class is unconstrained, so fields stay in reading order and unexported
+// fields stay grouped. JSON output is unaffected either way -- certInfoJSON in
+// format_json.go owns the wire format.
 type CertInfo struct {
-	Subject            string            `json:"subject"`
-	Issuer             string            `json:"issuer"`
-	SerialNumber       string            `json:"serial_number"`
-	DNSNames           []string          `json:"dns_names"`
-	IPAddresses        []string          `json:"ip_addresses"`
-	NotBefore          time.Time         `json:"not_before"`
-	NotAfter           time.Time         `json:"not_after"`
-	RemainingTime      string            `json:"remaining_time"`
-	SignatureAlgorithm string            `json:"signature_algorithm"`
-	PublicKeyAlgorithm string            `json:"public_key_algorithm"`
-	KeyUsage           []string          `json:"key_usage,omitempty"`
-	ExtKeyUsage        []string          `json:"ext_key_usage,omitempty"`
-	Chains             [][]ChainCertInfo `json:"chains,omitempty"`
-	SHA256Fingerprint  string            `json:"sha256_fingerprint"`
-	VerifyError        string            `json:"verify_error,omitempty"`
-	RawDER             []byte            `json:"-"`
-	Verified           bool              `json:"verified"`
-	IsCA               bool              `json:"is_ca"`
-	IsExpired          bool              `json:"is_expired"`
+	NotBefore time.Time `json:"not_before"`
+	NotAfter  time.Time `json:"not_after"`
 
-	cert            *x509.Certificate
+	cert *x509.Certificate
+
+	Subject            string `json:"subject"`
+	Issuer             string `json:"issuer"`
+	SerialNumber       string `json:"serial_number"`
+	RemainingTime      string `json:"remaining_time"`
+	SignatureAlgorithm string `json:"signature_algorithm"`
+	PublicKeyAlgorithm string `json:"public_key_algorithm"`
+	SHA256Fingerprint  string `json:"sha256_fingerprint"`
+	VerifyError        string `json:"verify_error,omitempty"`
+
 	subjectCN       string
 	issuerCN        string
 	signatureBase64 string
 	publicKeyBase64 string
+
+	DNSNames    []string          `json:"dns_names"`
+	IPAddresses []string          `json:"ip_addresses"`
+	KeyUsage    []string          `json:"key_usage,omitempty"`
+	ExtKeyUsage []string          `json:"ext_key_usage,omitempty"`
+	Chains      [][]ChainCertInfo `json:"chains,omitempty"`
+	RawDER      []byte            `json:"-"`
+
+	Verified  bool `json:"verified"`
+	IsCA      bool `json:"is_ca"`
+	IsExpired bool `json:"is_expired"`
 }
 
 // SignatureBase64 returns the base64-encoded signature (lazy-loaded).
@@ -236,7 +245,7 @@ func verifyCertInfo(
 // NewCertInfos creates consistently verified information for a leaf-first certificate chain.
 func NewCertInfos(certs []*x509.Certificate, options *x509.VerifyOptions, includeChain bool) ([]*CertInfo, error) {
 	if len(certs) == 0 {
-		return nil, errors.New("certificate chain is empty")
+		return nil, errEmptyCertChain
 	}
 
 	intermediates := x509.NewCertPool()
