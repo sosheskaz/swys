@@ -2,7 +2,7 @@
 # jdx/mise-action, so local and CI toolchains cannot drift.
 # Tasks live in mise-tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
-go = "1.26.5"
+go = "1.26.7"
 golangci-lint = "2.12.2"
 goreleaser = "2.16.0"
 ko = "0.18.1"
