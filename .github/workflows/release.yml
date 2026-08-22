@@ -50,7 +50,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          install_args: 'go goreleaser ko'
+          install_args: 'go goreleaser ko uv'
           cache: false
 
       - name: Log in to GHCR

@@ -42,7 +42,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          install_args: 'go golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
+          install_args: 'go golangci-lint go:golang.org/x/vuln/cmd/govulncheck uv'
           cache: true
 
       - name: Go caches
