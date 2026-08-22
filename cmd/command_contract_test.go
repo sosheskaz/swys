@@ -120,6 +120,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 			ciphertext, err := executeRoot(
 				t,
 				"aes", "encrypt",
+				"--cipher-mode", "cbc",
 				"--key", key,
 				"--iv", iv,
 				"--input", plainPath,
@@ -135,6 +136,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 			output, err := executeRoot(
 				t,
 				"aes", "decrypt",
+				"--cipher-mode", "cbc",
 				"--key", key,
 				"--input", cipherPath,
 				"--input-encoding", encoding,
@@ -163,7 +165,7 @@ func TestBase64URLInputAcceptsPadding(t *testing.T) {
 	const plaintext = "padded base64url"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
-	rawCiphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key", key, "--iv", iv)
+	rawCiphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--cipher-mode", "cbc", "--key", key, "--iv", iv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,7 @@ func TestBase64URLInputAcceptsPadding(t *testing.T) {
 	}
 	output, err := executeRoot(
 		t,
-		"aes", "decrypt", "--key", key,
+		"aes", "decrypt", "--cipher-mode", "cbc", "--key", key,
 		"--input", path,
 		"--input-encoding", "base64url",
 	)
@@ -190,7 +192,7 @@ func TestHexInputAcceptsTrailingNewline(t *testing.T) {
 	const plaintext = "trailing newline"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
-	ciphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key", key, "--iv", iv, "--encoding", "hex")
+	ciphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--cipher-mode", "cbc", "--key", key, "--iv", iv, "--encoding", "hex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +202,7 @@ func TestHexInputAcceptsTrailingNewline(t *testing.T) {
 	}
 	output, err := executeRoot(
 		t,
-		"aes", "decrypt", "--key", key,
+		"aes", "decrypt", "--cipher-mode", "cbc", "--key", key,
 		"--input", path,
 		"--input-encoding", "hex",
 	)

@@ -112,20 +112,89 @@ are bugs, and where possible they are enforced by tests rather than review.
      takes third-party implementations of crypto, and never hand-rolls
      primitives.
 
-8. **Streaming and low-allocation.** Encryption and I/O paths stream; buffer
-   sizes are benchmarked, not guessed. Performance claims require benchmark
-   evidence (`mise run bench`, compared with `benchstat`) before they are
-   made.
+8. **Bounded memory and low allocation.** Streaming algorithms stream;
+   authenticated algorithms buffer only when their security contract requires
+   it. Buffer sizes and limits are benchmarked, not guessed. Performance claims
+   require benchmark evidence (`mise run bench`, compared with `benchstat`)
+   before they are made.
 
 ## Commands today
 
 ```
-npc aes encrypt|decrypt            # AES-CBC today; GCM-by-default in progress
+npc aes encrypt|decrypt            # AES-GCM default; explicit AES-CBC compatibility
 npc key generate                   # AES key generation; more key types are planned
 npc cert inspect|connect           # certificate inspection and TLS probing
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
+
+### AES quick start
+
+Generate a new 256-bit key. `--output` writes the raw key bytes to `aes.key`, so
+keep this file secret.
+
+```fish
+npc key generate --bits 256 --output aes.key
+```
+
+Encrypt a file with the default authenticated AES-GCM mode:
+
+```fish
+npc aes encrypt \
+    --keyfile aes.key \
+    --input document.txt \
+    --output document.txt.gcm
+```
+
+Decrypt it using the same key:
+
+```fish
+npc aes decrypt \
+    --keyfile aes.key \
+    --input document.txt.gcm \
+    --output recovered.txt
+```
+
+Prefer a new output path when decrypting. Runtime failures can leave an existing
+`--output` file empty or partial.
+
+For a small value or pipeline, encode the key and ciphertext as base64 so they
+are safe to pass as text:
+
+```fish
+set key (npc key generate --bits 256 --encoding base64 | string trim)
+set ciphertext (npc aes encrypt "secret message" --key "$key" --encoding base64)
+
+npc aes decrypt "$ciphertext" --key "$key" --input-encoding base64
+```
+
+If the ciphertext needs to be bound to context, use the same `--aad` value when
+encrypting and decrypting:
+
+```fish
+npc aes encrypt --keyfile aes.key --aad "customer=42;format=v1" \
+    --input document.txt --output document.txt.gcm
+npc aes decrypt --keyfile aes.key --aad "customer=42;format=v1" \
+    --input document.txt.gcm --output recovered.txt
+```
+
+`aes encrypt` and `aes decrypt` default to authenticated AES-GCM. Its wire
+format is `[12-byte random nonce][ciphertext][16-byte authentication tag]`.
+GCM accepts `--aad`; the exact string bytes are authenticated but are not
+stored in the ciphertext, so decryption requires the same value. Nonces are
+generated internally and cannot be supplied by the caller. GCM reads one
+message of at most 64 MiB before writing because authentication must complete
+before any plaintext is released.
+
+Use `--cipher-mode cbc` only for compatibility. CBC retains its existing wire
+format, `[16-byte IV][PKCS#7-padded CBC ciphertext]`, and streams input and
+output. `aes encrypt --cipher-mode cbc` generates a random IV when `--iv` is
+omitted; `--iv` is not valid for GCM, and `--aad` is not valid for CBC. CBC is
+unauthenticated: it cannot reliably detect tampering, a wrong key, or a wrong
+mode, and successful decryption does not prove authenticity.
+
+A single GCM key must encrypt no more than 2^32 messages in total across all
+processes and machines that share it. Rotate well before that limit.
 
 Binary input and output use `--input-encoding` and `--encoding/-e` with
 `raw`, `hex`, `base64` (or the compatibility alias `b64`), `base64url`, or
@@ -143,11 +212,17 @@ should use the noun-verb form.
 
 For `--output` paths, npc opens the destination and streams output to it as the
 command runs, following symlinks like normal shell redirection. Before opening
-the output, npc validates encodings and `--mode`, rejects directories and
-same-file input/output pairs, inspects existing target types, and opens a named
-input first. Errors after the output is opened can therefore leave an empty or
-partial destination; the command's non-zero exit status indicates that the
-output is incomplete.
+the output, npc validates encodings, AES mode-specific flags, and `--mode`,
+rejects directories and same-file input/output pairs, inspects existing target
+types, and opens a named input first. Errors after the output is opened can
+therefore leave an empty or partial destination; the command's non-zero exit
+status indicates that the output is incomplete.
+
+The GCM crypter itself makes zero writer calls until encryption or authenticated
+decryption succeeds. That does not preserve a CLI output file on runtime
+failure: npc opens and truncates regular `--output` destinations before the
+crypter runs, and encoders and operating-system writes have their own buffering
+and failure behavior. Flag and mode validation occurs before that open.
 
 A newly created regular destination is `0600`; overwriting an existing file
 keeps that file's current permissions. `--mode` (an octal permission string

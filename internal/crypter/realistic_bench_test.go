@@ -50,6 +50,34 @@ func BenchmarkRealisticMemory(b *testing.B) {
 				}
 			}
 		})
+
+		b.Run("GCM_Encrypt_"+size.name, func(b *testing.B) {
+			crypter := newBenchmarkGCMCrypter(b)
+			plaintext := make([]byte, size.size)
+
+			b.ReportAllocs()
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+			for range b.N {
+				if err := crypter.Encrypt(bytes.NewReader(plaintext), io.Discard, nil); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+
+		b.Run("GCM_Decrypt_"+size.name, func(b *testing.B) {
+			crypter := newBenchmarkGCMCrypter(b)
+			ciphertext := encryptGCMBenchmarkData(b, crypter, size.size)
+
+			b.ReportAllocs()
+			b.SetBytes(int64(size.size))
+			b.ResetTimer()
+			for range b.N {
+				if err := crypter.Decrypt(bytes.NewReader(ciphertext), io.Discard, nil); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
@@ -85,6 +113,32 @@ func BenchmarkFileOperations(b *testing.B) {
 			}
 		}
 	})
+
+	gcmCrypter := newBenchmarkGCMCrypter(b)
+	gcmCipherPath := filepath.Join(tempDir, "gcm-cipher.bin")
+	gcmDecryptedPath := filepath.Join(tempDir, "gcm-decrypted.bin")
+	b.Run("GCM_Encrypt_File_10MB", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(dataSize)
+		for range b.N {
+			if err := encryptGCMFile(gcmCrypter, plainPath, gcmCipherPath); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	if err := encryptGCMFile(gcmCrypter, plainPath, gcmCipherPath); err != nil {
+		b.Fatal(err)
+	}
+	b.Run("GCM_Decrypt_File_10MB", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(dataSize)
+		for range b.N {
+			if err := decryptGCMFile(gcmCrypter, gcmCipherPath, gcmDecryptedPath); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func encryptFile(crypter *AESCrypter, iv []byte, inputPath, outputPath string) (runErr error) {
@@ -115,4 +169,53 @@ func decryptFile(crypter *AESCrypter, inputPath, outputPath string) (runErr erro
 	}
 	defer func() { runErr = errors.Join(runErr, output.Close()) }()
 	return crypter.Decrypt(input, output)
+}
+
+func encryptGCMFile(crypter *AESGCMCrypter, inputPath, outputPath string) (runErr error) {
+	input, err := os.Open(inputPath)
+	if err != nil {
+		return fmt.Errorf("open GCM benchmark plaintext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, input.Close()) }()
+
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open GCM benchmark ciphertext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, output.Close()) }()
+	return crypter.Encrypt(input, output, nil)
+}
+
+func decryptGCMFile(crypter *AESGCMCrypter, inputPath, outputPath string) (runErr error) {
+	input, err := os.Open(inputPath)
+	if err != nil {
+		return fmt.Errorf("open GCM benchmark ciphertext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, input.Close()) }()
+
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open GCM benchmark plaintext: %w", err)
+	}
+	defer func() { runErr = errors.Join(runErr, output.Close()) }()
+	return crypter.Decrypt(input, output, nil)
+}
+
+func newBenchmarkGCMCrypter(b *testing.B) *AESGCMCrypter {
+	b.Helper()
+	crypter, err := NewAESGCMCrypter(make([]byte, 32))
+	if err != nil {
+		b.Fatal(err)
+	}
+	return crypter
+}
+
+func encryptGCMBenchmarkData(b *testing.B, crypter *AESGCMCrypter, size int) []byte {
+	b.Helper()
+	var output bytes.Buffer
+	output.Grow(size + gcmWireOverhead)
+	if err := crypter.Encrypt(bytes.NewReader(make([]byte, size)), &output, nil); err != nil {
+		b.Fatal(err)
+	}
+	return output.Bytes()
 }

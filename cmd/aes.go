@@ -1,16 +1,36 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+)
+
+type aesCipherMode string
+
+const (
+	aesCipherModeCBC aesCipherMode = "cbc"
+	aesCipherModeGCM aesCipherMode = "gcm"
+)
+
+var (
+	errUnknownAESCipherMode = errors.New("unknown AES cipher mode")
+	errAADCipherMode        = errors.New("--aad is only valid with --cipher-mode gcm")
+	errIVCipherMode         = errors.New("--iv is only valid with --cipher-mode cbc")
+	aesCipherModes          = map[string]aesCipherMode{
+		string(aesCipherModeCBC): aesCipherModeCBC,
+		string(aesCipherModeGCM): aesCipherModeGCM,
+	}
 )
 
 var aesCmd = &cobra.Command{
 	Use:   "aes",
 	Short: "AES encryption and decryption",
 	Long: `Perform AES encryption and decryption using a specified key.
+AES-GCM is the authenticated default; select AES-CBC explicitly for compatibility.
 The length of the key implicitly determines the AES variant used (128, 192, or 256 bits).`,
 }
 
@@ -22,6 +42,57 @@ func addKeyFlags(cmd *cobra.Command) {
 	}
 	cmd.MarkFlagsMutuallyExclusive("key", "keyfile")
 	cmd.MarkFlagsOneRequired("key", "keyfile")
+}
+
+func addAESCipherFlags(cmd *cobra.Command) {
+	cmd.Flags().String(
+		"cipher-mode",
+		string(aesCipherModeGCM),
+		"AES cipher mode ("+strings.Join(aesCipherModeNames(), ", ")+")",
+	)
+	registerFlagCompletion(cmd, "cipher-mode", aesCipherModeNames)
+	cmd.Flags().String("aad", "", "additional authenticated data for GCM")
+}
+
+func aesCipherModeNames() []string {
+	return sortedKeys(aesCipherModes)
+}
+
+func aesCipherModeFromCommand(cmd *cobra.Command) (aesCipherMode, error) {
+	name, err := cmd.Flags().GetString("cipher-mode")
+	if err != nil {
+		return "", fmt.Errorf("read cipher-mode flag: %w", err)
+	}
+	mode, ok := aesCipherModes[name]
+	if !ok {
+		return "", fmt.Errorf("%w %q (valid: %s)", errUnknownAESCipherMode, name, strings.Join(aesCipherModeNames(), ", "))
+	}
+	return mode, nil
+}
+
+func aesAADFromCommand(cmd *cobra.Command) ([]byte, error) {
+	aad, err := cmd.Flags().GetString("aad")
+	if err != nil {
+		return nil, fmt.Errorf("read AAD flag: %w", err)
+	}
+	return []byte(aad), nil
+}
+
+func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
+	if cmd.Flags().Lookup("cipher-mode") == nil {
+		return nil
+	}
+	mode, err := aesCipherModeFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if mode == aesCipherModeCBC && cmd.Flags().Changed("aad") {
+		return errAADCipherMode
+	}
+	if mode == aesCipherModeGCM && cmd.Flags().Changed("iv") {
+		return errIVCipherMode
+	}
+	return nil
 }
 
 func init() {

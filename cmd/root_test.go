@@ -63,7 +63,7 @@ func TestEncryptPreservesInvalidIVErrorIdentity(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(make([]byte, 16))
 	iv := base64.StdEncoding.EncodeToString(make([]byte, aes.BlockSize-1))
 
-	_, err := executeRoot(t, "aes", "encrypt", "plaintext", "--key", key, "--iv", iv)
+	_, err := executeRoot(t, "aes", "encrypt", "plaintext", "--cipher-mode", "cbc", "--key", key, "--iv", iv)
 	if !errors.Is(err, crypter.ErrInvalidIVLength) {
 		t.Fatalf("error = %v, want crypter.ErrInvalidIVLength", err)
 	}
@@ -138,7 +138,7 @@ func TestDecryptFailureLeavesStreamedPlaintext(t *testing.T) {
 	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
 	ciphertext, err := executeRoot(
 		t,
-		"aes", "encrypt", "--key", key, "--iv", iv, "--input", plaintextPath,
+		"aes", "encrypt", "--cipher-mode", "cbc", "--key", key, "--iv", iv, "--input", plaintextPath,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestDecryptFailureLeavesStreamedPlaintext(t *testing.T) {
 
 	_, err = executeRoot(
 		t,
-		"aes", "decrypt", "--key", key, "--input", ciphertextPath, "--output", outputPath,
+		"aes", "decrypt", "--cipher-mode", "cbc", "--key", key, "--input", ciphertextPath, "--output", outputPath,
 	)
 	if err == nil || !strings.Contains(err.Error(), "invalid PKCS#7 padding") {
 		t.Fatalf("error = %v, want invalid padding", err)

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/internal/crypter"
@@ -8,6 +10,7 @@ import (
 
 var decryptCmd = binaryOutputCommand(&cobra.Command{
 	Use:     "decrypt [ciphertext]",
+	Short:   "Decrypt with AES-GCM by default or AES-CBC explicitly",
 	Aliases: []string{"dec", "d"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		input, err := commandInput(cmd, args)
@@ -19,15 +22,35 @@ var decryptCmd = binaryOutputCommand(&cobra.Command{
 		if err != nil {
 			return err
 		}
-		cipher, err := crypter.NewAESCrypter(key)
+		mode, err := aesCipherModeFromCommand(cmd)
 		if err != nil {
 			return err
 		}
-		return cipher.Decrypt(input, cmd.OutOrStdout())
+		switch mode {
+		case aesCipherModeGCM:
+			cipher, err := crypter.NewAESGCMCrypter(key)
+			if err != nil {
+				return err
+			}
+			aad, err := aesAADFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			return cipher.Decrypt(input, cmd.OutOrStdout(), aad)
+		case aesCipherModeCBC:
+			cipher, err := crypter.NewAESCrypter(key)
+			if err != nil {
+				return err
+			}
+			return cipher.Decrypt(input, cmd.OutOrStdout())
+		default:
+			return fmt.Errorf("%w %q", errUnknownAESCipherMode, mode)
+		}
 	},
 }, true)
 
 func init() {
 	aesCmd.AddCommand(decryptCmd)
 	addKeyFlags(decryptCmd)
+	addAESCipherFlags(decryptCmd)
 }

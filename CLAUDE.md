@@ -29,7 +29,9 @@ mise run install:hooks   # install lefthook git hooks (once per clone)
 
 - `cmd/` defines Cobra commands and owns CLI I/O setup, output encodings, and
   resource cleanup. Command handlers return errors through `RunE`.
-- `internal/crypter/` implements streaming AES-CBC with IV-prefixed ciphertext
+- `internal/crypter/` implements authenticated AES-GCM as the default and
+  streaming AES-CBC for compatibility. GCM buffers one bounded message so it
+  can authenticate before releasing plaintext; CBC uses IV-prefixed ciphertext
   and PKCS#7 padding.
 - `internal/asym/` parses, verifies, and formats X.509 certificates. TLS
   inspection deliberately completes the handshake without verification, then
@@ -42,8 +44,9 @@ mise run install:hooks   # install lefthook git hooks (once per clone)
   Cobra's configured streams.
 - Propagate and wrap I/O errors. Close output filters before their underlying
   files so buffered bytes are flushed.
-- Keep encryption and decryption streaming. Benchmark allocation changes before
-  claiming a performance improvement.
+- Keep CBC encryption and decryption streaming. Preserve GCM's 64 MiB bound and
+  all-or-nothing authentication before plaintext output. Benchmark allocation
+  changes before claiming a performance improvement.
 - Add regression tests for boundary sizes, malformed ciphertext, output writer
   failures, and certificate-chain behavior. TESTING.md is the normative test
   policy: fixes ship with regression tests; coverage is maintained or

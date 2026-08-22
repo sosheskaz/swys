@@ -50,10 +50,12 @@ certificate verification, TLS capture) is accompanied by tests that assume
 hostile input — written **ahead of** or alongside the implementation, not
 retrofitted:
 
-- **Tampering**: flipping any single bit in every component of a ciphertext
-  or signed structure (IV/nonce, body, tag, associated data) must fail
-  cleanly. For authenticated modes, assert **zero plaintext bytes reach the
-  output writer** on failure — check the writer, not just the error.
+- **Tampering**: for authenticated or signed constructions such as GCM,
+  flipping any single bit in every component (nonce, body, tag, associated
+  data) must fail cleanly with **zero plaintext bytes reaching the output
+  writer** — check the writer, not just the error. CBC is unauthenticated;
+  test its structural and compatibility contracts without claiming universal
+  tamper detection.
 - **Truncation and structure attacks**: truncated IV/nonce/tag, non-block-
   multiple ciphertext, empty input, and inputs whose framing lies about
   their length are all explicit table cases.
@@ -64,8 +66,10 @@ retrofitted:
   the ground truth that separates "round-trips with itself" from "actually
   implements the algorithm" — a round-trip test alone proves nothing about
   correctness.
-- **Wrong-key / wrong-mode**: decrypting with the wrong key or mode fails
-  with a clear error and emits nothing.
+- **Wrong-key / wrong-mode**: authenticated GCM decryption with the wrong key,
+  AAD, or mode fails with a clear error and emits nothing. CBC is
+  unauthenticated and has no universal wrong-key or wrong-mode failure
+  guarantee; test only its structural and compatibility contracts.
 - **Certificate chains**: expired, name-mismatched, self-signed-in-chain,
   wrong-intermediate, and comma/escaping edge cases in distinguished names
   are regression-pinned behaviors.
@@ -94,7 +98,9 @@ A package must carry benchmarks when any of these hold:
   ~flat as input grows — that is the streaming guarantee made measurable.
   Allocation counts that scale with input size are a bug, both for memory
   and for the GC pressure they generate; per-chunk work must not allocate
-  per iteration.
+  per iteration. Authenticated GCM is deliberately single-shot rather than
+  streaming: benchmark its size-proportional allocation through the enforced
+  64 MiB limit and retain its all-or-nothing plaintext-release guarantee.
 - Performance claims require evidence: `mise run bench` before and after,
   compared with `benchstat`, numbers included in the PR description. No
   claim without a comparison.
@@ -106,6 +112,10 @@ A package must carry benchmarks when any of these hold:
   smoke test: benchmarks are code and rot like code; they must at least
   compile and run.
 
+Published cryptographic vectors may contain public example keys and are safe to
+commit as algorithm conformance data. Secret or deployment key material is
+never fixture data; generate ephemeral private fixtures during test setup.
+
 ## Enforcement map
 
 | Policy | Enforced by |
@@ -115,7 +125,7 @@ A package must carry benchmarks when any of these hold:
 | Benchmarks don't rot | CI benchmark smoke run (`-benchtime=1x`) |
 | Vulnerable dependencies | `govulncheck` per PR + weekly scheduled run |
 | Config/workflow validity | lefthook (local + changed-files CI) |
-| No key material in fixtures | `.gitignore` patterns; fixtures are generated in test setup, never committed |
+| No secret/deployment keys in fixtures | `.gitignore` patterns and review; provenance-backed published public vector and compatibility keys may be committed |
 
 Run `mise run check` locally before pushing; `mise run test:race` for
 anything concurrency-adjacent.
