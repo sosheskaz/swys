@@ -30,7 +30,7 @@ jobs:
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
           install_args: >-
-            go golangci-lint goreleaser lefthook uv yamllint zizmor
+            go node npm:prettier shfmt taplo golangci-lint goreleaser lefthook uv yamllint zizmor
             aqua:rhysd/actionlint aqua:koalaman/shellcheck
           cache: true
 

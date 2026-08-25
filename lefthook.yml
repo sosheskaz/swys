@@ -24,6 +24,22 @@ pre-commit:
       glob: ".github/workflows/*.{yml,yaml}"
       run: mise exec -- zizmor {staged_files}
 
+    - name: prettier
+      glob: "{**/*.md,**/*.json}"
+      run: mise exec -- prettier --check {staged_files}
+
+    - name: taplo-format
+      glob: "{*.toml,**/*.toml}"
+      run: mise exec -- taplo fmt --check {staged_files}
+
+    - name: taplo-lint
+      glob: "{*.toml,**/*.toml}"
+      run: mise exec -- taplo lint {staged_files}
+
+    - name: shfmt
+      glob: "{mise-tasks/**,**/*.sh}"
+      run: mise exec -- shfmt -d {staged_files}
+
     # SHELLCHECK_FORMAT is a repo-local variable (default: shellcheck's tty
     # output). CI sets it to gcc to feed a problem matcher; a generic env var
     # like SHELLCHECK_OPTS would leak into actionlint's embedded shellcheck,

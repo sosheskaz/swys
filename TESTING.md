@@ -118,13 +118,13 @@ never fixture data; generate ephemeral private fixtures during test setup.
 
 ## Enforcement map
 
-| Policy | Enforced by |
-|---|---|
-| Suite passes, raced + shuffled | `ci.yml` test steps on every PR |
-| Coverage maintained or increased | CI sticky PR comment (delta vs main); reviewer blocks unjustified drops |
-| Benchmarks don't rot | CI benchmark smoke run (`-benchtime=1x`) |
-| Vulnerable dependencies | `govulncheck` per PR + weekly scheduled run |
-| Config/workflow validity | lefthook (local + changed-files CI) |
+| Policy                                | Enforced by                                                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Suite passes, raced + shuffled        | `ci.yml` test steps on every PR                                                                                     |
+| Coverage maintained or increased      | CI sticky PR comment (delta vs main); reviewer blocks unjustified drops                                             |
+| Benchmarks don't rot                  | CI benchmark smoke run (`-benchtime=1x`)                                                                            |
+| Vulnerable dependencies               | `govulncheck` per PR + weekly scheduled run                                                                         |
+| Config/workflow validity              | lefthook (local + changed-files CI)                                                                                 |
 | No secret/deployment keys in fixtures | `.gitignore` patterns and review; provenance-backed published public vector and compatibility keys may be committed |
 
 Run `mise run check` locally before pushing; `mise run test:race` for

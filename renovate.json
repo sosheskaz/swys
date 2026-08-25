@@ -1,9 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended",
-    ":semanticCommitTypeAll(deps)"
-  ],
+  "extends": ["config:recommended", ":semanticCommitTypeAll(deps)"],
   "semanticCommits": "enabled",
   "semanticCommitType": "deps",
   "gitAuthor": "sosheskaz-renovate[bot] <268189871+sosheskaz-renovate[bot]@users.noreply.github.com>",

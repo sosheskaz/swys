@@ -16,12 +16,12 @@ npc is organized as **composable layers**, loosely following the OSI model.
 Each layer's commands are useful alone, and each higher layer exposes rich
 detail from the layers beneath it rather than reimplementing them:
 
-| Layer | Domain                                | Nouns                          |
-|-------|---------------------------------------|--------------------------------|
-| L4    | Raw transport (netcat successor)      | `tcp`, `udp`                   |
-| L5/6  | TLS, X.509, crypto primitives         | `cert`, `key`, `aes`, `hash`, `sign` |
-| L7    | Application protocols                 | `http`, later `grpc`           |
-| —     | Byte-level utilities                  | `encode`, `decode`, `rand`, `zip`, `unzip` |
+| Layer | Domain                           | Nouns                                      |
+| ----- | -------------------------------- | ------------------------------------------ |
+| L4    | Raw transport (netcat successor) | `tcp`, `udp`                               |
+| L5/6  | TLS, X.509, crypto primitives    | `cert`, `key`, `aes`, `hash`, `sign`       |
+| L7    | Application protocols            | `http`, later `grpc`                       |
+| —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
 
 The layering is the identity of the tool, not a grab-bag: `http` output
 surfaces TLS handshake and certificate detail via the `cert` machinery; `cert
@@ -35,7 +35,7 @@ The differentiator is breadth plus layered inspection of **live connections**,
 bound together by a shared command language.
 
 - [smallstep's `step`](https://smallstep.com/docs/step-cli/) owns the
-  certificate-*artifact* lifecycle (create, inspect, verify, bundle, CA
+  certificate-_artifact_ lifecycle (create, inspect, verify, bundle, CA
   workflows) and does it well. npc does not compete there: artifact features
   are built to the minimum needed to make npc's wire-inspection loops
   self-contained, borrowing step's UX decisions where they are good.
@@ -61,7 +61,7 @@ are bugs, and where possible they are enforced by tests rather than review.
    implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
    should correctly guess `key inspect`.
 
-   *When is an algorithm a noun?* An algorithm appears in the command path
+   _When is an algorithm a noun?_ An algorithm appears in the command path
    when it is (a) established by out-of-band mutual agreement between the
    parties, and (b) not derivable from self-describing inputs. Negotiated
    parameters (TLS ciphersuite, ALPN, HTTP version) are rendered in output,
@@ -106,7 +106,7 @@ are bugs, and where possible they are enforced by tests rather than review.
    - Curated third-party libraries are welcome when differentiated: a
      mainline, high-quality library used substantially earns its place
      (cobra today; colored output and gRPC reflection anticipated). What is
-     banned is *undifferentiated sprawl* — trivial, poorly maintained, or
+     banned is _undifferentiated sprawl_ — trivial, poorly maintained, or
      transitively heavy dependencies.
    - Cryptographic primitives specifically stay stdlib/x-crypto. npc never
      takes third-party implementations of crypto, and never hand-rolls
