@@ -1,2 +1,2 @@
-// Package asym provides X.509 certificate inspection and formatting.
+// Package asym provides asymmetric-key and X.509 certificate operations.
 package asym

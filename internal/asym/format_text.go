@@ -62,6 +62,10 @@ func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
 	if err := writeSummary(info, writer); err != nil {
 		return err
 	}
+	publicKeyFingerprint := "(unavailable)"
+	if fingerprint, err := info.PublicKeySHA256Fingerprint(); err == nil {
+		publicKeyFingerprint = fingerprint
+	}
 
 	fields := []struct {
 		label string
@@ -85,7 +89,11 @@ func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
 	if info.IsCA {
 		fields = append(fields, struct{ label, value string }{label: "CA", value: "true"})
 	}
-	fields = append(fields, struct{ label, value string }{label: "SHA256", value: info.SHA256Fingerprint})
+	fields = append(
+		fields,
+		struct{ label, value string }{label: "SHA256", value: info.SHA256Fingerprint},
+		struct{ label, value string }{label: "Public Key SHA256", value: publicKeyFingerprint},
+	)
 
 	for _, field := range fields {
 		if err := writeField(writer, field.label, field.value); err != nil {

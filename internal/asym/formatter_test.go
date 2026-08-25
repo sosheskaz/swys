@@ -100,6 +100,21 @@ func TestNewCertInfo(t *testing.T) {
 	if info.SHA256Fingerprint == "" {
 		t.Error("expected SHA256 fingerprint to be set")
 	}
+	publicKeyFingerprint, err := info.PublicKeySHA256Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := NewKey(cert.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyInfo, err := key.Info()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publicKeyFingerprint != keyInfo.PublicKeySHA256Fingerprint {
+		t.Fatalf("certificate public-key fingerprint = %q, key fingerprint = %q", publicKeyFingerprint, keyInfo.PublicKeySHA256Fingerprint)
+	}
 
 	// Check RawDER is set
 	if len(info.RawDER) == 0 {
@@ -233,8 +248,27 @@ func TestTextFormatterLong(t *testing.T) {
 	if !strings.Contains(output, "SHA256:") {
 		t.Errorf("expected SHA256 fingerprint in long output, got:\n%s", output)
 	}
+	if !strings.Contains(output, "Public Key SHA256:") {
+		t.Errorf("expected public-key SHA256 fingerprint in long output, got:\n%s", output)
+	}
 	if !strings.Contains(output, "Chains:") {
 		t.Errorf("expected Chains in long output, got:\n%s", output)
+	}
+}
+
+func TestTextFormatterLongHandlesUnknownPublicKeyAlgorithm(t *testing.T) {
+	t.Parallel()
+	cert := generateTestCert(t)
+	cert.PublicKeyAlgorithm = x509.UnknownPublicKeyAlgorithm
+	cert.PublicKey = nil
+	info := NewCertInfo(cert)
+
+	var buf bytes.Buffer
+	if err := (&TextFormatter{Long: true}).Format(info, &buf); err != nil {
+		t.Fatalf("Format failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Public Key SHA256: (unavailable)") {
+		t.Fatalf("long output = %q, want unavailable public-key fingerprint", buf.String())
 	}
 }
 
@@ -292,6 +326,17 @@ func TestJSONFormatter(t *testing.T) {
 	}
 	if len(parsed.DNSNames) != 2 {
 		t.Errorf("expected 2 DNS names in JSON, got %d", len(parsed.DNSNames))
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	wantFingerprint, err := info.PublicKeySHA256Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fields["public_key_sha256_fingerprint"] != wantFingerprint {
+		t.Fatalf("public_key_sha256_fingerprint = %v, want %q", fields["public_key_sha256_fingerprint"], wantFingerprint)
 	}
 }
 

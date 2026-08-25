@@ -34,6 +34,9 @@ var rootCmd = &cobra.Command{
 		if err := validateAESFlagsBeforeIO(cmd); err != nil {
 			return fmt.Errorf("validate AES flags: %w", err)
 		}
+		if err := validateKeyFlagsBeforeIO(cmd); err != nil {
+			return fmt.Errorf("validate key flags: %w", err)
+		}
 		cleanup, err := configureIO(cmd)
 		if err != nil {
 			return err

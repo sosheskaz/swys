@@ -94,13 +94,15 @@ type CertInfo struct {
 	issuerCN        string
 	signatureBase64 string
 	publicKeyBase64 string
+	publicKeyFP     string
 
-	DNSNames    []string          `json:"dns_names"`
-	IPAddresses []string          `json:"ip_addresses"`
-	KeyUsage    []string          `json:"key_usage,omitempty"`
-	ExtKeyUsage []string          `json:"ext_key_usage,omitempty"`
-	Chains      [][]ChainCertInfo `json:"chains,omitempty"`
-	RawDER      []byte            `json:"-"`
+	DNSNames     []string          `json:"dns_names"`
+	IPAddresses  []string          `json:"ip_addresses"`
+	KeyUsage     []string          `json:"key_usage,omitempty"`
+	ExtKeyUsage  []string          `json:"ext_key_usage,omitempty"`
+	Chains       [][]ChainCertInfo `json:"chains,omitempty"`
+	RawDER       []byte            `json:"-"`
+	publicKeyDER []byte
 
 	Verified  bool `json:"verified"`
 	IsCA      bool `json:"is_ca"`
@@ -118,13 +120,37 @@ func (c *CertInfo) SignatureBase64() string {
 // PublicKeyBase64 returns the base64-encoded public key (lazy-loaded).
 func (c *CertInfo) PublicKeyBase64() (string, error) {
 	if c.publicKeyBase64 == "" && c.cert != nil {
-		publicKey, err := x509.MarshalPKIXPublicKey(c.cert.PublicKey)
+		publicKey, err := c.publicKeyDERBytes()
 		if err != nil {
-			return "", fmt.Errorf("marshal public key: %w", err)
+			return "", err
 		}
 		c.publicKeyBase64 = base64.RawStdEncoding.EncodeToString(publicKey)
 	}
 	return c.publicKeyBase64, nil
+}
+
+// PublicKeySHA256Fingerprint returns the certificate's SPKI SHA-256 fingerprint.
+func (c *CertInfo) PublicKeySHA256Fingerprint() (string, error) {
+	if c.publicKeyFP == "" && c.cert != nil {
+		publicKey, err := c.publicKeyDERBytes()
+		if err != nil {
+			return "", err
+		}
+		fingerprint := sha256.Sum256(publicKey)
+		c.publicKeyFP = formatFingerprint(fingerprint[:])
+	}
+	return c.publicKeyFP, nil
+}
+
+func (c *CertInfo) publicKeyDERBytes() ([]byte, error) {
+	if len(c.publicKeyDER) == 0 && c.cert != nil {
+		publicKey, err := x509.MarshalPKIXPublicKey(c.cert.PublicKey)
+		if err != nil {
+			return nil, fmt.Errorf("marshal certificate public key: %w", err)
+		}
+		c.publicKeyDER = publicKey
+	}
+	return c.publicKeyDER, nil
 }
 
 // CertFormatter is the interface for certificate output formatters.

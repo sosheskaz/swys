@@ -33,6 +33,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 		"encrypt":  true,
 		"generate": true,
 		"inspect":  true,
+		"public":   true,
+		"convert":  true,
 		// genkey is the documented one-release compatibility exception.
 		"genkey": true,
 	}

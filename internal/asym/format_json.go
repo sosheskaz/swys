@@ -23,6 +23,7 @@ type certInfoJSON struct {
 	NotAfter           time.Time         `json:"not_after"`
 	SignatureBase64    string            `json:"signature_base64"`
 	PublicKeyAlgorithm string            `json:"public_key_algorithm"`
+	PublicKeySHA256    string            `json:"public_key_sha256_fingerprint"`
 	SHA256Fingerprint  string            `json:"sha256_fingerprint"`
 	SerialNumber       string            `json:"serial_number"`
 	Issuer             string            `json:"issuer"`
@@ -47,6 +48,10 @@ func (c *CertInfo) toJSON() (*certInfoJSON, error) {
 	if err != nil {
 		return nil, err
 	}
+	publicKeyFingerprint, err := c.PublicKeySHA256Fingerprint()
+	if err != nil {
+		return nil, err
+	}
 	return &certInfoJSON{
 		Subject:            c.Subject,
 		Issuer:             c.Issuer,
@@ -61,6 +66,7 @@ func (c *CertInfo) toJSON() (*certInfoJSON, error) {
 		SignatureBase64:    c.SignatureBase64(),
 		PublicKeyAlgorithm: c.PublicKeyAlgorithm,
 		PublicKeyBase64:    publicKey,
+		PublicKeySHA256:    publicKeyFingerprint,
 		IsCA:               c.IsCA,
 		KeyUsage:           c.KeyUsage,
 		ExtKeyUsage:        c.ExtKeyUsage,

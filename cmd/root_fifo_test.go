@@ -27,7 +27,7 @@ func TestFIFOOutputStreamsDirectly(t *testing.T) {
 		result <- readResult{data: data, err: err}
 	}()
 
-	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -60,7 +60,7 @@ func TestOutputModeWithFIFORejectsBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := executeRoot(t, "key", "generate", "--output", path, "--mode", "0640")
+	_, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", "0640")
 	if !errors.Is(err, errModeRequiresRegularOutput) {
 		t.Fatalf("error = %v, want --mode-requires-regular-output", err)
 	}
@@ -98,7 +98,7 @@ func TestSymlinkToFIFOOutputStreamsDirectly(t *testing.T) {
 		result <- readResult{data: data, err: err}
 	}()
 
-	if _, err := executeRoot(t, "key", "generate", "--output", linkPath); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", linkPath); err != nil {
 		t.Fatal(err)
 	}
 	select {

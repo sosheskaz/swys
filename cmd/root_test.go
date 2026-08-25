@@ -37,7 +37,7 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output, err := executeRoot(t, "key", "generate", "--bits", "128", "--encoding", tt.format)
+			output, err := executeRoot(t, "key", "generate", "aes128", "--encoding", tt.format)
 			if err != nil {
 				t.Fatalf("execute command: %v", err)
 			}
@@ -53,7 +53,7 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 }
 
 func TestGenkeyRejectsInvalidSize(t *testing.T) {
-	_, err := executeRoot(t, "key", "generate", "--bits", "64")
+	_, err := executeRoot(t, "aes", "genkey", "--bits", "64")
 	if !errors.Is(err, errInvalidAESKeySize) {
 		t.Fatalf("error = %v, want errInvalidAESKeySize", err)
 	}
@@ -74,7 +74,7 @@ func TestUnknownOutputEncodingFails(t *testing.T) {
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := executeRoot(t, "key", "generate", "--encoding", "rot13", "--output", path)
+	_, err := executeRoot(t, "key", "generate", "ed25519", "--encoding", "rot13", "--output", path)
 	if err == nil || !errors.Is(err, errUnknownOutputEncoding) {
 		t.Fatalf("error = %v, want unknown output encoding", err)
 	}
@@ -112,7 +112,7 @@ func TestCommandErrorBeforeWriteLeavesEmptyOutputFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := executeRoot(t, "key", "generate", "--bits", "64", "--output", path)
+	_, err := executeRoot(t, "aes", "genkey", "--bits", "64", "--output", path)
 	if !errors.Is(err, errInvalidAESKeySize) {
 		t.Fatalf("error = %v, want invalid key size", err)
 	}
@@ -178,7 +178,7 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := executeRoot(t, "key", "generate", "--input", path, "--output", path)
+	_, err := executeRoot(t, "key", "generate", "ed25519", "--input", path, "--output", path)
 	if !errors.Is(err, errSameInputOutput) {
 		t.Fatalf("error = %v, want errSameInputOutput", err)
 	}
@@ -220,7 +220,7 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
-	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -244,7 +244,7 @@ func TestOutputFileOverwriteKeepsExistingPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -274,7 +274,7 @@ func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
 		t.Skipf("create hard link: %v", err)
 	}
 
-	if _, err := executeRoot(t, "key", "generate", "--output", path); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(alias)
@@ -297,7 +297,7 @@ func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "--output", path); err == nil {
+	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path); err == nil {
 		t.Fatal("execute command succeeded, want output-open error")
 	}
 	info, err := os.Stat(path)
@@ -331,7 +331,7 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.modeText, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "key")
-			if _, err := executeRoot(t, "key", "generate", "--output", path, "--mode", tt.modeText); err != nil {
+			if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.modeText); err != nil {
 				t.Fatal(err)
 			}
 			info, err := os.Stat(path)
@@ -350,7 +350,7 @@ func TestOutputModeOverridesExistingPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "--output", path, "--mode", "0400"); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", "0400"); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -379,7 +379,7 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, err := executeRoot(t, "key", "generate", "--output", path, "--mode", tt.mode)
+			_, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.mode)
 			if !errors.Is(err, errInvalidOutputMode) {
 				t.Fatalf("error = %v, want invalid output mode", err)
 			}
@@ -395,7 +395,7 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 }
 
 func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
-	_, err := executeRoot(t, "key", "generate", "--mode", "0640")
+	_, err := executeRoot(t, "key", "generate", "ed25519", "--mode", "0640")
 	if !errors.Is(err, errModeRequiresRegularOutput) {
 		t.Fatalf("error = %v, want --mode-requires-regular-output", err)
 	}
@@ -425,7 +425,7 @@ func TestModeFlagRegisteredOnRoot(t *testing.T) {
 }
 
 func TestNonRegularOutputStreamsDirectly(t *testing.T) {
-	output, err := executeRoot(t, "key", "generate", "--output", os.DevNull)
+	output, err := executeRoot(t, "key", "generate", "ed25519", "--output", os.DevNull)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 				t.Skipf("create symlink: %v", err)
 			}
 
-			args := append([]string{"key", "generate", "--output", linkPath}, tt.modeArgs...)
+			args := append([]string{"key", "generate", "aes256", "--output", linkPath}, tt.modeArgs...)
 			if _, err := executeRoot(t, args...); err != nil {
 				t.Fatal(err)
 			}
@@ -492,7 +492,7 @@ func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	if _, err := executeRoot(t, "key", "generate", "--output", linkPath, "--mode", "0640"); err != nil {
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", linkPath, "--mode", "0640"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.ReadFile(targetPath)
@@ -529,12 +529,12 @@ func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	_, directErr := executeRoot(t, "key", "generate", "--output", targetDir)
+	_, directErr := executeRoot(t, "key", "generate", "ed25519", "--output", targetDir)
 	if directErr == nil || !strings.Contains(directErr.Error(), "is a directory") {
 		t.Fatalf("direct directory error = %v, want directory rejection", directErr)
 	}
 
-	_, symlinkErr := executeRoot(t, "key", "generate", "--output", linkPath)
+	_, symlinkErr := executeRoot(t, "key", "generate", "ed25519", "--output", linkPath)
 	if symlinkErr == nil || !strings.Contains(symlinkErr.Error(), "is a directory") {
 		t.Fatalf("symlinked directory error = %v, want directory rejection", symlinkErr)
 	}

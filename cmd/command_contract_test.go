@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
 func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
@@ -55,13 +57,28 @@ func TestLegacyX509ForwardsToCertificateInspection(t *testing.T) {
 	}
 }
 
-func TestKeyGenerateDefaultsAndLegacyCompatibility(t *testing.T) {
-	canonical, err := executeRoot(t, "key", "generate")
+func TestKeyGenerateRequiresAlgorithmAndPreservesLegacyCompatibility(t *testing.T) {
+	if _, err := executeRoot(t, "key", "generate"); err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s), received 0") {
+		t.Fatalf("missing algorithm error = %v, want exact-args error", err)
+	}
+	if _, err := executeRoot(t, "key", "generate", "ed25519", "rsa2048"); err == nil || !strings.Contains(err.Error(), "received 2") {
+		t.Fatalf("extra algorithm error = %v, want exact-args error", err)
+	}
+
+	canonical, err := executeRoot(t, "key", "generate", "ed25519")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(canonical) != 32 {
-		t.Fatalf("key generate length = %d, want 32", len(canonical))
+	key, err := asym.ParseKey([]byte(canonical))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := key.Info()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !key.IsPrivate() || info.Algorithm != "ed25519" {
+		t.Fatalf("default key info = %+v, want private Ed25519", info)
 	}
 
 	legacyPath := filepath.Join(t.TempDir(), "legacy-key")
@@ -89,7 +106,7 @@ func TestKeyGenerateDefaultsAndLegacyCompatibility(t *testing.T) {
 
 func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
 	tests := [][]string{
-		{"key", "generate", "--format", "base64"},
+		{"key", "generate", "ed25519", "--format", "base64"},
 		{"cert", "inspect", "--output-format", "json"},
 	}
 	for _, args := range tests {
@@ -152,7 +169,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 }
 
 func TestBase64URLEncodingIsUnpadded(t *testing.T) {
-	output, err := executeRoot(t, "key", "generate", "--bits", "128", "--encoding", "base64url")
+	output, err := executeRoot(t, "key", "generate", "aes-128", "--encoding", "base64url")
 	if err != nil {
 		t.Fatal(err)
 	}

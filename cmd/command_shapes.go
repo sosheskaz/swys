@@ -38,14 +38,23 @@ func binaryOutputCommand(command *cobra.Command, acceptsInput bool) *cobra.Comma
 	registerFlagCompletion(command, encodingFlagName, byteEncodingNames)
 
 	if acceptsInput {
-		command.Flags().String(
-			inputEncodingFlagName,
-			"raw",
-			"input encoding ("+strings.Join(byteEncodingNames(), ", ")+")",
-		)
-		registerFlagCompletion(command, inputEncodingFlagName, byteEncodingNames)
+		addInputEncodingFlag(command)
 	}
 	return command
+}
+
+func encodedInputCommand(command *cobra.Command) *cobra.Command {
+	addInputEncodingFlag(command)
+	return command
+}
+
+func addInputEncodingFlag(command *cobra.Command) {
+	command.Flags().String(
+		inputEncodingFlagName,
+		"raw",
+		"input encoding ("+strings.Join(byteEncodingNames(), ", ")+")",
+	)
+	registerFlagCompletion(command, inputEncodingFlagName, byteEncodingNames)
 }
 
 func structuredOutputCommand(command *cobra.Command, formats func() []string) *cobra.Command {

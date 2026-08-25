@@ -1,0 +1,447 @@
+package cmd
+
+import (
+	"bytes"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/sosheskaz-systems/npc/internal/asym"
+)
+
+var errKeyTestReadFailed = errors.New("read failed")
+
+func TestKeyGenerateAlgorithms(t *testing.T) {
+	tests := []struct {
+		name      string
+		algorithm string
+		curve     string
+		keyType   string
+		bits      int
+		bytes     int
+	}{
+		{name: "ed25519", algorithm: "ed25519", keyType: "ed25519", bits: 256},
+		{name: "p256", algorithm: "p256", keyType: "ecdsa", curve: "P-256", bits: 256},
+		{name: "p384", algorithm: "p384", keyType: "ecdsa", curve: "P-384", bits: 384},
+		{name: "rsa2048", algorithm: "rsa2048", keyType: "rsa", bits: 2048},
+		{name: "rsa4096", algorithm: "rsa4096", keyType: "rsa", bits: 4096},
+		{name: "aes128", algorithm: "aes128", bytes: 16},
+		{name: "aes192", algorithm: "aes192", bytes: 24},
+		{name: "aes256", algorithm: "aes256", bytes: 32},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := []string{"key", "generate", test.algorithm}
+			stdout, stderr, err := executeRootStreams(t, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stderr != "" {
+				t.Fatalf("stderr = %q, want empty", stderr)
+			}
+			if test.bytes != 0 {
+				if len(stdout) != test.bytes {
+					t.Fatalf("AES key length = %d, want %d", len(stdout), test.bytes)
+				}
+				return
+			}
+			key, err := asym.ParseKey([]byte(stdout))
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := key.Info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !key.IsPrivate() || info.Algorithm != test.keyType || info.Bits != test.bits || info.Curve != test.curve {
+				t.Fatalf("generated key info = %+v", info)
+			}
+		})
+	}
+}
+
+func TestKeyGenerateAcceptsLongAlgorithmNames(t *testing.T) {
+	tests := map[string]string{
+		"aes128":  "aes-128",
+		"aes192":  "aes-192",
+		"aes256":  "aes-256",
+		"p256":    "ecdsa-p256",
+		"p384":    "ecdsa-p384",
+		"rsa2048": "rsa-2048",
+		"rsa4096": "rsa-4096",
+	}
+	for shortName, longName := range tests {
+		shortAlgorithm, err := keyAlgorithmFromName(shortName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		longAlgorithm, err := keyAlgorithmFromName(longName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if longAlgorithm != shortAlgorithm {
+			t.Fatalf("algorithm %q = %+v, want %q = %+v", longName, longAlgorithm, shortName, shortAlgorithm)
+		}
+	}
+}
+
+func TestKeyCommandAliasesCompose(t *testing.T) {
+	tests := []struct {
+		command *cobra.Command
+		want    []string
+	}{
+		{command: keyCmd, want: []string{"k"}},
+		{command: keyGenerateCmd, want: []string{"gen", "g"}},
+		{command: keyPublicCmd, want: []string{"pub", "p"}},
+		{command: keyInspectCmd, want: []string{"ins", "i"}},
+		{command: keyConvertCmd, want: []string{"conv", "c"}},
+	}
+	for _, test := range tests {
+		if !slices.Equal(test.command.Aliases, test.want) {
+			t.Fatalf("%s aliases = %q, want %q", test.command.CommandPath(), test.command.Aliases, test.want)
+		}
+	}
+
+	privatePEM, _, err := executeRootStreams(t, "k", "g", "ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePath := filepath.Join(t.TempDir(), "private.pem")
+	if err := os.WriteFile(privatePath, []byte(privatePEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	publicPEM, _, err := executeRootStreams(t, "k", "p", "--input", privatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if block, _ := pem.Decode([]byte(publicPEM)); block == nil || block.Type != "PUBLIC KEY" {
+		t.Fatalf("public alias output = %q, want PKIX PEM", publicPEM)
+	}
+
+	inspected, _, err := executeRootStreams(t, "k", "i", "--input", privatePath, "--format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info := decodeKeyInfo(t, inspected); info.Algorithm != "ed25519" || info.KeyType != asym.KeyTypePrivate {
+		t.Fatalf("inspect alias output = %+v", info)
+	}
+
+	openSSH, _, err := executeRootStreams(t, "k", "c", "--input", privatePath, "--to", "openssh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(openSSH)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKeyGenerateRemovesBitsAndPreservesLegacyAESAlias(t *testing.T) {
+	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--bits", "256"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("canonical --bits error = %v, want unknown flag", err)
+	}
+
+	for _, bits := range []string{"128", "192", "256"} {
+		stdout, stderr, err := executeRootStreams(t, "aes", "genkey", "--bits", bits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(stdout) != mustAESBytes(t, bits) {
+			t.Fatalf("legacy AES-%s length = %d", bits, len(stdout))
+		}
+		if !strings.Contains(stderr, "deprecated") || !strings.Contains(stderr, "npc key generate aes"+bits) {
+			t.Fatalf("legacy warning = %q", stderr)
+		}
+	}
+	_, stderr, err := executeRootStreams(t, "aes", "genkey", "--bits", "64")
+	if !errors.Is(err, errInvalidAESKeySize) {
+		t.Fatalf("invalid legacy bits error = %v, want ErrInvalidAESKeySize", err)
+	}
+	if stderr != "" {
+		t.Fatalf("invalid legacy bits warning = %q, want empty", stderr)
+	}
+	if !genkeyCmd.Hidden {
+		t.Fatal("aes genkey must remain hidden")
+	}
+}
+
+func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
+	privatePEM, _, err := executeRootStreams(t, "key", "generate", "ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	privatePath := filepath.Join(directory, "private.pem")
+	if err := os.WriteFile(privatePath, []byte(privatePEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	publicPEM, _, err := executeRootStreams(t, "key", "public", "--input", privatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, rest := pem.Decode([]byte(publicPEM))
+	if block == nil || block.Type != "PUBLIC KEY" || len(bytes.TrimSpace(rest)) != 0 {
+		t.Fatalf("public output is not canonical PKIX PEM: %q", publicPEM)
+	}
+	if _, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
+		t.Fatal(err)
+	}
+	publicPath := filepath.Join(directory, "public.pem")
+	if err := os.WriteFile(publicPath, []byte(publicPEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	privateJSON, _, err := executeRootStreams(t, "key", "inspect", "--input", privatePath, "--format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicJSON, _, err := executeRootStreams(t, "key", "inspect", "--input", publicPath, "--format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateInfo := decodeKeyInfo(t, privateJSON)
+	publicInfo := decodeKeyInfo(t, publicJSON)
+	if privateInfo.KeyType != asym.KeyTypePrivate || publicInfo.KeyType != asym.KeyTypePublic {
+		t.Fatalf("key types = %q, %q", privateInfo.KeyType, publicInfo.KeyType)
+	}
+	if privateInfo.PublicKeySHA256Fingerprint != publicInfo.PublicKeySHA256Fingerprint {
+		t.Fatal("private and public fingerprints differ")
+	}
+	if strings.Contains(privateJSON, "PRIVATE KEY") || strings.Contains(privateJSON, privatePEM) {
+		t.Fatalf("inspect output leaked private key: %q", privateJSON)
+	}
+
+	openSSH, _, err := executeRootStreams(t, "key", "convert", "--input", privatePath, "--to", "openssh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(openSSH)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
+	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	encodedPath := filepath.Join(directory, "private.base64")
+	encodedPrivate := base64.StdEncoding.EncodeToString([]byte(privatePEM))
+	if err := os.WriteFile(encodedPath, []byte(encodedPrivate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	encodedPublic, _, err := executeRootStreams(
+		t,
+		"key", "public", "--input", encodedPath, "--input-encoding", "base64", "--encoding", "base64",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicPEM, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedPublic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicBlock, _ := pem.Decode(publicPEM)
+	if publicBlock == nil || publicBlock.Type != "PUBLIC KEY" {
+		t.Fatalf("decoded public output = %q", publicPEM)
+	}
+
+	encodedDER, _, err := executeRootStreams(
+		t,
+		"key", "convert", "--input", encodedPath, "--input-encoding", "base64", "--to", "pkix-der", "--encoding", "base64",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedDER))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x509.ParsePKIXPublicKey(publicDER); err != nil {
+		t.Fatal(err)
+	}
+
+	inspected, _, err := executeRootStreams(
+		t,
+		"key", "inspect", "--input", encodedPath, "--input-encoding", "base64", "--format", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info := decodeKeyInfo(t, inspected); info.Algorithm != "ecdsa" || info.Curve != "P-256" {
+		t.Fatalf("inspected encoded key = %+v", info)
+	}
+}
+
+func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
+	if !strings.Contains(keyGenerateCmd.Long, "p256: ECDSA key on NIST P-256 (long: ecdsa-p256)") {
+		t.Fatalf("key generate help = %q, want descriptive P-256 entry", keyGenerateCmd.Long)
+	}
+	assertPositionalCompletionContains(t, keyGenerateCmd, "ed25519")
+	assertPositionalCompletionContains(t, keyGenerateCmd, "ecdsa-p256")
+	assertFlagCompletionContains(t, keyConvertCmd, "to", "openssh")
+	assertFlagCompletionContains(t, keyInspectCmd, formatFlagName, "json")
+	assertFlagCompletionContains(t, keyInspectCmd, inputEncodingFlagName, "base64")
+
+	_, _, err := executeRootStreams(t, "key", "generate", "missing")
+	if !errors.Is(err, errUnknownKeyAlgorithm) || !strings.Contains(err.Error(), "rsa4096") {
+		t.Fatalf("algorithm error = %v", err)
+	}
+	_, _, err = executeRootStreams(t, "key", "convert", "--to", "missing")
+	if !errors.Is(err, errUnknownKeyConversionTarget) || !strings.Contains(err.Error(), "openssh") {
+		t.Fatalf("target error = %v", err)
+	}
+	_, _, err = executeRootStreams(t, "key", "inspect", "--format", "missing")
+	if !errors.Is(err, errUnknownKeyFormat) || !strings.Contains(err.Error(), "json") {
+		t.Fatalf("format error = %v", err)
+	}
+}
+
+func TestKeyEnumValidationPrecedesOutputOpen(t *testing.T) {
+	for _, args := range [][]string{
+		{"key", "generate", "missing"},
+		{"key", "convert", "--to", "missing"},
+	} {
+		path := filepath.Join(t.TempDir(), "existing")
+		if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, "--output", path)
+		if _, _, err := executeRootStreams(t, args...); err == nil {
+			t.Fatalf("execute %v succeeded", args)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "preserve" {
+			t.Fatalf("execute %v replaced output with %q", args, data)
+		}
+	}
+}
+
+func TestKeyGenerateOutputUsesPrivatePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private.pem")
+	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", path); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("output permissions = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestKeyCommandsRejectCertificateInput(t *testing.T) {
+	certificate := newTLSCertificateChain(t).Certificate[0]
+	path := filepath.Join(t.TempDir(), "certificate.pem")
+	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"key", "public", "--input", path},
+		{"key", "inspect", "--input", path},
+		{"key", "convert", "--input", path, "--to", "pkix-pem"},
+	} {
+		if _, _, err := executeRootStreams(t, args...); !errors.Is(err, asym.ErrUnexpectedKeyPEMType) {
+			t.Fatalf("execute %v error = %v", args, err)
+		}
+	}
+}
+
+func TestReadAndWriteKeyBytesPreserveIOErrors(t *testing.T) {
+	readCommand := &cobra.Command{}
+	readCommand.SetIn(keyFailingReader{err: errKeyTestReadFailed})
+	if _, err := readKey(readCommand); !errors.Is(err, errKeyTestReadFailed) {
+		t.Fatalf("read error = %v, want reader failure", err)
+	}
+
+	writeCommand := &cobra.Command{}
+	writeCommand.SetOut(keyFailingWriter{err: errTestWriteFailed})
+	if err := writeKeyBytes(writeCommand, []byte("key"), "test key"); !errors.Is(err, errTestWriteFailed) {
+		t.Fatalf("write error = %v, want writer failure", err)
+	}
+}
+
+func decodeKeyInfo(t *testing.T, data string) asym.KeyInfo {
+	t.Helper()
+	var info asym.KeyInfo
+	if err := json.Unmarshal([]byte(data), &info); err != nil {
+		t.Fatal(err)
+	}
+	return info
+}
+
+func assertFlagCompletionContains(t *testing.T, command *cobra.Command, name, want string) {
+	t.Helper()
+	completion, ok := command.GetFlagCompletionFunc(name)
+	if !ok {
+		t.Fatalf("%s %s has no completion", command.CommandPath(), name)
+	}
+	values, directive := completion(command, nil, "")
+	if !slices.Contains(values, want) {
+		t.Fatalf("%s %s completions = %v, want %q", command.CommandPath(), name, values, want)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("%s %s directive = %v", command.CommandPath(), name, directive)
+	}
+}
+
+func assertPositionalCompletionContains(t *testing.T, command *cobra.Command, want string) {
+	t.Helper()
+	values, directive := command.ValidArgsFunction(command, nil, "")
+	if !slices.Contains(values, want) {
+		t.Fatalf("%s completions = %v, want %q", command.CommandPath(), values, want)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("%s directive = %v", command.CommandPath(), directive)
+	}
+}
+
+func mustAESBytes(t *testing.T, bits string) int {
+	t.Helper()
+	switch bits {
+	case "128":
+		return 16
+	case "192":
+		return 24
+	case "256":
+		return 32
+	default:
+		t.Fatalf("unexpected AES bits %q", bits)
+		return 0
+	}
+}
+
+type keyFailingReader struct {
+	err error
+}
+
+func (reader keyFailingReader) Read([]byte) (int, error) {
+	return 0, reader.err
+}
+
+type keyFailingWriter struct {
+	err error
+}
+
+func (writer keyFailingWriter) Write([]byte) (int, error) {
+	return 0, writer.err
+}

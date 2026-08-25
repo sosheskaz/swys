@@ -82,7 +82,7 @@ are bugs, and where possible they are enforced by tests rather than review.
 
 3. **Universal I/O contract.** Every command reads stdin/`--input`, writes
    data to stdout/`--output`, and diagnostics to stderr. Commands compose:
-   `npc key generate | npc key public | npc encode base64`.
+   `npc key generate ed25519 | npc key public | npc encode base64`.
 
 4. **`--format json` everywhere** structured output exists, for `jq`.
 
@@ -122,11 +122,84 @@ are bugs, and where possible they are enforced by tests rather than review.
 
 ```
 npc aes encrypt|decrypt            # AES-GCM default; explicit AES-CBC compatibility
-npc key generate                   # AES key generation; more key types are planned
+npc key generate <algorithm>       # generate a key with an explicit algorithm
+npc key public|inspect|convert     # consume a self-describing key
 npc cert inspect|connect           # certificate inspection and TLS probing
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
+
+### Key lifecycle walkthrough
+
+Generate an Ed25519 private key in PKCS#8 PEM, write it to a private file, then
+inspect its safe metadata without printing private bytes:
+
+```fish
+npc key generate ed25519 --output private.pem
+npc key inspect --input private.pem --format json
+```
+
+Derive the public half in canonical PKIX PEM and inspect it separately. The
+private and public inspection results have different `key_type` values but the
+same `public_key_sha256_fingerprint`:
+
+```fish
+npc key public --input private.pem --output public.pem
+npc key inspect --input public.pem --format json
+```
+
+That fingerprint is calculated over canonical PKIX DER, so it is stable across
+key containers. `cert inspect --format json` reports the same field, making it
+possible to confirm that a certificate contains the expected public key:
+
+```fish
+npc cert inspect --input certificate.pem --format json
+```
+
+Convert the public key for an OpenSSH `authorized_keys` file, or convert it to
+binary PKIX DER for a program that expects DER:
+
+```fish
+npc key convert --input private.pem --to openssh --output public.openssh
+npc key convert --input public.pem --to pkix-der --output public.der
+npc key inspect --input public.der
+```
+
+Binary key containers can be wrapped for text-only transport and decoded by any
+key-consuming command. Encoding is not encryption; a base64-wrapped private key
+must be protected exactly like the original:
+
+```fish
+npc key convert --input private.pem --to pkcs8-der \
+    --encoding base64 --output private.der.b64
+npc key inspect --input private.der.b64 \
+    --input-encoding base64 --format json
+```
+
+Generation supports `ed25519`, `p256`, `p384`, `rsa2048`, `rsa4096`, and raw
+`aes128|aes192|aes256` keys as a required argument. These compact names are
+preferred; the descriptive aliases `ecdsa-p256`, `ecdsa-p384`, `rsa-2048`,
+`rsa-4096`, and `aes-128|aes-192|aes-256` are also accepted.
+Asymmetric private keys use PKCS#8 PEM; AES keys are raw bytes. PKCS#1 output is
+limited to RSA private keys, SEC1 to ECDSA private keys, and PKCS#8 to supported
+private-key algorithms. PKIX and OpenSSH targets contain only public material.
+
+`key public`, `key inspect`, and `key convert` accept one unencrypted PKCS#8,
+PKCS#1, or SEC1 private key, or one PKIX public key, in PEM or DER form. All
+three commands support `--input-encoding` for wrapped key bytes. Encrypted
+private keys and OpenSSH input are not supported.
+
+The key noun and lifecycle verbs also have composable Cobra aliases for
+interactive use:
+
+```fish
+npc k g ed25519                 # npc key generate ed25519
+npc k p --input private.pem     # npc key public
+npc k i --input private.pem     # npc key inspect
+npc k c --input private.pem --to openssh # npc key convert
+```
+
+The longer verb aliases are `gen`, `pub`, `ins`, and `conv`.
 
 ### AES quick start
 
@@ -134,7 +207,7 @@ Generate a new 256-bit key. `--output` writes the raw key bytes to `aes.key`, so
 keep this file secret.
 
 ```fish
-npc key generate --bits 256 --output aes.key
+npc key generate aes256 --output aes.key
 ```
 
 Encrypt a file with the default authenticated AES-GCM mode:
@@ -162,7 +235,7 @@ For a small value or pipeline, encode the key and ciphertext as base64 so they
 are safe to pass as text:
 
 ```fish
-set key (npc key generate --bits 256 --encoding base64 | string trim)
+set key (npc key generate aes256 --encoding base64 | string trim)
 set ciphertext (npc aes encrypt "secret message" --key "$key" --encoding base64)
 
 npc aes decrypt "$ciphertext" --key "$key" --input-encoding base64
@@ -204,19 +277,22 @@ example, `cert connect -f hex` must be replaced with an applicable structured
 format rather than a byte encoding.
 
 The former `aes genkey` command remains available as a hidden compatibility
-command for one release and prints a migration warning; use `key generate` in
-new scripts. The legacy certificate aliases (`x509`, `certificate`, and
-`x.509`) likewise forward to `cert inspect` with a warning so existing
-inspection pipelines continue to produce certificate data. New invocations
-should use the noun-verb form.
+command for one release and prints a migration warning. The former canonical
+`key generate --bits 256` form is replaced by
+`key generate aes256`; bare `key generate` now reports the required algorithm
+argument. The legacy certificate aliases (`x509`, `certificate`, and `x.509`)
+likewise forward to `cert inspect` with a warning so existing inspection
+pipelines continue to produce certificate data. New invocations should use the
+noun-verb form.
 
 For `--output` paths, npc opens the destination and streams output to it as the
 command runs, following symlinks like normal shell redirection. Before opening
-the output, npc validates encodings, AES mode-specific flags, and `--mode`,
-rejects directories and same-file input/output pairs, inspects existing target
-types, and opens a named input first. Errors after the output is opened can
-therefore leave an empty or partial destination; the command's non-zero exit
-status indicates that the output is incomplete.
+the output, npc validates encodings, AES mode-specific flags, key algorithm and
+conversion-target values, and `--mode`, rejects directories and same-file
+input/output pairs, inspects existing target types, and opens a named input
+first. Errors after the output is opened can therefore leave an empty or partial
+destination; the command's non-zero exit status indicates that the output is
+incomplete.
 
 The GCM crypter itself makes zero writer calls until encryption or authenticated
 decryption succeeds. That does not preserve a CLI output file on runtime
