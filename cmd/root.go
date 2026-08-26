@@ -37,6 +37,9 @@ var rootCmd = &cobra.Command{
 		if err := validateKeyFlagsBeforeIO(cmd); err != nil {
 			return fmt.Errorf("validate key flags: %w", err)
 		}
+		if err := validateCertFlagsBeforeIO(cmd); err != nil {
+			return fmt.Errorf("validate certificate flags: %w", err)
+		}
 		cleanup, err := configureIO(cmd)
 		if err != nil {
 			return err
@@ -53,9 +56,10 @@ var rootCmd = &cobra.Command{
 type commandIOKey struct{}
 
 type commandIO struct {
-	err     error
-	cleanup func() error
-	once    sync.Once
+	err             error
+	cleanup         func() error
+	retainedKeyPath string
+	once            sync.Once
 }
 
 func (state *commandIO) close() error {
@@ -63,11 +67,25 @@ func (state *commandIO) close() error {
 	state.once.Do(func() {
 		closed = true
 		state.err = state.cleanup()
+		if state.err != nil && state.retainedKeyPath != "" {
+			state.err = fmt.Errorf(
+				"finalize certificate output; generated private key retained at %q: %w",
+				state.retainedKeyPath,
+				state.err,
+			)
+		}
 	})
 	if closed {
 		return state.err
 	}
 	return nil
+}
+
+func markRetainedCertificateKey(cmd *cobra.Command, path string) {
+	state, ok := cmd.Context().Value(commandIOKey{}).(*commandIO)
+	if ok {
+		state.retainedKeyPath = path
+	}
 }
 
 // Execute runs the root command.

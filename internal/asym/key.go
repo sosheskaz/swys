@@ -283,14 +283,29 @@ func (key *Key) IsPrivate() bool {
 	return key.private
 }
 
-// Public returns the key's validated public part.
-func (key *Key) Public() (crypto.PublicKey, error) {
-	if !key.private {
-		return key.material, nil
+// Signer returns validated private signing material.
+func (key *Key) Signer() (crypto.Signer, error) {
+	if key == nil || !key.private {
+		return nil, ErrPrivateKeyRequired
 	}
 	signer, ok := key.material.(crypto.Signer)
 	if !ok {
-		return nil, fmt.Errorf("%w: private key %T has no public key", ErrUnsupportedKeyType, key.material)
+		return nil, fmt.Errorf("%w: private key %T does not implement crypto.Signer", ErrUnsupportedKeyType, key.material)
+	}
+	return signer, nil
+}
+
+// Public returns the key's validated public part.
+func (key *Key) Public() (crypto.PublicKey, error) {
+	if key == nil {
+		return nil, fmt.Errorf("%w: nil key", ErrMalformedKey)
+	}
+	if !key.private {
+		return key.material, nil
+	}
+	signer, err := key.Signer()
+	if err != nil {
+		return nil, fmt.Errorf("access private-key signer: %w", err)
 	}
 	publicKey := signer.Public()
 	if _, err := NewKey(publicKey); err != nil {

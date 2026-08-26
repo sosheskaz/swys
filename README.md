@@ -124,6 +124,7 @@ are bugs, and where possible they are enforced by tests rather than review.
 npc aes encrypt|decrypt            # AES-GCM default; explicit AES-CBC compatibility
 npc key generate <algorithm>       # generate a key with an explicit algorithm
 npc key public|inspect|convert     # consume a self-describing key
+npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
 ```
 
@@ -200,6 +201,94 @@ npc k c --input private.pem --to openssh # npc key convert
 ```
 
 The longer verb aliases are `gen`, `pub`, `ins`, and `conv`.
+
+### Certificate creation walkthrough
+
+Create a self-signed test CA. Automatically generated certificate keys are
+Ed25519 PKCS#8 PEM files; `--key-out` creates them with owner-only access and
+refuses to overwrite an existing path. That is mode `0600` on Unix and a
+protected current-user DACL on Windows.
+
+```fish
+npc cert create \
+    --ca \
+    --subject "CN=test-ca" \
+    --key-out ca.key \
+    --output ca.crt
+```
+
+Use that CA to mint separate server and client identities. Leaf certificates
+default to 30 days and support both server and client authentication unless
+`--server-only` or `--client-only` narrows them. CA certificates default to 365
+days and cannot create subordinate CAs. An issued leaf starts no earlier than
+its issuer and must use a short enough `--days` value to expire no later than its
+issuer.
+
+```fish
+npc cert create \
+    --dns localhost \
+    --ip 127.0.0.1 \
+    --server-only \
+    --key-out server.key \
+    --issuer-cert ca.crt \
+    --issuer-key ca.key \
+    --output server.crt
+
+npc cert create \
+    --subject "CN=client" \
+    --client-only \
+    --key-out client.key \
+    --issuer-cert ca.crt \
+    --issuer-key ca.key \
+    --output client.crt
+```
+
+Inspect the resulting certificates using the normal certificate formatter:
+
+```fish
+npc cert inspect --input ca.crt --format long
+npc cert inspect --input server.crt --format json
+npc cert inspect --input client.crt
+```
+
+To choose a key algorithm yourself, generate the key first and pass it through
+`--key`. Existing private keys may also be read from stdin by using `--key -`;
+only one key or issuer flag can own stdin in a single invocation.
+
+```fish
+npc key generate p256 --output alternate-server.key
+npc cert create \
+    --dns localhost \
+    --key alternate-server.key \
+    --issuer-cert ca.crt \
+    --issuer-key ca.key \
+    --output alternate-server.crt
+```
+
+Create a minimal PKCS#10 request when a real CA owns certificate issuance:
+
+```fish
+npc cert csr \
+    --subject "CN=service.internal" \
+    --dns service.internal \
+    --key alternate-server.key \
+    --output service.csr
+```
+
+`--subject` currently accepts one `CN=<value>` component. DNS and IP values are
+written as SAN extensions, not only into the common name. An issuer certificate
+must be one PEM `CERTIFICATE`, its private key must match, and the requested
+leaf validity must fit entirely within the issuer's validity window.
+Server-capable leaves with no SAN flags classify their common name as a matching
+DNS or IP SAN.
+With no subject or SAN flags, server-capable leaves and CSRs default to both
+`CN=localhost` and a `localhost` DNS SAN; client-only leaves default to the same
+common name without a SAN.
+
+These certificates and CAs are for test and development loops. npc never
+installs trust roots; trust `ca.crt` only in an explicitly selected test store,
+never system-wide. If certificate output fails after an automatic key is saved,
+npc retains the usable key and reports its path.
 
 ### AES quick start
 

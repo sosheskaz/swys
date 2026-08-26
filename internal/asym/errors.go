@@ -24,4 +24,14 @@ var (
 	ErrUnsupportedKeyAlgorithm = errors.New("unsupported key generation algorithm")
 	// ErrInvalidKeyConversion indicates an incompatible key type and output container.
 	ErrInvalidKeyConversion = errors.New("invalid key conversion")
+	// ErrPrivateKeyRequired indicates that an operation requires private signing material.
+	ErrPrivateKeyRequired = errors.New("private key required")
+	// ErrInvalidCertificateOptions indicates an invalid certificate or CSR profile.
+	ErrInvalidCertificateOptions = errors.New("invalid certificate options")
+	// ErrIssuerNotCA indicates that an issuer certificate is not permitted to sign certificates.
+	ErrIssuerNotCA = errors.New("issuer certificate is not a certificate authority")
+	// ErrIssuerKeyMismatch indicates that an issuer certificate and private key have different public keys.
+	ErrIssuerKeyMismatch = errors.New("issuer certificate and private key do not match")
+	// ErrIssuerValidity indicates that an issuer or requested leaf validity window is unusable.
+	ErrIssuerValidity = errors.New("invalid issuer validity")
 )

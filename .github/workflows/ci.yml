@@ -68,6 +68,12 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Vet (Windows amd64)
+        env:
+          GOARCH: amd64
+          GOOS: windows
+        run: go vet ./...
+
       - name: Verify go.mod is tidy
         run: go mod tidy -diff -v
 

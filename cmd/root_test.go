@@ -776,6 +776,13 @@ func resetCommandFlags(command *cobra.Command) {
 	command.SetOut(nil)
 	command.SetErr(nil)
 	reset := func(flag *pflag.Flag) {
+		if slice, ok := flag.Value.(pflag.SliceValue); ok && flag.DefValue == "[]" {
+			if err := slice.Replace(nil); err != nil {
+				panic(err)
+			}
+			flag.Changed = false
+			return
+		}
 		if err := flag.Value.Set(flag.DefValue); err != nil {
 			panic(err)
 		}

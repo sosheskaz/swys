@@ -11,10 +11,12 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
+const certificatePEMType = "CERTIFICATE"
+
 var certCmd = compatibilityAliasCommand(structuredOutputCommand(&cobra.Command{
 	Aliases: []string{"x509", "certificate", "x.509"},
 	Use:     "cert",
-	Short:   "Inspect and retrieve X.509 certificates",
+	Short:   "Create, inspect, and retrieve X.509 certificates",
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !compatibilityAliasInvoked(cmd) {
@@ -70,8 +72,8 @@ func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
 			break
 		}
 		remainder = rest
-		if block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("%w %q; expected CERTIFICATE", errUnexpectedPEMType, block.Type)
+		if block.Type != certificatePEMType {
+			return nil, fmt.Errorf("%w %q; expected %s", errUnexpectedPEMType, block.Type, certificatePEMType)
 		}
 
 		parsed, err := x509.ParseCertificates(block.Bytes)
