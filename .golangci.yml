@@ -47,6 +47,8 @@ linters:
     - errname         # Check that error types are named FooError
     - errorlint       # Find code that will cause problems with Go 1.13 error wrapping
     - exhaustive      # Check exhaustiveness of enum switch statements
+    - gocheckcompilerdirectives # Check that Go compiler directives are valid
+    - gochecksumtype  # Check exhaustiveness of Go sum types
     - gocritic        # Opinionated Go source code checker
     - goprintffuncname # Check that printf-like functions are named with f at the end
     - gosec           # Inspect source code for security problems
@@ -55,6 +57,7 @@ linters:
     - mirror          # Reports wrong mirror patterns of bytes/strings usage
     - musttag         # Enforce field tags in (un)marshaled structs
     - nilerr          # Find code that returns nil even if it checks that the error is not nil
+    - nilnesserr      # Find error checks that return a different nil error value
     - nilnil          # Check that there is no simultaneous return of nil error and invalid value
     - noctx           # Find sending HTTP requests without context.Context
     - nosprintfhostport # Check for misuse of Sprintf to construct a host with port in a URL
