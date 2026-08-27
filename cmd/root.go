@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz-systems/npc/internal/securefile"
 	"github.com/sosheskaz-systems/npc/internal/version"
 )
 
@@ -56,10 +57,9 @@ var rootCmd = &cobra.Command{
 type commandIOKey struct{}
 
 type commandIO struct {
-	err             error
-	cleanup         func() error
-	retainedKeyPath string
-	once            sync.Once
+	err     error
+	cleanup func() error
+	once    sync.Once
 }
 
 func (state *commandIO) close() error {
@@ -67,25 +67,11 @@ func (state *commandIO) close() error {
 	state.once.Do(func() {
 		closed = true
 		state.err = state.cleanup()
-		if state.err != nil && state.retainedKeyPath != "" {
-			state.err = fmt.Errorf(
-				"finalize certificate output; generated private key retained at %q: %w",
-				state.retainedKeyPath,
-				state.err,
-			)
-		}
 	})
 	if closed {
 		return state.err
 	}
 	return nil
-}
-
-func markRetainedCertificateKey(cmd *cobra.Command, path string) {
-	state, ok := cmd.Context().Value(commandIOKey{}).(*commandIO)
-	if ok {
-		state.retainedKeyPath = path
-	}
 }
 
 // Execute runs the root command.
@@ -190,7 +176,8 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 }
 
 type commandOutputOptions struct {
-	mode *os.FileMode
+	mode      *os.FileMode
+	sensitive bool
 }
 
 // openCommandOutput validates what it can before opening the final path, then
@@ -208,10 +195,9 @@ func openCommandOutput(outputPath string, options commandOutputOptions) (*os.Fil
 		return nil, fmt.Errorf("%w: %q is not a regular file", errModeRequiresRegularOutput, outputPath)
 	}
 
-	// The path is intentionally supplied by the CLI user.
-	output, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE, 0o600) //nolint:gosec // opening an explicitly user-selected CLI path is intended
+	output, err := openCommandOutputFile(outputPath, options)
 	if err != nil {
-		return nil, fmt.Errorf("open output %q: %w", outputPath, err)
+		return nil, err
 	}
 	fail := func(err error) (*os.File, error) {
 		return nil, errors.Join(err, output.Close())
@@ -238,6 +224,30 @@ func openCommandOutput(outputPath string, options commandOutputOptions) (*os.Fil
 	return output, nil
 }
 
+func openCommandOutputFile(outputPath string, options commandOutputOptions) (*os.File, error) {
+	if options.sensitive && options.mode == nil {
+		output, err := securefile.OpenOrCreateOwnerOnly(outputPath)
+		if errors.Is(err, securefile.ErrNotOwnerOnly) {
+			remediation := "secure or remove the destination"
+			if runtime.GOOS != "windows" {
+				remediation += ", or pass --mode to override"
+			}
+			return nil, fmt.Errorf("refuse sensitive output %q: %w; %s", outputPath, err, remediation)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("open output %q: %w", outputPath, err)
+		}
+		return output, nil
+	}
+
+	// The path is intentionally supplied by the CLI user.
+	output, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE, 0o600) //nolint:gosec // opening an explicitly user-selected CLI path is intended
+	if err != nil {
+		return nil, fmt.Errorf("open output %q: %w", outputPath, err)
+	}
+	return output, nil
+}
+
 var errInvalidOutputMode = errors.New("invalid output mode")
 
 var errModeRequiresRegularOutput = errors.New("--mode requires a regular file output")
@@ -251,8 +261,9 @@ func commandOutputOptionsFromCommand(cmd *cobra.Command) (commandOutputOptions, 
 }
 
 func commandOutputOptionsForOS(cmd *cobra.Command, goos string) (commandOutputOptions, error) {
+	options := commandOutputOptions{sensitive: commandHasShape(cmd, sensitiveOutputShape)}
 	if !cmd.Flags().Changed("mode") {
-		return commandOutputOptions{}, nil
+		return options, nil
 	}
 	if goos == "windows" {
 		return commandOutputOptions{}, fmt.Errorf("%w: windows exposes only a read-only file attribute", errOutputModeUnsupported)
@@ -265,7 +276,8 @@ func commandOutputOptionsForOS(cmd *cobra.Command, goos string) (commandOutputOp
 	if err != nil {
 		return commandOutputOptions{}, err
 	}
-	return commandOutputOptions{mode: &mode}, nil
+	options.mode = &mode
+	return options, nil
 }
 
 func parseOutputMode(text string) (os.FileMode, error) {
@@ -342,6 +354,6 @@ func init() {
 	rootCmd.PersistentFlags().String(
 		"mode",
 		"",
-		"POSIX octal permissions for the --output file (e.g. 0640); overrides the default 0600 on create and preserved permissions on overwrite",
+		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
 	)
 }

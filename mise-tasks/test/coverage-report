@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#MISE description="Test coverage-report aggregation"
+set -euo pipefail
+
+task_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+reporter="${task_dir}/../report/coverage"
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/npc-coverage-report.XXXXXX")"
+trap 'rm -rf -- "$temp_dir"' EXIT
+
+base_profile="${temp_dir}/base.out"
+head_profile="${temp_dir}/head.out"
+
+printf '%s\n' \
+  'mode: atomic' \
+  'github.com/sosheskaz-systems/npc/cmd/example.go:1.1,1.2 1 1' \
+  'github.com/sosheskaz-systems/npc/cmd/example.go:2.1,2.2 1 0' \
+  >"$base_profile"
+
+printf '%s\n' \
+  'mode: atomic' \
+  'github.com/sosheskaz-systems/npc/cmd/example.go:1.1,1.2 1 0' \
+  'github.com/sosheskaz-systems/npc/cmd/example.go:2.1,2.2 1 0' \
+  'github.com/sosheskaz-systems/npc/internal/securefile/securefile.go:1.1,1.2 1 1' \
+  'github.com/sosheskaz-systems/npc/cmd/example.go:1.1,1.2 1 1' \
+  'github.com/sosheskaz-systems/npc/cmd/example.go:2.1,2.2 1 0' \
+  'github.com/sosheskaz-systems/npc/internal/securefile/securefile.go:1.1,1.2 1 0' \
+  >"$head_profile"
+
+output="$($reporter "$head_profile" "$base_profile")"
+
+assert_contains() {
+  local expected="$1"
+  if ! grep -Fq -- "$expected" <<<"$output"; then
+    printf 'coverage report missing expected line: %s\n\n%s\n' "$expected" "$output" >&2
+    return 1
+  fi
+}
+
+assert_contains '**Total: 66.7%** (main: 50.0%, +16.7 🟢)'
+assert_contains '| `cmd` | 50.0% | 50.0% | ±0.0 |'
+assert_contains '| `internal/securefile` | 100.0% | — | new |'

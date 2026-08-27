@@ -13,6 +13,9 @@ builds:
       - darwin
       - windows
       - freebsd
+    goarch:
+      - amd64
+      - arm64
     flags:
       - -trimpath
     # CommitDate/CommitTimestamp (not build time) keep builds reproducible.

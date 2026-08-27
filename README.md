@@ -87,11 +87,13 @@ are bugs, and where possible they are enforced by tests rather than review.
 4. **`--format json` everywhere** structured output exists, for `jq`.
 
 5. **Secure by default.** Authenticated encryption (AES-GCM) by default,
-   modern key types (ed25519) as defaults, randomness only from
+   modern key types such as Ed25519, randomness only from
    `crypto/rand`, legacy modes behind explicit flags — never silently. A
-   newly created `--output` file is `0600`; overwriting an existing
-   destination preserves its current permissions instead of resetting them.
-   npc never modifies system trust stores.
+   generated private-key file output is owner-only. Ordinary commands request
+   `0600` for new Unix files and preserve permissions when overwriting; the
+   primary output of key-generating commands rejects an existing regular
+   destination that is not already owner-only. npc never modifies system trust
+   stores.
 
 6. **Mechanical consistency.** Uniformity is enforced by shared machinery —
    persistent I/O hooks, encoder/formatter registries that derive help text,
@@ -132,22 +134,31 @@ See `npc --help`; the surface is actively evolving toward the grammar above.
 
 ### Key lifecycle walkthrough
 
-Generate an Ed25519 private key in PKCS#8 PEM, write it to a private file, then
-inspect its safe metadata without printing private bytes:
+Generate an Ed25519 private key in PKCS#8 PEM and its public half in canonical
+PKIX PEM with one command, then inspect the private key's safe metadata without
+printing private bytes:
 
 ```fish
-npc key generate ed25519 --output private.pem
+npc key generate ed25519 \
+    --output private.pem \
+    --public-out public.pem
 npc key inspect --input private.pem --format json
 ```
 
-Derive the public half in canonical PKIX PEM and inspect it separately. The
-private and public inspection results have different `key_type` values but the
-same `public_key_sha256_fingerprint`:
+Inspect the public key separately. The private and public inspection results
+have different `key_type` values but the same
+`public_key_sha256_fingerprint`:
 
 ```fish
-npc key public --input private.pem --output public.pem
 npc key inspect --input public.pem --format json
 ```
+
+`--public-format` selects `pkix-pem` (the default), `pkix-der`, or `openssh`.
+It applies only to `--public-out`; `--encoding` and `--mode` continue to apply
+only to the private `--output`. The private key may go to stdout while the
+public key goes to a file, but `--public-out -` is rejected because one stdout
+stream cannot safely carry both artifacts. Use `key public` later when you need
+to derive a public key from existing private material.
 
 That fingerprint is calculated over canonical PKIX DER, so it is stable across
 key containers. `cert inspect --format json` reports the same field, making it
@@ -185,6 +196,25 @@ Asymmetric private keys use PKCS#8 PEM; AES keys are raw bytes. PKCS#1 output is
 limited to RSA private keys, SEC1 to ECDSA private keys, and PKCS#8 to supported
 private-key algorithms. PKIX and OpenSSH targets contain only public material.
 
+`key generate` and the deprecated `aes genkey` treat regular output files as
+sensitive. A new destination is created owner-only. Without an explicit Unix
+`--mode`, an existing destination must be owned by the effective user and grant
+no group or other permissions. macOS additionally suppresses inherited ACLs on
+creation and rejects any extended ACL on an existing file. On Windows, the
+current user must own the file and be the only principal granted access by a
+protected DACL. An insecure destination is rejected before truncation,
+preserving its contents and permissions. On Unix, an explicit `--mode` is a
+deliberate override of that check; Windows continues to reject `--mode`.
+Stdout, FIFOs, and device outputs remain explicit streaming sinks and are not
+permission-checked by npc.
+
+`--public-out` follows the ordinary output-file contract: an existing file is
+overwritten while retaining its permissions. npc validates that the private
+and public paths are not direct, symlink, or hardlink aliases before opening
+either output. The private key is written first; if the public write fails, the
+private key is retained and the error identifies its path (or notes that it was
+already emitted to stdout).
+
 `key public`, `key inspect`, and `key convert` accept one unencrypted PKCS#8,
 PKCS#1, or SEC1 private key, or one PKIX public key, in PEM or DER form. All
 three commands support `--input-encoding` for wrapped key bytes. Encrypted
@@ -204,16 +234,16 @@ The longer verb aliases are `gen`, `pub`, `ins`, and `conv`.
 
 ### Certificate creation walkthrough
 
-Create a self-signed test CA. Automatically generated certificate keys are
-Ed25519 PKCS#8 PEM files; `--key-out` creates them with owner-only access and
-refuses to overwrite an existing path. That is mode `0600` on Unix and a
-protected current-user DACL on Windows.
+Create a private key and a self-signed test CA. Certificate commands consume
+private keys but never generate them, so key algorithm and output handling stay
+under the `key generate` contract.
 
 ```fish
+npc key generate ed25519 --output ca.key
 npc cert create \
     --ca \
     --subject "CN=test-ca" \
-    --key-out ca.key \
+    --key ca.key \
     --output ca.crt
 ```
 
@@ -225,19 +255,21 @@ its issuer and must use a short enough `--days` value to expire no later than it
 issuer.
 
 ```fish
+npc key generate ed25519 --output server.key
 npc cert create \
     --dns localhost \
     --ip 127.0.0.1 \
     --server-only \
-    --key-out server.key \
+    --key server.key \
     --issuer-cert ca.crt \
     --issuer-key ca.key \
     --output server.crt
 
+npc key generate ed25519 --output client.key
 npc cert create \
     --subject "CN=client" \
     --client-only \
-    --key-out client.key \
+    --key client.key \
     --issuer-cert ca.crt \
     --issuer-key ca.key \
     --output client.crt
@@ -251,8 +283,8 @@ npc cert inspect --input server.crt --format json
 npc cert inspect --input client.crt
 ```
 
-To choose a key algorithm yourself, generate the key first and pass it through
-`--key`. Existing private keys may also be read from stdin by using `--key -`;
+Use the same generation flags for certificate keys as for any other raw
+keypair. Existing private keys may also be read from stdin by using `--key -`;
 only one key or issuer flag can own stdin in a single invocation.
 
 ```fish
@@ -389,13 +421,17 @@ failure: npc opens and truncates regular `--output` destinations before the
 crypter runs, and encoders and operating-system writes have their own buffering
 and failure behavior. Flag and mode validation occurs before that open.
 
-A newly created regular destination is `0600`; overwriting an existing file
-keeps that file's current permissions. `--mode` (an octal permission string
-such as `0640` or `640`) sets regular-file permissions explicitly on create or
-overwrite and is applied before the command runs. It is rejected for
-non-regular destinations, since npc has nothing there to chmod, and on Windows,
-where POSIX permission bits cannot be applied exactly. Non-regular destinations
-such as `/dev/stdout`, `/dev/fd/N`, and FIFOs stream directly as well.
+A newly created regular destination requests mode `0600` on Unix; a restrictive
+umask may remove additional owner permissions. Ordinary commands preserve an
+existing file's permissions. Sensitive key-generating commands instead require
+an existing regular destination to be owner-only, as described above, and
+reject it before truncation otherwise. `--mode` (an octal permission string such
+as `0640` or `640`) sets regular-file permissions explicitly on create or
+overwrite, bypasses the sensitive-output check, and is applied before the
+command runs. It is rejected for non-regular destinations, since npc has
+nothing there to chmod, and on Windows, where POSIX permission bits cannot be
+applied exactly. Non-regular destinations such as `/dev/stdout`, `/dev/fd/N`,
+and FIFOs stream directly as well.
 
 ## Development
 

@@ -8,11 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,16 +18,15 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
-var errCertificateWriterFailed = errors.New("certificate writer failed")
-
 func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 	dir := t.TempDir()
 	selfKey := filepath.Join(dir, "self.key")
 	selfCert := filepath.Join(dir, "self.crt")
+	generateTestKey(t, "ed25519", selfKey)
 	before := time.Now()
 	if _, _, err := executeRootStreams(
 		t,
-		"cert", "create", "--key-out", selfKey, "--output", selfCert,
+		"cert", "create", "--key", selfKey, "--output", selfCert,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +47,11 @@ func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 
 	caKey := filepath.Join(dir, "ca.key")
 	caCert := filepath.Join(dir, "ca.crt")
+	generateTestKey(t, "ed25519", caKey)
 	if _, _, err := executeRootStreams(
 		t,
 		"cert", "create", "--ca", "--subject", "CN=test-ca",
-		"--key-out", caKey, "--output", caCert,
+		"--key", caKey, "--output", caCert,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -61,9 +59,8 @@ func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 	if !ca.IsCA || ca.Subject.CommonName != "test-ca" {
 		t.Fatalf("CA = IsCA:%t subject:%q", ca.IsCA, ca.Subject.CommonName)
 	}
-	assertPrivateKeyProtection(t, caKey)
 	if _, _, err := executeRootStreams(t, "key", "inspect", "--input", caKey); err != nil {
-		t.Fatalf("inspect generated key: %v", err)
+		t.Fatalf("inspect CA key: %v", err)
 	}
 	inspected, _, err := executeRootStreams(t, "cert", "inspect", "--input", caCert)
 	if err != nil {
@@ -75,10 +72,11 @@ func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 
 	serverKey := filepath.Join(dir, "server.key")
 	serverCert := filepath.Join(dir, "server.crt")
+	generateTestKey(t, "ed25519", serverKey)
 	if _, _, err := executeRootStreams(
 		t,
 		"cert", "create", "--dns", "localhost", "--ip", "127.0.0.1",
-		"--server-only", "--key-out", serverKey,
+		"--server-only", "--key", serverKey,
 		"--issuer-cert", caCert, "--issuer-key", caKey,
 		"--output", serverCert,
 	); err != nil {
@@ -103,9 +101,7 @@ func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 
 	clientKey := filepath.Join(dir, "client.key")
 	clientCert := filepath.Join(dir, "client.crt")
-	if _, _, err := executeRootStreams(t, "key", "generate", "p256", "--output", clientKey); err != nil {
-		t.Fatal(err)
-	}
+	generateTestKey(t, "p256", clientKey)
 	if _, _, err := executeRootStreams(
 		t,
 		"cert", "create", "--subject", "CN=client", "--client-only",
@@ -127,11 +123,12 @@ func TestCertCreateDefaultsExplicitServerSubjectToDNSSAN(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "server.key")
 	certPath := filepath.Join(dir, "server.crt")
+	generateTestKey(t, "ed25519", keyPath)
 
 	if _, _, err := executeRootStreams(
 		t,
 		"cert", "create", "--subject", "CN=service.internal",
-		"--key-out", keyPath, "--output", certPath,
+		"--key", keyPath, "--output", certPath,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +145,12 @@ func TestCertCreateDefaultsIPSubjectToIPSAN(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "server.key")
 	certPath := filepath.Join(dir, "server.crt")
+	generateTestKey(t, "ed25519", keyPath)
 
 	if _, _, err := executeRootStreams(
 		t,
 		"cert", "create", "--subject", "CN=127.0.0.1",
-		"--key-out", keyPath, "--output", certPath,
+		"--key", keyPath, "--output", certPath,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -172,11 +170,12 @@ func TestCertCreateClientOnlyWithoutSubjectOmitsSANs(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "client.key")
 	certPath := filepath.Join(dir, "client.crt")
+	generateTestKey(t, "ed25519", keyPath)
 
 	if _, _, err := executeRootStreams(
 		t,
 		"cert", "create", "--client-only",
-		"--key-out", keyPath, "--output", certPath,
+		"--key", keyPath, "--output", certPath,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -194,15 +193,14 @@ func TestCertCreateBindsEitherIssuerArtifactToStdin(t *testing.T) {
 	caKey := filepath.Join(dir, "ca.key")
 	caCert := filepath.Join(dir, "ca.crt")
 	subjectKey := filepath.Join(dir, "subject.key")
+	generateTestKey(t, "ed25519", caKey)
 	if _, _, err := executeRootStreams(
 		t,
-		"cert", "create", "--ca", "--subject", "CN=ca", "--key-out", caKey, "--output", caCert,
+		"cert", "create", "--ca", "--subject", "CN=ca", "--key", caKey, "--output", caCert,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", subjectKey); err != nil {
-		t.Fatal(err)
-	}
+	generateTestKey(t, "ed25519", subjectKey)
 	tests := []struct {
 		name      string
 		inputPath string
@@ -300,6 +298,8 @@ func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
 	dir := t.TempDir()
 	outputPath := filepath.Join(dir, "certificate.pem")
 	inputPath := filepath.Join(dir, "input.pem")
+	keyPath := filepath.Join(dir, "key.pem")
+	generateTestKey(t, "ed25519", keyPath)
 	if err := os.WriteFile(inputPath, []byte("input"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -308,27 +308,25 @@ func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
 		args []string
 	}{
 		{name: "missing key selection", args: []string{"cert", "create", "--subject", "CN=leaf"}},
-		{name: "both key choices", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", "key.pem", "--key-out", "new.key"}},
+		{name: "removed key-out", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--key-out", "new.key"}},
 		{name: "empty existing key", args: []string{"cert", "create", "--subject", "CN=leaf", "--key="}},
-		{name: "empty generated key output", args: []string{"cert", "create", "--subject", "CN=leaf", "--key-out="}},
-		{name: "generated key output on stdout", args: []string{"cert", "create", "--subject", "CN=leaf", "--key-out", "-"}},
-		{name: "CA missing subject", args: []string{"cert", "create", "--ca", "--key-out", "ca.key"}},
-		{name: "CA with SAN", args: []string{"cert", "create", "--ca", "--subject", "CN=ca", "--dns", "ca.test", "--key-out", "ca.key"}},
-		{name: "incomplete issuer", args: []string{"cert", "create", "--subject", "CN=leaf", "--key-out", "leaf.key", "--issuer-cert", "ca.crt"}},
+		{name: "CA missing subject", args: []string{"cert", "create", "--ca", "--key", keyPath}},
+		{name: "CA with SAN", args: []string{"cert", "create", "--ca", "--subject", "CN=ca", "--dns", "ca.test", "--key", keyPath}},
+		{name: "incomplete issuer", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--issuer-cert", "ca.crt"}},
 		{
 			name: "empty issuer certificate",
 			args: []string{
-				"cert", "create", "--subject", "CN=leaf", "--key-out", "leaf.key",
+				"cert", "create", "--subject", "CN=leaf", "--key", keyPath,
 				"--issuer-cert=", "--issuer-key", "ca.key",
 			},
 		},
-		{name: "empty issuer key", args: []string{"cert", "create", "--subject", "CN=leaf", "--key-out", "leaf.key", "--issuer-cert", "ca.crt", "--issuer-key="}},
-		{name: "zero days", args: []string{"cert", "create", "--subject", "CN=leaf", "--days", "0", "--key-out", "leaf.key"}},
-		{name: "negative days", args: []string{"cert", "create", "--subject", "CN=leaf", "--days", "-1", "--key-out", "leaf.key"}},
-		{name: "full DN", args: []string{"cert", "create", "--subject", "CN=leaf,O=npc", "--key-out", "leaf.key"}},
-		{name: "bad IP", args: []string{"cert", "create", "--subject", "CN=leaf", "--ip", "not-an-ip", "--key-out", "leaf.key"}},
-		{name: "unused input", args: []string{"cert", "create", "--subject", "CN=leaf", "--key-out", "leaf.key", "--input", inputPath}},
-		{name: "unused input encoding", args: []string{"cert", "create", "--subject", "CN=leaf", "--key-out", "leaf.key", "--input-encoding", "base64"}},
+		{name: "empty issuer key", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--issuer-cert", "ca.crt", "--issuer-key="}},
+		{name: "zero days", args: []string{"cert", "create", "--subject", "CN=leaf", "--days", "0", "--key", keyPath}},
+		{name: "negative days", args: []string{"cert", "create", "--subject", "CN=leaf", "--days", "-1", "--key", keyPath}},
+		{name: "full DN", args: []string{"cert", "create", "--subject", "CN=leaf,O=npc", "--key", keyPath}},
+		{name: "bad IP", args: []string{"cert", "create", "--subject", "CN=leaf", "--ip", "not-an-ip", "--key", keyPath}},
+		{name: "unused input", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--input", inputPath}},
+		{name: "unused input encoding", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--input-encoding", "base64"}},
 		{name: "multiple stdin owners", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", "-", "--issuer-cert", "-", "--issuer-key", "ca.key"}},
 		{name: "CSR missing key", args: []string{"cert", "csr", "--subject", "CN=leaf"}},
 		{name: "CSR empty key", args: []string{"cert", "csr", "--subject", "CN=leaf", "--key="}},
@@ -353,30 +351,10 @@ func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
 	}
 }
 
-func TestCertCreateProtectsKeyOutputAndInputPaths(t *testing.T) {
+func TestCertCreateProtectsInputPaths(t *testing.T) {
 	dir := t.TempDir()
-	keyOut := filepath.Join(dir, "existing.key")
-	certOut := filepath.Join(dir, "existing.crt")
-	if err := os.WriteFile(keyOut, []byte("preserve-key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(certOut, []byte("preserve-cert"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := executeRootStreams(
-		t,
-		"cert", "create", "--subject", "CN=leaf", "--key-out", keyOut, "--output", certOut,
-	)
-	if !errors.Is(err, errKeyOutputExists) {
-		t.Fatalf("existing key output error = %v, want errKeyOutputExists", err)
-	}
-	assertFileContents(t, keyOut, "preserve-key")
-	assertFileContents(t, certOut, "preserve-cert")
-
 	inputKey := filepath.Join(dir, "subject.key")
-	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", inputKey); err != nil {
-		t.Fatal(err)
-	}
+	generateTestKey(t, "ed25519", inputKey)
 	wantKey, err := os.ReadFile(inputKey)
 	if err != nil {
 		t.Fatal(err)
@@ -394,46 +372,6 @@ func TestCertCreateProtectsKeyOutputAndInputPaths(t *testing.T) {
 	}
 	if !bytes.Equal(gotKey, wantKey) {
 		t.Fatal("input key was modified")
-	}
-
-	sameOutput := filepath.Join(dir, "same-output")
-	_, _, err = executeRootStreams(
-		t,
-		"cert", "create", "--subject", "CN=leaf", "--key-out", sameOutput, "--output", sameOutput,
-	)
-	if !errors.Is(err, errCertificatePathCollision) {
-		t.Fatalf("same outputs error = %v, want errCertificatePathCollision", err)
-	}
-	if _, statErr := os.Stat(sameOutput); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("same output stat error = %v, want not-exist", statErr)
-	}
-}
-
-func TestCertCreateRejectsOutputAliasesThroughSymlinkedParents(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlink creation requires privileges on some Windows configurations")
-	}
-
-	dir := t.TempDir()
-	realDir := filepath.Join(dir, "real")
-	if err := os.Mkdir(realDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	aliasDir := filepath.Join(dir, "alias")
-	if err := os.Symlink(realDir, aliasDir); err != nil {
-		t.Fatal(err)
-	}
-	artifact := filepath.Join(realDir, "identity.pem")
-	alias := filepath.Join(aliasDir, "identity.pem")
-	_, _, err := executeRootStreams(
-		t,
-		"cert", "create", "--subject", "CN=leaf", "--key-out", artifact, "--output", alias,
-	)
-	if !errors.Is(err, errCertificatePathCollision) {
-		t.Fatalf("symlinked output error = %v, want errCertificatePathCollision", err)
-	}
-	if _, statErr := os.Stat(artifact); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("artifact stat error = %v, want not-exist", statErr)
 	}
 }
 
@@ -456,44 +394,21 @@ func TestCertCreateDefersMissingOutputParentToOutputOpen(t *testing.T) {
 	}
 }
 
-func TestCertCreateRetainsGeneratedKeyWhenCertificateWriteFails(t *testing.T) {
-	dir := t.TempDir()
-	keyOut := filepath.Join(dir, "retained.key")
-	stderr, err := executeRootWithOutput(
-		t,
-		failingWriter{err: errCertificateWriterFailed},
-		"cert", "create", "--subject", "CN=leaf", "--key-out", keyOut,
-	)
-	if !errors.Is(err, errCertificateWriterFailed) {
-		t.Fatalf("write error = %v, want %v", err, errCertificateWriterFailed)
-	}
-	if !strings.Contains(err.Error(), keyOut) && !strings.Contains(stderr, keyOut) {
-		t.Fatalf("error = %v, stderr = %q; want retained key path", err, stderr)
-	}
-	data, readErr := os.ReadFile(keyOut)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	key, parseErr := asym.ParseKey(data)
-	if parseErr != nil || !key.IsPrivate() {
-		t.Fatalf("retained key parse = %v, private = %t", parseErr, parseErr == nil && key.IsPrivate())
-	}
-}
-
 func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T) {
 	dir := t.TempDir()
 	caKey := filepath.Join(dir, "ca.key")
 	caCert := filepath.Join(dir, "ca.crt")
+	generateTestKey(t, "ed25519", caKey)
 	if _, _, err := executeRootStreams(
 		t,
-		"cert", "create", "--ca", "--subject", "CN=ca", "--key-out", caKey, "--output", caCert,
+		"cert", "create", "--ca", "--subject", "CN=ca", "--key", caKey, "--output", caCert,
 	); err != nil {
 		t.Fatal(err)
 	}
 	wrongKey := filepath.Join(dir, "wrong.key")
-	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", wrongKey); err != nil {
-		t.Fatal(err)
-	}
+	generateTestKey(t, "ed25519", wrongKey)
+	leafKey := filepath.Join(dir, "leaf.key")
+	generateTestKey(t, "ed25519", leafKey)
 	_, _, err := executeRootStreams(t, "cert", "create", "--subject", "CN=leaf", "--key", caCert)
 	if !errors.Is(err, asym.ErrUnexpectedKeyPEMType) || !strings.Contains(err.Error(), certificatePEMType) {
 		t.Fatalf("certificate-as-key error = %v, want block type and ErrUnexpectedKeyPEMType", err)
@@ -509,7 +424,7 @@ func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T)
 
 	_, _, err = executeRootStreams(
 		t,
-		"cert", "create", "--subject", "CN=leaf", "--key-out", filepath.Join(dir, "leaf.key"),
+		"cert", "create", "--subject", "CN=leaf", "--key", leafKey,
 		"--issuer-cert", caCert, "--issuer-key", wrongKey,
 	)
 	if !errors.Is(err, asym.ErrIssuerKeyMismatch) {
@@ -529,7 +444,7 @@ func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T)
 	}
 	_, _, err = executeRootStreams(
 		t,
-		"cert", "create", "--subject", "CN=leaf", "--key-out", filepath.Join(dir, "other-leaf.key"),
+		"cert", "create", "--subject", "CN=leaf", "--key", leafKey,
 		"--issuer-cert", trailingCert, "--issuer-key", caKey,
 	)
 	if !errors.Is(err, errTrailingCertificateData) {
@@ -545,11 +460,14 @@ func TestCertCreateEnablesMutualTLSHandshake(t *testing.T) {
 	serverCert := filepath.Join(dir, "server.crt")
 	clientKey := filepath.Join(dir, "client.key")
 	clientCert := filepath.Join(dir, "client.crt")
+	generateTestKey(t, "ed25519", caKey)
+	generateTestKey(t, "ed25519", serverKey)
+	generateTestKey(t, "ed25519", clientKey)
 
 	commands := [][]string{
-		{"cert", "create", "--ca", "--subject", "CN=test-ca", "--key-out", caKey, "--output", caCert},
-		{"cert", "create", "--dns", "localhost", "--server-only", "--key-out", serverKey, "--issuer-cert", caCert, "--issuer-key", caKey, "--output", serverCert},
-		{"cert", "create", "--subject", "CN=client", "--client-only", "--key-out", clientKey, "--issuer-cert", caCert, "--issuer-key", caKey, "--output", clientCert},
+		{"cert", "create", "--ca", "--subject", "CN=test-ca", "--key", caKey, "--output", caCert},
+		{"cert", "create", "--dns", "localhost", "--server-only", "--key", serverKey, "--issuer-cert", caCert, "--issuer-key", caKey, "--output", serverCert},
+		{"cert", "create", "--subject", "CN=client", "--client-only", "--key", clientKey, "--issuer-cert", caCert, "--issuer-key", caKey, "--output", clientCert},
 	}
 	for _, args := range commands {
 		if _, _, err := executeRootStreams(t, args...); err != nil {
@@ -634,31 +552,9 @@ func readSingleCertificate(t *testing.T, path string) *x509.Certificate {
 	return cert
 }
 
-func assertFileContents(t *testing.T, path, want string) {
+func generateTestKey(t *testing.T, algorithm, path string) {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	if _, _, err := executeRootStreams(t, "key", "generate", algorithm, "--output", path); err != nil {
+		t.Fatalf("generate %s key: %v", algorithm, err)
 	}
-	if string(data) != want {
-		t.Fatalf("%s = %q, want %q", path, data, want)
-	}
-}
-
-func executeRootWithOutput(t *testing.T, output io.Writer, args ...string) (string, error) {
-	t.Helper()
-	resetCommandFlags(rootCmd)
-	t.Cleanup(func() {
-		resetCommandFlags(rootCmd)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
-
-	var stderr strings.Builder
-	rootCmd.SetOut(output)
-	rootCmd.SetErr(&stderr)
-	rootCmd.SetArgs(args)
-	command, runErr := rootCmd.ExecuteC()
-	return stderr.String(), errors.Join(runErr, closeCommandIO(command))
 }

@@ -34,7 +34,7 @@ run = "go test -run='^$' -bench=. -benchmem ./..."
 
 [tasks.check]
 description = "Run all local validation (lint + test)"
-depends = ["lint:go", "test:unit"]
+depends = ["lint:go", "lint:platforms", "test:coverage-report", "test:unit"]
 
 [tasks."clean:artifacts"]
 description = "Remove build artifacts and coverage/profile output"

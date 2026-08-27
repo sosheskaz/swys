@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -68,6 +69,229 @@ func TestKeyGenerateAlgorithms(t *testing.T) {
 				t.Fatalf("generated key info = %+v", info)
 			}
 		})
+	}
+}
+
+func TestKeyGenerateWritesMatchingPublicSidecars(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+	}{
+		{name: "default PKIX PEM"},
+		{name: "PKIX DER", format: "pkix-der"},
+		{name: "OpenSSH", format: "openssh"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			privatePath := filepath.Join(dir, "private.pem")
+			publicPath := filepath.Join(dir, "public.key")
+			args := []string{"key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath}
+			if test.format != "" {
+				args = append(args, "--public-format", test.format)
+			}
+			if _, _, err := executeRootStreams(t, args...); err != nil {
+				t.Fatal(err)
+			}
+
+			privateData, err := os.ReadFile(privatePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			privateKey, err := asym.ParseKey(privateData)
+			if err != nil || !privateKey.IsPrivate() {
+				t.Fatalf("private key parse = %v, private = %t", err, err == nil && privateKey.IsPrivate())
+			}
+			publicData, err := os.ReadFile(publicPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			material, err := privateKey.Public()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSSH, err := ssh.NewPublicKey(material)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.format == "openssh" {
+				gotSSH, _, _, trailing, err := ssh.ParseAuthorizedKey(publicData)
+				if err != nil || len(bytes.TrimSpace(trailing)) != 0 {
+					t.Fatalf("parse OpenSSH public key = %v, trailing = %q", err, trailing)
+				}
+				if !bytes.Equal(gotSSH.Marshal(), wantSSH.Marshal()) {
+					t.Fatal("OpenSSH sidecar does not match private key")
+				}
+				return
+			}
+
+			publicKey, err := asym.ParseKey(publicData)
+			if err != nil || publicKey.IsPrivate() {
+				t.Fatalf("public key parse = %v, private = %t", err, err == nil && publicKey.IsPrivate())
+			}
+			privateInfo, err := privateKey.Info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			publicInfo, err := publicKey.Info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if privateInfo.PublicKeySHA256Fingerprint != publicInfo.PublicKeySHA256Fingerprint {
+				t.Fatal("public sidecar does not match private key")
+			}
+		})
+	}
+}
+
+func TestKeyGenerateAllowsPrivateStdoutWithPublicSidecar(t *testing.T) {
+	publicPath := filepath.Join(t.TempDir(), "public.pem")
+	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256", "--public-out", publicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey, err := asym.ParseKey([]byte(privatePEM))
+	if err != nil || !privateKey.IsPrivate() {
+		t.Fatalf("stdout private key parse = %v, private = %t", err, err == nil && privateKey.IsPrivate())
+	}
+	publicData, err := os.ReadFile(publicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := asym.ParseKey(publicData)
+	if err != nil || publicKey.IsPrivate() {
+		t.Fatalf("sidecar public key parse = %v, private = %t", err, err == nil && publicKey.IsPrivate())
+	}
+}
+
+func TestKeyGenerateRejectsInvalidPublicSidecarFlagsBeforeOpeningOutputs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "AES", args: []string{"key", "generate", "aes256", "--public-out", "public.pem"}},
+		{name: "empty path", args: []string{"key", "generate", "ed25519", "--public-out="}},
+		{name: "stdout path", args: []string{"key", "generate", "ed25519", "--public-out", "-"}},
+		{name: "format without path", args: []string{"key", "generate", "ed25519", "--public-format", "openssh"}},
+		{name: "unknown format", args: []string{"key", "generate", "ed25519", "--public-out", "public.pem", "--public-format", "missing"}},
+		{name: "private format", args: []string{"key", "generate", "ed25519", "--public-out", "public.pem", "--public-format", "pkcs8-pem"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			privatePath := filepath.Join(dir, "private.pem")
+			if err := os.WriteFile(privatePath, []byte("preserve"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := append(append([]string(nil), test.args...), "--output", privatePath)
+			if _, _, err := executeRootStreams(t, args...); err == nil {
+				t.Fatalf("execute %v succeeded", args)
+			}
+			data, err := os.ReadFile(privatePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "preserve" {
+				t.Fatalf("private output = %q, want preserved", data)
+			}
+		})
+	}
+}
+
+func TestKeyGenerateRejectsPublicOutputAliasesBeforeOpeningEither(t *testing.T) {
+	dir := t.TempDir()
+	t.Run("direct", func(t *testing.T) {
+		path := filepath.Join(dir, "direct.pem")
+		_, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", path, "--public-out", path)
+		if !errors.Is(err, errKeyOutputCollision) {
+			t.Fatalf("collision error = %v, want errKeyOutputCollision", err)
+		}
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("output stat error = %v, want not-exist", statErr)
+		}
+	})
+
+	t.Run("hardlink", func(t *testing.T) {
+		privatePath := filepath.Join(dir, "hard-private.pem")
+		publicPath := filepath.Join(dir, "hard-public.pem")
+		if err := os.WriteFile(privatePath, []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(privatePath, publicPath); err != nil {
+			t.Skipf("create hardlink: %v", err)
+		}
+		_, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath)
+		if !errors.Is(err, errKeyOutputCollision) {
+			t.Fatalf("collision error = %v, want errKeyOutputCollision", err)
+		}
+		data, readErr := os.ReadFile(privatePath)
+		if readErr != nil || string(data) != "preserve" {
+			t.Fatalf("private output = %q, error = %v; want preserved", data, readErr)
+		}
+	})
+
+	t.Run("dangling symlink", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation requires privileges on some Windows configurations")
+		}
+		target := filepath.Join(dir, "symlink-target.pem")
+		link := filepath.Join(dir, "symlink.pem")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("create symlink: %v", err)
+		}
+		_, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", target, "--public-out", link)
+		if !errors.Is(err, errKeyOutputCollision) {
+			t.Fatalf("collision error = %v, want errKeyOutputCollision", err)
+		}
+		if _, statErr := os.Stat(target); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("target stat error = %v, want not-exist", statErr)
+		}
+	})
+}
+
+func TestKeyGeneratePublicSidecarUsesOrdinaryOverwriteSemantics(t *testing.T) {
+	dir := t.TempDir()
+	privatePath := filepath.Join(dir, "private.pem")
+	publicPath := filepath.Join(dir, "public.pem")
+	if err := os.WriteFile(publicPath, []byte("replace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath, "--mode", "0600"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(publicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key, err := asym.ParseKey(data); err != nil || key.IsPrivate() {
+		t.Fatalf("overwritten public key parse = %v, private = %t", err, err == nil && key.IsPrivate())
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(publicPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o644 {
+			t.Fatalf("public output mode = %04o, want preserved 0644", got)
+		}
+	}
+}
+
+func TestKeyGenerateRetainsPrivateOutputWhenPublicWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	privatePath := filepath.Join(dir, "private.pem")
+	publicPath := filepath.Join(dir, "missing", "public.pem")
+	_, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath)
+	if err == nil || !strings.Contains(err.Error(), "private key retained") || !strings.Contains(err.Error(), privatePath) {
+		t.Fatalf("public output error = %v, want retained private-key path", err)
+	}
+	privateData, readErr := os.ReadFile(privatePath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if key, parseErr := asym.ParseKey(privateData); parseErr != nil || !key.IsPrivate() {
+		t.Fatalf("retained private key parse = %v, private = %t", parseErr, parseErr == nil && key.IsPrivate())
 	}
 }
 
@@ -293,6 +517,7 @@ func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
 	}
 	assertPositionalCompletionContains(t, keyGenerateCmd, "ed25519")
 	assertPositionalCompletionContains(t, keyGenerateCmd, "ecdsa-p256")
+	assertFlagCompletionContains(t, keyGenerateCmd, "public-format", "openssh")
 	assertFlagCompletionContains(t, keyConvertCmd, "to", "openssh")
 	assertFlagCompletionContains(t, keyInspectCmd, formatFlagName, "json")
 	assertFlagCompletionContains(t, keyInspectCmd, inputEncodingFlagName, "base64")
@@ -304,6 +529,9 @@ func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
 	_, _, err = executeRootStreams(t, "key", "convert", "--to", "missing")
 	if !errors.Is(err, errUnknownKeyConversionTarget) || !strings.Contains(err.Error(), "openssh") {
 		t.Fatalf("target error = %v", err)
+	}
+	if got, want := keyPublicFormatNames(), []string{"openssh", "pkix-der", "pkix-pem"}; !slices.Equal(got, want) {
+		t.Fatalf("public formats = %v, want %v", got, want)
 	}
 	_, _, err = executeRootStreams(t, "key", "inspect", "--format", "missing")
 	if !errors.Is(err, errUnknownKeyFormat) || !strings.Contains(err.Error(), "json") {
@@ -345,6 +573,19 @@ func TestKeyGenerateOutputUsesPrivatePermissions(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("output permissions = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
+	for _, command := range []*cobra.Command{keyGenerateCmd, genkeyCmd} {
+		if !commandHasShape(command, sensitiveOutputShape) {
+			t.Fatalf("%s is not marked as sensitive output", command.CommandPath())
+		}
+	}
+	for _, command := range []*cobra.Command{keyPublicCmd, keyInspectCmd, keyConvertCmd, certCreateCmd, certCSRCmd} {
+		if commandHasShape(command, sensitiveOutputShape) {
+			t.Fatalf("%s is unexpectedly marked as sensitive output", command.CommandPath())
+		}
 	}
 }
 

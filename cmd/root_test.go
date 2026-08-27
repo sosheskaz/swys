@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/sosheskaz-systems/npc/internal/crypter"
+	"github.com/sosheskaz-systems/npc/internal/securefile"
 )
 
 var errTestCommandFailed = errors.New("command failed")
@@ -219,8 +220,74 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 }
 
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
+	commands := [][]string{
+		{"key", "generate", "aes256"},
+		{"aes", "genkey", "--bits", "256"},
+	}
+	for _, command := range commands {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "key")
+			args := append(append([]string{}, command...), "--output", path)
+			if _, err := executeRoot(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(data) != 32 {
+				t.Fatalf("output length = %d, want 32-byte replacement", len(data))
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != 0o600 {
+				t.Fatalf("output permissions = %04o, want 0600", got)
+			}
+		})
+	}
+}
+
+func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
+	commands := [][]string{
+		{"key", "generate", "aes256"},
+		{"aes", "genkey", "--bits", "256"},
+	}
+	for _, command := range commands {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "key")
+			if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args := append(append([]string{}, command...), "--output", path)
+			if _, err := executeRoot(t, args...); !errors.Is(err, securefile.ErrNotOwnerOnly) {
+				t.Fatalf("error = %v, want owner-only rejection", err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "old contents" {
+				t.Fatalf("output = %q, want original contents", data)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != 0o644 {
+				t.Fatalf("output permissions = %04o, want unchanged 0644", got)
+			}
+		})
+	}
+}
+
+func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
+	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path, "--mode", "0640"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -234,25 +301,32 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("output permissions = %04o, want 0600", got)
+	if got := info.Mode().Perm(); got != 0o640 {
+		t.Fatalf("output permissions = %04o, want explicit 0640", got)
 	}
 }
 
-func TestOutputFileOverwriteKeepsExistingPermissions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "key")
+func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
+	command := binaryOutputCommand(&cobra.Command{
+		Use:    "ordinary-output-test",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := io.WriteString(cmd.OutOrStdout(), "replacement")
+			if err != nil {
+				return fmt.Errorf("write ordinary output: %w", err)
+			}
+			return nil
+		},
+	}, false)
+	rootCmd.AddCommand(command)
+	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
+
+	path := filepath.Join(t.TempDir(), "output")
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
+	if _, err := executeRoot(t, "ordinary-output-test", "--output", path); err != nil {
 		t.Fatal(err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(data) != 32 {
-		t.Fatalf("output length = %d, want 32-byte replacement", len(data))
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -481,6 +555,35 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 				t.Fatalf("output permissions = %04o, want %04o", got, tt.wantMode)
 			}
 		})
+	}
+}
+
+func TestSensitiveOutputRejectsInsecureSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "target")
+	linkPath := filepath.Join(dir, "link")
+	if err := os.WriteFile(targetPath, []byte("preserve"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", linkPath); !errors.Is(err, securefile.ErrNotOwnerOnly) {
+		t.Fatalf("error = %v, want owner-only rejection", err)
+	}
+	data, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "preserve" {
+		t.Fatalf("target contents = %q, want preserved", data)
+	}
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("output path is no longer a symlink")
 	}
 }
 

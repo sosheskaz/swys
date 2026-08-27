@@ -27,10 +27,17 @@ profile_by_package() {
     sub(/\/[^\/]*$/, "", pkg)
     if (pkg == module) pkg = "."
     else sub(module "/", "", pkg)
-    total[pkg] += $2
-    if ($3 > 0) covered[pkg] += $2
+    block = $1 SUBSEP $2
+    block_package[block] = pkg
+    statements[block] = $2
+    if ($3 > 0) hit[block] = 1
   }
   END {
+    for (block in statements) {
+      pkg = block_package[block]
+      total[pkg] += statements[block]
+      if (hit[block]) covered[pkg] += statements[block]
+    }
     for (p in total) printf "%s %d %d\n", p, covered[p], total[p]
   }' "$1" | sort
 }

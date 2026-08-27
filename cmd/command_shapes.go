@@ -20,6 +20,7 @@ const (
 	defaultNetworkTimeout        = 10 * time.Second
 	commandShapeAnnotationPrefix = "npc.shape."
 	binaryOutputShape            = "binary-output"
+	sensitiveOutputShape         = "sensitive-output"
 	structuredOutputShape        = "structured-output"
 	networkShape                 = "network"
 	compatibilityShape           = "compatibility"
@@ -41,6 +42,11 @@ func binaryOutputCommand(command *cobra.Command, acceptsInput bool) *cobra.Comma
 		addInputEncodingFlag(command)
 	}
 	return command
+}
+
+func sensitiveBinaryOutputCommand(command *cobra.Command, acceptsInput bool) *cobra.Command {
+	addCommandShape(command, sensitiveOutputShape)
+	return binaryOutputCommand(command, acceptsInput)
 }
 
 func encodedInputCommand(command *cobra.Command) *cobra.Command {

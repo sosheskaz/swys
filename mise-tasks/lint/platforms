@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="Vet platform-specific implementations across supported ABIs"
+set -euo pipefail
+
+targets=(
+  darwin/amd64
+  darwin/arm64
+  windows/amd64
+  windows/arm64
+  freebsd/amd64
+  freebsd/arm64
+)
+
+for target in "${targets[@]}"; do
+  target_os="${target%/*}"
+  target_arch="${target#*/}"
+  printf '==> go vet %s\n' "$target"
+  GOOS="$target_os" GOARCH="$target_arch" go vet "$@" ./...
+done

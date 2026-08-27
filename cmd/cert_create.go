@@ -36,8 +36,8 @@ SAN classifies its common name as a matching DNS or IP SAN. Leaves support
 both TLS server and client authentication unless narrowed.
 
 --ca creates a self-signed mini-CA valid for 365 days. --issuer-cert and
---issuer-key create a CA-signed leaf. Use --key for existing private material,
-or --key-out to generate a new Ed25519 PKCS #8 key without overwriting a path.
+--issuer-key create a CA-signed leaf. Use --key to select existing private
+material, including a key created with npc key generate.
 
 npc never installs generated authorities into a trust store. Trust a generated
 CA only in an explicitly selected test store, never system-wide.`,
@@ -62,7 +62,7 @@ func runCertCreate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	subjectKey, keyPEM, keyOut, err := certificateSubjectKeyFromCommand(cmd)
+	subjectKey, err := certificateSubjectKeyFromCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -78,30 +78,25 @@ func runCertCreate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("create certificate: %w", err)
 	}
 	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: der})
-	return writeCreatedCertificate(cmd, certificatePEM, keyOut, keyPEM)
+	if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(certificatePEM)); err != nil {
+		return fmt.Errorf("write certificate: %w", err)
+	}
+	return nil
 }
 
-func certificateSubjectKeyFromCommand(cmd *cobra.Command) (*asym.Key, []byte, string, error) {
+func certificateSubjectKeyFromCommand(cmd *cobra.Command) (*asym.Key, error) {
 	keyPath, err := cmd.Flags().GetString("key")
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("read key flag: %w", err)
-	}
-	keyOut, err := cmd.Flags().GetString("key-out")
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("read key-out flag: %w", err)
-	}
-	if keyOut != "" {
-		key, encoded, generateErr := generateCertificateKey()
-		return key, encoded, keyOut, generateErr
+		return nil, fmt.Errorf("read key flag: %w", err)
 	}
 	key, err := readCertificateKey(cmd, "--key", keyPath)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, err
 	}
 	if _, err := key.Signer(); err != nil {
-		return nil, nil, "", fmt.Errorf("validate --key private signing material: %w", err)
+		return nil, fmt.Errorf("validate --key private signing material: %w", err)
 	}
-	return key, nil, "", nil
+	return key, nil
 }
 
 func certificateIssuerFromCommand(cmd *cobra.Command) (*x509.Certificate, *asym.Key, error) {
@@ -129,22 +124,6 @@ func certificateIssuerFromCommand(cmd *cobra.Command) (*x509.Certificate, *asym.
 		return nil, nil, err
 	}
 	return issuer, issuerKey, nil
-}
-
-func writeCreatedCertificate(cmd *cobra.Command, certificatePEM []byte, keyOut string, keyPEM []byte) error {
-	if keyOut != "" {
-		if err := writeExclusivePrivateKey(keyOut, keyPEM); err != nil {
-			return err
-		}
-		markRetainedCertificateKey(cmd, keyOut)
-	}
-	if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(certificatePEM)); err != nil {
-		if keyOut != "" {
-			return fmt.Errorf("write certificate; generated private key retained at %q: %w", keyOut, err)
-		}
-		return fmt.Errorf("write certificate: %w", err)
-	}
-	return nil
 }
 
 func runCertCSR(cmd *cobra.Command, _ []string) error {
@@ -177,7 +156,7 @@ func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 		if _, err := certificateOptionsFromCommand(cmd); err != nil {
 			return err
 		}
-		if err := validateCertificateKeySelection(cmd, true); err != nil {
+		if err := validateCertificateKeySelection(cmd); err != nil {
 			return err
 		}
 		if err := validateCertificateIssuerSelection(cmd); err != nil {
@@ -186,43 +165,30 @@ func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 		if err := validateCertificateInputSelection(cmd, "key", "issuer-cert", "issuer-key"); err != nil {
 			return err
 		}
-		return validateCertificatePaths(cmd, "key-out", "key", "issuer-cert", "issuer-key")
+		return validateCertificatePaths(cmd, "key", "issuer-cert", "issuer-key")
 	case certCSRCmd:
 		if _, err := certificateRequestOptionsFromCommand(cmd); err != nil {
 			return err
 		}
-		if err := validateCertificateKeySelection(cmd, false); err != nil {
+		if err := validateCertificateKeySelection(cmd); err != nil {
 			return err
 		}
 		if err := validateCertificateInputSelection(cmd, "key"); err != nil {
 			return err
 		}
-		return validateCertificatePaths(cmd, "", "key")
+		return validateCertificatePaths(cmd, "key")
 	default:
 		return nil
 	}
 }
 
-func validateCertificateKeySelection(cmd *cobra.Command, allowKeyOut bool) error {
+func validateCertificateKeySelection(cmd *cobra.Command) error {
 	key, err := cmd.Flags().GetString("key")
 	if err != nil {
 		return fmt.Errorf("read key flag: %w", err)
 	}
-	if !allowKeyOut {
-		if key == "" {
-			return fmt.Errorf("%w: --key must name a private key or -", errInvalidCertificateFlags)
-		}
-		return nil
-	}
-	keyOut, err := cmd.Flags().GetString("key-out")
-	if err != nil {
-		return fmt.Errorf("read key-out flag: %w", err)
-	}
-	if keyOut == "-" {
-		return fmt.Errorf("%w: --key-out must name a file path, not -", errInvalidCertificateFlags)
-	}
-	if (key == "") == (keyOut == "") {
-		return fmt.Errorf("%w: exactly one of --key or --key-out is required", errInvalidCertificateFlags)
+	if key == "" {
+		return fmt.Errorf("%w: --key must name a private key or -", errInvalidCertificateFlags)
 	}
 	return nil
 }
@@ -457,12 +423,12 @@ func validateCertificateInputSelection(cmd *cobra.Command, sourceFlags ...string
 	return nil
 }
 
-func validateCertificatePaths(cmd *cobra.Command, keyOutFlag string, sourceFlags ...string) error {
+func validateCertificatePaths(cmd *cobra.Command, sourceFlags ...string) error {
 	inputs, err := certificateInputPaths(cmd, sourceFlags)
 	if err != nil {
 		return err
 	}
-	outputs, err := certificateOutputPaths(cmd, keyOutFlag)
+	outputs, err := certificateOutputPaths(cmd)
 	if err != nil {
 		return err
 	}
@@ -495,8 +461,8 @@ func certificateInputPaths(cmd *cobra.Command, sourceFlags []string) ([]namedCer
 	return inputs, nil
 }
 
-func certificateOutputPaths(cmd *cobra.Command, keyOutFlag string) ([]namedCertificatePath, error) {
-	outputs := make([]namedCertificatePath, 0, 2)
+func certificateOutputPaths(cmd *cobra.Command) ([]namedCertificatePath, error) {
+	outputs := make([]namedCertificatePath, 0, 1)
 	outputPath, err := cmd.Flags().GetString("output")
 	if err != nil {
 		return nil, fmt.Errorf("read output flag: %w", err)
@@ -504,22 +470,7 @@ func certificateOutputPaths(cmd *cobra.Command, keyOutFlag string) ([]namedCerti
 	if outputPath != "" {
 		outputs = append(outputs, namedCertificatePath{name: "--output", path: outputPath})
 	}
-	if keyOutFlag == "" {
-		return outputs, nil
-	}
-	keyOut, err := cmd.Flags().GetString(keyOutFlag)
-	if err != nil {
-		return nil, fmt.Errorf("read %s flag: %w", keyOutFlag, err)
-	}
-	if keyOut == "" {
-		return outputs, nil
-	}
-	if _, err := os.Lstat(keyOut); err == nil {
-		return nil, fmt.Errorf("%w: %q", errKeyOutputExists, keyOut)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect --key-out %q: %w", keyOut, err)
-	}
-	return append(outputs, namedCertificatePath{name: "--key-out", path: keyOut}), nil
+	return outputs, nil
 }
 
 func rejectCertificatePathCollisions(inputs, outputs []namedCertificatePath) error {
@@ -541,7 +492,7 @@ func rejectCertificatePathCollisions(inputs, outputs []namedCertificatePath) err
 }
 
 func rejectCertificatePathPair(left, right namedCertificatePath) error {
-	same, err := sameCertificatePath(left.path, right.path)
+	same, err := sameCommandPath(left.path, right.path)
 	if err != nil {
 		return err
 	}
@@ -551,12 +502,12 @@ func rejectCertificatePathPair(left, right namedCertificatePath) error {
 	return fmt.Errorf("%w: %s and %s refer to %q", errCertificatePathCollision, left.name, right.name, left.path)
 }
 
-func sameCertificatePath(left, right string) (bool, error) {
-	leftCanonical, err := canonicalCertificatePath(left)
+func sameCommandPath(left, right string) (bool, error) {
+	leftCanonical, err := canonicalCommandPath(left)
 	if err != nil {
 		return false, err
 	}
-	rightCanonical, err := canonicalCertificatePath(right)
+	rightCanonical, err := canonicalCommandPath(right)
 	if err != nil {
 		return false, err
 	}
@@ -577,10 +528,31 @@ func sameCertificatePath(left, right string) (bool, error) {
 	return false, nil
 }
 
-func canonicalCertificatePath(path string) (string, error) {
+func canonicalCommandPath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve path %q: %w", path, err)
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		return resolved, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("resolve path %q: %w", path, err)
+	}
+	info, lstatErr := os.Lstat(absolute)
+	if lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		target, readErr := os.Readlink(absolute)
+		if readErr != nil {
+			return "", fmt.Errorf("resolve symlink %q: %w", path, readErr)
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(absolute), target)
+		}
+		return canonicalCommandPath(target)
+	}
+	if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect path %q: %w", path, lstatErr)
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
 	if err != nil {
@@ -639,53 +611,6 @@ func parseSinglePEMCertificate(data []byte) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func generateCertificateKey() (*asym.Key, []byte, error) {
-	material, err := asym.GeneratePrivateKey(asym.KeyAlgorithmEd25519)
-	if err != nil {
-		return nil, nil, err
-	}
-	key, err := asym.NewKey(material)
-	if err != nil {
-		return nil, nil, fmt.Errorf("validate generated certificate key: %w", err)
-	}
-	encoded, err := key.Marshal(asym.KeyFormatPKCS8PEM)
-	if err != nil {
-		return nil, nil, err
-	}
-	return key, encoded, nil
-}
-
-func writeExclusivePrivateKey(path string, data []byte) error {
-	// The path is intentionally supplied by the CLI user. Exclusive creation is the key-preservation contract.
-	file, err := openExclusivePrivateKey(path)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("%w: %q", errKeyOutputExists, path)
-		}
-		return fmt.Errorf("create --key-out %q: %w", path, err)
-	}
-	cleanup := func(cause error, closeFile bool) error {
-		var closeErr error
-		if closeFile {
-			closeErr = file.Close()
-		}
-		removeErr := os.Remove(path)
-		if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			removeErr = fmt.Errorf("remove partial --key-out %q: %w", path, removeErr)
-		} else {
-			removeErr = nil
-		}
-		return errors.Join(cause, closeErr, removeErr)
-	}
-	if _, err := io.Copy(file, bytes.NewReader(data)); err != nil {
-		return cleanup(fmt.Errorf("write --key-out %q: %w", path, err), true)
-	}
-	if err := file.Close(); err != nil {
-		return cleanup(fmt.Errorf("close --key-out %q: %w", path, err), false)
-	}
-	return nil
-}
-
 func addCertificateIdentityFlags(command *cobra.Command) {
 	command.Flags().String("subject", "", "subject common name as CN=<value>")
 	command.Flags().StringArray("dns", nil, "DNS subject alternative name (repeatable)")
@@ -702,18 +627,18 @@ func init() {
 	addCertificateIdentityFlags(certCreateCmd)
 	certCreateCmd.Flags().Bool("ca", false, "create a self-signed test certificate authority")
 	certCreateCmd.Flags().Int("days", 0, "validity in days (default 30 for leaves, 365 for CAs)")
-	certCreateCmd.Flags().String("key-out", "", "write a new owner-only Ed25519 PKCS #8 private key (must not exist)")
 	certCreateCmd.Flags().String("issuer-cert", "", "issuer certificate path, or - for stdin")
 	certCreateCmd.Flags().String("issuer-key", "", "issuer private key path, or - for stdin")
 	certCreateCmd.Flags().Bool("server-only", false, "include only the TLS server-authentication usage")
 	certCreateCmd.Flags().Bool("client-only", false, "include only the TLS client-authentication usage")
-	for _, name := range []string{"key-out", "issuer-cert", "issuer-key"} {
+	for _, name := range []string{"issuer-cert", "issuer-key"} {
 		if err := certCreateCmd.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
 	}
-	certCreateCmd.MarkFlagsOneRequired("key", "key-out")
-	certCreateCmd.MarkFlagsMutuallyExclusive("key", "key-out")
+	if err := certCreateCmd.MarkFlagRequired("key"); err != nil {
+		panic(err)
+	}
 	certCreateCmd.MarkFlagsRequiredTogether("issuer-cert", "issuer-key")
 	certCreateCmd.MarkFlagsMutuallyExclusive("server-only", "client-only")
 

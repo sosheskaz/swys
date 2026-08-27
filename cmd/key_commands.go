@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -113,6 +115,49 @@ func keyConversionTargetNames() []string {
 	return sortedKeys(keyConversionTargets)
 }
 
+func keyPublicFormatNames() []string {
+	names := make([]string, 0, len(keyConversionTargets))
+	for name, format := range keyConversionTargets {
+		if isPublicKeyFormat(format) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func isPublicKeyFormat(format asym.KeyFormat) bool {
+	switch format {
+	case asym.KeyFormatOpenSSH, asym.KeyFormatPKIXDER, asym.KeyFormatPKIXPEM:
+		return true
+	case asym.KeyFormatPKCS8PEM,
+		asym.KeyFormatPKCS8DER,
+		asym.KeyFormatPKCS1PEM,
+		asym.KeyFormatPKCS1DER,
+		asym.KeyFormatSEC1PEM,
+		asym.KeyFormatSEC1DER:
+		return false
+	}
+	return false
+}
+
+func keyPublicFormatFromCommand(cmd *cobra.Command) (asym.KeyFormat, error) {
+	name, err := cmd.Flags().GetString("public-format")
+	if err != nil {
+		return "", fmt.Errorf("read public-format flag: %w", err)
+	}
+	target, ok := keyConversionTargets[name]
+	if !ok || !isPublicKeyFormat(target) {
+		return "", fmt.Errorf(
+			"%w %q (valid: %s)",
+			errUnknownKeyPublicFormat,
+			name,
+			strings.Join(keyPublicFormatNames(), ", "),
+		)
+	}
+	return target, nil
+}
+
 func keyConversionTargetFromCommand(cmd *cobra.Command) (asym.KeyFormat, error) {
 	name, err := cmd.Flags().GetString("to")
 	if err != nil {
@@ -148,12 +193,74 @@ func keyFormatterFromCommand(cmd *cobra.Command) (asym.KeyFormatter, error) {
 
 func validateKeyFlagsBeforeIO(cmd *cobra.Command) error {
 	switch cmd {
+	case keyGenerateCmd:
+		return validateKeyGenerateFlags(cmd)
 	case keyConvertCmd:
 		_, err := keyConversionTargetFromCommand(cmd)
 		return err
 	default:
 		return nil
 	}
+}
+
+func validateKeyGenerateFlags(cmd *cobra.Command) error {
+	publicOut, err := cmd.Flags().GetString("public-out")
+	if err != nil {
+		return fmt.Errorf("read public-out flag: %w", err)
+	}
+	if publicOut == "" {
+		return validateMissingKeyPublicOutput(cmd)
+	}
+	if publicOut == "-" {
+		return fmt.Errorf("%w: --public-out must name a file path, not -", errInvalidKeyGenerateFlags)
+	}
+	return validateKeyPublicOutput(cmd, publicOut)
+}
+
+func validateMissingKeyPublicOutput(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("public-out") {
+		return fmt.Errorf("%w: --public-out must name a file path", errInvalidKeyGenerateFlags)
+	}
+	if cmd.Flags().Changed("public-format") {
+		return fmt.Errorf("%w: --public-format requires --public-out", errInvalidKeyGenerateFlags)
+	}
+	return nil
+}
+
+func validateKeyPublicOutput(cmd *cobra.Command, publicOut string) error {
+	algorithm, err := keyAlgorithmFromName(cmd.Flags().Arg(0))
+	if err != nil {
+		return err
+	}
+	if algorithm.aesBits != 0 {
+		return fmt.Errorf("%w: --public-out is only valid for asymmetric keys", errInvalidKeyGenerateFlags)
+	}
+	if _, err := keyPublicFormatFromCommand(cmd); err != nil {
+		return err
+	}
+
+	output, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return fmt.Errorf("read output flag: %w", err)
+	}
+	if output != "" {
+		same, err := sameCommandPath(output, publicOut)
+		if err != nil {
+			return fmt.Errorf("compare private and public key outputs: %w", err)
+		}
+		if same {
+			return fmt.Errorf("%w: --output %q and --public-out %q", errKeyOutputCollision, output, publicOut)
+		}
+	}
+
+	info, err := os.Stat(publicOut)
+	if err == nil && info.IsDir() {
+		return fmt.Errorf("--public-out %q: %w", publicOut, errOutputIsDirectory)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect --public-out %q: %w", publicOut, err)
+	}
+	return nil
 }
 
 func init() {

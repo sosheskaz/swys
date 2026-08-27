@@ -74,6 +74,9 @@ func commandTreeViolations(root *cobra.Command) []string {
 			if commandHasShape(child, networkShape) && child.Flags().Lookup("timeout") == nil {
 				violations = append(violations, fmt.Sprintf("network command %q has no --timeout flag", child.CommandPath()))
 			}
+			if commandHasShape(child, sensitiveOutputShape) && !commandHasShape(child, binaryOutputShape) {
+				violations = append(violations, fmt.Sprintf("sensitive command %q must have binary output", child.CommandPath()))
+			}
 			if child.Flags().Lookup("output-format") != nil {
 				violations = append(violations, fmt.Sprintf("command %q still exposes --output-format", child.CommandPath()))
 			}

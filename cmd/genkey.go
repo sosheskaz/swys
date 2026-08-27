@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -40,7 +41,7 @@ commands accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key, or one
 PKIX public key, in PEM or DER form. Inspection never prints private material.`,
 }
 
-var keyGenerateCmd = binaryOutputCommand(&cobra.Command{
+var keyGenerateCmd = sensitiveBinaryOutputCommand(&cobra.Command{
 	Aliases:           []string{"gen", "g"},
 	Use:               "generate <algorithm>",
 	Short:             "Generate a new cryptographic key",
@@ -64,19 +65,64 @@ var keyGenerateCmd = binaryOutputCommand(&cobra.Command{
 		if err != nil {
 			return fmt.Errorf("validate generated private key: %w", err)
 		}
-		encoded, err := key.Marshal(asym.KeyFormatPKCS8PEM)
+		privateEncoded, err := key.Marshal(asym.KeyFormatPKCS8PEM)
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(encoded)); err != nil {
+
+		publicOut, err := cmd.Flags().GetString("public-out")
+		if err != nil {
+			return fmt.Errorf("read public-out flag: %w", err)
+		}
+		var publicEncoded []byte
+		if publicOut != "" {
+			format, err := keyPublicFormatFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			publicEncoded, err = key.Marshal(format)
+			if err != nil {
+				return fmt.Errorf("marshal generated public key: %w", err)
+			}
+		}
+
+		if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(privateEncoded)); err != nil {
 			return fmt.Errorf("write generated private key: %w", err)
+		}
+		if publicOut != "" {
+			if err := writeGeneratedPublicKey(publicOut, publicEncoded); err != nil {
+				privateOut, flagErr := cmd.Flags().GetString("output")
+				if flagErr != nil {
+					return errors.Join(err, fmt.Errorf("read output flag: %w", flagErr))
+				}
+				if privateOut == "" {
+					return fmt.Errorf("write generated public key after emitting private key: %w", err)
+				}
+				return fmt.Errorf("write generated public key; private key retained at %q: %w", privateOut, err)
+			}
 		}
 		return nil
 	},
 }, false)
 
+func writeGeneratedPublicKey(path string, encoded []byte) (err error) {
+	file, err := openCommandOutput(path, commandOutputOptions{})
+	if err != nil {
+		return fmt.Errorf("open --public-out %q: %w", path, err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close --public-out %q: %w", path, closeErr))
+		}
+	}()
+	if _, err := io.Copy(file, bytes.NewReader(encoded)); err != nil {
+		return fmt.Errorf("write --public-out %q: %w", path, err)
+	}
+	return nil
+}
+
 // genkeyCmd is a one-release compatibility command for the former grammar.
-var genkeyCmd = binaryOutputCommand(&cobra.Command{
+var genkeyCmd = sensitiveBinaryOutputCommand(&cobra.Command{
 	Use:    "genkey",
 	Short:  "Generate a new AES key",
 	Long:   "Deprecated: use npc key generate aesN instead. This compatibility command will be removed in a future release.",
@@ -121,7 +167,8 @@ func keyAlgorithmFromName(name string) (keyAlgorithm, error) {
 
 func keyGenerateHelp() string {
 	var help strings.Builder
-	help.WriteString("Generate a new cryptographic key. Short names are preferred.\n\nAlgorithms:\n")
+	help.WriteString("Generate a new cryptographic key. For asymmetric keys, --public-out writes " +
+		"the matching public key in the selected --public-format. Short algorithm names are preferred.\n\nAlgorithms:\n")
 	for _, name := range keyAlgorithmNames() {
 		algorithm := keyAlgorithms[name]
 		help.WriteString("  ")
@@ -186,6 +233,16 @@ func writeAESKey(bits int, output io.Writer) error {
 func init() {
 	rootCmd.AddCommand(keyCmd)
 	keyCmd.AddCommand(keyGenerateCmd)
+	keyGenerateCmd.Flags().String("public-out", "", "write the corresponding public key to a file")
+	keyGenerateCmd.Flags().String(
+		"public-format",
+		"pkix-pem",
+		"format for --public-out ("+strings.Join(keyPublicFormatNames(), ", ")+")",
+	)
+	if err := keyGenerateCmd.MarkFlagFilename("public-out"); err != nil {
+		panic(err)
+	}
+	registerFlagCompletion(keyGenerateCmd, "public-format", keyPublicFormatNames)
 	aesCmd.AddCommand(genkeyCmd)
 	genkeyCmd.Flags().IntP("bits", "b", 128, "AES key size in bits (128, 192, or 256)")
 }
