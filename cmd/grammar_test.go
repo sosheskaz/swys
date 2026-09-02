@@ -33,6 +33,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 		"encrypt":  true,
 		"generate": true,
 		"inspect":  true,
+		"listen":   true,
 		"public":   true,
 		"convert":  true,
 		"create":   true,
@@ -55,7 +56,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}
 			} else {
-				isTransport := command.Name() == "connect" && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
+				isTransportVerb := command.Name() == "connect" || command.Name() == "listen"
+				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
 				if !verbs[child.Name()] && !isTransport {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}

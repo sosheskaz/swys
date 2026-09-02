@@ -129,6 +129,7 @@ npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
 npc net connect tcp|tls host:port  # exchange raw bytes over TCP or verified TLS
+npc net listen tcp host:port       # serve one raw TCP connection
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
@@ -184,6 +185,26 @@ command closes the connection and exits nonzero with a drain-timeout error.
 Bytes already written to stdout or `--output` remain available, but are a
 partial response and must not be treated as complete. The aliases `npc nc` and
 `npc netcat` select the same `net` command tree.
+
+`net listen tcp` binds an explicit host and port, accepts one connection,
+relays bytes with the same input, output, encoding, half-close, and drain
+controls as `net connect`, then exits. In one terminal:
+
+```fish
+printf 'hello from listener\n' | npc net listen tcp 127.0.0.1:9000 --close-write --verbose
+```
+
+Connect from another terminal:
+
+```fish
+printf 'hello from client\n' | npc net connect tcp 127.0.0.1:9000 --close-write
+```
+
+The listener waits indefinitely for its connection by default. Set a positive
+`--timeout` to bound address resolution, binding, and accepting. Port `0` asks
+the operating system to choose an available port; use `--verbose` to print the
+bound address before the accept begins. The host may be an IP address or name
+but cannot be omitted.
 
 `cert connect` and `cert inspect` remain inspection commands: they always report
 certificate verification status, but a failed verification is not enforced.

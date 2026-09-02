@@ -1,0 +1,95 @@
+package netconn
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+)
+
+var errNonTCPListener = errors.New("TCP listen config returned a non-TCP listener")
+
+// ListenTCP binds a TCP listener using the supplied setup context.
+func ListenTCP(ctx context.Context, address string) (*net.TCPListener, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("listen on TCP endpoint %q: %w", address, err)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("listen on TCP endpoint %q: %w", address, err)
+	}
+	tcpListener, ok := listener.(*net.TCPListener)
+	if !ok {
+		return nil, errors.Join(errNonTCPListener, listener.Close())
+	}
+	return tcpListener, nil
+}
+
+type acceptTCPResult struct {
+	connection *net.TCPConn
+	err        error
+}
+
+// AcceptTCP accepts one connection and closes the listener before returning.
+// Canceling the setup context closes the listener and any concurrently accepted
+// connection.
+func AcceptTCP(ctx context.Context, listener *net.TCPListener) (*net.TCPConn, error) {
+	address := listener.Addr().String()
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("accept TCP connection on %q: %w", address, err),
+			closeTCPListener(listener),
+		)
+	}
+
+	accepted := make(chan acceptTCPResult, 1)
+	go func() {
+		connection, err := listener.AcceptTCP()
+		accepted <- acceptTCPResult{connection: connection, err: err}
+	}()
+
+	select {
+	case result := <-accepted:
+		closeErr := closeTCPListener(listener)
+		if result.err != nil {
+			return nil, errors.Join(
+				fmt.Errorf("accept TCP connection on %q: %w", address, result.err),
+				closeErr,
+			)
+		}
+		if closeErr != nil {
+			return nil, errors.Join(closeErr, closeTCPConnection(result.connection))
+		}
+		return result.connection, nil
+	case <-ctx.Done():
+		closeErr := closeTCPListener(listener)
+		result := <-accepted
+		var acceptErr error
+		if result.err != nil && !errors.Is(result.err, net.ErrClosed) {
+			acceptErr = fmt.Errorf("accept TCP connection on %q after cancellation: %w", address, result.err)
+		}
+		return nil, errors.Join(
+			fmt.Errorf("accept TCP connection on %q: %w", address, ctx.Err()),
+			closeErr,
+			acceptErr,
+			closeTCPConnection(result.connection),
+		)
+	}
+}
+
+func closeTCPListener(listener *net.TCPListener) error {
+	if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("close TCP listener: %w", err)
+	}
+	return nil
+}
+
+func closeTCPConnection(connection *net.TCPConn) error {
+	if connection == nil {
+		return nil
+	}
+	if err := connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("close accepted TCP connection: %w", err)
+	}
+	return nil
+}

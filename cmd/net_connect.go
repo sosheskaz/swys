@@ -338,7 +338,7 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if timeout < 0 {
 		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
 	}
-	if cmd != netConnectTCPCmd && cmd != netConnectTLSCmd {
+	if cmd != netConnectTCPCmd && cmd != netConnectTLSCmd && cmd != netListenTCPCmd {
 		return nil
 	}
 	options, err := networkStreamOptionsFromCommand(cmd)
@@ -348,7 +348,7 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if options.wait < 0 {
 		return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)
 	}
-	if cmd == netConnectTCPCmd {
+	if cmd == netConnectTCPCmd || cmd == netListenTCPCmd {
 		return nil
 	}
 	return validateTLSFlagsBeforeIO(cmd)

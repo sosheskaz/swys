@@ -108,8 +108,28 @@ func networkSetupContext(parent context.Context, timeout time.Duration) (context
 }
 
 func streamNetworkCommand(command *cobra.Command) *cobra.Command {
+	return streamNetworkCommandWithTimeout(
+		command,
+		defaultNetworkTimeout,
+		"TCP setup and TLS handshake timeout (0 disables)",
+	)
+}
+
+func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
+	return streamNetworkCommandWithTimeout(
+		command,
+		0,
+		"bind, accept, and optional TLS handshake timeout (0 disables)",
+	)
+}
+
+func streamNetworkCommandWithTimeout(
+	command *cobra.Command,
+	defaultTimeout time.Duration,
+	timeoutHelp string,
+) *cobra.Command {
 	addCommandShape(command, networkShape)
-	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
+	command.Flags().Duration("timeout", defaultTimeout, timeoutHelp)
 	command.Flags().Duration(
 		"wait",
 		defaultNetworkWait,
