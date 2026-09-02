@@ -41,6 +41,9 @@ var rootCmd = &cobra.Command{
 		if err := validateCertFlagsBeforeIO(cmd); err != nil {
 			return fmt.Errorf("validate certificate flags: %w", err)
 		}
+		if err := validateNetFlagsBeforeIO(cmd); err != nil {
+			return fmt.Errorf("validate network flags: %w", err)
+		}
 		cleanup, err := configureIO(cmd)
 		if err != nil {
 			return err

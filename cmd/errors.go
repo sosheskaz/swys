@@ -22,4 +22,6 @@ var (
 	errCertificateInputSelection  = errors.New("invalid certificate stdin selection")
 	errCertificatePathCollision   = errors.New("certificate input and output paths collide")
 	errTrailingCertificateData    = errors.New("certificate input contains trailing data")
+	errInvalidNetworkFlags        = errors.New("invalid network flags")
+	errTLSClientKeyMismatch       = errors.New("TLS client certificate and private key do not match")
 )

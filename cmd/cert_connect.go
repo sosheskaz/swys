@@ -32,7 +32,7 @@ var connectCmd = networkCommand(structuredOutputCommand(&cobra.Command{
 		if err != nil {
 			return err
 		}
-		return formatCertificates(formatter, certInfos, cmd.OutOrStdout())
+		return formatCertificates(cmd, formatter, certInfos)
 	},
 }, certFormatNames))
 

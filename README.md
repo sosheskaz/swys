@@ -18,7 +18,7 @@ detail from the layers beneath it rather than reimplementing them:
 
 | Layer | Domain                           | Nouns                                      |
 | ----- | -------------------------------- | ------------------------------------------ |
-| L4    | Raw transport (netcat successor) | `tcp`, `udp`                               |
+| L4    | Raw transport (netcat successor) | `net` (`tcp`; later `udp`)                 |
 | L5/6  | TLS, X.509, crypto primitives    | `cert`, `key`, `aes`, `hash`, `sign`       |
 | L7    | Application protocols            | `http`, later `grpc`                       |
 | —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
@@ -55,8 +55,8 @@ In short: step manages identity artifacts; age encrypts files for humans;
 These are product features, not style preferences. Regressions against them
 are bugs, and where possible they are enforced by tests rather than review.
 
-1. **Noun-verb grammar, no exceptions.** `npc <noun> <verb> [flags]`. Nouns
-   are resources (`cert`, `key`, `tcp`, `http`); verbs are actions
+1. **Noun-verb grammar, no exceptions.** `npc <noun> <verb> [mechanism] [flags]`.
+   Nouns are resources (`cert`, `key`, `net`, `http`); verbs are actions
    (`inspect`, `generate`, `connect`, `listen`). Bare nouns print help — no
    implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
    should correctly guess `key inspect`.
@@ -67,7 +67,7 @@ are bugs, and where possible they are enforced by tests rather than review.
    parameters (TLS ciphersuite, ALPN, HTTP version) are rendered in output,
    never encoded in command structure; derivable parameters (the key type
    inside a PEM block) come from the artifact. Hence `aes encrypt`,
-   `hash sha256`, and `tcp connect` name the mechanism — while `sign` does
+   `hash sha256`, and `net connect tcp` name the mechanism — while `sign` does
    not (PEM keys are self-describing) and `http`/`cert connect` report what
    was negotiated.
 
@@ -128,9 +128,66 @@ npc key generate <algorithm>       # generate a key with an explicit algorithm
 npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
+npc net connect tcp|tls host:port  # exchange raw bytes over TCP or verified TLS
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
+
+### Raw TCP and TLS walkthrough
+
+`net connect` sends stdin or `--input` to an endpoint and copies the peer's
+response to stdout or `--output`. At input EOF, it keeps the connection's write
+side open while draining the response; `--close-write` opts into a TCP
+half-close for protocols that require EOF before responding. The TCP form is a
+compact netcat-style exchange:
+
+```fish
+printf 'hello\n' | npc net connect tcp localhost:9000
+```
+
+The TLS form verifies the server certificate and endpoint hostname by default.
+Use a private test CA without changing the system trust store:
+
+```fish
+printf 'hello\n' | npc net connect tls localhost:9443 \
+    --ca ca.crt
+```
+
+Add a client identity for mutual TLS. The certificate and private key are
+required together and must match:
+
+```fish
+printf 'hello\n' | npc net connect tls localhost:9443 \
+    --ca ca.crt \
+    --cert client.crt \
+    --key client.key
+```
+
+`--ca` replaces the system roots. Add `--system-ca` to combine the supplied CA
+bundle with them. `--servername` overrides both SNI and the certificate name
+used for verification. `--insecure` disables certificate and hostname
+verification and cannot be combined with trust flags; its warning is shown
+with `--verbose` connection diagnostics.
+
+By default, npc advertises no ALPN protocols. Use `--alpn http/1.1`, `--alpn
+h2`, or another comma-separated protocol list when the endpoint requires
+explicit negotiation. ALPN negotiation never changes the bytes npc sends:
+selecting `h2` requires the input itself to contain valid HTTP/2 frames.
+
+`--timeout` bounds only TCP setup and the TLS handshake (10 seconds by
+default); established streaming is not timed out. After input EOF, `--wait`
+allows up to 5 seconds for the peer to finish its response before npc closes the
+connection. Set `--wait 0` to drain until the peer closes, or choose a shorter
+duration for a protocol that keeps connections open. With `--close-write`, npc
+half-closes before starting that drain period. The aliases `npc nc` and `npc
+netcat` select the same `net` command tree.
+
+`cert connect` and `cert inspect` remain inspection commands: they always report
+certificate verification status, but a failed verification is not enforced.
+Text, long, and JSON views include it in their structured output; PEM views
+report it on stderr so stdout remains a clean certificate artifact. `net
+connect tls` is the data-bearing client and therefore fails the handshake before
+sending input when verification fails.
 
 ### Key lifecycle walkthrough
 

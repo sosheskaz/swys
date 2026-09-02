@@ -18,6 +18,7 @@ const (
 	inputEncodingFlagName        = "input-encoding"
 	formatFlagName               = "format"
 	defaultNetworkTimeout        = 10 * time.Second
+	defaultNetworkWait           = 5 * time.Second
 	commandShapeAnnotationPrefix = "npc.shape."
 	binaryOutputShape            = "binary-output"
 	sensitiveOutputShape         = "sensitive-output"
@@ -78,26 +79,7 @@ func structuredOutputCommand(command *cobra.Command, formats func() []string) *c
 func networkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", defaultNetworkTimeout, "network operation timeout")
-
-	originalArgs := command.Args
-	command.Args = func(cmd *cobra.Command, args []string) error {
-		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-			return err
-		}
-		if originalArgs != nil {
-			if err := originalArgs(cmd, args); err != nil {
-				return err
-			}
-		}
-		host, port, err := net.SplitHostPort(args[0])
-		if err != nil {
-			return fmt.Errorf("%w %q: %w", errInvalidHostPort, args[0], err)
-		}
-		if host == "" || port == "" {
-			return fmt.Errorf("%w %q: host and port are required", errInvalidHostPort, args[0])
-		}
-		return nil
-	}
+	command.Args = networkAddressArgs(command.Args)
 
 	if command.RunE == nil {
 		panic(fmt.Sprintf("networkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
@@ -116,6 +98,40 @@ func networkCommand(command *cobra.Command) *cobra.Command {
 		return originalRunE(cmd, args)
 	}
 	return command
+}
+
+func streamNetworkCommand(command *cobra.Command) *cobra.Command {
+	addCommandShape(command, networkShape)
+	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
+	command.Flags().Duration("wait", defaultNetworkWait, "maximum response drain time after input EOF (0 waits indefinitely)")
+	command.Flags().Bool("close-write", false, "half-close the connection write side after input EOF")
+	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
+	command.Args = networkAddressArgs(command.Args)
+	if command.RunE == nil {
+		panic(fmt.Sprintf("streamNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
+	}
+	return command
+}
+
+func networkAddressArgs(original cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+			return err
+		}
+		if original != nil {
+			if err := original(cmd, args); err != nil {
+				return err
+			}
+		}
+		host, port, err := net.SplitHostPort(args[0])
+		if err != nil {
+			return fmt.Errorf("%w %q: %w", errInvalidHostPort, args[0], err)
+		}
+		if host == "" || port == "" {
+			return fmt.Errorf("%w %q: host and port are required", errInvalidHostPort, args[0])
+		}
+		return nil
+	}
 }
 
 func compatibilityAliasCommand(command *cobra.Command) *cobra.Command {

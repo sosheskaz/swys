@@ -16,7 +16,7 @@ import (
 )
 
 func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
-	for _, name := range []string{"aes", "cert", "key"} {
+	for _, name := range []string{"aes", "cert", "key", "net"} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "should-not-exist")
 			output, err := executeRoot(t, name, "--output", path)

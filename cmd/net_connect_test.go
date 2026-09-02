@@ -1,0 +1,485 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
+
+var (
+	errUnexpectedNetworkRequest = errors.New("unexpected network request")
+	errNonTLSConnection         = errors.New("listener returned non-TLS connection")
+)
+
+func TestNetCommandAliases(t *testing.T) {
+	for _, alias := range []string{"nc", "netcat"} {
+		if !slices.Contains(netCmd.Aliases, alias) {
+			t.Fatalf("net aliases = %v, want %q", netCmd.Aliases, alias)
+		}
+	}
+}
+
+func TestNetConnectTCPRelaysEncodedPayload(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "request.b64")
+	if err := os.WriteFile(inputPath, []byte(base64.StdEncoding.EncodeToString([]byte("request"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address, serverResult := startTCPExchangeServer(t, "request", "response", 0)
+
+	stdout, stderr, err := executeRootStreams(
+		t,
+		"net", "connect", "tcp", address,
+		"--input", inputPath,
+		"--input-encoding", "base64",
+		"--encoding", "base64",
+		"--wait", "1s",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want quiet success", stderr)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(decoded); got != "response" {
+		t.Fatalf("response = %q, want %q", got, "response")
+	}
+	if result := <-serverResult; result.err != nil || result.request != "request" {
+		t.Fatalf("server result = %+v", result)
+	}
+}
+
+func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address, serverResult := startTCPExchangeServer(t, "request", "delayed", 100*time.Millisecond)
+
+	stdout, _, err := executeRootStreams(
+		t,
+		"net", "connect", "tcp", address,
+		"--input", inputPath,
+		"--timeout", "50ms",
+		"--wait", "1s",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "delayed" {
+		t.Fatalf("response = %q, want delayed", stdout)
+	}
+	if result := <-serverResult; result.err != nil {
+		t.Fatal(result.err)
+	}
+}
+
+func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	address, serverResult := startTLSExchangeServer(t, &identity, true, []string{"h2", "http/1.1"})
+	inputPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeRootStreams(
+		t,
+		"net", "connect", "tls", address,
+		"--input", inputPath,
+		"--ca", identity.caCert,
+		"--cert", identity.clientCert,
+		"--key", identity.clientKey,
+		"--servername", "localhost",
+		"--wait", "1s",
+		"--verbose",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "response" {
+		t.Fatalf("response = %q, want response", stdout)
+	}
+	for _, want := range []string{"connected tls", "version:", "cipher:", "alpn: (none)", "server name: localhost"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
+	}
+	result := <-serverResult
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if result.request != "request" || result.alpn != "" || !result.clientVerified {
+		t.Fatalf("server result = %+v", result)
+	}
+}
+
+func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{"h2", "http/1.1"})
+	inputPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeRootStreams(
+		t,
+		"net", "connect", "tls", address,
+		"--input", inputPath,
+		"--servername", "localhost",
+		"--alpn", "http/1.1",
+		"--insecure",
+		"--verbose",
+		"--wait", "1s",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "response" {
+		t.Fatalf("response = %q, want response", stdout)
+	}
+	if !strings.Contains(stderr, "warning: TLS certificate verification is disabled") {
+		t.Fatalf("stderr = %q, want insecure warning", stderr)
+	}
+	if result := <-serverResult; result.err != nil || result.alpn != "http/1.1" {
+		t.Fatalf("server result = %+v", result)
+	}
+}
+
+func TestNetConnectTLSCanDisableALPNWithoutVerboseWarning(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{"h2", "http/1.1"})
+	inputPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeRootStreams(
+		t,
+		"net", "connect", "tls", address,
+		"--input", inputPath,
+		"--alpn=",
+		"--insecure",
+		"--wait", "1s",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "response" {
+		t.Fatalf("response = %q, want response", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want quiet success without --verbose", stderr)
+	}
+	if result := <-serverResult; result.err != nil || result.alpn != "" {
+		t.Fatalf("server result = %+v, want no negotiated ALPN", result)
+	}
+}
+
+func TestNetConnectTLSRejectsMismatchedClientIdentityBeforeDial(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	_, _, err := executeRootStreams(
+		t,
+		"net", "connect", "tls", "localhost:1",
+		"--cert", identity.clientCert,
+		"--key", identity.serverKey,
+	)
+	if !errors.Is(err, errTLSClientKeyMismatch) {
+		t.Fatalf("error = %v, want errTLSClientKeyMismatch", err)
+	}
+}
+
+func TestNetConnectTLSRejectsArtifactOutputCollisionBeforeTruncation(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	want, err := os.ReadFile(identity.clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = executeRootStreams(
+		t,
+		"net", "connect", "tls", "localhost:1",
+		"--cert", identity.clientCert,
+		"--key", identity.clientKey,
+		"--output", identity.clientCert,
+	)
+	if !errors.Is(err, errCertificatePathCollision) {
+		t.Fatalf("error = %v, want errCertificatePathCollision", err)
+	}
+	got, err := os.ReadFile(identity.clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("client certificate changed after rejected output collision")
+	}
+}
+
+func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	address, serverResult := startTLSExchangeServer(t, &identity, false, nil)
+	inputPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(inputPath, []byte("must not be sent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := executeRootStreams(
+		t,
+		"net", "connect", "tls", address,
+		"--input", inputPath,
+		"--servername", "localhost",
+	)
+	if err == nil || !strings.Contains(err.Error(), "failed to verify certificate") {
+		t.Fatalf("error = %v, want certificate verification failure", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want no payload", stdout)
+	}
+	if result := <-serverResult; result.request != "" {
+		t.Fatalf("server received %q before verification", result.request)
+	}
+}
+
+func TestNetConnectTLSFlagValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "cert without key", args: []string{"--cert", "client.crt"}},
+		{name: "key without cert", args: []string{"--key", "client.key"}},
+		{name: "system CA without custom CA", args: []string{"--system-ca"}},
+		{name: "insecure with CA", args: []string{"--insecure", "--ca", "ca.crt"}},
+		{name: "insecure with system CA", args: []string{"--insecure", "--system-ca"}},
+		{name: "ALPN with whitespace", args: []string{"--alpn", "h2, http/1.1"}},
+		{name: "negative wait", args: []string{"--wait", "-1s"}},
+		{name: "negative timeout", args: []string{"--timeout", "-1s"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"net", "connect", "tls", "localhost:443"}, test.args...)
+			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
+				t.Fatalf("error = %v, want errInvalidNetworkFlags", err)
+			}
+		})
+	}
+}
+
+func TestCertConnectVerificationStatusRemainsNonFatal(t *testing.T) {
+	server := newChainTLSServer(t)
+	stdout, _, err := executeRootStreams(
+		t,
+		"cert", "connect", server.Listener.Addr().String(), "--format", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, `"verified": false`) || !strings.Contains(stdout, `"verify_error"`) {
+		t.Fatalf("certificate JSON = %s, want non-fatal verification status", stdout)
+	}
+}
+
+func TestCertConnectPEMReportsVerificationWithoutContaminatingArtifact(t *testing.T) {
+	server := newChainTLSServer(t)
+	stdout, stderr, err := executeRootStreams(
+		t,
+		"cert", "connect", server.Listener.Addr().String(), "--format", "pem",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(stdout, "-----BEGIN CERTIFICATE-----") != 1 || strings.Contains(stdout, "verification") {
+		t.Fatalf("certificate stdout = %q, want one uncontaminated PEM artifact", stdout)
+	}
+	if !strings.Contains(stderr, "certificate verification: not verified:") {
+		t.Fatalf("stderr = %q, want non-fatal verification status", stderr)
+	}
+}
+
+type exchangeResult struct {
+	err            error
+	request        string
+	alpn           string
+	clientVerified bool
+}
+
+func startTCPExchangeServer(
+	t *testing.T,
+	wantRequest string,
+	response string,
+	responseDelay time.Duration,
+) (string, <-chan exchangeResult) {
+	t.Helper()
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close TCP listener: %v", closeErr)
+		}
+	})
+	result := make(chan exchangeResult, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			result <- exchangeResult{err: acceptErr}
+			return
+		}
+		defer func() {
+			if closeErr := connection.Close(); closeErr != nil {
+				t.Errorf("close TCP connection: %v", closeErr)
+			}
+		}()
+		request := make([]byte, len(wantRequest))
+		_, readErr := io.ReadFull(connection, request)
+		if readErr != nil {
+			result <- exchangeResult{err: readErr}
+			return
+		}
+		if string(request) != wantRequest {
+			result <- exchangeResult{
+				request: string(request),
+				err:     fmt.Errorf("%w: got %q, want %q", errUnexpectedNetworkRequest, request, wantRequest),
+			}
+			return
+		}
+		time.Sleep(responseDelay)
+		_, writeErr := io.WriteString(connection, response)
+		result <- exchangeResult{request: string(request), err: writeErr}
+	}()
+	return listener.Addr().String(), result
+}
+
+type networkTestIdentity struct {
+	caCert     string
+	serverCert string
+	serverKey  string
+	clientCert string
+	clientKey  string
+}
+
+func createNetworkTestIdentity(t *testing.T) networkTestIdentity {
+	t.Helper()
+	directory := t.TempDir()
+	identity := networkTestIdentity{
+		caCert:     filepath.Join(directory, "ca.crt"),
+		serverCert: filepath.Join(directory, "server.crt"),
+		serverKey:  filepath.Join(directory, "server.key"),
+		clientCert: filepath.Join(directory, "client.crt"),
+		clientKey:  filepath.Join(directory, "client.key"),
+	}
+	caKey := filepath.Join(directory, "ca.key")
+	generateTestKey(t, "ed25519", caKey)
+	generateTestKey(t, "ed25519", identity.serverKey)
+	generateTestKey(t, "ed25519", identity.clientKey)
+	commands := [][]string{
+		{"cert", "create", "--ca", "--subject", "CN=test-ca", "--key", caKey, "--output", identity.caCert},
+		{
+			"cert", "create", "--dns", "localhost", "--server-only", "--key", identity.serverKey,
+			"--issuer-cert", identity.caCert, "--issuer-key", caKey, "--output", identity.serverCert,
+		},
+		{
+			"cert", "create", "--subject", "CN=client", "--client-only", "--key", identity.clientKey,
+			"--issuer-cert", identity.caCert, "--issuer-key", caKey, "--output", identity.clientCert,
+		},
+	}
+	for _, args := range commands {
+		if _, _, err := executeRootStreams(t, args...); err != nil {
+			t.Fatalf("execute %v: %v", args, err)
+		}
+	}
+	return identity
+}
+
+func startTLSExchangeServer(
+	t *testing.T,
+	identity *networkTestIdentity,
+	requireClient bool,
+	nextProtocols []string,
+) (string, <-chan exchangeResult) {
+	t.Helper()
+	serverIdentity, err := tls.LoadX509KeyPair(identity.serverCert, identity.serverKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPEM, err := os.ReadFile(identity.caCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRoots := x509.NewCertPool()
+	if !clientRoots.AppendCertsFromPEM(caPEM) {
+		t.Fatal("append client CA")
+	}
+	config := &tls.Config{
+		Certificates: []tls.Certificate{serverIdentity},
+		MinVersion:   tls.VersionTLS12,
+		NextProtos:   nextProtocols,
+	}
+	if requireClient {
+		config.ClientAuth = tls.RequireAndVerifyClientCert
+		config.ClientCAs = clientRoots
+	}
+	baseListener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := tls.NewListener(baseListener, config)
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close TLS listener: %v", closeErr)
+		}
+	})
+	result := make(chan exchangeResult, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			result <- exchangeResult{err: acceptErr}
+			return
+		}
+		defer func() {
+			if closeErr := connection.Close(); closeErr != nil {
+				t.Errorf("close TLS connection: %v", closeErr)
+			}
+		}()
+		tlsConnection, ok := connection.(*tls.Conn)
+		if !ok {
+			result <- exchangeResult{err: errNonTLSConnection}
+			return
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		if handshakeErr := tlsConnection.HandshakeContext(ctx); handshakeErr != nil {
+			result <- exchangeResult{err: handshakeErr}
+			return
+		}
+		state := tlsConnection.ConnectionState()
+		request := make([]byte, len("request"))
+		_, readErr := io.ReadFull(tlsConnection, request)
+		if readErr != nil {
+			result <- exchangeResult{err: readErr, alpn: state.NegotiatedProtocol}
+			return
+		}
+		_, writeErr := io.WriteString(tlsConnection, "response")
+		result <- exchangeResult{
+			err:            writeErr,
+			request:        string(request),
+			alpn:           state.NegotiatedProtocol,
+			clientVerified: len(state.VerifiedChains) > 0,
+		}
+	}()
+	return listener.Addr().String(), result
+}

@@ -60,7 +60,7 @@ func runCertInspect(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	return formatCertificates(formatter, certInfos, cmd.OutOrStdout())
+	return formatCertificates(cmd, formatter, certInfos)
 }
 
 func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {

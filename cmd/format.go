@@ -45,9 +45,51 @@ func certFormatterFromCommand(cmd *cobra.Command) (asym.CertFormatter, error) {
 	return getCertFormatter(format)
 }
 
-func formatCertificates(formatter asym.CertFormatter, infos []*asym.CertInfo, output io.Writer) error {
+func formatCertificates(
+	cmd *cobra.Command,
+	formatter asym.CertFormatter,
+	infos []*asym.CertInfo,
+) error {
+	output := cmd.OutOrStdout()
+	var err error
 	if len(infos) == 1 {
-		return formatter.Format(infos[0], output)
+		err = formatter.Format(infos[0], output)
+	} else {
+		err = formatter.FormatMultiple(infos, output)
 	}
-	return formatter.FormatMultiple(infos, output)
+	if err != nil {
+		return err
+	}
+	if certificateFormatterIncludesVerification(formatter) {
+		return nil
+	}
+	return writeCertificateVerificationStatus(cmd.ErrOrStderr(), infos)
+}
+
+func certificateFormatterIncludesVerification(formatter asym.CertFormatter) bool {
+	switch formatter.(type) {
+	case *asym.JSONFormatter, *asym.TextFormatter:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeCertificateVerificationStatus(output io.Writer, infos []*asym.CertInfo) error {
+	for i, info := range infos {
+		label := "certificate verification"
+		if len(infos) > 1 {
+			label = fmt.Sprintf("certificate %d verification", i+1)
+		}
+		status := "not verified"
+		if info.Verified {
+			status = "verified"
+		} else if info.VerifyError != "" {
+			status += ": " + info.VerifyError
+		}
+		if _, err := fmt.Fprintf(output, "%s: %s\n", label, status); err != nil {
+			return fmt.Errorf("write certificate verification status: %w", err)
+		}
+	}
+	return nil
 }

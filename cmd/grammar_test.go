@@ -40,6 +40,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 		// genkey is the documented one-release compatibility exception.
 		"genkey": true,
 	}
+	transportLeaves := map[string]bool{"tcp": true, "tls": true}
 
 	var violations []string
 	var walk func(*cobra.Command)
@@ -54,7 +55,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}
 			} else {
-				if !verbs[child.Name()] {
+				isTransport := command.Name() == "connect" && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
+				if !verbs[child.Name()] && !isTransport {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}
 				binary := commandHasShape(child, binaryOutputShape)
