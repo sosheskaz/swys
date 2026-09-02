@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -141,13 +139,6 @@ func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, 
 	}, nil
 }
 
-func networkSetupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout == 0 {
-		return context.WithCancel(parent)
-	}
-	return context.WithTimeout(parent, timeout)
-}
-
 func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, error) {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -212,7 +203,7 @@ func addTLSRootCAs(cmd *cobra.Command, config *tls.Config) error {
 	if err != nil {
 		return err
 	}
-	certificates, err := parseTLSCertificatePEM(data)
+	certificates, err := parsePEMCertificates(data)
 	if err != nil {
 		return fmt.Errorf("parse --ca: %w", err)
 	}
@@ -239,7 +230,7 @@ func tlsClientIdentityFromCommand(cmd *cobra.Command) (tls.Certificate, bool, er
 	if err != nil {
 		return tls.Certificate{}, false, err
 	}
-	certificates, err := parseTLSCertificatePEM(certData)
+	certificates, err := parsePEMCertificates(certData)
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("parse --cert: %w", err)
 	}
@@ -286,30 +277,6 @@ func readNetworkArtifact(flagName, path string) ([]byte, error) {
 		return nil, fmt.Errorf("read %s %q: %w", flagName, path, err)
 	}
 	return data, nil
-}
-
-func parseTLSCertificatePEM(data []byte) ([]*x509.Certificate, error) {
-	remainder := bytes.TrimSpace(data)
-	var certificates []*x509.Certificate
-	for len(remainder) > 0 {
-		block, rest := pem.Decode(remainder)
-		if block == nil {
-			return nil, errTrailingCertificateData
-		}
-		if block.Type != certificatePEMType {
-			return nil, fmt.Errorf("%w %q; expected %s", errUnexpectedPEMType, block.Type, certificatePEMType)
-		}
-		parsed, err := x509.ParseCertificates(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("parse PEM certificate: %w", err)
-		}
-		certificates = append(certificates, parsed...)
-		remainder = bytes.TrimSpace(rest)
-	}
-	if len(certificates) == 0 {
-		return nil, errNoPEMCertificates
-	}
-	return certificates, nil
 }
 
 func parseALPN(text string) ([]string, error) {
@@ -361,15 +328,22 @@ func writeTLSConnectionDetails(output io.Writer, connection *tls.Conn, config *t
 }
 
 func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
+	if !commandHasShape(cmd, networkShape) {
+		return nil
+	}
+	timeout, err := cmd.Flags().GetDuration("timeout")
+	if err != nil {
+		return fmt.Errorf("read timeout flag: %w", err)
+	}
+	if timeout < 0 {
+		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
+	}
 	if cmd != netConnectTCPCmd && cmd != netConnectTLSCmd {
 		return nil
 	}
 	options, err := networkStreamOptionsFromCommand(cmd)
 	if err != nil {
 		return err
-	}
-	if options.timeout < 0 {
-		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
 	}
 	if options.wait < 0 {
 		return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)

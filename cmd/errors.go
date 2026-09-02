@@ -24,4 +24,5 @@ var (
 	errTrailingCertificateData    = errors.New("certificate input contains trailing data")
 	errInvalidNetworkFlags        = errors.New("invalid network flags")
 	errTLSClientKeyMismatch       = errors.New("TLS client certificate and private key do not match")
+	errNoPeerCertificates         = errors.New("TLS peer returned no certificates")
 )

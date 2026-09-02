@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
 
 var connectCmd = networkCommand(structuredOutputCommand(&cobra.Command{
@@ -19,9 +22,23 @@ var connectCmd = networkCommand(structuredOutputCommand(&cobra.Command{
 			return err
 		}
 
-		certs, dnsName, err := asym.CertFromDial(cmd.Context(), args[0])
+		dnsName, _, err := net.SplitHostPort(args[0])
+		if err != nil {
+			return fmt.Errorf("parse TLS address %q: %w", args[0], err)
+		}
+		connection, err := netconn.DialTLS(cmd.Context(), args[0], &tls.Config{
+			// Verification remains a reporting concern so diagnostic inspection
+			// can retrieve expired, mismatched, and privately trusted chains.
+			InsecureSkipVerify: true, //nolint:gosec // diagnostic inspection intentionally reports trust failures after retrieval
+			ServerName:         dnsName,
+		})
 		if err != nil {
 			return err
+		}
+		defer connection.Close() //nolint:errcheck // peer certificates are already in memory
+		certs := connection.ConnectionState().PeerCertificates
+		if len(certs) == 0 {
+			return errNoPeerCertificates
 		}
 		includeChain, err := cmd.Flags().GetBool("chain")
 		if err != nil {

@@ -23,7 +23,7 @@ func DialTCP(ctx context.Context, address string) (*net.TCPConn, error) {
 	return tcpConnection, nil
 }
 
-// DialTLS establishes TCP, completes a TLS handshake, and returns the verified connection.
+// DialTLS establishes TCP, completes a TLS handshake, and returns the configured connection.
 func DialTLS(ctx context.Context, address string, config *tls.Config) (*tls.Conn, error) {
 	tcpConnection, err := DialTCP(ctx, address)
 	if err != nil {

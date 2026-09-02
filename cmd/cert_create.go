@@ -115,10 +115,18 @@ func certificateIssuerFromCommand(cmd *cobra.Command) (*x509.Certificate, *asym.
 	if err != nil {
 		return nil, nil, err
 	}
-	issuer, err := parseSinglePEMCertificate(issuerData)
+	issuers, err := parsePEMCertificates(issuerData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse --issuer-cert: %w", err)
 	}
+	if len(issuers) != 1 {
+		return nil, nil, fmt.Errorf(
+			"parse --issuer-cert: %w: issuer input must contain exactly one certificate, found %d",
+			errTrailingCertificateData,
+			len(issuers),
+		)
+	}
+	issuer := issuers[0]
 	issuerKey, err := readCertificateKey(cmd, "--issuer-key", issuerKeyPath)
 	if err != nil {
 		return nil, nil, err
@@ -590,25 +598,6 @@ func readCertificateArtifact(cmd *cobra.Command, flagName, source string) ([]byt
 		return nil, fmt.Errorf("read %s %q: %w", flagName, source, err)
 	}
 	return data, nil
-}
-
-func parseSinglePEMCertificate(data []byte) (*x509.Certificate, error) {
-	trimmed := bytes.TrimSpace(data)
-	block, rest := pem.Decode(trimmed)
-	if block == nil {
-		return nil, errNoPEMCertificates
-	}
-	if block.Type != certificatePEMType {
-		return nil, fmt.Errorf("%w %q; expected %s", errUnexpectedPEMType, block.Type, certificatePEMType)
-	}
-	if len(bytes.TrimSpace(rest)) != 0 {
-		return nil, errTrailingCertificateData
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse PEM certificate: %w", err)
-	}
-	return cert, nil
 }
 
 func addCertificateIdentityFlags(command *cobra.Command) {

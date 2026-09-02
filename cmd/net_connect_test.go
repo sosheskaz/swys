@@ -321,13 +321,49 @@ func TestCertConnectVerificationStatusRemainsNonFatal(t *testing.T) {
 	server := newChainTLSServer(t)
 	stdout, _, err := executeRootStreams(
 		t,
-		"cert", "connect", server.Listener.Addr().String(), "--format", "json",
+		"cert", "connect", server.Listener.Addr().String(), "--format", "json", "--timeout", "0",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout, `"verified": false`) || !strings.Contains(stdout, `"verify_error"`) {
 		t.Fatalf("certificate JSON = %s, want non-fatal verification status", stdout)
+	}
+}
+
+func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close stalled TLS listener: %v", closeErr)
+		}
+	})
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			accepted <- connection
+		}
+	}()
+
+	_, _, err = executeRootStreams(
+		t,
+		"cert", "connect", listener.Addr().String(), "--timeout", "25ms",
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+
+	select {
+	case connection := <-accepted:
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("TLS handshake connection was not accepted")
 	}
 }
 

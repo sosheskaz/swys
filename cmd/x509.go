@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -65,22 +66,25 @@ func runCertInspect(cmd *cobra.Command, _ []string) error {
 
 func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
-	remainder := data
+	remainder := bytes.TrimSpace(data)
 	for len(remainder) > 0 {
+		if !bytes.HasPrefix(remainder, []byte("-----BEGIN ")) {
+			return nil, errTrailingCertificateData
+		}
 		block, rest := pem.Decode(remainder)
 		if block == nil {
-			break
+			return nil, errTrailingCertificateData
 		}
-		remainder = rest
 		if block.Type != certificatePEMType {
 			return nil, fmt.Errorf("%w %q; expected %s", errUnexpectedPEMType, block.Type, certificatePEMType)
 		}
 
-		parsed, err := x509.ParseCertificates(block.Bytes)
+		parsed, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("parse PEM certificate: %w", err)
 		}
-		certs = append(certs, parsed...)
+		certs = append(certs, parsed)
+		remainder = bytes.TrimSpace(rest)
 	}
 	if len(certs) == 0 {
 		return nil, errNoPEMCertificates

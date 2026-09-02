@@ -279,6 +279,24 @@ func TestNetworkCommandValidatesAddressBeforeIO(t *testing.T) {
 	}
 }
 
+func TestNetworkCommandRejectsNegativeTimeoutBeforeIO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing")
+	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := executeRoot(t, "cert", "connect", "localhost:443", "--timeout", "-1s", "--output", path)
+	if !errors.Is(err, errInvalidNetworkFlags) {
+		t.Fatalf("error = %v, want errInvalidNetworkFlags", err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "preserve" {
+		t.Fatalf("output = %q, want preserved content", data)
+	}
+}
+
 func TestNetworkCommandAppliesTimeout(t *testing.T) {
 	var remaining time.Duration
 	command := networkCommand(&cobra.Command{
@@ -304,5 +322,34 @@ func TestNetworkCommandAppliesTimeout(t *testing.T) {
 	}
 	if got := command.Flags().Lookup("timeout").DefValue; got != "10s" {
 		t.Fatalf("timeout default = %q, want 10s", got)
+	}
+}
+
+func TestNetworkCommandZeroTimeoutDisablesDeadline(t *testing.T) {
+	command := networkCommand(&cobra.Command{
+		Use:    "network-zero-timeout-test host:port",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if deadline, ok := cmd.Context().Deadline(); ok {
+				t.Fatalf("network command deadline = %v, want none", deadline)
+			}
+			return nil
+		},
+	})
+	rootCmd.AddCommand(command)
+	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
+
+	if _, err := executeRoot(t, "network-zero-timeout-test", "example.com:443", "--timeout", "0"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCertConnectHelpDocumentsZeroTimeout(t *testing.T) {
+	output, err := executeRoot(t, "cert", "connect", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "TCP setup and TLS handshake timeout (0 disables)") {
+		t.Fatalf("help = %q, want zero-timeout behavior", output)
 	}
 }

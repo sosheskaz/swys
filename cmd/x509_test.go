@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,14 +21,47 @@ import (
 	"time"
 )
 
-func TestParsePEMCertificatesRejectsNonCertificateBlock(t *testing.T) {
-	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not a key")})
-	_, err := parsePEMCertificates(data)
-	if !errors.Is(err, errUnexpectedPEMType) {
-		t.Fatalf("error = %v, want errUnexpectedPEMType", err)
+func TestParsePEMCertificates(t *testing.T) {
+	chain := newTLSCertificateChain(t).Certificate
+	leafPEM := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: chain[0]})
+	rootPEM := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: chain[1]})
+	wrongType := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not a key")})
+	malformedDER := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: []byte("not a certificate")})
+
+	tests := []struct {
+		wantErr   error
+		name      string
+		input     []byte
+		wantCount int
+	}{
+		{name: "empty", wantErr: errNoPEMCertificates},
+		{name: "whitespace", input: []byte(" \n\t"), wantErr: errNoPEMCertificates},
+		{name: "one certificate", input: leafPEM, wantCount: 1},
+		{name: "certificate chain", input: append(bytes.Clone(leafPEM), rootPEM...), wantCount: 2},
+		{name: "surrounding whitespace", input: append(append([]byte(" \n"), leafPEM...), []byte("\t \n")...), wantCount: 1},
+		{name: "malformed DER", input: malformedDER},
+		{name: "wrong block type", input: wrongType, wantErr: errUnexpectedPEMType},
+		{name: "garbage before", input: append([]byte("garbage\n"), leafPEM...), wantErr: errTrailingCertificateData},
+		{name: "garbage between", input: append(append(bytes.Clone(leafPEM), []byte("garbage\n")...), rootPEM...), wantErr: errTrailingCertificateData},
+		{name: "garbage after", input: append(bytes.Clone(leafPEM), []byte("garbage\n")...), wantErr: errTrailingCertificateData},
 	}
-	if !strings.Contains(err.Error(), "PRIVATE KEY") {
-		t.Fatalf("error = %v, want the offending block type reported", err)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			certificates, err := parsePEMCertificates(test.input)
+			if test.name == "malformed DER" {
+				if err == nil || !strings.Contains(err.Error(), "parse PEM certificate") {
+					t.Fatalf("error = %v, want malformed certificate error", err)
+				}
+				return
+			}
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("error = %v, want %v", err, test.wantErr)
+			}
+			if len(certificates) != test.wantCount {
+				t.Fatalf("certificate count = %d, want %d", len(certificates), test.wantCount)
+			}
+		})
 	}
 }
 
@@ -103,11 +138,46 @@ func TestConnectCommandUsesFormatterChainRequirement(t *testing.T) {
 	}
 }
 
+func TestConnectCommandPreservesEndpointSNI(t *testing.T) {
+	serverName := make(chan string, 1)
+	server := newChainTLSServerWithClientHello(t, func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		serverName <- hello.ServerName
+		return nil, nil //nolint:nilnil // nil directs TLS to continue with the existing configuration
+	})
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := executeRoot(t, "cert", "connect", net.JoinHostPort("localhost", port)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-serverName:
+		if got != "localhost" {
+			t.Fatalf("SNI = %q, want localhost", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not receive ClientHello")
+	}
+}
+
 func newChainTLSServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return newChainTLSServerWithClientHello(t, nil)
+}
+
+func newChainTLSServerWithClientHello(
+	t *testing.T,
+	getConfigForClient func(*tls.ClientHelloInfo) (*tls.Config, error),
+) *httptest.Server {
 	t.Helper()
 	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	server := httptest.NewUnstartedServer(handler)
-	server.TLS = &tls.Config{Certificates: []tls.Certificate{newTLSCertificateChain(t)}}
+	server.TLS = &tls.Config{
+		Certificates:       []tls.Certificate{newTLSCertificateChain(t)},
+		GetConfigForClient: getConfigForClient,
+	}
 	server.StartTLS()
 	t.Cleanup(server.Close)
 	return server

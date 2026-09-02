@@ -78,7 +78,7 @@ func structuredOutputCommand(command *cobra.Command, formats func() []string) *c
 
 func networkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
-	command.Flags().Duration("timeout", defaultNetworkTimeout, "network operation timeout")
+	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
 	command.Args = networkAddressArgs(command.Args)
 
 	if command.RunE == nil {
@@ -91,13 +91,20 @@ func networkCommand(command *cobra.Command) *cobra.Command {
 			return fmt.Errorf("read timeout flag: %w", err)
 		}
 		originalContext := cmd.Context()
-		ctx, cancel := context.WithTimeout(originalContext, timeout)
+		ctx, cancel := networkSetupContext(originalContext, timeout)
 		defer cancel()
 		defer cmd.SetContext(originalContext)
 		cmd.SetContext(ctx)
 		return originalRunE(cmd, args)
 	}
 	return command
+}
+
+func networkSetupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout == 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 func streamNetworkCommand(command *cobra.Command) *cobra.Command {

@@ -450,6 +450,19 @@ func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T)
 	if !errors.Is(err, errTrailingCertificateData) {
 		t.Fatalf("trailing issuer error = %v, want errTrailingCertificateData", err)
 	}
+
+	multipleCerts := filepath.Join(dir, "multiple.crt")
+	if err := os.WriteFile(multipleCerts, append(bytes.Clone(certData), certData...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = executeRootStreams(
+		t,
+		"cert", "create", "--subject", "CN=leaf", "--key", leafKey,
+		"--issuer-cert", multipleCerts, "--issuer-key", caKey,
+	)
+	if !errors.Is(err, errTrailingCertificateData) {
+		t.Fatalf("multiple issuer error = %v, want errTrailingCertificateData", err)
+	}
 }
 
 func TestCertCreateEnablesMutualTLSHandshake(t *testing.T) {
