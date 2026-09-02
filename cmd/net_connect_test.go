@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
 
 var (
@@ -44,6 +46,7 @@ func TestNetConnectTCPRelaysEncodedPayload(t *testing.T) {
 		"--input", inputPath,
 		"--input-encoding", "base64",
 		"--encoding", "base64",
+		"--timeout", "0",
 		"--wait", "1s",
 	)
 	if err != nil {
@@ -71,12 +74,13 @@ func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
 	}
 	address, serverResult := startTCPExchangeServer(t, "request", "delayed", 100*time.Millisecond)
 
-	stdout, _, err := executeRootStreams(
+	stdout, stderr, err := executeRootStreams(
 		t,
 		"net", "connect", "tcp", address,
 		"--input", inputPath,
 		"--timeout", "50ms",
 		"--wait", "1s",
+		"--verbose",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +88,43 @@ func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
 	if stdout != "delayed" {
 		t.Fatalf("response = %q, want delayed", stdout)
 	}
+	if !strings.Contains(stderr, "connected tcp") {
+		t.Fatalf("stderr = %q, want TCP connection details", stderr)
+	}
 	if result := <-serverResult; result.err != nil {
 		t.Fatal(result.err)
+	}
+}
+
+func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "partial-response")
+	address, responseStarted, serverDone := startTCPPartialResponseServer(t, "partial response")
+
+	stdout, _, err := executeRootStreamsWithInput(
+		t,
+		&commandGatedEOFReader{ready: responseStarted},
+		"net", "connect", "tcp", address,
+		"--output", outputPath,
+		"--wait", "50ms",
+	)
+	if !errors.Is(err, netconn.ErrDrainTimeout) {
+		t.Fatalf("error = %v, want drain timeout", err)
+	}
+	if !strings.Contains(err.Error(), "50ms") {
+		t.Fatalf("error = %q, want elapsed wait", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want response redirected to file", stdout)
+	}
+	output, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(output) != "partial response" {
+		t.Fatalf("partial output = %q, want preserved response prefix", output)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -316,6 +355,15 @@ type exchangeResult struct {
 	clientVerified bool
 }
 
+type commandGatedEOFReader struct {
+	ready <-chan struct{}
+}
+
+func (reader *commandGatedEOFReader) Read([]byte) (int, error) {
+	<-reader.ready
+	return 0, io.EOF
+}
+
 func startTCPExchangeServer(
 	t *testing.T,
 	wantRequest string,
@@ -362,6 +410,63 @@ func startTCPExchangeServer(
 		result <- exchangeResult{request: string(request), err: writeErr}
 	}()
 	return listener.Addr().String(), result
+}
+
+func startTCPPartialResponseServer(
+	t *testing.T,
+	prefix string,
+) (string, <-chan struct{}, <-chan error) {
+	t.Helper()
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close TCP listener: %v", closeErr)
+		}
+	})
+	responseStarted := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			close(responseStarted)
+			done <- acceptErr
+			return
+		}
+		_, writeErr := io.WriteString(connection, prefix)
+		close(responseStarted)
+		_, readErr := io.Copy(io.Discard, connection)
+		done <- errors.Join(writeErr, readErr, connection.Close())
+	}()
+	return listener.Addr().String(), responseStarted, done
+}
+
+func executeRootStreamsWithInput(
+	t *testing.T,
+	input io.Reader,
+	args ...string,
+) (string, string, error) {
+	t.Helper()
+	resetCommandFlags(rootCmd)
+	t.Cleanup(func() {
+		resetCommandFlags(rootCmd)
+		rootCmd.SetArgs(nil)
+		rootCmd.SetIn(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	rootCmd.SetIn(input)
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs(args)
+	command, runErr := rootCmd.ExecuteC()
+	err := errors.Join(runErr, closeCommandIO(command))
+	return stdout.String(), stderr.String(), err
 }
 
 type networkTestIdentity struct {

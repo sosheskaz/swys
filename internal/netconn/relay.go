@@ -9,8 +9,12 @@ import (
 	"time"
 )
 
-// ErrInvalidWait indicates a negative post-input drain duration.
-var ErrInvalidWait = errors.New("invalid connection drain wait")
+var (
+	// ErrInvalidWait indicates a negative post-input drain duration.
+	ErrInvalidWait = errors.New("invalid connection drain wait")
+	// ErrDrainTimeout indicates that the response drain window elapsed.
+	ErrDrainTimeout = errors.New("connection response drain timed out")
+)
 
 // StreamConn is a full-duplex network connection that supports write-side shutdown.
 type StreamConn interface {
@@ -51,7 +55,7 @@ func Relay(
 
 	select {
 	case result := <-received:
-		return finishPeerFirst(connection, result)
+		return finishPeerFirst(ctx, connection, sent, result)
 	case result := <-sent:
 		return finishInputFirst(ctx, connection, received, result, wait, closeWrite)
 	case <-ctx.Done():
@@ -64,9 +68,31 @@ func copyStream(result chan<- copyResult, direction copyDirection, output io.Wri
 	result <- copyResult{direction: direction, err: err}
 }
 
-func finishPeerFirst(connection StreamConn, result copyResult) error {
-	closeErr := connection.Close()
-	return errors.Join(wrapCopyError(result), wrapCloseError(closeErr))
+func finishPeerFirst(
+	ctx context.Context,
+	connection StreamConn,
+	sent <-chan copyResult,
+	received copyResult,
+) error {
+	if received.err != nil {
+		return errors.Join(wrapCopyError(received), wrapCloseError(connection.Close()))
+	}
+
+	select {
+	case result := <-sent:
+		return finishPeerAndSend(connection, result)
+	default:
+	}
+	select {
+	case result := <-sent:
+		return finishPeerAndSend(connection, result)
+	case <-ctx.Done():
+		return errors.Join(ctx.Err(), wrapCloseError(connection.Close()))
+	}
+}
+
+func finishPeerAndSend(connection StreamConn, sent copyResult) error {
+	return errors.Join(wrapCopyError(sent), wrapCloseError(connection.Close()))
 }
 
 func finishInputFirst(
@@ -88,7 +114,7 @@ func finishInputFirst(
 	if wait == 0 {
 		select {
 		case result := <-received:
-			return errors.Join(wrapCopyError(result), wrapCloseError(connection.Close()))
+			return finishReceived(connection, result)
 		case <-ctx.Done():
 			return cancelRelay(connection, received, ctx.Err())
 		}
@@ -98,34 +124,35 @@ func finishInputFirst(
 	defer timer.Stop()
 	select {
 	case result := <-received:
-		return errors.Join(wrapCopyError(result), wrapCloseError(connection.Close()))
+		return finishReceived(connection, result)
 	case <-timer.C:
-		return expireDrain(connection, received)
+		return expireDrain(connection, received, wait)
 	case <-ctx.Done():
 		return cancelRelay(connection, received, ctx.Err())
 	}
 }
 
-func expireDrain(connection StreamConn, received <-chan copyResult) error {
+func finishReceived(connection StreamConn, received copyResult) error {
+	return errors.Join(wrapCopyError(received), wrapCloseError(connection.Close()))
+}
+
+func expireDrain(connection StreamConn, received <-chan copyResult, wait time.Duration) error {
 	select {
 	case result := <-received:
-		return errors.Join(wrapCopyError(result), wrapCloseError(connection.Close()))
+		return finishReceived(connection, result)
 	default:
 	}
 
+	timeoutErr := fmt.Errorf("%w after %s", ErrDrainTimeout, wait)
 	closeErr := wrapCloseError(connection.Close())
 	result := <-received
-	return errors.Join(closeErr, wrapExpectedCloseCopyError(result))
+	return errors.Join(timeoutErr, closeErr, wrapExpectedCloseCopyError(result))
 }
 
 func cancelRelay(connection StreamConn, received <-chan copyResult, contextErr error) error {
 	closeErr := wrapCloseError(connection.Close())
-	select {
-	case result := <-received:
-		return errors.Join(contextErr, closeErr, wrapExpectedCloseCopyError(result))
-	default:
-		return errors.Join(contextErr, closeErr)
-	}
+	result := <-received
+	return errors.Join(contextErr, closeErr, wrapExpectedCloseCopyError(result))
 }
 
 func closeAfterFailure(connection StreamConn, received <-chan copyResult, cause error) error {

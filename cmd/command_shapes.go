@@ -103,7 +103,11 @@ func networkCommand(command *cobra.Command) *cobra.Command {
 func streamNetworkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
-	command.Flags().Duration("wait", defaultNetworkWait, "maximum response drain time after input EOF (0 waits indefinitely)")
+	command.Flags().Duration(
+		"wait",
+		defaultNetworkWait,
+		"maximum response drain time after input EOF; expiry returns an error with partial output preserved (0 waits indefinitely)",
+	)
 	command.Flags().Bool("close-write", false, "half-close the connection write side after input EOF")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args)

@@ -179,8 +179,11 @@ default); established streaming is not timed out. After input EOF, `--wait`
 allows up to 5 seconds for the peer to finish its response before npc closes the
 connection. Set `--wait 0` to drain until the peer closes, or choose a shorter
 duration for a protocol that keeps connections open. With `--close-write`, npc
-half-closes before starting that drain period. The aliases `npc nc` and `npc
-netcat` select the same `net` command tree.
+half-closes before starting that drain period. If a finite wait expires, the
+command closes the connection and exits nonzero with a drain-timeout error.
+Bytes already written to stdout or `--output` remain available, but are a
+partial response and must not be treated as complete. The aliases `npc nc` and
+`npc netcat` select the same `net` command tree.
 
 `cert connect` and `cert inspect` remain inspection commands: they always report
 certificate verification status, but a failed verification is not enforced.
