@@ -182,22 +182,20 @@ func validateRSAPublicKey(key *rsa.PublicKey) error {
 }
 
 func validateECDSAPrivateKey(key *ecdsa.PrivateKey) error {
-	if key == nil || key.D == nil || key.Curve == nil {
+	if key == nil || key.D == nil || key.Curve == nil { //nolint:staticcheck // Bytes dereferences D; guard incomplete caller-supplied keys.
 		return fmt.Errorf("%w: incomplete ECDSA private key", ErrMalformedKey)
 	}
-	parameters := key.Params()
-	if parameters == nil || parameters.N == nil {
-		return fmt.Errorf("%w: ECDSA curve parameters are incomplete", ErrMalformedKey)
+	if err := validateECDSAPublicKey(&key.PublicKey); err != nil {
+		return err
 	}
-	order := parameters.N
-	if key.D.Sign() <= 0 || key.D.Cmp(order) >= 0 {
-		return fmt.Errorf("%w: ECDSA private scalar is out of range", ErrMalformedKey)
+	if _, err := key.Bytes(); err != nil {
+		return fmt.Errorf("%w: validate ECDSA private key: %w", ErrMalformedKey, err)
 	}
-	return validateECDSAPublicKey(&key.PublicKey)
+	return nil
 }
 
 func validateECDSAPublicKey(key *ecdsa.PublicKey) error {
-	if key == nil || key.Curve == nil || key.X == nil || key.Y == nil {
+	if key == nil || key.Curve == nil || key.X == nil || key.Y == nil { //nolint:staticcheck // Bytes dereferences X and Y; guard incomplete keys.
 		return fmt.Errorf("%w: invalid ECDSA public key fields", ErrMalformedKey)
 	}
 	switch key.Curve {
@@ -205,7 +203,7 @@ func validateECDSAPublicKey(key *ecdsa.PublicKey) error {
 	default:
 		return fmt.Errorf("%w: ECDSA curve %T", ErrUnsupportedKeyType, key.Curve)
 	}
-	if _, err := key.ECDH(); err != nil {
+	if _, err := key.Bytes(); err != nil {
 		return fmt.Errorf("%w: validate ECDSA public key: %w", ErrMalformedKey, err)
 	}
 	return nil

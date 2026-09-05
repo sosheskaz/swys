@@ -405,6 +405,39 @@ func TestKeyFormattersPropagateWriterErrors(t *testing.T) {
 	}
 }
 
+func TestNewKeyRejectsMalformedECDSAKeys(t *testing.T) {
+	t.Parallel()
+
+	curve := elliptic.P256()
+	x, y := curve.Params().Gx, curve.Params().Gy
+	public := ecdsa.PublicKey{Curve: curve, X: x, Y: y}
+	tests := []struct {
+		key  any
+		name string
+	}{
+		{name: "nil public", key: (*ecdsa.PublicKey)(nil)},
+		{name: "nil private", key: (*ecdsa.PrivateKey)(nil)},
+		{name: "missing curve", key: &ecdsa.PublicKey{X: x, Y: y}},
+		{name: "missing x", key: &ecdsa.PublicKey{Curve: curve, Y: y}},
+		{name: "missing y", key: &ecdsa.PublicKey{Curve: curve, X: x}},
+		{name: "off curve", key: &ecdsa.PublicKey{Curve: curve, X: big.NewInt(1), Y: big.NewInt(1)}},
+		{name: "missing scalar", key: &ecdsa.PrivateKey{PublicKey: public}},
+		{name: "missing private point", key: &ecdsa.PrivateKey{PublicKey: ecdsa.PublicKey{Curve: curve}, D: big.NewInt(1)}},
+		{name: "zero scalar", key: &ecdsa.PrivateKey{PublicKey: public, D: new(big.Int)}},
+		{name: "negative scalar", key: &ecdsa.PrivateKey{PublicKey: public, D: big.NewInt(-1)}},
+		{name: "scalar at order", key: &ecdsa.PrivateKey{PublicKey: public, D: curve.Params().N}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := NewKey(test.key); !errors.Is(err, ErrMalformedKey) {
+				t.Fatalf("error = %v, want malformed key", err)
+			}
+		})
+	}
+}
+
 func TestNewKeyValidatesRSA(t *testing.T) {
 	t.Parallel()
 
