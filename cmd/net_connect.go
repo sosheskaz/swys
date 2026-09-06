@@ -18,6 +18,13 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
 
+const (
+	networkNoValue  = "(none)"
+	tlsCertFlagName = "cert"
+	tlsKeyFlagName  = "key"
+	tlsCAFlagName   = "ca"
+)
+
 var netCmd = &cobra.Command{
 	Aliases: []string{"nc", "netcat"},
 	Use:     "net",
@@ -180,49 +187,63 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 }
 
 func addTLSRootCAs(cmd *cobra.Command, config *tls.Config) error {
-	caPath, err := cmd.Flags().GetString("ca")
+	roots, configured, err := tlsCAPoolFromCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("read ca flag: %w", err)
+		return err
+	}
+	if configured {
+		config.RootCAs = roots
+	}
+	return nil
+}
+
+func tlsCAPoolFromCommand(cmd *cobra.Command) (*x509.CertPool, bool, error) {
+	caPath, err := cmd.Flags().GetString(tlsCAFlagName)
+	if err != nil {
+		return nil, false, fmt.Errorf("read ca flag: %w", err)
 	}
 	if caPath == "" {
-		return nil
+		return nil, false, nil
 	}
 	systemCA, err := cmd.Flags().GetBool("system-ca")
 	if err != nil {
-		return fmt.Errorf("read system-ca flag: %w", err)
+		return nil, false, fmt.Errorf("read system-ca flag: %w", err)
 	}
 	roots := x509.NewCertPool()
 	if systemCA {
 		systemRoots, poolErr := x509.SystemCertPool()
 		if poolErr != nil {
-			return fmt.Errorf("load system certificate pool: %w", poolErr)
+			return nil, false, fmt.Errorf("load system certificate pool: %w", poolErr)
 		}
 		roots = systemRoots.Clone()
 	}
 	data, err := readNetworkArtifact("--ca", caPath)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	certificates, err := parsePEMCertificates(data)
 	if err != nil {
-		return fmt.Errorf("parse --ca: %w", err)
+		return nil, false, fmt.Errorf("parse --ca: %w", err)
 	}
 	for _, certificate := range certificates {
 		roots.AddCert(certificate)
 	}
-	config.RootCAs = roots
-	return nil
+	return roots, true, nil
 }
 
 func tlsClientIdentityFromCommand(cmd *cobra.Command) (tls.Certificate, bool, error) {
-	certPath, err := cmd.Flags().GetString("cert")
+	return tlsIdentityFromCommand(cmd, errTLSClientKeyMismatch)
+}
+
+func tlsIdentityFromCommand(cmd *cobra.Command, mismatchError error) (tls.Certificate, bool, error) {
+	certPath, err := cmd.Flags().GetString(tlsCertFlagName)
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("read cert flag: %w", err)
 	}
 	if certPath == "" {
 		return tls.Certificate{}, false, nil
 	}
-	keyPath, err := cmd.Flags().GetString("key")
+	keyPath, err := cmd.Flags().GetString(tlsKeyFlagName)
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("read key flag: %w", err)
 	}
@@ -246,7 +267,7 @@ func tlsClientIdentityFromCommand(cmd *cobra.Command) (tls.Certificate, bool, er
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("validate --key private signing material: %w", err)
 	}
-	if err := validateTLSIdentityMatch(certificates[0], signer.Public()); err != nil {
+	if err := validateTLSIdentityMatch(certificates[0], signer.Public(), mismatchError); err != nil {
 		return tls.Certificate{}, false, err
 	}
 	chain := make([][]byte, len(certificates))
@@ -256,7 +277,7 @@ func tlsClientIdentityFromCommand(cmd *cobra.Command) (tls.Certificate, bool, er
 	return tls.Certificate{Certificate: chain, PrivateKey: signer, Leaf: certificates[0]}, true, nil
 }
 
-func validateTLSIdentityMatch(certificate *x509.Certificate, publicKey any) error {
+func validateTLSIdentityMatch(certificate *x509.Certificate, publicKey any, mismatchError error) error {
 	certificateDER, err := x509.MarshalPKIXPublicKey(certificate.PublicKey)
 	if err != nil {
 		return fmt.Errorf("marshal --cert public key: %w", err)
@@ -266,7 +287,7 @@ func validateTLSIdentityMatch(certificate *x509.Certificate, publicKey any) erro
 		return fmt.Errorf("marshal --key public part: %w", err)
 	}
 	if !bytes.Equal(certificateDER, keyDER) {
-		return errTLSClientKeyMismatch
+		return mismatchError
 	}
 	return nil
 }
@@ -311,7 +332,7 @@ func writeTLSConnectionDetails(output io.Writer, connection *tls.Conn, config *t
 	state := connection.ConnectionState()
 	alpn := state.NegotiatedProtocol
 	if alpn == "" {
-		alpn = "(none)"
+		alpn = networkNoValue
 	}
 	fields := []struct{ label, value string }{
 		{label: "version", value: tls.VersionName(state.Version)},
@@ -338,7 +359,7 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if timeout < 0 {
 		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
 	}
-	if cmd != netConnectTCPCmd && cmd != netConnectTLSCmd && cmd != netListenTCPCmd {
+	if cmd != netConnectTCPCmd && cmd != netConnectTLSCmd && cmd != netListenTCPCmd && cmd != netListenTLSCmd {
 		return nil
 	}
 	options, err := networkStreamOptionsFromCommand(cmd)
@@ -351,22 +372,47 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if cmd == netConnectTCPCmd || cmd == netListenTCPCmd {
 		return nil
 	}
+	if cmd == netListenTLSCmd {
+		return validateTLSListenFlagsBeforeIO(cmd)
+	}
 	return validateTLSFlagsBeforeIO(cmd)
 }
 
+func validateTLSListenFlagsBeforeIO(cmd *cobra.Command) error {
+	caPath, err := cmd.Flags().GetString(tlsCAFlagName)
+	if err != nil {
+		return fmt.Errorf("read ca flag: %w", err)
+	}
+	systemCA, err := cmd.Flags().GetBool("system-ca")
+	if err != nil {
+		return fmt.Errorf("read system-ca flag: %w", err)
+	}
+	if systemCA && caPath == "" {
+		return fmt.Errorf("%w: --system-ca requires --ca", errInvalidNetworkFlags)
+	}
+	alpn, err := cmd.Flags().GetString("alpn")
+	if err != nil {
+		return fmt.Errorf("read alpn flag: %w", err)
+	}
+	if _, err := parseALPN(alpn); err != nil {
+		return err
+	}
+	return validateCertificatePaths(cmd, tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName)
+}
+
 func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
-	certPath, err := cmd.Flags().GetString("cert")
+	certPath, err := cmd.Flags().GetString(tlsCertFlagName)
 	if err != nil {
 		return fmt.Errorf("read cert flag: %w", err)
 	}
-	keyPath, err := cmd.Flags().GetString("key")
+	keyPath, err := cmd.Flags().GetString(tlsKeyFlagName)
 	if err != nil {
 		return fmt.Errorf("read key flag: %w", err)
 	}
 	if (certPath == "") != (keyPath == "") {
 		return fmt.Errorf("%w: --cert and --key must be specified together", errInvalidNetworkFlags)
 	}
-	caPath, err := cmd.Flags().GetString("ca")
+	caPath, err := cmd.Flags().GetString(tlsCAFlagName)
 	if err != nil {
 		return fmt.Errorf("read ca flag: %w", err)
 	}
@@ -391,7 +437,7 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 	if _, err := parseALPN(alpn); err != nil {
 		return err
 	}
-	return validateCertificatePaths(cmd, "cert", "key", "ca")
+	return validateCertificatePaths(cmd, tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName)
 }
 
 func init() {
@@ -399,14 +445,14 @@ func init() {
 	netCmd.AddCommand(netConnectCmd)
 	netConnectCmd.AddCommand(netConnectTCPCmd, netConnectTLSCmd)
 
-	netConnectTLSCmd.Flags().String("cert", "", "client certificate chain PEM path")
-	netConnectTLSCmd.Flags().String("key", "", "client private key path")
-	netConnectTLSCmd.Flags().String("ca", "", "custom CA certificate bundle PEM path")
+	netConnectTLSCmd.Flags().String(tlsCertFlagName, "", "client certificate chain PEM path")
+	netConnectTLSCmd.Flags().String(tlsKeyFlagName, "", "client private key path")
+	netConnectTLSCmd.Flags().String(tlsCAFlagName, "", "custom CA certificate bundle PEM path")
 	netConnectTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
 	netConnectTLSCmd.Flags().String("servername", "", "TLS SNI and verification name (default endpoint host)")
 	netConnectTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
 	netConnectTLSCmd.Flags().Bool("insecure", false, "disable TLS certificate and hostname verification")
-	for _, name := range []string{"cert", "key", "ca"} {
+	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
 		if err := netConnectTLSCmd.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}

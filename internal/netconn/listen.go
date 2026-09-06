@@ -2,6 +2,7 @@ package netconn
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -77,6 +78,24 @@ func AcceptTCP(ctx context.Context, listener *net.TCPListener) (*net.TCPConn, er
 	}
 }
 
+// AcceptTLS accepts one TCP connection, closes the listener, and completes a
+// server-side TLS handshake using the same setup context.
+func AcceptTLS(ctx context.Context, listener *net.TCPListener, config *tls.Config) (*tls.Conn, error) {
+	connection, err := AcceptTCP(ctx, listener)
+	if err != nil {
+		return nil, err
+	}
+	tlsConnection := tls.Server(connection, config)
+	if err := tlsConnection.HandshakeContext(ctx); err != nil {
+		endpoints := fmt.Sprintf("%s <- %s", connection.LocalAddr(), connection.RemoteAddr())
+		return nil, errors.Join(
+			fmt.Errorf("handshake with accepted TLS connection %s: %w", endpoints, err),
+			closeTLSConnection(tlsConnection),
+		)
+	}
+	return tlsConnection, nil
+}
+
 func closeTCPListener(listener *net.TCPListener) error {
 	if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("close TCP listener: %w", err)
@@ -90,6 +109,13 @@ func closeTCPConnection(connection *net.TCPConn) error {
 	}
 	if err := connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("close accepted TCP connection: %w", err)
+	}
+	return nil
+}
+
+func closeTLSConnection(connection *tls.Conn) error {
+	if err := connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("close accepted TLS connection: %w", err)
 	}
 	return nil
 }

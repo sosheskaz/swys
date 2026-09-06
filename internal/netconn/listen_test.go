@@ -2,8 +2,13 @@ package netconn
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +148,144 @@ func TestListenTCPBindFailureNamesEndpoint(t *testing.T) {
 	_, err = ListenTCP(t.Context(), address)
 	if err == nil || !strings.Contains(err.Error(), "listen on TCP endpoint "+`"`+address+`"`) {
 		t.Fatalf("error = %v, want named TCP endpoint", err)
+	}
+}
+
+func TestAcceptTLSCompletesVerifiedServerHandshake(t *testing.T) {
+	t.Parallel()
+
+	serverConfig, clientConfig := newAcceptTLSTestConfigs(t)
+	serverConfig.NextProtos = []string{"npc-test"}
+	clientConfig.NextProtos = []string{"npc-test"}
+	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverName := make(chan string, 1)
+	negotiated := make(chan string, 1)
+	serverDone := make(chan error, 1)
+	go func() {
+		connection, err := AcceptTLS(t.Context(), listener, serverConfig)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		state := connection.ConnectionState()
+		serverName <- state.ServerName
+		negotiated <- state.NegotiatedProtocol
+		request := make([]byte, len("request"))
+		_, readErr := io.ReadFull(connection, request)
+		_, writeErr := io.WriteString(connection, "response")
+		serverDone <- errors.Join(readErr, writeErr, connection.Close())
+	}()
+
+	client, err := DialTLS(t.Context(), listener.Addr().String(), clientConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(client, "request"); err != nil {
+		t.Fatal(err)
+	}
+	response := make([]byte, len("response"))
+	if _, err := io.ReadFull(client, response); err != nil {
+		t.Fatal(err)
+	}
+	closeTestTCPConnection(t, client)
+	if string(response) != "response" {
+		t.Fatalf("response = %q, want response", response)
+	}
+	if got := <-serverName; got != "example.com" {
+		t.Fatalf("SNI = %q, want example.com", got)
+	}
+	if got := <-negotiated; got != "npc-test" {
+		t.Fatalf("ALPN = %q, want npc-test", got)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAcceptTLSHandshakeDeadlineClosesConnection(t *testing.T) {
+	t.Parallel()
+
+	serverConfig, _ := newAcceptTLSTestConfigs(t)
+	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
+	defer cancel()
+	serverDone := make(chan error, 1)
+	go func() {
+		_, err := AcceptTLS(ctx, listener, serverConfig)
+		serverDone <- err
+	}()
+	client, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-serverDone; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want handshake deadline", err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 1)
+	if n, err := client.Read(buffer); n != 0 || err == nil {
+		t.Fatalf("client read = (%d, %v), want closed connection", n, err)
+	}
+	closeTestTCPConnection(t, client)
+	second, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", address)
+	if err == nil {
+		closeTestTCPConnection(t, second)
+		t.Fatal("TLS listener remained reachable after failed handshake")
+	}
+}
+
+func TestAcceptTLSHandshakeCancellationClosesConnection(t *testing.T) {
+	t.Parallel()
+
+	serverConfig, _ := newAcceptTLSTestConfigs(t)
+	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	serverDone := make(chan error, 1)
+	go func() {
+		_, err := AcceptTLS(ctx, listener, serverConfig)
+		serverDone <- err
+	}()
+	client, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-serverDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want handshake cancellation", err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 1)
+	if n, err := client.Read(buffer); n != 0 || err == nil {
+		t.Fatalf("client read = (%d, %v), want closed connection", n, err)
+	}
+	closeTestTCPConnection(t, client)
+}
+
+func newAcceptTLSTestConfigs(t *testing.T) (*tls.Config, *tls.Config) {
+	t.Helper()
+	source := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	certificate := source.Certificate()
+	serverIdentity := source.TLS.Certificates[0]
+	source.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(certificate)
+	return &tls.Config{Certificates: []tls.Certificate{serverIdentity}}, &tls.Config{
+		RootCAs:    roots,
+		ServerName: "example.com",
 	}
 }
 

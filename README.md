@@ -129,7 +129,7 @@ npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
 npc net connect tcp|tls host:port  # exchange raw bytes over TCP or verified TLS
-npc net listen tcp host:port       # serve one raw TCP connection
+npc net listen tcp|tls host:port   # serve one raw TCP or authenticated TLS connection
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
@@ -205,6 +205,36 @@ The listener waits indefinitely for its connection by default. Set a positive
 the operating system to choose an available port; use `--verbose` to print the
 bound address before the accept begins. The host may be an IP address or name
 but cannot be omitted.
+
+`net listen tls` adds a required server certificate chain and matching private
+key. The client supplies SNI; the listener reports it with `--verbose` but does
+not configure it with a flag:
+
+```fish
+printf 'hello from TLS listener\n' | npc net listen tls 127.0.0.1:9443 \
+    --cert server.crt \
+    --key server.key \
+    --verbose
+```
+
+Supplying `--ca` enables mutual TLS and requires every client to present a
+certificate chaining to that bundle. Add `--system-ca` to combine system roots
+with the bundle:
+
+```fish
+printf 'authenticated response\n' | npc net listen tls 127.0.0.1:9443 \
+    --cert server.crt \
+    --key server.key \
+    --ca client-ca.crt \
+    --system-ca \
+    --alpn npc-example
+```
+
+Without `--ca`, the listener does not request a client certificate. It
+advertises no ALPN protocols unless `--alpn` is supplied. Listener TLS setup
+must finish before any stdin payload is relayed; a positive `--timeout` covers
+binding, accepting, and the handshake, while established relay draining remains
+governed only by `--wait`.
 
 `cert connect` and `cert inspect` remain inspection commands: they always report
 certificate verification status, but a failed verification is not enforced.

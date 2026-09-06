@@ -119,7 +119,15 @@ func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 	return streamNetworkCommandWithTimeout(
 		command,
 		0,
-		"bind, accept, and optional TLS handshake timeout (0 disables)",
+		"bind resolution and accept timeout (0 disables)",
+	)
+}
+
+func listenTLSStreamNetworkCommand(command *cobra.Command) *cobra.Command {
+	return streamNetworkCommandWithTimeout(
+		command,
+		0,
+		"bind resolution, accept, and TLS handshake timeout (0 disables)",
 	)
 }
 
