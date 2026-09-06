@@ -22,14 +22,22 @@ func TestExampleNetListenTCPBidirectionalRelay(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from listener"),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "tcp", "0",
 		"--verbose",
 		"--wait", "1s",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tcp ")
 	remainingStderr := drainExampleStderr(run.stderr)
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp", address)
+	connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(
+		t.Context(),
+		"tcp",
+		net.JoinHostPort("127.0.0.1", port),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +71,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from TLS listener"),
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "tls", "0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 		"--ca", identity.caCert,
@@ -74,6 +82,10 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tls ")
 	remainingStderr := drainExampleStderr(run.stderr)
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	clientIdentity, err := tls.LoadX509KeyPair(identity.clientCert, identity.clientKey)
 	if err != nil {
@@ -95,7 +107,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 			ServerName:   "localhost",
 			NextProtos:   []string{"npc-example"},
 		},
-	}).DialContext(t.Context(), "tcp", address)
+	}).DialContext(t.Context(), "tcp", net.JoinHostPort("localhost", port))
 	if err != nil {
 		t.Fatal(err)
 	}

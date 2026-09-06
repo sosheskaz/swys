@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ func structuredOutputCommand(command *cobra.Command, formats func() []string) *c
 func networkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
-	command.Args = networkAddressArgs(command.Args)
+	command.Args = networkAddressArgs(command.Args, false)
 
 	if command.RunE == nil {
 		panic(fmt.Sprintf("networkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
@@ -112,6 +113,7 @@ func streamNetworkCommand(command *cobra.Command) *cobra.Command {
 		command,
 		defaultNetworkTimeout,
 		"TCP setup and TLS handshake timeout (0 disables)",
+		false,
 	)
 }
 
@@ -120,6 +122,7 @@ func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 		command,
 		0,
 		"bind resolution and accept timeout (0 disables)",
+		true,
 	)
 }
 
@@ -128,6 +131,7 @@ func listenTLSStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 		command,
 		0,
 		"bind resolution, accept, and TLS handshake timeout (0 disables)",
+		true,
 	)
 }
 
@@ -135,6 +139,7 @@ func streamNetworkCommandWithTimeout(
 	command *cobra.Command,
 	defaultTimeout time.Duration,
 	timeoutHelp string,
+	allowEmptyHost bool,
 ) *cobra.Command {
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", defaultTimeout, timeoutHelp)
@@ -145,14 +150,14 @@ func streamNetworkCommandWithTimeout(
 	)
 	command.Flags().Bool("close-write", false, "half-close the connection write side after input EOF")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
-	command.Args = networkAddressArgs(command.Args)
+	command.Args = networkAddressArgs(command.Args, allowEmptyHost)
 	if command.RunE == nil {
 		panic(fmt.Sprintf("streamNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
 	}
 	return command
 }
 
-func networkAddressArgs(original cobra.PositionalArgs) cobra.PositionalArgs {
+func networkAddressArgs(original cobra.PositionalArgs, allowEmptyHost bool) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 			return err
@@ -162,15 +167,37 @@ func networkAddressArgs(original cobra.PositionalArgs) cobra.PositionalArgs {
 				return err
 			}
 		}
-		host, port, err := net.SplitHostPort(args[0])
+		address := args[0]
+		if allowEmptyHost {
+			var err error
+			address, err = normalizeListenAddress(address)
+			if err != nil {
+				return err
+			}
+		}
+		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			return fmt.Errorf("%w %q: %w", errInvalidHostPort, args[0], err)
 		}
-		if host == "" || port == "" {
+		if !allowEmptyHost && (host == "" || port == "") {
 			return fmt.Errorf("%w %q: host and port are required", errInvalidHostPort, args[0])
+		}
+		if port == "" {
+			return fmt.Errorf("%w %q: port is required", errInvalidHostPort, args[0])
 		}
 		return nil
 	}
+}
+
+func normalizeListenAddress(address string) (string, error) {
+	if strings.Contains(address, ":") {
+		return address, nil
+	}
+	port, err := strconv.ParseUint(address, 10, 16)
+	if err != nil {
+		return "", fmt.Errorf("%w %q: bare port must be an integer from 0 to 65535", errInvalidHostPort, address)
+	}
+	return net.JoinHostPort("", strconv.FormatUint(port, 10)), nil
 }
 
 func compatibilityAliasCommand(command *cobra.Command) *cobra.Command {

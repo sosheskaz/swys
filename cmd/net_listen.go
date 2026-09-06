@@ -20,19 +20,21 @@ var netListenCmd = &cobra.Command{
 }
 
 var netListenTCPCmd = binaryOutputCommand(listenStreamNetworkCommand(&cobra.Command{
-	Use:   "tcp host:port",
+	Use:   "tcp [host:]port",
 	Short: "Exchange raw bytes over one accepted TCP connection",
 	RunE:  runNetListenTCP,
 }), true)
 
 var netListenTLSCmd = binaryOutputCommand(listenTLSStreamNetworkCommand(&cobra.Command{
-	Use:   "tls host:port",
+	Use:   "tls [host:]port",
 	Short: "Exchange raw bytes over one accepted TLS connection",
 	Long: `Exchange raw application bytes over one accepted TLS connection.
 
 --cert and --key provide the required server identity. Supplying --ca requires
 and verifies a client certificate; add --system-ca to combine the supplied
-bundle with system roots. No ALPN protocols are advertised by default.`,
+bundle with system roots. No ALPN protocols are advertised by default. Omit
+the host by passing only the numeric port to listen on all available local
+IPv4 and IPv6 addresses.`,
 	RunE: runNetListenTLS,
 }), true)
 
@@ -44,7 +46,11 @@ func runNetListenTCP(cmd *cobra.Command, args []string) error {
 	setupContext, cancel := networkSetupContext(cmd.Context(), options.timeout)
 	defer cancel()
 
-	listener, err := netconn.ListenTCP(setupContext, args[0])
+	address, err := normalizeListenAddress(args[0])
+	if err != nil {
+		return err
+	}
+	listener, err := netconn.ListenTCP(setupContext, address)
 	if err != nil {
 		return err
 	}
@@ -84,7 +90,11 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 	setupContext, cancel := networkSetupContext(cmd.Context(), options.timeout)
 	defer cancel()
 
-	listener, err := netconn.ListenTCP(setupContext, args[0])
+	address, err := normalizeListenAddress(args[0])
+	if err != nil {
+		return err
+	}
+	listener, err := netconn.ListenTCP(setupContext, address)
 	if err != nil {
 		return err
 	}
@@ -227,6 +237,8 @@ func writeTLSAcceptedDetails(output io.Writer, connection *tls.Conn) error {
 	serverName := state.ServerName
 	if serverName == "" {
 		serverName = networkNoValue
+	} else {
+		serverName = escapeNetworkDiagnosticValue(serverName)
 	}
 	clientVerified := "no"
 	if len(state.VerifiedChains) > 0 {
@@ -246,6 +258,11 @@ func writeTLSAcceptedDetails(output io.Writer, connection *tls.Conn) error {
 		}
 	}
 	return nil
+}
+
+func escapeNetworkDiagnosticValue(value string) string {
+	quoted := strconv.Quote(value)
+	return quoted[1 : len(quoted)-1]
 }
 
 func init() {

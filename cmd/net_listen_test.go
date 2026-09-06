@@ -55,10 +55,44 @@ func TestNetListenTCPPositiveAcceptTimeout(t *testing.T) {
 	}
 }
 
-func TestNetListenTCPRejectsMissingHost(t *testing.T) {
-	_, _, err := executeRootStreams(t, "net", "listen", "tcp", ":8080")
-	if !errors.Is(err, errInvalidHostPort) {
-		t.Fatalf("error = %v, want errInvalidHostPort", err)
+func TestNetListenTCPRejectsMissingPort(t *testing.T) {
+	for _, address := range []string{"localhost:", ":", "localhost", "http", "65536"} {
+		_, _, err := executeRootStreams(t, "net", "listen", "tcp", address)
+		if !errors.Is(err, errInvalidHostPort) {
+			t.Fatalf("address %q error = %v, want errInvalidHostPort", address, err)
+		}
+	}
+}
+
+func TestNetListenTCPAcceptsColonPortCompatibility(t *testing.T) {
+	_, _, err := executeRootStreams(
+		t,
+		"net", "listen", "tcp", ":0",
+		"--timeout", "30ms",
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want deadline exceeded after accepting :port", err)
+	}
+}
+
+func TestNetListenHelpDocumentsOptionalHost(t *testing.T) {
+	for _, protocol := range []string{"tcp", "tls"} {
+		stdout, _, err := executeRootStreams(t, "net", "listen", protocol, "--help")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(stdout, protocol+" [host:]port") {
+			t.Fatalf("%s help = %q, want optional host usage", protocol, stdout)
+		}
+	}
+}
+
+func TestNetConnectStillRejectsMissingHost(t *testing.T) {
+	for _, address := range []string{":8080", "8080"} {
+		_, _, err := executeRootStreams(t, "net", "connect", "tcp", address)
+		if !errors.Is(err, errInvalidHostPort) {
+			t.Fatalf("address %q error = %v, want errInvalidHostPort", address, err)
+		}
 	}
 }
 
@@ -312,6 +346,37 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 		if !strings.Contains(stderrText, want) {
 			t.Fatalf("stderr = %q, want %q", stderrText, want)
 		}
+	}
+}
+
+func TestNetListenTLSVerboseEscapesSNI(t *testing.T) {
+	identity := createNetworkTestIdentity(t)
+	run := startExampleListenCommand(
+		t,
+		strings.NewReader(""),
+		"net", "listen", "tls", "127.0.0.1:0",
+		"--cert", identity.serverCert,
+		"--key", identity.serverKey,
+		"--verbose",
+		"--wait", "1s",
+	)
+	address := readExampleListeningAddress(t, run.stderr, "listening tls ")
+	stderr := drainExampleStderr(run.stderr)
+	config := tlsClientConfig(t, &identity, nil, nil)
+	config.ServerName = "peer.example\nFORGED-DIAGNOSTIC\x1b[2J"
+	// The hostile SNI intentionally cannot match the test server certificate.
+	config.InsecureSkipVerify = true
+	connection := dialListenTestTLS(t, address, config)
+	closeListenTestTCP(t, connection)
+	if err := <-run.done; err != nil {
+		t.Fatal(err)
+	}
+	stderrText := <-stderr
+	if strings.Contains(stderrText, "\nFORGED-DIAGNOSTIC") || strings.Contains(stderrText, "\x1b") {
+		t.Fatalf("stderr contains peer-controlled terminal controls: %q", stderrText)
+	}
+	if want := `sni: peer.example\nFORGED-DIAGNOSTIC\x1b[2J`; !strings.Contains(stderrText, want) {
+		t.Fatalf("stderr = %q, want escaped SNI %q", stderrText, want)
 	}
 }
 

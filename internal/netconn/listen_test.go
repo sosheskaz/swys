@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,67 @@ func TestListenAndAcceptTCPPortZero(t *testing.T) {
 	if err == nil {
 		closeTestTCPConnection(t, second)
 		t.Fatal("listener accepted a second connection")
+	}
+}
+
+func TestListenAndAcceptTCPWildcardHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		host    string
+		name    string
+		network string
+	}{
+		{name: "IPv4", network: "tcp4", host: "127.0.0.1"},
+		{name: "IPv6", network: "tcp6", host: "::1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if test.network == "tcp6" {
+				probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp6", "[::1]:0")
+				if err != nil {
+					t.Skipf("IPv6 loopback unavailable: %v", err)
+				}
+				if err := probe.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			listener, err := ListenTCP(ctx, ":0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tcpAddress, ok := listener.Addr().(*net.TCPAddr)
+			if !ok {
+				t.Fatalf("listener address type = %T, want *net.TCPAddr", listener.Addr())
+			}
+			port := tcpAddress.Port
+			accepted := make(chan error, 1)
+			go func() {
+				connection, err := AcceptTCP(ctx, listener)
+				if connection != nil {
+					err = errors.Join(err, connection.Close())
+				}
+				accepted <- err
+			}()
+
+			connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(
+				t.Context(),
+				test.network,
+				net.JoinHostPort(test.host, strconv.Itoa(port)),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			closeTestTCPConnection(t, connection)
+			if err := <-accepted; err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
