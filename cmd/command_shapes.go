@@ -117,6 +117,22 @@ func streamNetworkCommand(command *cobra.Command) *cobra.Command {
 	)
 }
 
+func connectDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
+	addCommandShape(command, networkShape)
+	command.Flags().Duration("timeout", defaultNetworkTimeout, "UDP address resolution and socket setup timeout (0 disables)")
+	command.Flags().Duration(
+		"wait",
+		defaultNetworkWait,
+		"maximum wait for one response datagram after sending (0 waits indefinitely)",
+	)
+	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
+	command.Args = networkAddressArgs(command.Args, false)
+	if command.RunE == nil {
+		panic(fmt.Sprintf("connectDatagramNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
+	}
+	return command
+}
+
 func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 	return streamNetworkCommandWithTimeout(
 		command,

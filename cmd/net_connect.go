@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -42,6 +43,19 @@ var netConnectTCPCmd = binaryOutputCommand(streamNetworkCommand(&cobra.Command{
 	RunE:  runNetConnectTCP,
 }), true)
 
+var netConnectUDPCmd = binaryOutputCommand(connectDatagramNetworkCommand(&cobra.Command{
+	Use:   "udp host:port",
+	Short: "Exchange one raw UDP request and response datagram",
+	Long: `Exchange exactly one request and one response datagram over UDP.
+
+Decoded stdin or --input becomes one datagram, including when it is empty. The
+first response datagram is written to stdout or --output and the command exits.
+Input must reach EOF before the request is sent; pressing Enter alone does not
+send it. The connector always expects one response and has no send-only mode.
+Use --wait 0 to wait indefinitely for that response.`,
+	RunE: runNetConnectUDP,
+}), true)
+
 var netConnectTLSCmd = binaryOutputCommand(streamNetworkCommand(&cobra.Command{
 	Use:   "tls host:port",
 	Short: "Exchange raw bytes over a verified TLS connection",
@@ -63,6 +77,12 @@ type networkStreamOptions struct {
 	wait       time.Duration
 	closeWrite bool
 	verbose    bool
+}
+
+type networkDatagramConnectOptions struct {
+	timeout time.Duration
+	wait    time.Duration
+	verbose bool
 }
 
 func runNetConnectTCP(cmd *cobra.Command, args []string) error {
@@ -89,6 +109,77 @@ func runNetConnectTCP(cmd *cobra.Command, args []string) error {
 		options.wait,
 		options.closeWrite,
 	)
+}
+
+func runNetConnectUDP(cmd *cobra.Command, args []string) error {
+	options, err := networkDatagramConnectOptionsFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	setupContext, cancel := networkSetupContext(cmd.Context(), options.timeout)
+	connection, err := netconn.DialUDP(setupContext, args[0])
+	cancel()
+	if err != nil {
+		return err
+	}
+	if options.verbose {
+		if err := writeUDPConnectionDetails(cmd.ErrOrStderr(), connection); err != nil {
+			return errors.Join(err, connection.Close())
+		}
+	}
+	exchangeErr := exchangeUDPDatagram(
+		cmd.Context(),
+		connection,
+		cmd.InOrStdin(),
+		cmd.OutOrStdout(),
+		options.wait,
+	)
+	return errors.Join(exchangeErr, connection.Close())
+}
+
+func exchangeUDPDatagram(
+	ctx context.Context,
+	connection *net.UDPConn,
+	input io.Reader,
+	output io.Writer,
+	wait time.Duration,
+) error {
+	payload, err := netconn.ReadDatagramContext(ctx, input)
+	if err != nil {
+		return err
+	}
+	if err := netconn.SendUDP(ctx, connection, payload); err != nil {
+		return err
+	}
+	responseContext, cancel := networkSetupContext(ctx, wait)
+	response, err := netconn.ReceiveUDP(responseContext, connection)
+	cancel()
+	if err != nil {
+		if wait > 0 && errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%w after %s: %w", netconn.ErrUDPResponseTimeout, wait, err)
+		}
+		return err
+	}
+	if _, err := io.Copy(output, bytes.NewReader(response)); err != nil {
+		return fmt.Errorf("write UDP response: %w", err)
+	}
+	return nil
+}
+
+func networkDatagramConnectOptionsFromCommand(cmd *cobra.Command) (networkDatagramConnectOptions, error) {
+	timeout, err := cmd.Flags().GetDuration("timeout")
+	if err != nil {
+		return networkDatagramConnectOptions{}, fmt.Errorf("read timeout flag: %w", err)
+	}
+	wait, err := cmd.Flags().GetDuration("wait")
+	if err != nil {
+		return networkDatagramConnectOptions{}, fmt.Errorf("read wait flag: %w", err)
+	}
+	verbose, err := cmd.Flags().GetBool("verbose")
+	if err != nil {
+		return networkDatagramConnectOptions{}, fmt.Errorf("read verbose flag: %w", err)
+	}
+	return networkDatagramConnectOptions{timeout: timeout, wait: wait, verbose: verbose}, nil
 }
 
 func runNetConnectTLS(cmd *cobra.Command, args []string) error {
@@ -320,6 +411,13 @@ func writeTCPConnectionDetails(output io.Writer, connection net.Conn) error {
 	return nil
 }
 
+func writeUDPConnectionDetails(output io.Writer, connection net.Conn) error {
+	if _, err := fmt.Fprintf(output, "connected udp %s -> %s\n", connection.LocalAddr(), connection.RemoteAddr()); err != nil {
+		return fmt.Errorf("write UDP connection details: %w", err)
+	}
+	return nil
+}
+
 func writeTLSConnectionDetails(output io.Writer, connection *tls.Conn, config *tls.Config) error {
 	if config.InsecureSkipVerify {
 		if _, err := fmt.Fprintln(output, "warning: TLS certificate verification is disabled"); err != nil {
@@ -359,23 +457,25 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if timeout < 0 {
 		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
 	}
-	if cmd != netConnectTCPCmd && cmd != netConnectTLSCmd && cmd != netListenTCPCmd && cmd != netListenTLSCmd {
+	if cmd.Flags().Lookup("wait") != nil {
+		wait, waitErr := cmd.Flags().GetDuration("wait")
+		if waitErr != nil {
+			return fmt.Errorf("read wait flag: %w", waitErr)
+		}
+		if wait < 0 {
+			return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)
+		}
+	}
+	switch cmd {
+	case netConnectTCPCmd, netConnectUDPCmd, netListenTCPCmd:
 		return nil
-	}
-	options, err := networkStreamOptionsFromCommand(cmd)
-	if err != nil {
-		return err
-	}
-	if options.wait < 0 {
-		return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)
-	}
-	if cmd == netConnectTCPCmd || cmd == netListenTCPCmd {
-		return nil
-	}
-	if cmd == netListenTLSCmd {
+	case netListenTLSCmd:
 		return validateTLSListenFlagsBeforeIO(cmd)
+	case netConnectTLSCmd:
+		return validateTLSFlagsBeforeIO(cmd)
+	default:
+		return nil
 	}
-	return validateTLSFlagsBeforeIO(cmd)
 }
 
 func validateTLSListenFlagsBeforeIO(cmd *cobra.Command) error {
@@ -443,7 +543,7 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 func init() {
 	rootCmd.AddCommand(netCmd)
 	netCmd.AddCommand(netConnectCmd)
-	netConnectCmd.AddCommand(netConnectTCPCmd, netConnectTLSCmd)
+	netConnectCmd.AddCommand(netConnectTCPCmd, netConnectTLSCmd, netConnectUDPCmd)
 
 	netConnectTLSCmd.Flags().String(tlsCertFlagName, "", "client certificate chain PEM path")
 	netConnectTLSCmd.Flags().String(tlsKeyFlagName, "", "client private key path")

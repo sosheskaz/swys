@@ -41,7 +41,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 		// genkey is the documented one-release compatibility exception.
 		"genkey": true,
 	}
-	transportLeaves := map[string]bool{"tcp": true, "tls": true}
+	transportLeaves := map[string]bool{"tcp": true, "tls": true, "udp": true}
 
 	var violations []string
 	var walk func(*cobra.Command)

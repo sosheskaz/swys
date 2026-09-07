@@ -128,13 +128,13 @@ npc key generate <algorithm>       # generate a key with an explicit algorithm
 npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
-npc net connect tcp|tls host:port  # exchange raw bytes over TCP or verified TLS
+npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls [host:]port # serve one raw TCP or authenticated TLS connection
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
 
-### Raw TCP and TLS walkthrough
+### Raw TCP, TLS, and UDP walkthrough
 
 `net connect` sends stdin or `--input` to an endpoint and copies the peer's
 response to stdout or `--output`. At input EOF, it keeps the connection's write
@@ -185,6 +185,47 @@ command closes the connection and exits nonzero with a drain-timeout error.
 Bytes already written to stdout or `--output` remain available, but are a
 partial response and must not be treated as complete. The aliases `npc nc` and
 `npc netcat` select the same `net` command tree.
+
+UDP preserves datagram boundaries instead of exposing a byte stream. The
+decoded stdin or `--input` payload becomes exactly one datagram, including when
+it is empty. `net connect udp` writes the first response datagram to stdout or
+`--output`, then exits:
+
+```fish
+printf 'hello over UDP' | npc net connect udp 127.0.0.1:9000 --verbose
+```
+
+The entire decoded request is buffered before it is sent, so stdin must reach
+EOF; pressing Enter alone does not send a datagram. End interactive input with
+EOF (Ctrl-D on Unix), use a command such as `printf` that closes its output, or
+redirect an empty input to send a zero-length datagram:
+
+```fish
+npc net connect udp 127.0.0.1:9000 </dev/null
+```
+
+For UDP, `--timeout` retains the 10-second setup default and covers address
+resolution and socket setup. `--wait` allows up to 5 seconds for the one
+response datagram; `--wait 0` waits indefinitely. UDP does not expose
+`--close-write` because it has no stream write side to half-close. The connector
+always expects one response: a non-replying service produces a timeout error,
+while `--wait 0` waits indefinitely. There is no send-only mode.
+
+The byte encodings make it possible to send and receive a raw DNS packet
+without a DNS-specific parser. This query asks a public resolver for the A
+record of `example.com`; replace the endpoint with the resolver you intend to
+query:
+
+```fish
+printf '%s\n' '1a2b01000001000000000000076578616d706c6503636f6d0000010001' |
+    npc net connect udp 1.1.1.1:53 \
+        --input-encoding hex \
+        --encoding hex
+```
+
+The command decodes the hexadecimal request into one raw DNS datagram and
+prints the raw response datagram as hexadecimal. It does not interpret DNS
+records or retry a truncated response over TCP.
 
 `net listen tcp` binds a port and optional host, accepts one connection,
 relays bytes with the same input, output, encoding, half-close, and drain
