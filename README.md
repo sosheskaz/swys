@@ -10,115 +10,54 @@ default. One static binary replacing manual `openssl`, `netcat`, and ad-hoc
 > **Status:** early development, pre-1.0. Command names and flags are still
 > settling; expect breaking changes, batched and called out in commit messages.
 
-## Product shape
+## Installation
 
-npc is organized as **composable layers**, loosely following the OSI model.
-Each layer's commands are useful alone, and each higher layer exposes rich
-detail from the layers beneath it rather than reimplementing them:
+On macOS or Linux, build from a checkout with [mise](https://mise.jdx.dev) installed. This
+repository is currently private; cloning requires GitHub access to it and an
+authenticated Git client.
 
-| Layer | Domain                           | Nouns                                      |
-| ----- | -------------------------------- | ------------------------------------------ |
-| L4    | Raw transport (netcat successor) | `net` (`tcp`; later `udp`)                 |
-| L5/6  | TLS, X.509, crypto primitives    | `cert`, `key`, `aes`, `hash`, `sign`       |
-| L7    | Application protocols            | `http`, later `grpc`                       |
-| —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
+```fish
+git clone https://github.com/sosheskaz-systems/npc.git
+cd npc
+mise trust
+mise install
+mise run build:dev
+./npc --help
+```
 
-The layering is the identity of the tool, not a grab-bag: `http` output
-surfaces TLS handshake and certificate detail via the `cert` machinery; `cert
-connect` rides the same dialer as `tcp connect`; everything emits through the
-same encoding/format pipeline. **A feature that cannot reuse the layer beneath
-it is a signal it may not belong.**
+The build writes `npc` into the checkout. Put the binary in a directory on your
+`PATH` to use the `npc` commands below, or invoke it by its path. Runtime use
+does not require mise. The shell examples use fish.
 
-## Positioning: wire, not artifacts
+## Quick start
 
-The differentiator is breadth plus layered inspection of **live connections**,
-bound together by a shared command language.
+Run these examples in a scratch directory with new output paths. Generate and
+inspect a key without printing its private bytes:
 
-- [smallstep's `step`](https://smallstep.com/docs/step-cli/) owns the
-  certificate-_artifact_ lifecycle (create, inspect, verify, bundle, CA
-  workflows) and does it well. npc does not compete there: artifact features
-  are built to the minimum needed to make npc's wire-inspection loops
-  self-contained, borrowing step's UX decisions where they are good.
-- [`age`](https://age-encryption.org) owns no-knobs file encryption. If npc
-  grows recipient-based file encryption, it speaks the age format rather than
-  inventing a container (see Open decisions).
-- npc's territory is what those tools structurally lack: probing **and
-  serving** TLS with client identity (mTLS from both ends), STARTTLS, raw L4,
-  HTTP timing/analysis, everyday symmetric encryption, and byte utilities —
-  composing across layers in one binary.
+```fish
+npc key generate ed25519 --output private.pem --public-out public.pem
+npc key inspect --input public.pem --format json
+```
 
-In short: step manages identity artifacts; age encrypts files for humans;
-**npc inspects live wire behavior and does everyday crypto plumbing.**
+Create and inspect a self-signed development certificate using that key:
 
-## Design principles
+```fish
+npc cert create --dns localhost --key private.pem --output certificate.pem
+npc cert inspect --input certificate.pem --format long
+```
 
-These are product features, not style preferences. Regressions against them
-are bugs, and where possible they are enforced by tests rather than review.
+Encrypt and decrypt a small message with the default authenticated AES-GCM
+mode. Keep `aes.key` private:
 
-1. **Noun-verb grammar, no exceptions.** `npc <noun> <verb> [mechanism] [flags]`.
-   Nouns are resources (`cert`, `key`, `net`, `http`); verbs are actions
-   (`inspect`, `generate`, `connect`, `listen`). Bare nouns print help — no
-   implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
-   should correctly guess `key inspect`.
+```fish
+npc key generate aes256 --output aes.key
+printf 'hello\n' | npc aes encrypt --keyfile aes.key --output message.gcm
+npc aes decrypt --keyfile aes.key --input message.gcm
+```
 
-   _When is an algorithm a noun?_ An algorithm appears in the command path
-   when it is (a) established by out-of-band mutual agreement between the
-   parties, and (b) not derivable from self-describing inputs. Negotiated
-   parameters (TLS ciphersuite, ALPN, HTTP version) are rendered in output,
-   never encoded in command structure; derivable parameters (the key type
-   inside a PEM block) come from the artifact. Hence `aes encrypt`,
-   `hash sha256`, and `net connect tcp` name the mechanism — while `sign` does
-   not (PEM keys are self-describing) and `http`/`cert connect` report what
-   was negotiated.
-
-2. **Two output axes, named consistently.**
-   - `--encoding` / `-e`: byte serialization — `raw`, `hex`, `base64`,
-     `base64url`, `base32`. Applies to binary output (keys, ciphertext,
-     digests). Input gets the symmetric `--input-encoding`.
-   - `--format` / `-f`: structured presentation — `text`, `long`, `json`,
-     `pem`. Applies to structured output (certs, key metadata, analyses).
-
-   The same words mean the same thing on every command.
-
-3. **Universal I/O contract.** Every command reads stdin/`--input`, writes
-   data to stdout/`--output`, and diagnostics to stderr. Commands compose:
-   `npc key generate ed25519 | npc key public | npc encode base64`.
-
-4. **`--format json` everywhere** structured output exists, for `jq`.
-
-5. **Secure by default.** Authenticated encryption (AES-GCM) by default,
-   modern key types such as Ed25519, randomness only from
-   `crypto/rand`, legacy modes behind explicit flags — never silently. A
-   generated private-key file output is owner-only. Ordinary commands request
-   `0600` for new Unix files and preserve permissions when overwriting; the
-   primary output of key-generating commands rejects an existing regular
-   destination that is not already owner-only. npc never modifies system trust
-   stores.
-
-6. **Mechanical consistency.** Uniformity is enforced by shared machinery —
-   persistent I/O hooks, encoder/formatter registries that derive help text,
-   validation errors, and shell completion from one table — and pinned by
-   conformance tests that walk the command tree. Future commands cannot merge
-   in violation without failing CI.
-
-7. **Narrow, differentiated dependencies.** Not zero-dependency — a policy:
-   - No runtime dependencies: single static binary, no cgo, nothing resolved
-     at execution time.
-   - stdlib and `golang.org/x/*` are free; treated as stdlib.
-   - Curated third-party libraries are welcome when differentiated: a
-     mainline, high-quality library used substantially earns its place
-     (cobra today; colored output and gRPC reflection anticipated). What is
-     banned is _undifferentiated sprawl_ — trivial, poorly maintained, or
-     transitively heavy dependencies.
-   - Cryptographic primitives specifically stay stdlib/x-crypto. npc never
-     takes third-party implementations of crypto, and never hand-rolls
-     primitives.
-
-8. **Bounded memory and low allocation.** Streaming algorithms stream;
-   authenticated algorithms buffer only when their security contract requires
-   it. Buffer sizes and limits are benchmarked, not guessed. Performance claims
-   require benchmark evidence (`mise run bench`, compared with `benchstat`)
-   before they are made.
+For local transport examples, see the [TCP and TLS walkthrough](#raw-tcp-and-tls-walkthrough).
+See [key handling](#key-lifecycle-walkthrough), [certificate creation](#certificate-creation-walkthrough),
+and [AES usage](#aes-quick-start) for flags and output-file behavior.
 
 ## Commands today
 
@@ -132,7 +71,9 @@ npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
 ```
 
-See `npc --help`; the surface is actively evolving toward the grammar above.
+Use `npc --help` or `npc <noun> <verb> --help` for available flags. The
+[product direction](#product-direction-and-roadmap) below also discusses commands
+that are not implemented yet.
 
 ### Raw TCP, TLS, and UDP walkthrough
 
@@ -497,8 +438,8 @@ common name without a SAN.
 
 These certificates and CAs are for test and development loops. npc never
 installs trust roots; trust `ca.crt` only in an explicitly selected test store,
-never system-wide. If certificate output fails after an automatic key is saved,
-npc retains the usable key and reports its path.
+never system-wide. `cert create` and `cert csr` require an existing private key
+via `--key`; generate it separately with `key generate`.
 
 ### AES quick start
 
@@ -644,7 +585,124 @@ fix ships with a regression test, coverage is maintained or increased by
 every change, cryptographic code gets adversarial-input tests up front, and
 unbounded-input code proves bounded memory in benchmarks.
 
-## Open decisions
+## Product direction and roadmap
+
+This section preserves the intended product shape and design principles. It is
+not a command reference: `http`, `grpc`, `hash`, `sign`, `encode`, `decode`,
+`rand`, `zip`, `unzip`, and UDP transport are future work. See
+[Commands today](#commands-today) for the implemented surface.
+
+### Product shape
+
+npc is organized as **composable layers**, loosely following the OSI model.
+Each layer's commands are useful alone, and each higher layer exposes rich
+detail from the layers beneath it rather than reimplementing them:
+
+| Layer | Domain                           | Nouns                                      |
+| ----- | -------------------------------- | ------------------------------------------ |
+| L4    | Raw transport (netcat successor) | `net` (`tcp`; later `udp`)                 |
+| L5/6  | TLS, X.509, crypto primitives    | `cert`, `key`, `aes`, `hash`, `sign`       |
+| L7    | Application protocols            | `http`, later `grpc`                       |
+| —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
+
+The layering is the identity of the tool, not a grab-bag: `http` output
+surfaces TLS handshake and certificate detail via the `cert` machinery; `cert
+connect` rides the same dialer as `tcp connect`; everything emits through the
+same encoding/format pipeline. **A feature that cannot reuse the layer beneath
+it is a signal it may not belong.**
+
+### Positioning: wire, not artifacts
+
+The differentiator is breadth plus layered inspection of **live connections**,
+bound together by a shared command language.
+
+- [smallstep's `step`](https://smallstep.com/docs/step-cli/) owns the
+  certificate-_artifact_ lifecycle (create, inspect, verify, bundle, CA
+  workflows) and does it well. npc does not compete there: artifact features
+  are built to the minimum needed to make npc's wire-inspection loops
+  self-contained, borrowing step's UX decisions where they are good.
+- [`age`](https://age-encryption.org) owns no-knobs file encryption. If npc
+  grows recipient-based file encryption, it speaks the age format rather than
+  inventing a container (see Open decisions).
+- npc's territory is what those tools structurally lack: probing **and
+  serving** TLS with client identity (mTLS from both ends), STARTTLS, raw L4,
+  HTTP timing/analysis, everyday symmetric encryption, and byte utilities —
+  composing across layers in one binary.
+
+In short: step manages identity artifacts; age encrypts files for humans;
+**npc inspects live wire behavior and does everyday crypto plumbing.**
+
+### Design principles
+
+These are product features, not style preferences. Regressions against them
+are bugs, and where possible they are enforced by tests rather than review.
+
+1. **Noun-verb grammar, no exceptions.** `npc <noun> <verb> [mechanism] [flags]`.
+   Nouns are resources (`cert`, `key`, `net`, `http`); verbs are actions
+   (`inspect`, `generate`, `connect`, `listen`). Bare nouns print help — no
+   implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
+   should correctly guess `key inspect`.
+
+   _When is an algorithm a noun?_ An algorithm appears in the command path
+   when it is (a) established by out-of-band mutual agreement between the
+   parties, and (b) not derivable from self-describing inputs. Negotiated
+   parameters (TLS ciphersuite, ALPN, HTTP version) are rendered in output,
+   never encoded in command structure; derivable parameters (the key type
+   inside a PEM block) come from the artifact. Hence `aes encrypt`,
+   `hash sha256`, and `net connect tcp` name the mechanism — while `sign` does
+   not (PEM keys are self-describing) and `http`/`cert connect` report what
+   was negotiated.
+
+2. **Two output axes, named consistently.**
+   - `--encoding` / `-e`: byte serialization — `raw`, `hex`, `base64`,
+     `base64url`, `base32`. Applies to binary output (keys, ciphertext,
+     digests). Input gets the symmetric `--input-encoding`.
+   - `--format` / `-f`: structured presentation — `text`, `long`, `json`,
+     `pem`. Applies to structured output (certs, key metadata, analyses).
+
+   The same words mean the same thing on every command.
+
+3. **Universal I/O contract.** Every command reads stdin/`--input`, writes
+   data to stdout/`--output`, and diagnostics to stderr. Commands compose:
+   `npc key generate ed25519 | npc key public | npc encode base64`.
+
+4. **`--format json` everywhere** structured output exists, for `jq`.
+
+5. **Secure by default.** Authenticated encryption (AES-GCM) by default,
+   modern key types such as Ed25519, randomness only from
+   `crypto/rand`, legacy modes behind explicit flags — never silently. A
+   generated private-key file output is owner-only. Ordinary commands request
+   `0600` for new Unix files and preserve permissions when overwriting; the
+   primary output of key-generating commands rejects an existing regular
+   destination that is not already owner-only. npc never modifies system trust
+   stores.
+
+6. **Mechanical consistency.** Uniformity is enforced by shared machinery —
+   persistent I/O hooks, encoder/formatter registries that derive help text,
+   validation errors, and shell completion from one table — and pinned by
+   conformance tests that walk the command tree. Future commands cannot merge
+   in violation without failing CI.
+
+7. **Narrow, differentiated dependencies.** Not zero-dependency — a policy:
+   - No runtime dependencies: single static binary, no cgo, nothing resolved
+     at execution time.
+   - stdlib and `golang.org/x/*` are free; treated as stdlib.
+   - Curated third-party libraries are welcome when differentiated: a
+     mainline, high-quality library used substantially earns its place
+     (cobra today; colored output and gRPC reflection anticipated). What is
+     banned is _undifferentiated sprawl_ — trivial, poorly maintained, or
+     transitively heavy dependencies.
+   - Cryptographic primitives specifically stay stdlib/x-crypto. npc never
+     takes third-party implementations of crypto, and never hand-rolls
+     primitives.
+
+8. **Bounded memory and low allocation.** Streaming algorithms stream;
+   authenticated algorithms buffer only when their security contract requires
+   it. Buffer sizes and limits are benchmarked, not guessed. Performance claims
+   require benchmark evidence (`mise run bench`, compared with `benchstat`)
+   before they are made.
+
+### Open decisions
 
 Recorded here so they are decided deliberately, not by accident:
 
