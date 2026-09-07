@@ -27,21 +27,23 @@ import (
 var errListenDiagnosticOutput = errors.New("diagnostic output failed")
 
 func TestNetListenTCPDefaultsToUnlimitedAcceptWait(t *testing.T) {
-	if got := netListenTCPCmd.Flags().Lookup("timeout").DefValue; got != "0s" {
+	t.Parallel()
+	if got := newNetListenTCPCmd().Flags().Lookup("timeout").DefValue; got != "0s" {
 		t.Fatalf("listen timeout default = %q, want 0s", got)
 	}
-	if got := netConnectTCPCmd.Flags().Lookup("timeout").DefValue; got != "10s" {
+	if got := newNetConnectTCPCmd().Flags().Lookup("timeout").DefValue; got != "10s" {
 		t.Fatalf("connect timeout default = %q, want unchanged 10s", got)
 	}
-	if got := netListenTLSCmd.Flags().Lookup("timeout").DefValue; got != "0s" {
+	if got := newNetListenTLSCmd().Flags().Lookup("timeout").DefValue; got != "0s" {
 		t.Fatalf("TLS listen timeout default = %q, want 0s", got)
 	}
-	if got := netConnectTLSCmd.Flags().Lookup("timeout").DefValue; got != "10s" {
+	if got := newNetConnectTLSCmd().Flags().Lookup("timeout").DefValue; got != "10s" {
 		t.Fatalf("TLS connect timeout default = %q, want unchanged 10s", got)
 	}
 }
 
 func TestNetListenTCPPositiveAcceptTimeout(t *testing.T) {
+	t.Parallel()
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", "tcp", "127.0.0.1:0",
@@ -56,6 +58,7 @@ func TestNetListenTCPPositiveAcceptTimeout(t *testing.T) {
 }
 
 func TestNetListenTCPRejectsMissingPort(t *testing.T) {
+	t.Parallel()
 	for _, address := range []string{"localhost:", ":", "localhost", "http", "65536"} {
 		_, _, err := executeRootStreams(t, "net", "listen", "tcp", address)
 		if !errors.Is(err, errInvalidHostPort) {
@@ -65,6 +68,7 @@ func TestNetListenTCPRejectsMissingPort(t *testing.T) {
 }
 
 func TestNetListenTCPAcceptsColonPortCompatibility(t *testing.T) {
+	t.Parallel()
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", "tcp", ":0",
@@ -76,6 +80,7 @@ func TestNetListenTCPAcceptsColonPortCompatibility(t *testing.T) {
 }
 
 func TestNetListenHelpDocumentsOptionalHost(t *testing.T) {
+	t.Parallel()
 	for _, protocol := range []string{"tcp", "tls"} {
 		stdout, _, err := executeRootStreams(t, "net", "listen", protocol, "--help")
 		if err != nil {
@@ -88,6 +93,7 @@ func TestNetListenHelpDocumentsOptionalHost(t *testing.T) {
 }
 
 func TestNetConnectStillRejectsMissingHost(t *testing.T) {
+	t.Parallel()
 	for _, address := range []string{":8080", "8080"} {
 		_, _, err := executeRootStreams(t, "net", "connect", "tcp", address)
 		if !errors.Is(err, errInvalidHostPort) {
@@ -97,6 +103,7 @@ func TestNetConnectStillRejectsMissingHost(t *testing.T) {
 }
 
 func TestNetListenTCPBindFailure(t *testing.T) {
+	t.Parallel()
 	occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +120,7 @@ func TestNetListenTCPBindFailure(t *testing.T) {
 }
 
 func TestNetListenTCPDiagnosticWriteFailures(t *testing.T) {
+	t.Parallel()
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -147,6 +155,7 @@ func TestNetListenTCPDiagnosticWriteFailures(t *testing.T) {
 }
 
 func TestNetListenTCPRelaysEncodedPayload(t *testing.T) {
+	t.Parallel()
 	listenerInput := base64.StdEncoding.EncodeToString([]byte("listener payload"))
 	run := startExampleListenCommand(
 		t,
@@ -187,6 +196,7 @@ func TestNetListenTCPRelaysEncodedPayload(t *testing.T) {
 }
 
 func TestNetListenTCPTimeoutOnlyCoversSetup(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("request"),
@@ -220,6 +230,7 @@ func TestNetListenTCPTimeoutOnlyCoversSetup(t *testing.T) {
 }
 
 func TestNetListenTCPCloseWriteSignalsInputEOF(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("request"),
@@ -252,6 +263,7 @@ func TestNetListenTCPCloseWriteSignalsInputEOF(t *testing.T) {
 }
 
 func TestNetListenTCPDrainTimeoutPreservesPartialOutput(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
@@ -276,6 +288,7 @@ func TestNetListenTCPDrainTimeoutPreservesPartialOutput(t *testing.T) {
 }
 
 func TestNetListenTCPZeroWaitDrainsUntilPeerCloses(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
@@ -301,6 +314,7 @@ func TestNetListenTCPZeroWaitDrainsUntilPeerCloses(t *testing.T) {
 }
 
 func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	run := startExampleListenCommand(
 		t,
@@ -350,6 +364,7 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 }
 
 func TestNetListenTLSVerboseEscapesSNI(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	run := startExampleListenCommand(
 		t,
@@ -381,6 +396,7 @@ func TestNetListenTLSVerboseEscapesSNI(t *testing.T) {
 }
 
 func TestNetListenTLSRequiresAndValidatesServerIdentityBeforeBind(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	_, _, err := executeRootStreams(t, "net", "listen", "tls", "127.0.0.1:0")
 	if err == nil || !strings.Contains(err.Error(), "required flag") {
@@ -398,6 +414,7 @@ func TestNetListenTLSRequiresAndValidatesServerIdentityBeforeBind(t *testing.T) 
 }
 
 func TestNetListenTLSRejectsUnusableServerIdentityBeforeBind(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	now := time.Now()
 	expiredCert, expiredKey := writeListenTestSelfSignedIdentity(
@@ -437,6 +454,7 @@ func TestNetListenTLSRejectsUnusableServerIdentityBeforeBind(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			_, _, err := executeRootStreams(
 				t,
 				"net", "listen", "tls", occupied.Addr().String(),
@@ -454,6 +472,7 @@ func TestNetListenTLSRejectsUnusableServerIdentityBeforeBind(t *testing.T) {
 }
 
 func TestValidateTLSServerIdentityAcceptsPresentedOrder(t *testing.T) {
+	t.Parallel()
 	certificates, privateKey := newListenTestIntermediateChain(t)
 	identity := tls.Certificate{Certificate: certificates, PrivateKey: privateKey}
 	if err := validateTLSServerIdentity(&identity); err != nil {
@@ -462,6 +481,7 @@ func TestValidateTLSServerIdentityAcceptsPresentedOrder(t *testing.T) {
 }
 
 func TestNetListenTLSRejectsMalformedCABeforeBind(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	caPath := filepath.Join(t.TempDir(), "malformed-ca.pem")
 	if err := os.WriteFile(caPath, []byte("not a PEM certificate"), 0o600); err != nil {
@@ -489,6 +509,7 @@ func TestNetListenTLSRejectsMalformedCABeforeBind(t *testing.T) {
 }
 
 func TestNetListenTLSRejectsMissingAndUntrustedClientsWithoutPayload(t *testing.T) {
+	t.Parallel()
 	serverIdentity := createNetworkTestIdentity(t)
 	untrustedIdentity := createNetworkTestIdentity(t)
 	untrustedClient, err := tls.LoadX509KeyPair(untrustedIdentity.clientCert, untrustedIdentity.clientKey)
@@ -504,6 +525,7 @@ func TestNetListenTLSRejectsMissingAndUntrustedClientsWithoutPayload(t *testing.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			run := startExampleListenCommand(
 				t,
 				strings.NewReader("must not be sent"),
@@ -544,6 +566,7 @@ func TestNetListenTLSRejectsMissingAndUntrustedClientsWithoutPayload(t *testing.
 }
 
 func TestNetListenTLSHandshakeTimeoutClosesConnection(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	run := startExampleListenCommand(
 		t,
@@ -575,6 +598,7 @@ func TestNetListenTLSHandshakeTimeoutClosesConnection(t *testing.T) {
 }
 
 func TestNetListenTLSFlagValidation(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	base := []string{
 		"net", "listen", "tls", "127.0.0.1:0",
@@ -592,6 +616,7 @@ func TestNetListenTLSFlagValidation(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			args := append(slices.Clone(base), test.args...)
 			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
 				t.Fatalf("error = %v, want errInvalidNetworkFlags", err)

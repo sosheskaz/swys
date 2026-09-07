@@ -14,11 +14,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/spf13/cobra"
 )
 
 func TestExampleNetListenTCPBidirectionalRelay(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from listener"),
@@ -67,6 +66,7 @@ func TestExampleNetListenTCPBidirectionalRelay(t *testing.T) {
 }
 
 func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	run := startExampleListenCommand(
 		t,
@@ -165,9 +165,9 @@ func startExampleListenCommand(
 	args ...string,
 ) exampleListenRun {
 	t.Helper()
-	resetCommandFlags(rootCmd)
+	rootCmd := newRootCmd()
 	ctx, cancel := context.WithCancel(t.Context())
-	setExampleCommandContext(ctx, rootCmd)
+	rootCmd.SetContext(ctx)
 	rootCmd.SetArgs(args)
 	rootCmd.SetIn(input)
 
@@ -183,23 +183,9 @@ func startExampleListenCommand(
 		runErr = errors.Join(runErr, stderrWriter.Close())
 		done <- runErr
 	}()
-	t.Cleanup(func() {
-		cancel()
-		resetCommandFlags(rootCmd)
-		setExampleCommandContext(context.WithoutCancel(t.Context()), rootCmd)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetIn(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
-	return exampleListenRun{stderr: bufio.NewReader(stderrReader), stdout: &stdout, done: done, cancel: cancel}
-}
+	t.Cleanup(cancel)
 
-func setExampleCommandContext(ctx context.Context, command *cobra.Command) {
-	command.SetContext(ctx)
-	for _, child := range command.Commands() {
-		setExampleCommandContext(ctx, child)
-	}
+	return exampleListenRun{stderr: bufio.NewReader(stderrReader), stdout: &stdout, done: done, cancel: cancel}
 }
 
 func drainExampleStderr(reader io.Reader) <-chan string {

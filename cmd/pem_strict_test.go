@@ -12,6 +12,7 @@ import (
 )
 
 func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {
+	t.Parallel()
 	chain := newTLSCertificateChain(t)
 	certificate := string(pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: chain.Certificate[0]}))
 	key, err := asym.NewKey(chain.PrivateKey)
@@ -37,6 +38,7 @@ func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {
 			{name: "malformed end", data: "-----BEGIN TYPE-----\nYQ==\n-----END TYPE----\n"},
 		} {
 			t.Run(artifact.name+"/"+malformed.name, func(t *testing.T) {
+				t.Parallel()
 				data := strings.ReplaceAll(malformed.data, "TYPE", artifact.blockType) + artifact.valid
 				path := filepath.Join(t.TempDir(), "artifact.pem")
 				if err := os.WriteFile(path, []byte(data), 0o600); err != nil {

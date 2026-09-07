@@ -267,15 +267,6 @@ linters:
           - maintidx
           - prealloc
 
-      # cmd tests drive the package-global rootCmd (AddCommand, SetArgs,
-      # SetOut/SetErr), so t.Parallel() there is a data race rather than a
-      # speedup -- confirmed by `go test -race` reporting a write/read race in
-      # cobra's AddCommand. Removing this exemption requires a newRootCmd()
-      # constructor so each test can build its own command tree.
-      - path: cmd/.*_test\.go
-        linters:
-          - paralleltest
-
       # Exclude lll issues for long lines with go:generate
       - linters:
           - lll

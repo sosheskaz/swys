@@ -16,8 +16,10 @@ import (
 )
 
 func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"aes", "cert", "key", "net"} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "should-not-exist")
 			output, err := executeRoot(t, name, "--output", path)
 			if err != nil {
@@ -34,6 +36,7 @@ func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
 }
 
 func TestLegacyX509ForwardsToCertificateInspection(t *testing.T) {
+	t.Parallel()
 	certificate := newTLSCertificateChain(t).Certificate[0]
 	path := filepath.Join(t.TempDir(), "certificate.pem")
 	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate})
@@ -41,8 +44,9 @@ func TestLegacyX509ForwardsToCertificateInspection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, alias := range certCmd.Aliases {
+	for _, alias := range newCertCmd().Aliases {
 		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
 			stdout, stderr, err := executeRootStreams(t, alias, "--input", path, "--format", "pem")
 			if err != nil {
 				t.Fatal(err)
@@ -58,6 +62,7 @@ func TestLegacyX509ForwardsToCertificateInspection(t *testing.T) {
 }
 
 func TestKeyGenerateRequiresAlgorithmAndPreservesLegacyCompatibility(t *testing.T) {
+	t.Parallel()
 	if _, err := executeRoot(t, "key", "generate"); err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s), received 0") {
 		t.Fatalf("missing algorithm error = %v, want exact-args error", err)
 	}
@@ -99,12 +104,13 @@ func TestKeyGenerateRequiresAlgorithmAndPreservesLegacyCompatibility(t *testing.
 	if len(legacy) != 16 {
 		t.Fatalf("aes genkey length = %d, want 16", len(legacy))
 	}
-	if !genkeyCmd.Hidden || !strings.Contains(genkeyCmd.Long, "Deprecated:") {
+	if !newGenkeyCmd().Hidden || !strings.Contains(newGenkeyCmd().Long, "Deprecated:") {
 		t.Fatal("aes genkey must be hidden and described as deprecated")
 	}
 }
 
 func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
+	t.Parallel()
 	tests := [][]string{
 		{"key", "generate", "ed25519", "--format", "base64"},
 		{"cert", "inspect", "--output-format", "json"},
@@ -117,6 +123,7 @@ func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
 }
 
 func TestCertificateFormatRejectsLegacyEncodingWithMigrationHint(t *testing.T) {
+	t.Parallel()
 	_, err := executeRoot(t, "cert", "inspect", "--format", "hex")
 	if !errors.Is(err, errFormatSelectsStructuredOutput) {
 		t.Fatalf("error = %v, want format-axis migration hint", err)
@@ -124,6 +131,7 @@ func TestCertificateFormatRejectsLegacyEncodingWithMigrationHint(t *testing.T) {
 }
 
 func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
+	t.Parallel()
 	const plaintext = "encoding round trip"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
@@ -134,6 +142,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 
 	for _, encoding := range byteEncodingNames() {
 		t.Run(encoding, func(t *testing.T) {
+			t.Parallel()
 			ciphertext, err := executeRoot(
 				t,
 				"aes", "encrypt",
@@ -169,6 +178,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 }
 
 func TestBase64URLEncodingIsUnpadded(t *testing.T) {
+	t.Parallel()
 	output, err := executeRoot(t, "key", "generate", "aes-128", "--encoding", "base64url")
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +189,7 @@ func TestBase64URLEncodingIsUnpadded(t *testing.T) {
 }
 
 func TestBase64URLInputAcceptsPadding(t *testing.T) {
+	t.Parallel()
 	const plaintext = "padded base64url"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
@@ -206,6 +217,7 @@ func TestBase64URLInputAcceptsPadding(t *testing.T) {
 }
 
 func TestHexInputAcceptsTrailingNewline(t *testing.T) {
+	t.Parallel()
 	const plaintext = "trailing newline"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
@@ -232,6 +244,7 @@ func TestHexInputAcceptsTrailingNewline(t *testing.T) {
 }
 
 func TestUnknownInputEncodingDoesNotTruncateOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	inputPath := filepath.Join(dir, "input")
 	outputPath := filepath.Join(dir, "output")
@@ -262,6 +275,7 @@ func TestUnknownInputEncodingDoesNotTruncateOutput(t *testing.T) {
 }
 
 func TestNetworkCommandValidatesAddressBeforeIO(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
@@ -280,6 +294,7 @@ func TestNetworkCommandValidatesAddressBeforeIO(t *testing.T) {
 }
 
 func TestNetworkCommandRejectsNegativeTimeoutBeforeIO(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
@@ -298,6 +313,7 @@ func TestNetworkCommandRejectsNegativeTimeoutBeforeIO(t *testing.T) {
 }
 
 func TestNetworkCommandAppliesTimeout(t *testing.T) {
+	t.Parallel()
 	var remaining time.Duration
 	command := networkCommand(&cobra.Command{
 		Use:    "network-test host:port",
@@ -311,10 +327,10 @@ func TestNetworkCommandAppliesTimeout(t *testing.T) {
 			return nil
 		},
 	})
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	if _, err := executeRoot(t, "network-test", "example.com:443", "--timeout", "2s"); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "network-test", "example.com:443", "--timeout", "2s"); err != nil {
 		t.Fatal(err)
 	}
 	if remaining <= 0 || remaining > 2*time.Second {
@@ -326,6 +342,7 @@ func TestNetworkCommandAppliesTimeout(t *testing.T) {
 }
 
 func TestNetworkCommandZeroTimeoutDisablesDeadline(t *testing.T) {
+	t.Parallel()
 	command := networkCommand(&cobra.Command{
 		Use:    "network-zero-timeout-test host:port",
 		Hidden: true,
@@ -336,15 +353,16 @@ func TestNetworkCommandZeroTimeoutDisablesDeadline(t *testing.T) {
 			return nil
 		},
 	})
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	if _, err := executeRoot(t, "network-zero-timeout-test", "example.com:443", "--timeout", "0"); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "network-zero-timeout-test", "example.com:443", "--timeout", "0"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCertConnectHelpDocumentsZeroTimeout(t *testing.T) {
+	t.Parallel()
 	output, err := executeRoot(t, "cert", "connect", "--help")
 	if err != nil {
 		t.Fatal(err)

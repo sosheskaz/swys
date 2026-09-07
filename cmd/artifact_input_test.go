@@ -50,6 +50,7 @@ func TestReadArtifactPreservesIOErrors(t *testing.T) {
 }
 
 func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	keyPath := writeOversizedArtifact(t, maxKeyArtifactBytes)
 	certPath := writeOversizedArtifact(t, maxCertificateArtifactBytes)
@@ -88,6 +89,7 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			stdout, _, err := executeRootStreams(t, test.args...)
 			if !errors.Is(err, errArtifactTooLarge) || stdout != "" {
 				t.Fatalf("stdout = %q, err = %v", stdout, err)
@@ -97,6 +99,7 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 }
 
 func TestArtifactCommandsBoundStdinAndPreserveFaults(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name  string
 		args  []string
@@ -108,6 +111,7 @@ func TestArtifactCommandsBoundStdinAndPreserveFaults(t *testing.T) {
 		{"csr", []string{"cert", "csr", "--key", "-"}, maxKeyArtifactBytes},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			input := bytes.NewReader(bytes.Repeat([]byte{'x'}, int(test.limit)+2))
 			stdout, stderr, err := executeRootStreamsWithInput(t, input, test.args...)
 			if !errors.Is(err, errArtifactTooLarge) || input.Len() != 1 || stdout != "" {
@@ -146,6 +150,7 @@ func BenchmarkReadArtifact(b *testing.B) {
 }
 
 func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	for _, test := range []struct {
 		name  string
@@ -157,6 +162,7 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 		{"certificate", identity.caCert, []string{"cert", "inspect"}, maxCertificateArtifactBytes},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			data, err := os.ReadFile(test.path)
 			if err != nil {
 				t.Fatal(err)
@@ -170,6 +176,7 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 	}
 	for _, size := range []int{0, 1, 16, 24, 31, 32} {
 		t.Run("aes"+strconv.Itoa(size), func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "aes-key")
 			if err := os.WriteFile(path, bytes.Repeat([]byte{'x'}, size), 0o600); err != nil {
 				t.Fatal(err)

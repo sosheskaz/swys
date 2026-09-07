@@ -26,14 +26,16 @@ var (
 )
 
 func TestNetCommandAliases(t *testing.T) {
+	t.Parallel()
 	for _, alias := range []string{"nc", "netcat"} {
-		if !slices.Contains(netCmd.Aliases, alias) {
-			t.Fatalf("net aliases = %v, want %q", netCmd.Aliases, alias)
+		if !slices.Contains(newNetCmd().Aliases, alias) {
+			t.Fatalf("net aliases = %v, want %q", newNetCmd().Aliases, alias)
 		}
 	}
 }
 
 func TestNetConnectTCPRelaysEncodedPayload(t *testing.T) {
+	t.Parallel()
 	inputPath := filepath.Join(t.TempDir(), "request.b64")
 	if err := os.WriteFile(inputPath, []byte(base64.StdEncoding.EncodeToString([]byte("request"))), 0o600); err != nil {
 		t.Fatal(err)
@@ -68,6 +70,7 @@ func TestNetConnectTCPRelaysEncodedPayload(t *testing.T) {
 }
 
 func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
+	t.Parallel()
 	inputPath := filepath.Join(t.TempDir(), "request")
 	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
 		t.Fatal(err)
@@ -97,6 +100,7 @@ func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
 }
 
 func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
+	t.Parallel()
 	outputPath := filepath.Join(t.TempDir(), "partial-response")
 	address, responseStarted, serverDone := startTCPPartialResponseServer(t, "partial response")
 
@@ -129,6 +133,7 @@ func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
 }
 
 func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	address, serverResult := startTLSExchangeServer(t, &identity, true, []string{"h2", "http/1.1"})
 	inputPath := filepath.Join(t.TempDir(), "request")
@@ -168,6 +173,7 @@ func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
 }
 
 func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{"h2", "http/1.1"})
 	inputPath := filepath.Join(t.TempDir(), "request")
@@ -200,6 +206,7 @@ func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 }
 
 func TestNetConnectTLSCanDisableALPNWithoutVerboseWarning(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{"h2", "http/1.1"})
 	inputPath := filepath.Join(t.TempDir(), "request")
@@ -230,6 +237,7 @@ func TestNetConnectTLSCanDisableALPNWithoutVerboseWarning(t *testing.T) {
 }
 
 func TestNetConnectTLSRejectsMismatchedClientIdentityBeforeDial(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	_, _, err := executeRootStreams(
 		t,
@@ -243,6 +251,7 @@ func TestNetConnectTLSRejectsMismatchedClientIdentityBeforeDial(t *testing.T) {
 }
 
 func TestNetConnectTLSRejectsArtifactOutputCollisionBeforeTruncation(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	want, err := os.ReadFile(identity.clientCert)
 	if err != nil {
@@ -269,6 +278,7 @@ func TestNetConnectTLSRejectsArtifactOutputCollisionBeforeTruncation(t *testing.
 }
 
 func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
+	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	address, serverResult := startTLSExchangeServer(t, &identity, false, nil)
 	inputPath := filepath.Join(t.TempDir(), "request")
@@ -294,6 +304,7 @@ func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
 }
 
 func TestNetConnectTLSFlagValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		args []string
@@ -309,6 +320,7 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			args := append([]string{"net", "connect", "tls", "localhost:443"}, test.args...)
 			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
 				t.Fatalf("error = %v, want errInvalidNetworkFlags", err)
@@ -318,6 +330,7 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 }
 
 func TestCertConnectVerificationStatusRemainsNonFatal(t *testing.T) {
+	t.Parallel()
 	server := newChainTLSServer(t)
 	stdout, _, err := executeRootStreams(
 		t,
@@ -332,6 +345,7 @@ func TestCertConnectVerificationStatusRemainsNonFatal(t *testing.T) {
 }
 
 func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
+	t.Parallel()
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -368,6 +382,7 @@ func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
 }
 
 func TestCertConnectPEMReportsVerificationWithoutContaminatingArtifact(t *testing.T) {
+	t.Parallel()
 	server := newChainTLSServer(t)
 	stdout, stderr, err := executeRootStreams(
 		t,
@@ -485,14 +500,7 @@ func executeRootStreamsWithInput(
 	args ...string,
 ) (string, string, error) {
 	t.Helper()
-	resetCommandFlags(rootCmd)
-	t.Cleanup(func() {
-		resetCommandFlags(rootCmd)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetIn(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
+	rootCmd := newRootCmd()
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

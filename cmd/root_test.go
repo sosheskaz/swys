@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"github.com/sosheskaz-systems/npc/internal/crypter"
 	"github.com/sosheskaz-systems/npc/internal/securefile"
@@ -26,6 +25,7 @@ import (
 var errTestCommandFailed = errors.New("command failed")
 
 func TestOutputEncodingDoesNotTruncate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		decode func(string) ([]byte, error)
 		name   string
@@ -40,6 +40,7 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			output, err := executeRoot(t, "key", "generate", "aes128", "--encoding", tt.format)
 			if err != nil {
 				t.Fatalf("execute command: %v", err)
@@ -56,6 +57,7 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 }
 
 func TestGenkeyRejectsInvalidSize(t *testing.T) {
+	t.Parallel()
 	_, err := executeRoot(t, "aes", "genkey", "--bits", "64")
 	if !errors.Is(err, errInvalidAESKeySize) {
 		t.Fatalf("error = %v, want errInvalidAESKeySize", err)
@@ -63,6 +65,7 @@ func TestGenkeyRejectsInvalidSize(t *testing.T) {
 }
 
 func TestEncryptPreservesInvalidIVErrorIdentity(t *testing.T) {
+	t.Parallel()
 	key := base64.StdEncoding.EncodeToString(make([]byte, 16))
 	iv := base64.StdEncoding.EncodeToString(make([]byte, aes.BlockSize-1))
 
@@ -73,6 +76,7 @@ func TestEncryptPreservesInvalidIVErrorIdentity(t *testing.T) {
 }
 
 func TestUnknownOutputEncodingFails(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
@@ -91,6 +95,7 @@ func TestUnknownOutputEncodingFails(t *testing.T) {
 }
 
 func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "precious.dat")
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
@@ -110,6 +115,7 @@ func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
 }
 
 func TestCommandErrorBeforeWriteLeavesEmptyOutputFile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	writeOwnerOnlyFixture(t, path, "old contents")
 
@@ -127,6 +133,7 @@ func TestCommandErrorBeforeWriteLeavesEmptyOutputFile(t *testing.T) {
 }
 
 func TestDecryptFailureLeavesStreamedPlaintext(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	plaintextPath := filepath.Join(dir, "plaintext")
 	ciphertextPath := filepath.Join(dir, "ciphertext")
@@ -173,6 +180,7 @@ func TestDecryptFailureLeavesStreamedPlaintext(t *testing.T) {
 }
 
 func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "data")
 	const original = "keep me"
 	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
@@ -193,6 +201,7 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 }
 
 func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	inputPath := filepath.Join(dir, "missing")
 	outputPath := filepath.Join(dir, "output")
@@ -220,12 +229,14 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 }
 
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
+	t.Parallel()
 	commands := [][]string{
 		{"key", "generate", "aes256"},
 		{"aes", "genkey", "--bits", "256"},
 	}
 	for _, command := range commands {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "key")
 			args := append(append([]string{}, command...), "--output", path)
 			if _, err := executeRoot(t, args...); err != nil {
@@ -244,12 +255,14 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 }
 
 func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
+	t.Parallel()
 	commands := [][]string{
 		{"key", "generate", "aes256"},
 		{"aes", "genkey", "--bits", "256"},
 	}
 	for _, command := range commands {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "key")
 			if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 				t.Fatal(err)
@@ -281,6 +294,7 @@ func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 }
 
 func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "key")
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
@@ -310,6 +324,7 @@ func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
 }
 
 func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
+	t.Parallel()
 	command := binaryOutputCommand(&cobra.Command{
 		Use:    "ordinary-output-test",
 		Hidden: true,
@@ -321,8 +336,8 @@ func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 			return nil
 		},
 	}, false)
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
 	path := filepath.Join(t.TempDir(), "output")
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
@@ -332,7 +347,7 @@ func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 	if statErr != nil {
 		t.Fatal(statErr)
 	}
-	if _, err := executeRoot(t, "ordinary-output-test", "--output", path); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "ordinary-output-test", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -345,6 +360,7 @@ func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 }
 
 func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "key")
 	alias := filepath.Join(dir, "key-alias")
@@ -366,6 +382,7 @@ func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
 }
 
 func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file permissions; skipping under root")
 	}
@@ -401,6 +418,7 @@ func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 }
 
 func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		modeText string
 		want     os.FileMode
@@ -411,6 +429,7 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.modeText, func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "key")
 			_, runErr := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.modeText)
 			if runtime.GOOS == "windows" {
@@ -432,6 +451,7 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 }
 
 func TestOutputModeOverridesExistingPermissions(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "key")
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
@@ -454,6 +474,7 @@ func TestOutputModeOverridesExistingPermissions(t *testing.T) {
 }
 
 func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		mode string
@@ -466,6 +487,7 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "existing")
 			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 				t.Fatal(err)
@@ -490,6 +512,7 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 }
 
 func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
+	t.Parallel()
 	_, err := executeRoot(t, "key", "generate", "ed25519", "--mode", "0640")
 	wantErr := errModeRequiresRegularOutput
 	if runtime.GOOS == "windows" {
@@ -501,6 +524,7 @@ func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
 }
 
 func TestOutputModeIsRejectedOnWindows(t *testing.T) {
+	t.Parallel()
 	command := &cobra.Command{Use: "mode-test"}
 	command.Flags().String("mode", "", "")
 	if err := command.Flags().Set("mode", "0640"); err != nil {
@@ -514,7 +538,8 @@ func TestOutputModeIsRejectedOnWindows(t *testing.T) {
 }
 
 func TestModeFlagRegisteredOnRoot(t *testing.T) {
-	flag := rootCmd.PersistentFlags().Lookup("mode")
+	t.Parallel()
+	flag := newRootCmd().PersistentFlags().Lookup("mode")
 	if flag == nil {
 		t.Fatal("mode flag not registered")
 	}
@@ -524,6 +549,7 @@ func TestModeFlagRegisteredOnRoot(t *testing.T) {
 }
 
 func TestNonRegularOutputStreamsDirectly(t *testing.T) {
+	t.Parallel()
 	output, err := executeRoot(t, "key", "generate", "ed25519", "--output", os.DevNull)
 	if err != nil {
 		t.Fatal(err)
@@ -534,6 +560,7 @@ func TestNonRegularOutputStreamsDirectly(t *testing.T) {
 }
 
 func TestSymlinkOutputFollowsTarget(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		modeArgs []string
@@ -544,6 +571,7 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			targetPath := filepath.Join(dir, "target")
 			linkPath := filepath.Join(dir, "link")
@@ -590,6 +618,7 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 }
 
 func TestSensitiveOutputRejectsInsecureSymlinkTarget(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	targetPath := filepath.Join(dir, "target")
 	linkPath := filepath.Join(dir, "link")
@@ -619,6 +648,7 @@ func TestSensitiveOutputRejectsInsecureSymlinkTarget(t *testing.T) {
 }
 
 func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	targetPath := filepath.Join(dir, "missing-target")
 	linkPath := filepath.Join(dir, "link")
@@ -658,6 +688,7 @@ func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
 }
 
 func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	targetDir := filepath.Join(dir, "target-dir")
 	linkPath := filepath.Join(dir, "link")
@@ -683,6 +714,7 @@ func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
 }
 
 func TestPersistentIOHooksApplyToNewCommands(t *testing.T) {
+	t.Parallel()
 	command := binaryOutputCommand(&cobra.Command{
 		Use:    "hook-test",
 		Hidden: true,
@@ -693,10 +725,10 @@ func TestPersistentIOHooksApplyToNewCommands(t *testing.T) {
 			return nil
 		},
 	}, false)
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	output, err := executeRoot(t, "hook-test", "--encoding", "hex")
+	output, err := executeRootCommand(t, rootCmd, "hook-test", "--encoding", "hex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,6 +741,7 @@ func TestPersistentIOHooksApplyToNewCommands(t *testing.T) {
 // descendant hook would otherwise shadow the root's and silently disable
 // --input, --output, and encoding.
 func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
+	t.Parallel()
 	outputPath := filepath.Join(t.TempDir(), "shadowed.bin")
 	var childPreRan, childPostRan bool
 	command := binaryOutputCommand(&cobra.Command{
@@ -729,10 +762,10 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 			return nil
 		},
 	}, false)
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	if _, err := executeRoot(t, "shadow-hook-test", "--encoding", "hex", "--output", outputPath); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "shadow-hook-test", "--encoding", "hex", "--output", outputPath); err != nil {
 		t.Fatal(err)
 	}
 	if !childPreRan || !childPostRan {
@@ -750,6 +783,7 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 }
 
 func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
 		t.Fatal(err)
@@ -771,10 +805,10 @@ func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
 			return nil
 		},
 	}, false)
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	if _, err := executeRoot(t, "live-output-test", "--output", path); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "live-output-test", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	if string(observed) != "live" {
@@ -783,6 +817,7 @@ func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
 }
 
 func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
 		t.Fatal(err)
@@ -805,10 +840,10 @@ func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
 			return nil
 		},
 	}, false)
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	_, runErr := executeRoot(t, "output-mode-test", "--output", path, "--mode", "0640")
+	_, runErr := executeRootCommand(t, rootCmd, "output-mode-test", "--output", path, "--mode", "0640")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, path, "old contents")
 		if observed != 0 {
@@ -825,19 +860,8 @@ func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
 }
 
 func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
+	t.Parallel()
 	runErr := errTestCommandFailed
-	command := binaryOutputCommand(&cobra.Command{
-		Use:    "hook-error-test",
-		Hidden: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := io.WriteString(cmd.OutOrStdout(), "A"); err != nil {
-				return fmt.Errorf("write test output: %w", err)
-			}
-			return runErr
-		},
-	}, false)
-	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
 	tests := []struct {
 		encoding string
@@ -849,7 +873,21 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.encoding, func(t *testing.T) {
-			output, err := executeRoot(t, "hook-error-test", "--encoding", tt.encoding)
+			t.Parallel()
+			command := binaryOutputCommand(&cobra.Command{
+				Use:    "hook-error-test",
+				Hidden: true,
+				RunE: func(cmd *cobra.Command, _ []string) error {
+					if _, err := io.WriteString(cmd.OutOrStdout(), "A"); err != nil {
+						return fmt.Errorf("write test output: %w", err)
+					}
+					return runErr
+				},
+			}, false)
+			rootCmd := newRootCmd()
+			rootCmd.AddCommand(command)
+
+			output, err := executeRootCommand(t, rootCmd, "hook-error-test", "--encoding", tt.encoding)
 			if !errors.Is(err, runErr) {
 				t.Fatalf("error = %v, want command failure", err)
 			}
@@ -861,6 +899,7 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 }
 
 func TestCommandErrorLeavesWrittenOutputFile(t *testing.T) {
+	t.Parallel()
 	runErr := errTestCommandFailed
 	command := binaryOutputCommand(&cobra.Command{
 		Use:    "output-error-test",
@@ -872,14 +911,14 @@ func TestCommandErrorLeavesWrittenOutputFile(t *testing.T) {
 			return runErr
 		},
 	}, false)
+	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
-	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
 	path := filepath.Join(t.TempDir(), "existing")
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := executeRoot(t, "output-error-test", "--output", path, "--encoding", "base64")
+	_, err := executeRootCommand(t, rootCmd, "output-error-test", "--output", path, "--encoding", "base64")
 	if !errors.Is(err, runErr) {
 		t.Fatalf("error = %v, want command failure", err)
 	}
@@ -900,13 +939,11 @@ func executeRoot(t *testing.T, args ...string) (string, error) {
 
 func executeRootStreams(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
-	resetCommandFlags(rootCmd)
-	t.Cleanup(func() {
-		resetCommandFlags(rootCmd)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
+	return executeRootCommandStreams(t, newRootCmd(), args...)
+}
+
+func executeRootCommandStreams(t *testing.T, rootCmd *cobra.Command, args ...string) (string, string, error) {
+	t.Helper()
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -918,26 +955,8 @@ func executeRootStreams(t *testing.T, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-func resetCommandFlags(command *cobra.Command) {
-	command.SetIn(nil)
-	command.SetOut(nil)
-	command.SetErr(nil)
-	reset := func(flag *pflag.Flag) {
-		if slice, ok := flag.Value.(pflag.SliceValue); ok && flag.DefValue == "[]" {
-			if err := slice.Replace(nil); err != nil {
-				panic(err)
-			}
-			flag.Changed = false
-			return
-		}
-		if err := flag.Value.Set(flag.DefValue); err != nil {
-			panic(err)
-		}
-		flag.Changed = false
-	}
-	command.Flags().VisitAll(reset)
-	command.PersistentFlags().VisitAll(reset)
-	for _, child := range command.Commands() {
-		resetCommandFlags(child)
-	}
+func executeRootCommand(t *testing.T, rootCmd *cobra.Command, args ...string) (string, error) {
+	t.Helper()
+	stdout, stderr, err := executeRootCommandStreams(t, rootCmd, args...)
+	return stdout + stderr, err
 }

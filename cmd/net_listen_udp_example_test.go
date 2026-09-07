@@ -9,6 +9,7 @@ import (
 )
 
 func TestExampleNetListenUDPDatagramExchange(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from listener"),

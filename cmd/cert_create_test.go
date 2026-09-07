@@ -19,6 +19,7 @@ import (
 )
 
 func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	selfKey := filepath.Join(dir, "self.key")
 	selfCert := filepath.Join(dir, "self.crt")
@@ -120,6 +121,7 @@ func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 }
 
 func TestCertCreateDefaultsExplicitServerSubjectToDNSSAN(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "server.key")
 	certPath := filepath.Join(dir, "server.crt")
@@ -142,6 +144,7 @@ func TestCertCreateDefaultsExplicitServerSubjectToDNSSAN(t *testing.T) {
 }
 
 func TestCertCreateDefaultsIPSubjectToIPSAN(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "server.key")
 	certPath := filepath.Join(dir, "server.crt")
@@ -167,6 +170,7 @@ func TestCertCreateDefaultsIPSubjectToIPSAN(t *testing.T) {
 }
 
 func TestCertCreateClientOnlyWithoutSubjectOmitsSANs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "client.key")
 	certPath := filepath.Join(dir, "client.crt")
@@ -189,6 +193,7 @@ func TestCertCreateClientOnlyWithoutSubjectOmitsSANs(t *testing.T) {
 }
 
 func TestCertCreateBindsEitherIssuerArtifactToStdin(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	caKey := filepath.Join(dir, "ca.key")
 	caCert := filepath.Join(dir, "ca.crt")
@@ -219,6 +224,7 @@ func TestCertCreateBindsEitherIssuerArtifactToStdin(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			output := filepath.Join(dir, strings.ReplaceAll(test.name, " ", "-")+".crt")
 			args := []string{
 				"cert", "create", "--subject", "CN=leaf", "--key", subjectKey,
@@ -236,6 +242,7 @@ func TestCertCreateBindsEitherIssuerArtifactToStdin(t *testing.T) {
 }
 
 func TestCertCSRRoundTripsWrappedStdinKey(t *testing.T) {
+	t.Parallel()
 	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p384")
 	if err != nil {
 		t.Fatal(err)
@@ -272,6 +279,7 @@ func TestCertCSRRoundTripsWrappedStdinKey(t *testing.T) {
 }
 
 func TestCertCSRDefaultsToLocalhostSAN(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
 	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", keyPath); err != nil {
@@ -295,8 +303,8 @@ func TestCertCSRDefaultsToLocalhostSAN(t *testing.T) {
 }
 
 func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
-	outputPath := filepath.Join(dir, "certificate.pem")
 	inputPath := filepath.Join(dir, "input.pem")
 	keyPath := filepath.Join(dir, "key.pem")
 	generateTestKey(t, "ed25519", keyPath)
@@ -333,6 +341,8 @@ func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			outputPath := filepath.Join(t.TempDir(), "certificate.pem")
 			if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -352,6 +362,7 @@ func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
 }
 
 func TestCertCreateProtectsInputPaths(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	inputKey := filepath.Join(dir, "subject.key")
 	generateTestKey(t, "ed25519", inputKey)
@@ -376,6 +387,7 @@ func TestCertCreateProtectsInputPaths(t *testing.T) {
 }
 
 func TestCertCreateDefersMissingOutputParentToOutputOpen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
 	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", keyPath); err != nil {
@@ -395,6 +407,7 @@ func TestCertCreateDefersMissingOutputParentToOutputOpen(t *testing.T) {
 }
 
 func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	caKey := filepath.Join(dir, "ca.key")
 	caCert := filepath.Join(dir, "ca.crt")
@@ -466,6 +479,7 @@ func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T)
 }
 
 func TestCertCreateEnablesMutualTLSHandshake(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	caKey := filepath.Join(dir, "ca.key")
 	caCert := filepath.Join(dir, "ca.crt")

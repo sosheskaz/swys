@@ -25,40 +25,55 @@ const (
 	tlsCAFlagName   = "ca"
 )
 
-var netCmd = &cobra.Command{
-	Aliases: []string{"nc", "netcat"},
-	Use:     "net",
-	Short:   "Exchange bytes over network transports",
+func newNetCmd() *cobra.Command {
+	netCmd := &cobra.Command{
+		Aliases: []string{"nc", "netcat"},
+		Use:     "net",
+		Short:   "Exchange bytes over network transports",
+	}
+	netCmd.AddCommand(newNetConnectCmd(), newNetListenCmd())
+	return netCmd
 }
 
-var netConnectCmd = &cobra.Command{
-	Use:   "connect",
-	Short: "Connect to a remote endpoint",
+func newNetConnectCmd() *cobra.Command {
+	netConnectCmd := &cobra.Command{
+		Use:   "connect",
+		Short: "Connect to a remote endpoint",
+	}
+	netConnectCmd.AddCommand(newNetConnectTCPCmd(), newNetConnectTLSCmd(), newNetConnectUDPCmd())
+	return netConnectCmd
 }
 
-var netConnectTCPCmd = binaryOutputCommand(streamNetworkCommand(&cobra.Command{
-	Use:   "tcp host:port",
-	Short: "Exchange raw bytes over TCP",
-	RunE:  runNetConnectTCP,
-}), true)
+func newNetConnectTCPCmd() *cobra.Command {
+	netConnectTCPCmd := binaryOutputCommand(streamNetworkCommand(&cobra.Command{
+		Use:   "tcp host:port",
+		Short: "Exchange raw bytes over TCP",
+		RunE:  runNetConnectTCP,
+	}), true)
+	return netConnectTCPCmd
+}
 
-var netConnectUDPCmd = binaryOutputCommand(connectDatagramNetworkCommand(&cobra.Command{
-	Use:   "udp host:port",
-	Short: "Exchange one raw UDP request and response datagram",
-	Long: `Exchange exactly one request and one response datagram over UDP.
+func newNetConnectUDPCmd() *cobra.Command {
+	netConnectUDPCmd := binaryOutputCommand(connectDatagramNetworkCommand(&cobra.Command{
+		Use:   "udp host:port",
+		Short: "Exchange one raw UDP request and response datagram",
+		Long: `Exchange exactly one request and one response datagram over UDP.
 
 Decoded stdin or --input becomes one datagram, including when it is empty. The
 first response datagram is written to stdout or --output and the command exits.
 Input must reach EOF before the request is sent; pressing Enter alone does not
 send it. The connector always expects one response and has no send-only mode.
 Use --wait 0 to wait indefinitely for that response.`,
-	RunE: runNetConnectUDP,
-}), true)
+		RunE: runNetConnectUDP,
+	}), true)
+	return netConnectUDPCmd
+}
 
-var netConnectTLSCmd = binaryOutputCommand(streamNetworkCommand(&cobra.Command{
-	Use:   "tls host:port",
-	Short: "Exchange raw bytes over a verified TLS connection",
-	Long: `Exchange raw application bytes over TLS.
+func newNetConnectTLSCmd() *cobra.Command {
+	netConnectTLSCmd := binaryOutputCommand(streamNetworkCommand(&cobra.Command{
+		Use:   "tls host:port",
+		Short: "Exchange raw bytes over a verified TLS connection",
+		Long: `Exchange raw application bytes over TLS.
 
 Server certificates and hostnames are verified by default. --ca replaces the
 system trust store with a PEM bundle; add --system-ca to combine both stores.
@@ -68,8 +83,23 @@ verification explicitly and is intended only for controlled diagnostics.
 No ALPN protocols are advertised by default. Use --alpn with a comma-separated
 list to advertise protocols explicitly. Negotiation does not transform the
 payload: when h2 is selected, input must contain valid HTTP/2 frames.`,
-	RunE: runNetConnectTLS,
-}), true)
+		RunE: runNetConnectTLS,
+	}), true)
+	netConnectTLSCmd.Flags().String(tlsCertFlagName, "", "client certificate chain PEM path")
+	netConnectTLSCmd.Flags().String(tlsKeyFlagName, "", "client private key path")
+	netConnectTLSCmd.Flags().String(tlsCAFlagName, "", "custom CA certificate bundle PEM path")
+	netConnectTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
+	netConnectTLSCmd.Flags().String("servername", "", "TLS SNI and verification name (default endpoint host)")
+	netConnectTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
+	netConnectTLSCmd.Flags().Bool("insecure", false, "disable TLS certificate and hostname verification")
+	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
+		if err := netConnectTLSCmd.MarkFlagFilename(name); err != nil {
+			panic(err)
+		}
+	}
+	addCommandShape(netConnectTLSCmd, "net-connect-tls")
+	return netConnectTLSCmd
+}
 
 type networkStreamOptions struct {
 	timeout    time.Duration
@@ -457,24 +487,21 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
 	}
 	if cmd.Flags().Lookup("wait") != nil {
-		wait, waitErr := cmd.Flags().GetDuration("wait")
-		if waitErr != nil {
-			return fmt.Errorf("read wait flag: %w", waitErr)
+		wait, err := cmd.Flags().GetDuration("wait")
+		if err != nil {
+			return fmt.Errorf("read wait flag: %w", err)
 		}
 		if wait < 0 {
 			return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)
 		}
 	}
-	switch cmd {
-	case netConnectTCPCmd, netConnectUDPCmd, netListenTCPCmd, netListenUDPCmd:
-		return nil
-	case netListenTLSCmd:
+	if commandHasShape(cmd, "net-listen-tls") {
 		return validateTLSListenFlagsBeforeIO(cmd)
-	case netConnectTLSCmd:
-		return validateTLSFlagsBeforeIO(cmd)
-	default:
-		return nil
 	}
+	if commandHasShape(cmd, "net-connect-tls") {
+		return validateTLSFlagsBeforeIO(cmd)
+	}
+	return nil
 }
 
 func validateTLSListenFlagsBeforeIO(cmd *cobra.Command) error {
@@ -537,23 +564,4 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 		return err
 	}
 	return validateCertificatePaths(cmd, tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName)
-}
-
-func init() {
-	rootCmd.AddCommand(netCmd)
-	netCmd.AddCommand(netConnectCmd)
-	netConnectCmd.AddCommand(netConnectTCPCmd, netConnectTLSCmd, netConnectUDPCmd)
-
-	netConnectTLSCmd.Flags().String(tlsCertFlagName, "", "client certificate chain PEM path")
-	netConnectTLSCmd.Flags().String(tlsKeyFlagName, "", "client private key path")
-	netConnectTLSCmd.Flags().String(tlsCAFlagName, "", "custom CA certificate bundle PEM path")
-	netConnectTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
-	netConnectTLSCmd.Flags().String("servername", "", "TLS SNI and verification name (default endpoint host)")
-	netConnectTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
-	netConnectTLSCmd.Flags().Bool("insecure", false, "disable TLS certificate and hostname verification")
-	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
-		if err := netConnectTLSCmd.MarkFlagFilename(name); err != nil {
-			panic(err)
-		}
-	}
 }

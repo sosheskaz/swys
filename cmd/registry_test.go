@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestByteEncodingRegistryDrivesHelpErrorsAndCompletion(t *testing.T) {
+func TestByteEncodingRegistryDrivesHelpErrorsAndCompletion(t *testing.T) { //nolint:paralleltest // mutates a package-level formatter or encoding registry
 	// byteEncodings is package-global; do not make this test parallel.
 	byteEncodings["fake"] = byteEncoding{
 		encoder: func(output io.Writer) (io.Writer, io.Closer) { return output, nil },
@@ -47,7 +47,7 @@ func TestByteEncodingRegistryDrivesHelpErrorsAndCompletion(t *testing.T) {
 	}
 }
 
-func TestFormatterRegistryDrivesHelpErrorsAndCompletion(t *testing.T) {
+func TestFormatterRegistryDrivesHelpErrorsAndCompletion(t *testing.T) { //nolint:paralleltest // mutates a package-level formatter or encoding registry
 	// certFormatters is package-global; do not make this test parallel.
 	certFormatters["fake"] = certFormatters["text"]
 	t.Cleanup(func() { delete(certFormatters, "fake") })

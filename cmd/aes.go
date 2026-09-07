@@ -26,12 +26,16 @@ var (
 	}
 )
 
-var aesCmd = &cobra.Command{
-	Use:   "aes",
-	Short: "AES encryption and decryption",
-	Long: `Perform AES encryption and decryption using a specified key.
+func newAesCmd() *cobra.Command {
+	aesCmd := &cobra.Command{
+		Use:   "aes",
+		Short: "AES encryption and decryption",
+		Long: `Perform AES encryption and decryption using a specified key.
 AES-GCM is the authenticated default; select AES-CBC explicitly for compatibility.
 The length of the key implicitly determines the AES variant used (128, 192, or 256 bits).`,
+	}
+	aesCmd.AddCommand(newEncryptCmd(), newDecryptCmd(), newGenkeyCmd())
+	return aesCmd
 }
 
 func addKeyFlags(cmd *cobra.Command) {
@@ -110,10 +114,6 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 		}
 	}
 	return nil
-}
-
-func init() {
-	rootCmd.AddCommand(aesCmd)
 }
 
 func getKey(cmd *cobra.Command) ([]byte, error) {

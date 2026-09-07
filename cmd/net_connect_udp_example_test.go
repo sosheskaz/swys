@@ -10,6 +10,7 @@ import (
 )
 
 func TestExampleNetConnectUDPDatagramExchange(t *testing.T) {
+	t.Parallel()
 	address, result := startExampleUDPServer(t, []byte("hello from server"))
 
 	stdout, stderr, err := executeRootStreamsWithInput(
@@ -34,6 +35,7 @@ func TestExampleNetConnectUDPDatagramExchange(t *testing.T) {
 }
 
 func TestExampleNetConnectUDPRawDNSPacket(t *testing.T) {
+	t.Parallel()
 	const queryHex = "1a2b01000001000000000000076578616d706c6503636f6d0000010001"
 	const responseHex = "1a2b81800001000100000000076578616d706c6503636f6d0000010001c00c000100010000003c0004c0000201"
 	query, err := hex.DecodeString(queryHex)

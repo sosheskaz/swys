@@ -12,6 +12,7 @@ import (
 )
 
 func TestExampleNetConnectTCPHTTPResponse(t *testing.T) {
+	t.Parallel()
 	const request = "GET / HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n"
 	const response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
 	requestPath := filepath.Join(t.TempDir(), "request")
@@ -41,6 +42,7 @@ func TestExampleNetConnectTCPHTTPResponse(t *testing.T) {
 }
 
 func TestExampleNetConnectTCPCanCloseWriteAfterInput(t *testing.T) {
+	t.Parallel()
 	requestPath := filepath.Join(t.TempDir(), "request")
 	if err := os.WriteFile(requestPath, []byte("request"), 0o600); err != nil {
 		t.Fatal(err)

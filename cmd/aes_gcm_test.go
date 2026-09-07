@@ -29,7 +29,8 @@ const (
 )
 
 func TestAESCipherModeFlagRegistryHelpAndCompletion(t *testing.T) {
-	for _, command := range []*cobra.Command{encryptCmd, decryptCmd} {
+	t.Parallel()
+	for _, command := range []*cobra.Command{newEncryptCmd(), newDecryptCmd()} {
 		flag := command.Flags().Lookup("cipher-mode")
 		if flag == nil {
 			t.Fatalf("%s has no --cipher-mode flag", command.CommandPath())
@@ -85,9 +86,11 @@ func TestAESCipherModeFlagRegistryHelpAndCompletion(t *testing.T) {
 }
 
 func TestAESCipherModeRejectsNonRegistrySpellingsWithoutTruncation(t *testing.T) {
+	t.Parallel()
 	for _, leaf := range []string{"encrypt", "decrypt"} {
 		for _, mode := range []string{"", "GCM", "CBC", "g", "c"} {
 			t.Run(leaf+"_"+modeName(mode), func(t *testing.T) {
+				t.Parallel()
 				args := []string{"aes", leaf, "--key", testAESKeyBase64, "--cipher-mode=" + mode}
 				if leaf == "encrypt" {
 					args = append(args, "plaintext")
@@ -99,6 +102,7 @@ func TestAESCipherModeRejectsNonRegistrySpellingsWithoutTruncation(t *testing.T)
 }
 
 func TestAESFlagApplicabilityAndValidationPreserveOutput(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		wantErr error
 		name    string
@@ -142,16 +146,18 @@ func TestAESFlagApplicabilityAndValidationPreserveOutput(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			assertAESValidationPreservesOutput(t, test.args, test.wantErr)
 		})
 	}
 
-	if decryptCmd.Flags().Lookup("iv") != nil {
+	if newDecryptCmd().Flags().Lookup("iv") != nil {
 		t.Fatal("aes decrypt unexpectedly exposes --iv")
 	}
 }
 
 func TestAESAADUsesExactStringBytes(t *testing.T) {
+	t.Parallel()
 	aad := string([]byte{0x00, 0xff, 'N', 'P', 'C', 0x00})
 	plaintext := []byte("exact AAD bytes")
 	wire, err := executeRoot(t, "aes", "encrypt", string(plaintext), "--key", testAESKeyBase64, "--aad", aad)
@@ -194,6 +200,7 @@ func TestAESAADUsesExactStringBytes(t *testing.T) {
 }
 
 func TestAESDefaultAndExplicitGCMCrossDecrypt(t *testing.T) {
+	t.Parallel()
 	const plaintext = "default and explicit GCM"
 	const aad = "cross-mode context"
 	for _, test := range []struct {
@@ -205,6 +212,7 @@ func TestAESDefaultAndExplicitGCMCrossDecrypt(t *testing.T) {
 		{name: "explicit to default", encryptMode: []string{"--cipher-mode", "gcm"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			encryptArgs := []string{"aes", "encrypt", plaintext, "--key", testAESKeyBase64, "--aad", aad}
 			encryptArgs = append(encryptArgs, test.encryptMode...)
 			wire, err := executeRoot(t, encryptArgs...)
@@ -226,9 +234,11 @@ func TestAESDefaultAndExplicitGCMCrossDecrypt(t *testing.T) {
 }
 
 func TestAESGCMInputOutputEncodingRoundTrips(t *testing.T) {
+	t.Parallel()
 	const plaintext = "GCM encoding round trip"
 	for _, encoding := range byteEncodingNames() {
 		t.Run(encoding, func(t *testing.T) {
+			t.Parallel()
 			wire, err := executeRoot(
 				t,
 				"aes", "encrypt", plaintext,
@@ -259,6 +269,7 @@ func TestAESGCMInputOutputEncodingRoundTrips(t *testing.T) {
 }
 
 func TestAESRootOutputModeAndCBCCipherModeCompose(t *testing.T) {
+	t.Parallel()
 	outputPath := filepath.Join(t.TempDir(), "cbc-wire")
 	_, err := executeRoot(
 		t,
@@ -293,6 +304,7 @@ func TestAESRootOutputModeAndCBCCipherModeCompose(t *testing.T) {
 }
 
 func TestAESCBCCLICompatibilityFixture(t *testing.T) {
+	t.Parallel()
 	wire, err := executeRoot(
 		t,
 		"aes", "encrypt", testCBCPlaintext,
@@ -324,6 +336,7 @@ func TestAESCBCCLICompatibilityFixture(t *testing.T) {
 }
 
 func TestAESGCMRuntimeFailuresDoNotWritePlaintext(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	readFailurePath := filepath.Join(dir, "read-failure")
 	if err := os.Mkdir(readFailurePath, 0o700); err != nil {
@@ -362,6 +375,7 @@ func TestAESGCMRuntimeFailuresDoNotWritePlaintext(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			stdout, _, err := executeRootStreams(t, test.args...)
 			assertRuntimeFailure(t, err, test.wantErr)
 			if stdout != "" {

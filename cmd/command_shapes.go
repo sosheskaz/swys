@@ -25,6 +25,7 @@ const (
 	sensitiveOutputShape         = "sensitive-output"
 	structuredOutputShape        = "structured-output"
 	networkShape                 = "network"
+	streamNetworkShape           = "stream-network"
 	compatibilityShape           = "compatibility"
 )
 
@@ -168,6 +169,7 @@ func streamNetworkCommandWithTimeout(
 	timeoutHelp string,
 	allowEmptyHost bool,
 ) *cobra.Command {
+	addCommandShape(command, streamNetworkShape)
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", defaultTimeout, timeoutHelp)
 	command.Flags().Duration(

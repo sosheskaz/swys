@@ -12,6 +12,7 @@ import (
 )
 
 func TestFIFOOutputStreamsDirectly(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "output.fifo")
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
@@ -55,6 +56,7 @@ func TestFIFOOutputStreamsDirectly(t *testing.T) {
 // non-regular sink rather than silently ignoring it: npc never opens the
 // FIFO in this case, so no reader goroutine is needed to unblock the write.
 func TestOutputModeWithFIFORejectsBeforeWriting(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "output.fifo")
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
@@ -78,6 +80,7 @@ func TestOutputModeWithFIFORejectsBeforeWriting(t *testing.T) {
 // or /dev/fd/N (process substitution), which are symlinks to non-regular files
 // on Darwin and Linux.
 func TestSymlinkToFIFOOutputStreamsDirectly(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fifoPath := filepath.Join(dir, "output.fifo")
 	linkPath := filepath.Join(dir, "output.link")

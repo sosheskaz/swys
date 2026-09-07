@@ -30,67 +30,86 @@ var keyFormatters = map[string]func() asym.KeyFormatter{
 	"text": func() asym.KeyFormatter { return &asym.KeyTextFormatter{} },
 }
 
-var keyPublicCmd = binaryOutputCommand(&cobra.Command{
-	Aliases: []string{"pub", "p"},
-	Use:     "public",
-	Short:   "Derive or canonicalize a public key",
-	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		key, err := readKey(cmd)
-		if err != nil {
-			return err
-		}
-		encoded, err := key.Marshal(asym.KeyFormatPKIXPEM)
-		if err != nil {
-			return err
-		}
-		return writeKeyBytes(cmd, encoded, "public key")
-	},
-}, true)
+func newKeyPublicCmd() *cobra.Command {
+	keyPublicCmd := binaryOutputCommand(&cobra.Command{
+		Aliases: []string{"pub", "p"},
+		Use:     "public",
+		Short:   "Derive or canonicalize a public key",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			key, err := readKey(cmd)
+			if err != nil {
+				return err
+			}
+			encoded, err := key.Marshal(asym.KeyFormatPKIXPEM)
+			if err != nil {
+				return err
+			}
+			return writeKeyBytes(cmd, encoded, "public key")
+		},
+	}, true)
+	return keyPublicCmd
+}
 
-var keyInspectCmd = encodedInputCommand(structuredOutputCommand(&cobra.Command{
-	Aliases: []string{"ins", "i"},
-	Use:     "inspect",
-	Short:   "Inspect public or private key metadata",
-	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		formatter, err := keyFormatterFromCommand(cmd)
-		if err != nil {
-			return err
-		}
-		key, err := readKey(cmd)
-		if err != nil {
-			return err
-		}
-		info, err := key.Info()
-		if err != nil {
-			return err
-		}
-		return formatter.Format(info, cmd.OutOrStdout())
-	},
-}, keyFormatNames))
+func newKeyInspectCmd() *cobra.Command {
+	keyInspectCmd := encodedInputCommand(structuredOutputCommand(&cobra.Command{
+		Aliases: []string{"ins", "i"},
+		Use:     "inspect",
+		Short:   "Inspect public or private key metadata",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			formatter, err := keyFormatterFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			key, err := readKey(cmd)
+			if err != nil {
+				return err
+			}
+			info, err := key.Info()
+			if err != nil {
+				return err
+			}
+			return formatter.Format(info, cmd.OutOrStdout())
+		},
+	}, keyFormatNames))
+	return keyInspectCmd
+}
 
-var keyConvertCmd = binaryOutputCommand(&cobra.Command{
-	Aliases: []string{"conv", "c"},
-	Use:     "convert",
-	Short:   "Convert a key to another standard container",
-	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		key, err := readKey(cmd)
-		if err != nil {
-			return err
-		}
-		target, err := keyConversionTargetFromCommand(cmd)
-		if err != nil {
-			return err
-		}
-		encoded, err := key.Marshal(target)
-		if err != nil {
-			return err
-		}
-		return writeKeyBytes(cmd, encoded, "converted key")
-	},
-}, true)
+func newKeyConvertCmd() *cobra.Command {
+	keyConvertCmd := binaryOutputCommand(&cobra.Command{
+		Aliases: []string{"conv", "c"},
+		Use:     "convert",
+		Short:   "Convert a key to another standard container",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			key, err := readKey(cmd)
+			if err != nil {
+				return err
+			}
+			target, err := keyConversionTargetFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			encoded, err := key.Marshal(target)
+			if err != nil {
+				return err
+			}
+			return writeKeyBytes(cmd, encoded, "converted key")
+		},
+	}, true)
+	keyConvertCmd.Flags().String(
+		"to",
+		"",
+		"conversion target ("+strings.Join(keyConversionTargetNames(), ", ")+")",
+	)
+	if err := keyConvertCmd.MarkFlagRequired("to"); err != nil {
+		panic(err)
+	}
+	registerFlagCompletion(keyConvertCmd, "to", keyConversionTargetNames)
+	addCommandShape(keyConvertCmd, "key-convert")
+	return keyConvertCmd
+}
 
 func readKey(cmd *cobra.Command) (*asym.Key, error) {
 	data, err := readArtifact(cmd.InOrStdin(), maxKeyArtifactBytes)
@@ -192,10 +211,10 @@ func keyFormatterFromCommand(cmd *cobra.Command) (asym.KeyFormatter, error) {
 }
 
 func validateKeyFlagsBeforeIO(cmd *cobra.Command) error {
-	switch cmd {
-	case keyGenerateCmd:
+	switch {
+	case commandHasShape(cmd, "key-generate"):
 		return validateKeyGenerateFlags(cmd)
-	case keyConvertCmd:
+	case commandHasShape(cmd, "key-convert"):
 		_, err := keyConversionTargetFromCommand(cmd)
 		return err
 	default:
@@ -261,17 +280,4 @@ func validateKeyPublicOutput(cmd *cobra.Command, publicOut string) error {
 		return fmt.Errorf("inspect --public-out %q: %w", publicOut, err)
 	}
 	return nil
-}
-
-func init() {
-	keyCmd.AddCommand(keyPublicCmd, keyInspectCmd, keyConvertCmd)
-	keyConvertCmd.Flags().String(
-		"to",
-		"",
-		"conversion target ("+strings.Join(keyConversionTargetNames(), ", ")+")",
-	)
-	if err := keyConvertCmd.MarkFlagRequired("to"); err != nil {
-		panic(err)
-	}
-	registerFlagCompletion(keyConvertCmd, "to", keyConversionTargetNames)
 }

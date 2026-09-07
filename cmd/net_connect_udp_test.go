@@ -20,6 +20,8 @@ var (
 )
 
 func TestNetConnectUDPFlagContract(t *testing.T) {
+	t.Parallel()
+	netConnectUDPCmd := newNetConnectUDPCmd()
 	if got := netConnectUDPCmd.Flags().Lookup("timeout").DefValue; got != "10s" {
 		t.Fatalf("timeout default = %q, want 10s", got)
 	}
@@ -40,6 +42,7 @@ func TestNetConnectUDPFlagContract(t *testing.T) {
 }
 
 func TestNetConnectUDPRequiresHostAndPort(t *testing.T) {
+	t.Parallel()
 	for _, address := range []string{"53", ":53", "localhost:", "localhost"} {
 		_, _, err := executeRootStreams(t, "net", "connect", "udp", address)
 		if !errors.Is(err, errInvalidHostPort) {
@@ -49,6 +52,7 @@ func TestNetConnectUDPRequiresHostAndPort(t *testing.T) {
 }
 
 func TestNetConnectUDPResponseTimeout(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	requestRead := make(chan error, 1)
 	go func() {
@@ -72,6 +76,7 @@ func TestNetConnectUDPResponseTimeout(t *testing.T) {
 }
 
 func TestNetConnectUDPZeroWaitWaitsIndefinitelyForFirstResponse(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	serverDone := make(chan error, 1)
 	go func() {
@@ -104,6 +109,7 @@ func TestNetConnectUDPZeroWaitWaitsIndefinitelyForFirstResponse(t *testing.T) {
 }
 
 func TestNetConnectUDPExitsAfterFirstResponseDatagram(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	serverDone := make(chan error, 1)
 	go func() {
@@ -136,6 +142,7 @@ func TestNetConnectUDPExitsAfterFirstResponseDatagram(t *testing.T) {
 }
 
 func TestNetConnectUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	requestLength := make(chan int, 1)
 	serverDone := make(chan error, 1)
@@ -172,6 +179,7 @@ func TestNetConnectUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
 }
 
 func TestNetConnectUDPRejectsOversizedInputBeforeSending(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	if err := listener.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatal(err)
@@ -193,12 +201,13 @@ func TestNetConnectUDPRejectsOversizedInputBeforeSending(t *testing.T) {
 }
 
 func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	input, inputWriter := io.Pipe()
 	stderrReader, stderrWriter := io.Pipe()
 	ctx, cancel := context.WithCancel(t.Context())
-	resetCommandFlags(rootCmd)
-	setExampleCommandContext(ctx, rootCmd)
+	rootCmd := newRootCmd()
+	rootCmd.SetContext(ctx)
 	rootCmd.SetArgs([]string{
 		"net", "connect", "udp", listener.LocalAddr().String(),
 		"--verbose",
@@ -217,12 +226,6 @@ func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
 		if err := stderrReader.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 			t.Errorf("close connector stderr: %v", err)
 		}
-		resetCommandFlags(rootCmd)
-		setExampleCommandContext(context.WithoutCancel(t.Context()), rootCmd)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetIn(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
 	})
 	done := make(chan error, 1)
 	go func() {
@@ -266,6 +269,7 @@ func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
 }
 
 func TestExchangeUDPDatagramReturnsOutputFailure(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	serverDone := make(chan error, 1)
 	go func() {
@@ -294,6 +298,7 @@ func TestExchangeUDPDatagramReturnsOutputFailure(t *testing.T) {
 }
 
 func TestWriteUDPConnectionDetailsReturnsOutputFailure(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	connection, err := netconn.DialUDP(t.Context(), listener.LocalAddr().String())
 	if err != nil {

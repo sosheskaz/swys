@@ -8,12 +8,14 @@ import (
 )
 
 func TestCommandTreeConformsToNounVerbGrammar(t *testing.T) {
-	for _, violation := range commandTreeViolations(rootCmd) {
+	t.Parallel()
+	for _, violation := range commandTreeViolations(newRootCmd()) {
 		t.Error(violation)
 	}
 }
 
 func TestCommandTreeRejectsUnclassifiedLeaf(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "root"}
 	group := &cobra.Command{Use: "noun"}
 	group.AddCommand(&cobra.Command{Use: "inspect", Run: func(*cobra.Command, []string) {}})

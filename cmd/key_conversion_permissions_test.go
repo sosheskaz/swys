@@ -15,9 +15,10 @@ import (
 )
 
 func TestKeyConvertOutputPermissions(t *testing.T) {
-	// Root command execution mutates shared flags, so these cases cannot run in parallel.
+	t.Parallel()
 	for _, target := range []string{"pkcs8-pem", "pkcs8-der", "pkcs1-pem", "pkcs1-der", "sec1-pem", "sec1-der", "pkix-pem", "pkix-der", "openssh"} {
 		t.Run(target, func(t *testing.T) {
+			t.Parallel()
 			algorithm := "p256"
 			if strings.HasPrefix(target, "pkcs1-") {
 				algorithm = "rsa2048"
@@ -29,6 +30,7 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 			public := strings.HasPrefix(target, "pkix-") || target == "openssh"
 			for _, scenario := range []string{"new", "secure", "insecure", "override"} {
 				t.Run(scenario, func(t *testing.T) {
+					t.Parallel()
 					if runtime.GOOS == "windows" && scenario == "insecure" {
 						t.Skip("POSIX permission bits do not configure Windows DACLs")
 					}

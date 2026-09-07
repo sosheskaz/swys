@@ -22,6 +22,7 @@ import (
 )
 
 func TestParsePEMCertificates(t *testing.T) {
+	t.Parallel()
 	chain := newTLSCertificateChain(t).Certificate
 	leafPEM := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: chain[0]})
 	rootPEM := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: chain[1]})
@@ -48,6 +49,7 @@ func TestParsePEMCertificates(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			certificates, err := parsePEMCertificates(test.input)
 			if test.name == "malformed DER" {
 				if err == nil || !strings.Contains(err.Error(), "parse PEM certificate") {
@@ -66,6 +68,7 @@ func TestParsePEMCertificates(t *testing.T) {
 }
 
 func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "key.pem")
 	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not a key")})
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -85,6 +88,7 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 }
 
 func TestCertificateFormattersDeclareChainRequirements(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		format        string
 		requiresChain bool
@@ -96,6 +100,7 @@ func TestCertificateFormattersDeclareChainRequirements(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.format, func(t *testing.T) {
+			t.Parallel()
 			formatter, err := getCertFormatter(tt.format)
 			if err != nil {
 				t.Fatal(err)
@@ -107,7 +112,7 @@ func TestCertificateFormattersDeclareChainRequirements(t *testing.T) {
 	}
 }
 
-func TestConnectCommandUsesFormatterChainRequirement(t *testing.T) {
+func TestConnectCommandUsesFormatterChainRequirement(t *testing.T) { //nolint:paralleltest // mutates a package-level formatter or encoding registry
 	server := newChainTLSServer(t)
 	// certFormatters is package-global; do not make this test parallel.
 	tests := []struct {
@@ -118,7 +123,7 @@ func TestConnectCommandUsesFormatterChainRequirement(t *testing.T) {
 		{name: "requires chain", formatter: "fullchain", wantPEMCount: 2},
 		{name: "does not require chain", formatter: "pem", wantPEMCount: 1},
 	}
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest // subtests mutate the shared formatter registry
 		t.Run(tt.name, func(t *testing.T) {
 			formatName := "test-" + strings.ReplaceAll(tt.name, " ", "-")
 			certFormatters[formatName] = certFormatters[tt.formatter]
@@ -139,6 +144,7 @@ func TestConnectCommandUsesFormatterChainRequirement(t *testing.T) {
 }
 
 func TestConnectCommandPreservesEndpointSNI(t *testing.T) {
+	t.Parallel()
 	serverName := make(chan string, 1)
 	server := newChainTLSServerWithClientHello(t, func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 		serverName <- hello.ServerName

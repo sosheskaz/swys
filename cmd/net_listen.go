@@ -17,42 +17,71 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
 
-var netListenCmd = &cobra.Command{
-	Use:   "listen",
-	Short: "Listen for one incoming connection",
+func newNetListenCmd() *cobra.Command {
+	netListenCmd := &cobra.Command{
+		Use:   "listen",
+		Short: "Listen for one incoming connection",
+	}
+	netListenCmd.AddCommand(newNetListenTCPCmd(), newNetListenTLSCmd(), newNetListenUDPCmd())
+	return netListenCmd
 }
 
-var netListenTCPCmd = binaryOutputCommand(listenStreamNetworkCommand(&cobra.Command{
-	Use:   "tcp [host:]port",
-	Short: "Exchange raw bytes over one accepted TCP connection",
-	RunE:  runNetListenTCP,
-}), true)
+func newNetListenTCPCmd() *cobra.Command {
+	netListenTCPCmd := binaryOutputCommand(listenStreamNetworkCommand(&cobra.Command{
+		Use:   "tcp [host:]port",
+		Short: "Exchange raw bytes over one accepted TCP connection",
+		RunE:  runNetListenTCP,
+	}), true)
+	return netListenTCPCmd
+}
 
-var netListenUDPCmd = binaryOutputCommand(listenDatagramNetworkCommand(&cobra.Command{
-	Use:   "udp [host:]port",
-	Short: "Exchange one raw UDP request and response datagram",
-	Long: `Exchange exactly one request and one response datagram over UDP.
+func newNetListenUDPCmd() *cobra.Command {
+	netListenUDPCmd := binaryOutputCommand(listenDatagramNetworkCommand(&cobra.Command{
+		Use:   "udp [host:]port",
+		Short: "Exchange one raw UDP request and response datagram",
+		Long: `Exchange exactly one request and one response datagram over UDP.
 
 The listener writes the first received datagram to stdout or --output. Decoded
 stdin or --input then becomes one response datagram to that same peer, including
 when the response is empty. Response input must reach EOF before it is sent;
 pressing Enter alone does not send it. Omit the host to bind all available local
 IPv4 and IPv6 addresses.`,
-	RunE: runNetListenUDP,
-}), true)
+		RunE: runNetListenUDP,
+	}), true)
+	return netListenUDPCmd
+}
 
-var netListenTLSCmd = binaryOutputCommand(listenTLSStreamNetworkCommand(&cobra.Command{
-	Use:   "tls [host:]port",
-	Short: "Exchange raw bytes over one accepted TLS connection",
-	Long: `Exchange raw application bytes over one accepted TLS connection.
+func newNetListenTLSCmd() *cobra.Command {
+	netListenTLSCmd := binaryOutputCommand(listenTLSStreamNetworkCommand(&cobra.Command{
+		Use:   "tls [host:]port",
+		Short: "Exchange raw bytes over one accepted TLS connection",
+		Long: `Exchange raw application bytes over one accepted TLS connection.
 
 --cert and --key provide the required server identity. Supplying --ca requires
 and verifies a client certificate; add --system-ca to combine the supplied
 bundle with system roots. No ALPN protocols are advertised by default. Omit
 the host by passing only the numeric port to listen on all available local
 IPv4 and IPv6 addresses.`,
-	RunE: runNetListenTLS,
-}), true)
+		RunE: runNetListenTLS,
+	}), true)
+	netListenTLSCmd.Flags().String(tlsCertFlagName, "", "server certificate chain PEM path")
+	netListenTLSCmd.Flags().String(tlsKeyFlagName, "", "server private key path")
+	netListenTLSCmd.Flags().String(tlsCAFlagName, "", "client CA certificate bundle PEM path")
+	netListenTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
+	netListenTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
+	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
+		if err := netListenTLSCmd.MarkFlagFilename(name); err != nil {
+			panic(err)
+		}
+	}
+	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName} {
+		if err := netListenTLSCmd.MarkFlagRequired(name); err != nil {
+			panic(err)
+		}
+	}
+	addCommandShape(netListenTLSCmd, "net-listen-tls")
+	return netListenTLSCmd
+}
 
 func runNetListenTCP(cmd *cobra.Command, args []string) error {
 	options, err := networkStreamOptionsFromCommand(cmd)
@@ -374,25 +403,4 @@ func writeTLSAcceptedDetails(output io.Writer, connection *tls.Conn) error {
 func escapeNetworkDiagnosticValue(value string) string {
 	quoted := strconv.Quote(value)
 	return quoted[1 : len(quoted)-1]
-}
-
-func init() {
-	netCmd.AddCommand(netListenCmd)
-	netListenCmd.AddCommand(netListenTCPCmd, netListenTLSCmd, netListenUDPCmd)
-
-	netListenTLSCmd.Flags().String(tlsCertFlagName, "", "server certificate chain PEM path")
-	netListenTLSCmd.Flags().String(tlsKeyFlagName, "", "server private key path")
-	netListenTLSCmd.Flags().String(tlsCAFlagName, "", "client CA certificate bundle PEM path")
-	netListenTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
-	netListenTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
-	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
-		if err := netListenTLSCmd.MarkFlagFilename(name); err != nil {
-			panic(err)
-		}
-	}
-	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName} {
-		if err := netListenTLSCmd.MarkFlagRequired(name); err != nil {
-			panic(err)
-		}
-	}
 }

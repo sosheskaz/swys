@@ -25,10 +25,11 @@ const (
 	maxCertificateDays      = int((time.Duration(1<<63 - 1)) / (24 * time.Hour))
 )
 
-var certCreateCmd = binaryOutputCommand(&cobra.Command{
-	Use:   "create",
-	Short: "Create a test or development X.509 certificate",
-	Long: `Create a minimum-viable X.509 certificate for test and development use.
+func newCertCreateCmd() *cobra.Command {
+	certCreateCmd := binaryOutputCommand(&cobra.Command{
+		Use:   "create",
+		Short: "Create a test or development X.509 certificate",
+		Long: `Create a minimum-viable X.509 certificate for test and development use.
 
 The default is a self-signed leaf valid for 30 days. Leaf subjects default to
 the first --dns value, or CN=localhost. A server-capable leaf with no DNS/IP
@@ -41,21 +42,50 @@ material, including a key created with npc key generate.
 
 npc never installs generated authorities into a trust store. Trust a generated
 CA only in an explicitly selected test store, never system-wide.`,
-	Args: cobra.NoArgs,
-	RunE: runCertCreate,
-}, true)
+		Args: cobra.NoArgs,
+		RunE: runCertCreate,
+	}, true)
+	addCertificateIdentityFlags(certCreateCmd)
+	certCreateCmd.Flags().Bool("ca", false, "create a self-signed test certificate authority")
+	certCreateCmd.Flags().Int("days", 0, "validity in days (default 30 for leaves, 365 for CAs)")
+	certCreateCmd.Flags().String("issuer-cert", "", "issuer certificate path, or - for stdin")
+	certCreateCmd.Flags().String("issuer-key", "", "issuer private key path, or - for stdin")
+	certCreateCmd.Flags().Bool("server-only", false, "include only the TLS server-authentication usage")
+	certCreateCmd.Flags().Bool("client-only", false, "include only the TLS client-authentication usage")
+	for _, name := range []string{"issuer-cert", "issuer-key"} {
+		if err := certCreateCmd.MarkFlagFilename(name); err != nil {
+			panic(err)
+		}
+	}
+	if err := certCreateCmd.MarkFlagRequired("key"); err != nil {
+		panic(err)
+	}
+	certCreateCmd.MarkFlagsRequiredTogether("issuer-cert", "issuer-key")
+	certCreateCmd.MarkFlagsMutuallyExclusive("server-only", "client-only")
 
-var certCSRCmd = binaryOutputCommand(&cobra.Command{
-	Use:   "csr",
-	Short: "Create a PKCS #10 certificate signing request",
-	Long: `Create a minimal PKCS #10 certificate signing request from an existing
+	addCommandShape(certCreateCmd, "cert-create")
+	return certCreateCmd
+}
+
+func newCertCSRCmd() *cobra.Command {
+	certCSRCmd := binaryOutputCommand(&cobra.Command{
+		Use:   "csr",
+		Short: "Create a PKCS #10 certificate signing request",
+		Long: `Create a minimal PKCS #10 certificate signing request from an existing
 private key. The request contains only its subject and requested DNS/IP SANs.
 Its subject defaults to the first --dns value, or CN=localhost; with no subject
 or SAN flags, localhost is also added as a DNS SAN. npc does not sign CSRs;
 submit the emitted request to the intended CA.`,
-	Args: cobra.NoArgs,
-	RunE: runCertCSR,
-}, true)
+		Args: cobra.NoArgs,
+		RunE: runCertCSR,
+	}, true)
+	addCertificateIdentityFlags(certCSRCmd)
+	if err := certCSRCmd.MarkFlagRequired("key"); err != nil {
+		panic(err)
+	}
+	addCommandShape(certCSRCmd, "cert-csr")
+	return certCSRCmd
+}
 
 func runCertCreate(cmd *cobra.Command, _ []string) error {
 	options, err := certificateOptionsFromCommand(cmd)
@@ -159,8 +189,8 @@ func runCertCSR(cmd *cobra.Command, _ []string) error {
 }
 
 func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
-	switch cmd {
-	case certCreateCmd:
+	switch {
+	case commandHasShape(cmd, "cert-create"):
 		if _, err := certificateOptionsFromCommand(cmd); err != nil {
 			return err
 		}
@@ -174,7 +204,7 @@ func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 			return err
 		}
 		return validateCertificatePaths(cmd, "key", "issuer-cert", "issuer-key")
-	case certCSRCmd:
+	case commandHasShape(cmd, "cert-csr"):
 		if _, err := certificateRequestOptionsFromCommand(cmd); err != nil {
 			return err
 		}
@@ -606,33 +636,6 @@ func addCertificateIdentityFlags(command *cobra.Command) {
 	command.Flags().StringArray("ip", nil, "IP subject alternative name (repeatable)")
 	command.Flags().String("key", "", "existing private key path, or - for stdin")
 	if err := command.MarkFlagFilename("key"); err != nil {
-		panic(err)
-	}
-}
-
-func init() {
-	certCmd.AddCommand(certCreateCmd, certCSRCmd)
-
-	addCertificateIdentityFlags(certCreateCmd)
-	certCreateCmd.Flags().Bool("ca", false, "create a self-signed test certificate authority")
-	certCreateCmd.Flags().Int("days", 0, "validity in days (default 30 for leaves, 365 for CAs)")
-	certCreateCmd.Flags().String("issuer-cert", "", "issuer certificate path, or - for stdin")
-	certCreateCmd.Flags().String("issuer-key", "", "issuer private key path, or - for stdin")
-	certCreateCmd.Flags().Bool("server-only", false, "include only the TLS server-authentication usage")
-	certCreateCmd.Flags().Bool("client-only", false, "include only the TLS client-authentication usage")
-	for _, name := range []string{"issuer-cert", "issuer-key"} {
-		if err := certCreateCmd.MarkFlagFilename(name); err != nil {
-			panic(err)
-		}
-	}
-	if err := certCreateCmd.MarkFlagRequired("key"); err != nil {
-		panic(err)
-	}
-	certCreateCmd.MarkFlagsRequiredTogether("issuer-cert", "issuer-key")
-	certCreateCmd.MarkFlagsMutuallyExclusive("server-only", "client-only")
-
-	addCertificateIdentityFlags(certCSRCmd)
-	if err := certCSRCmd.MarkFlagRequired("key"); err != nil {
 		panic(err)
 	}
 }

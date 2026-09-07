@@ -13,6 +13,7 @@ import (
 )
 
 func TestCertificatePEMEscapesVerificationDiagnostics(t *testing.T) {
+	t.Parallel()
 	info := &asym.CertInfo{RawDER: newTLSCertificateChain(t).Certificate[0], VerifyError: "bad\x1b[2J\r\nname"}
 	var output, diagnostics bytes.Buffer
 	command := &cobra.Command{}
@@ -31,6 +32,7 @@ func TestCertificatePEMEscapesVerificationDiagnostics(t *testing.T) {
 }
 
 func TestCertificateInspectEscapesCommonName(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
 	certPath := filepath.Join(dir, "cert.pem")

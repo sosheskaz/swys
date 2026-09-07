@@ -17,44 +17,65 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/version"
 )
 
-var rootCmd = &cobra.Command{
-	Use:           "npc",
-	Version:       version.Get().String(),
-	SilenceErrors: true,
-	SilenceUsage:  true,
-	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-		if commandHasShape(cmd, compatibilityShape) && !compatibilityAliasInvoked(cmd) {
+func newRootCmd() *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:           "npc",
+		Version:       version.Get().String(),
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if commandHasShape(cmd, compatibilityShape) && !compatibilityAliasInvoked(cmd) {
+				return nil
+			}
+			if err := cmd.ValidateRequiredFlags(); err != nil {
+				return fmt.Errorf("validate required flags: %w", err)
+			}
+			if err := cmd.ValidateFlagGroups(); err != nil {
+				return fmt.Errorf("validate flag groups: %w", err)
+			}
+			if err := validateAESFlagsBeforeIO(cmd); err != nil {
+				return fmt.Errorf("validate AES flags: %w", err)
+			}
+			if err := validateKeyFlagsBeforeIO(cmd); err != nil {
+				return fmt.Errorf("validate key flags: %w", err)
+			}
+			if err := validateCertFlagsBeforeIO(cmd); err != nil {
+				return fmt.Errorf("validate certificate flags: %w", err)
+			}
+			if err := validateNetFlagsBeforeIO(cmd); err != nil {
+				return fmt.Errorf("validate network flags: %w", err)
+			}
+			cleanup, err := configureIO(cmd)
+			if err != nil {
+				return err
+			}
+			originalContext := cmd.Context()
+			state := &commandIO{cleanup: func() error {
+				defer cmd.SetContext(originalContext)
+				return cleanup()
+			}}
+			cmd.SetContext(context.WithValue(originalContext, commandIOKey{}, state))
 			return nil
-		}
-		if err := cmd.ValidateRequiredFlags(); err != nil {
-			return fmt.Errorf("validate required flags: %w", err)
-		}
-		if err := cmd.ValidateFlagGroups(); err != nil {
-			return fmt.Errorf("validate flag groups: %w", err)
-		}
-		if err := validateAESFlagsBeforeIO(cmd); err != nil {
-			return fmt.Errorf("validate AES flags: %w", err)
-		}
-		if err := validateKeyFlagsBeforeIO(cmd); err != nil {
-			return fmt.Errorf("validate key flags: %w", err)
-		}
-		if err := validateCertFlagsBeforeIO(cmd); err != nil {
-			return fmt.Errorf("validate certificate flags: %w", err)
-		}
-		if err := validateNetFlagsBeforeIO(cmd); err != nil {
-			return fmt.Errorf("validate network flags: %w", err)
-		}
-		cleanup, err := configureIO(cmd)
-		if err != nil {
-			return err
-		}
-		state := &commandIO{cleanup: cleanup}
-		cmd.SetContext(context.WithValue(cmd.Context(), commandIOKey{}, state))
-		return nil
-	},
-	PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
-		return closeCommandIO(cmd)
-	},
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
+			return closeCommandIO(cmd)
+		},
+	}
+	rootCmd.PersistentFlags().StringP("input", "i", "", "redirect stdin from this file")
+	if err := rootCmd.MarkPersistentFlagFilename("input"); err != nil {
+		panic(err)
+	}
+	rootCmd.PersistentFlags().StringP("output", "o", "", "redirect stdout to this file")
+	if err := rootCmd.MarkPersistentFlagFilename("output"); err != nil {
+		panic(err)
+	}
+	rootCmd.PersistentFlags().String(
+		"mode",
+		"",
+		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
+	)
+	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newNetCmd())
+	return rootCmd
 }
 
 type commandIOKey struct{}
@@ -79,7 +100,11 @@ func (state *commandIO) close() error {
 
 // Execute runs the root command.
 func Execute() error {
-	command, runErr := rootCmd.ExecuteC()
+	return executeCommand(newRootCmd())
+}
+
+func executeCommand(root *cobra.Command) error {
+	command, runErr := root.ExecuteC()
 	if err := errors.Join(runErr, closeCommandIO(command)); err != nil {
 		return fmt.Errorf("execute command: %w", err)
 	}
@@ -267,7 +292,7 @@ func commandOutputOptionsFromCommand(cmd *cobra.Command) (commandOutputOptions, 
 
 func commandOutputOptionsForOS(cmd *cobra.Command, goos string) (commandOutputOptions, error) {
 	options := commandOutputOptions{sensitive: commandHasShape(cmd, sensitiveOutputShape)}
-	if cmd == keyConvertCmd {
+	if commandHasShape(cmd, "key-convert") {
 		target, err := keyConversionTargetFromCommand(cmd)
 		if err != nil {
 			return commandOutputOptions{}, err
@@ -354,18 +379,4 @@ func init() {
 	// --output, and encoding. Traversal makes the root I/O lifecycle
 	// unshadowable: root's hooks run first inbound and last outbound.
 	cobra.EnableTraverseRunHooks = true
-
-	rootCmd.PersistentFlags().StringP("input", "i", "", "redirect stdin from this file")
-	if err := rootCmd.MarkPersistentFlagFilename("input"); err != nil {
-		panic(err)
-	}
-	rootCmd.PersistentFlags().StringP("output", "o", "", "redirect stdout to this file")
-	if err := rootCmd.MarkPersistentFlagFilename("output"); err != nil {
-		panic(err)
-	}
-	rootCmd.PersistentFlags().String(
-		"mode",
-		"",
-		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
-	)
 }

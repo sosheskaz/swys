@@ -12,8 +12,10 @@ import (
 var errTestWriteFailed = errors.New("write failed")
 
 func TestInputDecoders(t *testing.T) {
+	t.Parallel()
 	for _, name := range byteEncodingNames() {
 		t.Run(name+"/empty", func(t *testing.T) {
+			t.Parallel()
 			decoder, err := getInputDecoder(name)
 			if err != nil {
 				t.Fatal(err)
@@ -61,6 +63,7 @@ func TestInputDecoders(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			decoder, err := getInputDecoder(test.encoding)
 			if err != nil {
 				t.Fatal(err)
@@ -86,9 +89,11 @@ func TestInputDecoders(t *testing.T) {
 }
 
 func TestOutputEncodersPropagateWriterFailures(t *testing.T) {
+	t.Parallel()
 	writeErr := errTestWriteFailed
 	for _, name := range byteEncodingNames() {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			encoder, err := getOutputEncoder(name)
 			if err != nil {
 				t.Fatal(err)
@@ -106,6 +111,7 @@ func TestOutputEncodersPropagateWriterFailures(t *testing.T) {
 }
 
 func TestBase64URLValidationErrorOmitsEOF(t *testing.T) {
+	t.Parallel()
 	decoder, err := getInputDecoder("base64url")
 	if err != nil {
 		t.Fatal(err)
@@ -120,6 +126,7 @@ func TestBase64URLValidationErrorOmitsEOF(t *testing.T) {
 }
 
 func TestNewlineStrippingReaderDoesNotReturnZeroWithoutError(t *testing.T) {
+	t.Parallel()
 	source := &sequenceReader{chunks: [][]byte{[]byte("\r\n\r\n"), []byte("ab")}}
 	reader := stripNewlines(source)
 	buffer := make([]byte, 8)
@@ -156,6 +163,7 @@ func (r *sequenceReader) Read(buffer []byte) (int, error) {
 }
 
 func TestOptionalPaddingReaderErrorIsSticky(t *testing.T) {
+	t.Parallel()
 	reader := &optionalPaddingReader{source: strings.NewReader("YWJ=Z")}
 	buffer := make([]byte, 8)
 

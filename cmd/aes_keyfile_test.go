@@ -10,9 +10,8 @@ import (
 	"testing"
 )
 
-func TestAESRejectsKeyfileOutputCollisions(t *testing.T) {
-	// executeRoot mutates the shared command tree; these cases must remain serial.
-	for _, leaf := range []string{"encrypt", "decrypt"} {
+func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest // literal-dash cases change the process working directory
+	for _, leaf := range []string{"encrypt", "decrypt"} { //nolint:paralleltest // literal-dash subtests call t.Chdir
 		for _, alias := range []string{"same path", "symlink", "hard link", "literal dash"} {
 			t.Run(leaf+"/"+alias, func(t *testing.T) {
 				dir := t.TempDir()
@@ -61,6 +60,7 @@ func TestAESRejectsKeyfileOutputCollisions(t *testing.T) {
 }
 
 func TestAESKeyfileRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	keyfile := filepath.Join(dir, "key")
 	encrypted := filepath.Join(dir, "encrypted")
@@ -80,6 +80,7 @@ func TestAESKeyfileRoundTrip(t *testing.T) {
 }
 
 func TestAESKeyfilePathErrorPreservesOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	parent := filepath.Join(dir, "parent")
 	if err := os.WriteFile(parent, nil, 0o600); err != nil {

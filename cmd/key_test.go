@@ -24,6 +24,7 @@ import (
 var errKeyTestReadFailed = errors.New("read failed")
 
 func TestKeyGenerateAlgorithms(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		algorithm string
@@ -44,6 +45,7 @@ func TestKeyGenerateAlgorithms(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			args := []string{"key", "generate", test.algorithm}
 			stdout, stderr, err := executeRootStreams(t, args...)
 			if err != nil {
@@ -74,6 +76,7 @@ func TestKeyGenerateAlgorithms(t *testing.T) {
 }
 
 func TestKeyGenerateWritesMatchingPublicSidecars(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		format string
@@ -84,6 +87,7 @@ func TestKeyGenerateWritesMatchingPublicSidecars(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			privatePath := filepath.Join(dir, "private.pem")
 			publicPath := filepath.Join(dir, "public.key")
@@ -147,6 +151,7 @@ func TestKeyGenerateWritesMatchingPublicSidecars(t *testing.T) {
 }
 
 func TestKeyGenerateAllowsPrivateStdoutWithPublicSidecar(t *testing.T) {
+	t.Parallel()
 	publicPath := filepath.Join(t.TempDir(), "public.pem")
 	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256", "--public-out", publicPath)
 	if err != nil {
@@ -167,6 +172,7 @@ func TestKeyGenerateAllowsPrivateStdoutWithPublicSidecar(t *testing.T) {
 }
 
 func TestKeyGenerateRejectsInvalidPublicSidecarFlagsBeforeOpeningOutputs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		args []string
@@ -180,6 +186,7 @@ func TestKeyGenerateRejectsInvalidPublicSidecarFlagsBeforeOpeningOutputs(t *test
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			privatePath := filepath.Join(dir, "private.pem")
 			if err := os.WriteFile(privatePath, []byte("preserve"), 0o600); err != nil {
@@ -201,8 +208,10 @@ func TestKeyGenerateRejectsInvalidPublicSidecarFlagsBeforeOpeningOutputs(t *test
 }
 
 func TestKeyGenerateRejectsPublicOutputAliasesBeforeOpeningEither(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	t.Run("direct", func(t *testing.T) {
+		t.Parallel()
 		path := filepath.Join(dir, "direct.pem")
 		_, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", path, "--public-out", path)
 		if !errors.Is(err, errKeyOutputCollision) {
@@ -214,6 +223,7 @@ func TestKeyGenerateRejectsPublicOutputAliasesBeforeOpeningEither(t *testing.T) 
 	})
 
 	t.Run("hardlink", func(t *testing.T) {
+		t.Parallel()
 		privatePath := filepath.Join(dir, "hard-private.pem")
 		publicPath := filepath.Join(dir, "hard-public.pem")
 		if err := os.WriteFile(privatePath, []byte("preserve"), 0o600); err != nil {
@@ -233,6 +243,7 @@ func TestKeyGenerateRejectsPublicOutputAliasesBeforeOpeningEither(t *testing.T) 
 	})
 
 	t.Run("dangling symlink", func(t *testing.T) {
+		t.Parallel()
 		if runtime.GOOS == "windows" {
 			t.Skip("symlink creation requires privileges on some Windows configurations")
 		}
@@ -252,6 +263,7 @@ func TestKeyGenerateRejectsPublicOutputAliasesBeforeOpeningEither(t *testing.T) 
 }
 
 func TestKeyGeneratePublicSidecarUsesOrdinaryOverwriteSemantics(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	privatePath := filepath.Join(dir, "private.pem")
 	publicPath := filepath.Join(dir, "public.pem")
@@ -284,6 +296,7 @@ func TestKeyGeneratePublicSidecarUsesOrdinaryOverwriteSemantics(t *testing.T) {
 }
 
 func TestKeyGenerateRetainsPrivateOutputWhenPublicWriteFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	privatePath := filepath.Join(dir, "private.pem")
 	publicPath := filepath.Join(dir, "missing", "public.pem")
@@ -301,6 +314,7 @@ func TestKeyGenerateRetainsPrivateOutputWhenPublicWriteFails(t *testing.T) {
 }
 
 func TestKeyGenerateAcceptsLongAlgorithmNames(t *testing.T) {
+	t.Parallel()
 	tests := map[string]string{
 		"aes128":  "aes-128",
 		"aes192":  "aes-192",
@@ -326,15 +340,16 @@ func TestKeyGenerateAcceptsLongAlgorithmNames(t *testing.T) {
 }
 
 func TestKeyCommandAliasesCompose(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		command *cobra.Command
 		want    []string
 	}{
-		{command: keyCmd, want: []string{"k"}},
-		{command: keyGenerateCmd, want: []string{"gen", "g"}},
-		{command: keyPublicCmd, want: []string{"pub", "p"}},
-		{command: keyInspectCmd, want: []string{"ins", "i"}},
-		{command: keyConvertCmd, want: []string{"conv", "c"}},
+		{command: newKeyCmd(), want: []string{"k"}},
+		{command: newKeyGenerateCmd(), want: []string{"gen", "g"}},
+		{command: newKeyPublicCmd(), want: []string{"pub", "p"}},
+		{command: newKeyInspectCmd(), want: []string{"ins", "i"}},
+		{command: newKeyConvertCmd(), want: []string{"conv", "c"}},
 	}
 	for _, test := range tests {
 		if !slices.Equal(test.command.Aliases, test.want) {
@@ -377,6 +392,7 @@ func TestKeyCommandAliasesCompose(t *testing.T) {
 }
 
 func TestKeyGenerateRemovesBitsAndPreservesLegacyAESAlias(t *testing.T) {
+	t.Parallel()
 	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--bits", "256"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("canonical --bits error = %v, want unknown flag", err)
 	}
@@ -400,12 +416,13 @@ func TestKeyGenerateRemovesBitsAndPreservesLegacyAESAlias(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("invalid legacy bits warning = %q, want empty", stderr)
 	}
-	if !genkeyCmd.Hidden {
+	if !newGenkeyCmd().Hidden {
 		t.Fatal("aes genkey must remain hidden")
 	}
 }
 
 func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
+	t.Parallel()
 	privatePEM, _, err := executeRootStreams(t, "key", "generate", "ed25519")
 	if err != nil {
 		t.Fatal(err)
@@ -462,6 +479,7 @@ func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
 }
 
 func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
+	t.Parallel()
 	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256")
 	if err != nil {
 		t.Fatal(err)
@@ -517,15 +535,16 @@ func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
 }
 
 func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
-	if !strings.Contains(keyGenerateCmd.Long, "p256: ECDSA key on NIST P-256 (long: ecdsa-p256)") {
-		t.Fatalf("key generate help = %q, want descriptive P-256 entry", keyGenerateCmd.Long)
+	t.Parallel()
+	if !strings.Contains(newKeyGenerateCmd().Long, "p256: ECDSA key on NIST P-256 (long: ecdsa-p256)") {
+		t.Fatalf("key generate help = %q, want descriptive P-256 entry", newKeyGenerateCmd().Long)
 	}
-	assertPositionalCompletionContains(t, keyGenerateCmd, "ed25519")
-	assertPositionalCompletionContains(t, keyGenerateCmd, "ecdsa-p256")
-	assertFlagCompletionContains(t, keyGenerateCmd, "public-format", "openssh")
-	assertFlagCompletionContains(t, keyConvertCmd, "to", "openssh")
-	assertFlagCompletionContains(t, keyInspectCmd, formatFlagName, "json")
-	assertFlagCompletionContains(t, keyInspectCmd, inputEncodingFlagName, "base64")
+	assertPositionalCompletionContains(t, newKeyGenerateCmd(), "ed25519")
+	assertPositionalCompletionContains(t, newKeyGenerateCmd(), "ecdsa-p256")
+	assertFlagCompletionContains(t, newKeyGenerateCmd(), "public-format", "openssh")
+	assertFlagCompletionContains(t, newKeyConvertCmd(), "to", "openssh")
+	assertFlagCompletionContains(t, newKeyInspectCmd(), formatFlagName, "json")
+	assertFlagCompletionContains(t, newKeyInspectCmd(), inputEncodingFlagName, "base64")
 
 	_, _, err := executeRootStreams(t, "key", "generate", "missing")
 	if !errors.Is(err, errUnknownKeyAlgorithm) || !strings.Contains(err.Error(), "rsa4096") {
@@ -545,6 +564,7 @@ func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
 }
 
 func TestKeyEnumValidationPrecedesOutputOpen(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{
 		{"key", "generate", "missing"},
 		{"key", "convert", "--to", "missing"},
@@ -568,6 +588,7 @@ func TestKeyEnumValidationPrecedesOutputOpen(t *testing.T) {
 }
 
 func TestKeyGenerateOutputUsesPrivatePermissions(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "private.pem")
 	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", path); err != nil {
 		t.Fatal(err)
@@ -576,12 +597,13 @@ func TestKeyGenerateOutputUsesPrivatePermissions(t *testing.T) {
 }
 
 func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
-	for _, command := range []*cobra.Command{keyGenerateCmd, genkeyCmd} {
+	t.Parallel()
+	for _, command := range []*cobra.Command{newKeyGenerateCmd(), newGenkeyCmd()} {
 		if !commandHasShape(command, sensitiveOutputShape) {
 			t.Fatalf("%s is not marked as sensitive output", command.CommandPath())
 		}
 	}
-	for _, command := range []*cobra.Command{keyPublicCmd, keyInspectCmd, keyConvertCmd, certCreateCmd, certCSRCmd} {
+	for _, command := range []*cobra.Command{newKeyPublicCmd(), newKeyInspectCmd(), newKeyConvertCmd(), newCertCreateCmd(), newCertCSRCmd()} {
 		if commandHasShape(command, sensitiveOutputShape) {
 			t.Fatalf("%s is unexpectedly marked as sensitive output", command.CommandPath())
 		}
@@ -589,6 +611,7 @@ func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
 }
 
 func TestKeyCommandsRejectCertificateInput(t *testing.T) {
+	t.Parallel()
 	certificate := newTLSCertificateChain(t).Certificate[0]
 	path := filepath.Join(t.TempDir(), "certificate.pem")
 	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate})
@@ -607,6 +630,7 @@ func TestKeyCommandsRejectCertificateInput(t *testing.T) {
 }
 
 func TestReadAndWriteKeyBytesPreserveIOErrors(t *testing.T) {
+	t.Parallel()
 	readCommand := &cobra.Command{}
 	readCommand.SetIn(keyFailingReader{err: errKeyTestReadFailed})
 	if _, err := readKey(readCommand); !errors.Is(err, errKeyTestReadFailed) {

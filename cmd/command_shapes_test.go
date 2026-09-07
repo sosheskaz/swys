@@ -9,6 +9,7 @@ import (
 )
 
 func TestNetworkCommandPanicsWhenWrappedCommandUsesRunInsteadOfRunE(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		recovered := recover()
 		if recovered == nil {
@@ -27,6 +28,7 @@ func TestNetworkCommandPanicsWhenWrappedCommandUsesRunInsteadOfRunE(t *testing.T
 }
 
 func TestCommandInputTreatsMissingInputEncodingFlagAsRaw(t *testing.T) {
+	t.Parallel()
 	command := &cobra.Command{Use: "no-input-encoding-test"}
 	input, err := commandInput(command, []string{"plain", "text"})
 	if err != nil {

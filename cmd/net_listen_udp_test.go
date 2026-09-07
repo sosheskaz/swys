@@ -17,6 +17,8 @@ import (
 )
 
 func TestNetListenUDPFlagAndAddressContract(t *testing.T) {
+	t.Parallel()
+	netListenUDPCmd := newNetListenUDPCmd()
 	if got := netListenUDPCmd.Flags().Lookup("timeout").DefValue; got != "0s" {
 		t.Fatalf("timeout default = %q, want 0s", got)
 	}
@@ -45,6 +47,7 @@ func TestNetListenUDPFlagAndAddressContract(t *testing.T) {
 }
 
 func TestNetListenUDPPositiveFirstDatagramTimeoutClosesSocket(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("response"),
@@ -71,6 +74,7 @@ func TestNetListenUDPPositiveFirstDatagramTimeoutClosesSocket(t *testing.T) {
 }
 
 func TestNetListenUDPAcceptsColonPortCompatibility(t *testing.T) {
+	t.Parallel()
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", "udp", ":0",
@@ -82,6 +86,7 @@ func TestNetListenUDPAcceptsColonPortCompatibility(t *testing.T) {
 }
 
 func TestNetListenUDPIPv6Loopback(t *testing.T) {
+	t.Parallel()
 	probe, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.ParseIP("::1")})
 	if err != nil {
 		t.Skipf("IPv6 loopback unavailable: %v", err)
@@ -130,6 +135,7 @@ func TestNetListenUDPIPv6Loopback(t *testing.T) {
 }
 
 func TestNetListenUDPBindFailure(t *testing.T) {
+	t.Parallel()
 	occupied := listenUDPTest(t)
 	_, _, err := executeRootStreams(
 		t,
@@ -142,6 +148,7 @@ func TestNetListenUDPBindFailure(t *testing.T) {
 }
 
 func TestNetListenUDPRelaysEncodedDatagrams(t *testing.T) {
+	t.Parallel()
 	response := base64.StdEncoding.EncodeToString([]byte("listener response"))
 	run := startExampleListenCommand(
 		t,
@@ -179,6 +186,7 @@ func TestNetListenUDPRelaysEncodedDatagrams(t *testing.T) {
 }
 
 func TestNetListenUDPFinalizesEncodedRequestBeforeReadingResponse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		encoding string
 		want     string
@@ -188,6 +196,7 @@ func TestNetListenUDPFinalizesEncodedRequestBeforeReadingResponse(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.encoding, func(t *testing.T) {
+			t.Parallel()
 			responseReader, responseWriter := io.Pipe()
 			t.Cleanup(func() {
 				if err := responseReader.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
@@ -239,6 +248,7 @@ func TestNetListenUDPFinalizesEncodedRequestBeforeReadingResponse(t *testing.T) 
 }
 
 func TestNetListenUDPCancellationWhileReadingResponseClosesSocket(t *testing.T) {
+	t.Parallel()
 	responseReader, responseWriter := io.Pipe()
 	t.Cleanup(func() {
 		if err := responseReader.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
@@ -291,6 +301,7 @@ func TestNetListenUDPCancellationWhileReadingResponseClosesSocket(t *testing.T) 
 }
 
 func TestNetListenUDPTimeoutOnlyCoversSetupAndFirstDatagram(t *testing.T) {
+	t.Parallel()
 	responseReader, responseWriter := io.Pipe()
 	t.Cleanup(func() {
 		if err := responseReader.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
@@ -338,6 +349,7 @@ func TestNetListenUDPTimeoutOnlyCoversSetupAndFirstDatagram(t *testing.T) {
 }
 
 func TestNetListenUDPRespondsOnlyToFirstPeer(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("response"),
@@ -382,6 +394,7 @@ func TestNetListenUDPRespondsOnlyToFirstPeer(t *testing.T) {
 }
 
 func TestNetListenUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
@@ -412,6 +425,7 @@ func TestNetListenUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
 }
 
 func TestNetListenUDPRejectsOversizedResponseWithoutSending(t *testing.T) {
+	t.Parallel()
 	run := startExampleListenCommand(
 		t,
 		bytes.NewReader(make([]byte, netconn.MaxUDPPayloadSize+1)),
@@ -438,6 +452,7 @@ func TestNetListenUDPRejectsOversizedResponseWithoutSending(t *testing.T) {
 }
 
 func TestRespondUDPDatagramReturnsOutputFailureBeforeSending(t *testing.T) {
+	t.Parallel()
 	want := errUDPTestOutput
 	err := respondUDPDatagram(
 		t.Context(),
@@ -453,6 +468,7 @@ func TestRespondUDPDatagramReturnsOutputFailureBeforeSending(t *testing.T) {
 }
 
 func TestUDPListenerDiagnosticsReturnOutputFailures(t *testing.T) {
+	t.Parallel()
 	listener := listenUDPTest(t)
 	if err := writeUDPListeningDetails(failingWriter{err: errUDPTestDiagnostic}, listener); !errors.Is(err, errUDPTestDiagnostic) {
 		t.Fatalf("listening diagnostic error = %v, want output failure", err)
