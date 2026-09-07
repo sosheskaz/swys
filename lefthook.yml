@@ -37,7 +37,7 @@ pre-commit:
       run: mise exec -- taplo lint {staged_files}
 
     - name: shfmt
-      glob: "{mise-tasks/**,.mise/tasks/**,**/*.sh}"
+      glob: "{.mise/tasks/**,**/*.sh}"
       run: mise exec -- shfmt -d {staged_files}
 
     # SHELLCHECK_FORMAT is a repo-local variable (default: shellcheck's tty
@@ -45,7 +45,7 @@ pre-commit:
     # like SHELLCHECK_OPTS would leak into actionlint's embedded shellcheck,
     # which requires JSON output.
     - name: shellcheck
-      glob: "{mise-tasks/**,.mise/tasks/**,**/*.sh}"
+      glob: "{.mise/tasks/**,**/*.sh}"
       run: mise exec -- shellcheck -f "${SHELLCHECK_FORMAT:-tty}" -S error {staged_files}
 
     - name: yamllint

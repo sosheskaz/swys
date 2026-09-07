@@ -1,6 +1,6 @@
 # Tool and task definitions for npc. CI installs these same pins via
 # jdx/mise-action, so local and CI toolchains cannot drift.
-# Tasks live in mise-tasks/ and .mise/tasks/ as standalone scripts; run `mise tasks` to list.
+# Tasks live in .mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
 go = "1.26.7"
 node = "24.19.0"
