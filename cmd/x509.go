@@ -3,13 +3,13 @@ package cmd
 import (
 	"bytes"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz-systems/npc/internal/pemstrict"
 )
 
 const certificatePEMType = "CERTIFICATE"
@@ -71,7 +71,7 @@ func parsePEMCertificates(data []byte) ([]*x509.Certificate, error) {
 		if !bytes.HasPrefix(remainder, []byte("-----BEGIN ")) {
 			return nil, errTrailingCertificateData
 		}
-		block, rest := pem.Decode(remainder)
+		block, rest := pemstrict.Decode(remainder)
 		if block == nil {
 			return nil, errTrailingCertificateData
 		}

@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/sosheskaz-systems/npc/internal/pemstrict"
 )
 
 // KeyAlgorithm identifies a private-key generation profile.
@@ -222,7 +224,7 @@ func ParseKey(data []byte) (*Key, error) {
 }
 
 func parsePEMKey(data []byte) (*Key, error) {
-	block, rest := pem.Decode(data)
+	block, rest := pemstrict.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("%w: decode PEM block", ErrMalformedKey)
 	}
