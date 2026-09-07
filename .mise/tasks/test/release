@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Smoke test the host-platform archive from a GoReleaser snapshot"
+set -euo pipefail
+
+archive=$(jq -er --arg os "$(go env GOHOSTOS)" --arg arch "$(go env GOHOSTARCH)" '
+  [.[] | select(.type == "Archive" and .goos == $os and .goarch == $arch)]
+  | if length == 1 then .[0].path else error("expected one host-platform archive") end
+' dist/artifacts.json)
+release_version=$(jq -er '.version | select(length > 0 and . != "dev" and . != "(devel)")' dist/metadata.json)
+release_commit=$(git rev-parse HEAD)
+# GoReleaser normalizes CommitDate to UTC RFC3339.
+release_date=$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)
+
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+umask 077
+tar -xzf "$archive" -C "$scratch" npc
+binary="$scratch/npc"
+actual_version=$("$binary" --version)
+expected_version="npc version $release_version (commit ${release_commit:0:12}, built $release_date)"
+if [[ "$actual_version" != "$expected_version" && "$actual_version" != "${expected_version%\)}, dirty)" ]]; then
+  printf 'unexpected packaged version: %s\nexpected: %s\n' "$actual_version" "$expected_version" >&2
+  exit 1
+fi
+"$binary" --help >"$scratch/help"
+grep -q 'Usage:' "$scratch/help"
+printf '0123456789abcdef0123456789abcdef' >"$scratch/fixture.key"
+printf 'packaged AES round trip\n\000\377' >"$scratch/plaintext"
+"$binary" aes encrypt --keyfile "$scratch/fixture.key" --input "$scratch/plaintext" --output "$scratch/ciphertext"
+"$binary" aes decrypt --keyfile "$scratch/fixture.key" --input "$scratch/ciphertext" --output "$scratch/decrypted"
+cmp "$scratch/plaintext" "$scratch/decrypted"
+printf 'Packaged binary smoke test passed: %s\n' "$archive"

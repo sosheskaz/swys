@@ -12,6 +12,7 @@ on:
       - .github/workflows/goreleaser.yml
       - .github/workflows/release.yml
       - .release-please-manifest.json
+      - .mise/tasks/test/release
   push:
     branches: [main]
 
@@ -50,3 +51,6 @@ jobs:
         # --parallelism caps concurrent builds. It defaults to GOMAXPROCS, which on
         # a runner pod with no CPU limit is the host core count, not the pod's share.
         run: mise exec -- goreleaser release --snapshot --clean --parallelism=2
+
+      - name: Smoke test packaged binary
+        run: mise run test:release
