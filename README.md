@@ -658,3 +658,15 @@ Recorded here so they are decided deliberately, not by accident:
 - **nectat disposition.** The L4 core absorbs the `nectat` prototype
   (preserving its flush → cancel → linger → close shutdown ordering); the
   standalone repo is then archived.
+
+### Artifact input limits
+
+Key inspection, conversion, public-key extraction, certificate creation, and TLS
+identity loading accept asymmetric key artifacts up to 1 MiB. Certificate
+inspection, issuer certificates, and TLS certificate/CA bundles accept up to
+16 MiB per input. For commands that support `--input-encoding`, these limits apply after decoding,
+including stdin; oversized artifacts fail without parsing truncated data.
+AES `--keyfile` accepts at most 32 raw bytes; keys must still be exactly 16, 24,
+or 32 bytes. Raw network payload streams are not subject to artifact limits. Existing
+output files are still opened before artifact reads, so a read failure can leave
+them truncated under the normal streaming-output contract.

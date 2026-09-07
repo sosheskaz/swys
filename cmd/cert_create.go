@@ -111,7 +111,7 @@ func certificateIssuerFromCommand(cmd *cobra.Command) (*x509.Certificate, *asym.
 	if err != nil {
 		return nil, nil, fmt.Errorf("read issuer-key flag: %w", err)
 	}
-	issuerData, err := readCertificateArtifact(cmd, "--issuer-cert", issuerCertPath)
+	issuerData, err := readCertificateArtifact(cmd, "--issuer-cert", issuerCertPath, maxCertificateArtifactBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -573,7 +573,7 @@ func canonicalCommandPath(path string) (string, error) {
 }
 
 func readCertificateKey(cmd *cobra.Command, flagName, source string) (*asym.Key, error) {
-	data, err := readCertificateArtifact(cmd, flagName, source)
+	data, err := readCertificateArtifact(cmd, flagName, source, maxKeyArtifactBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -584,16 +584,16 @@ func readCertificateKey(cmd *cobra.Command, flagName, source string) (*asym.Key,
 	return key, nil
 }
 
-func readCertificateArtifact(cmd *cobra.Command, flagName, source string) ([]byte, error) {
+func readCertificateArtifact(cmd *cobra.Command, flagName, source string, limit int64) ([]byte, error) {
 	if source == "-" {
-		data, err := io.ReadAll(cmd.InOrStdin())
+		data, err := readArtifact(cmd.InOrStdin(), limit)
 		if err != nil {
 			return nil, fmt.Errorf("read %s from stdin: %w", flagName, err)
 		}
 		return data, nil
 	}
 	// The path is intentionally supplied by the CLI user.
-	data, err := os.ReadFile(source) //nolint:gosec // reading an explicitly selected artifact is intended
+	data, err := readArtifactFile(source, limit)
 	if err != nil {
 		return nil, fmt.Errorf("read %s %q: %w", flagName, source, err)
 	}

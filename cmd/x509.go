@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/x509"
 	"fmt"
-	"io"
 
 	"github.com/spf13/cobra"
 
@@ -47,7 +46,7 @@ func runCertInspect(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	data, err := io.ReadAll(cmd.InOrStdin())
+	data, err := readArtifact(cmd.InOrStdin(), maxCertificateArtifactBytes)
 	if err != nil {
 		return fmt.Errorf("read certificate input: %w", err)
 	}

@@ -3,7 +3,6 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -137,7 +136,7 @@ func getKey(cmd *cobra.Command) ([]byte, error) {
 		return nil, fmt.Errorf("read keyfile flag: %w", err)
 	}
 	// The path is intentionally supplied by the CLI user.
-	key, err := os.ReadFile(keyFilePath) //nolint:gosec // reading an explicitly user-selected CLI path is intended
+	key, err := readArtifactFile(keyFilePath, maxAESKeyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read keyfile %q: %w", keyFilePath, err)
 	}

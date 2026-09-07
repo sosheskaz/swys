@@ -93,7 +93,7 @@ var keyConvertCmd = binaryOutputCommand(&cobra.Command{
 }, true)
 
 func readKey(cmd *cobra.Command) (*asym.Key, error) {
-	data, err := io.ReadAll(cmd.InOrStdin())
+	data, err := readArtifact(cmd.InOrStdin(), maxKeyArtifactBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read key input: %w", err)
 	}

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -308,7 +307,7 @@ func tlsCAPoolFromCommand(cmd *cobra.Command) (*x509.CertPool, bool, error) {
 		}
 		roots = systemRoots.Clone()
 	}
-	data, err := readNetworkArtifact("--ca", caPath)
+	data, err := readNetworkArtifact("--ca", caPath, maxCertificateArtifactBytes)
 	if err != nil {
 		return nil, false, err
 	}
@@ -338,7 +337,7 @@ func tlsIdentityFromCommand(cmd *cobra.Command, mismatchError error) (tls.Certif
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("read key flag: %w", err)
 	}
-	certData, err := readNetworkArtifact("--cert", certPath)
+	certData, err := readNetworkArtifact("--cert", certPath, maxCertificateArtifactBytes)
 	if err != nil {
 		return tls.Certificate{}, false, err
 	}
@@ -346,7 +345,7 @@ func tlsIdentityFromCommand(cmd *cobra.Command, mismatchError error) (tls.Certif
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("parse --cert: %w", err)
 	}
-	keyData, err := readNetworkArtifact("--key", keyPath)
+	keyData, err := readNetworkArtifact("--key", keyPath, maxKeyArtifactBytes)
 	if err != nil {
 		return tls.Certificate{}, false, err
 	}
@@ -383,8 +382,8 @@ func validateTLSIdentityMatch(certificate *x509.Certificate, publicKey any, mism
 	return nil
 }
 
-func readNetworkArtifact(flagName, path string) ([]byte, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // reading an explicitly selected CLI path is intended
+func readNetworkArtifact(flagName, path string, limit int64) ([]byte, error) {
+	data, err := readArtifactFile(path, limit)
 	if err != nil {
 		return nil, fmt.Errorf("read %s %q: %w", flagName, path, err)
 	}
