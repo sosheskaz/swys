@@ -156,6 +156,7 @@ type exampleListenRun struct {
 	stderr *bufio.Reader
 	stdout *bytes.Buffer
 	done   <-chan error
+	cancel context.CancelFunc
 }
 
 func startExampleListenCommand(
@@ -191,7 +192,7 @@ func startExampleListenCommand(
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 	})
-	return exampleListenRun{stderr: bufio.NewReader(stderrReader), stdout: &stdout, done: done}
+	return exampleListenRun{stderr: bufio.NewReader(stderrReader), stdout: &stdout, done: done, cancel: cancel}
 }
 
 func setExampleCommandContext(ctx context.Context, command *cobra.Command) {

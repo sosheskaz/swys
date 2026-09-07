@@ -171,7 +171,9 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 
 	output, closer := encoder(cmd.OutOrStdout())
 	if closer != nil {
-		closers = append(closers, closer)
+		finalizer := &finalizingOutput{Writer: output, closer: closer}
+		closers = append(closers, finalizer)
+		output = finalizer
 	}
 	cmd.SetOut(output)
 

@@ -129,7 +129,7 @@ npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
 npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
-npc net listen tcp|tls [host:]port # serve one raw TCP or authenticated TLS connection
+npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
 ```
 
 See `npc --help`; the surface is actively evolving toward the grammar above.
@@ -278,6 +278,30 @@ advertises no ALPN protocols unless `--alpn` is supplied. Listener TLS setup
 must finish before any stdin payload is relayed; a positive `--timeout` covers
 binding, accepting, and the handshake, while established relay draining remains
 governed only by `--wait`.
+
+`net listen udp` waits for one request datagram, writes it to stdout or
+`--output`, sends the decoded stdin or `--input` payload back to that same peer
+as one response datagram, then exits. Start a listener in one terminal:
+
+```fish
+printf 'pong' | npc net listen udp 9000 --verbose
+```
+
+Send one request and receive its response from another terminal:
+
+```fish
+printf 'ping' | npc net connect udp 127.0.0.1:9000
+```
+
+Like the TCP and TLS listeners, a bare numeric UDP port binds all available
+local IPv4 and IPv6 addresses, `:port` remains accepted, and an explicit host
+restricts the bind. Its `--timeout` defaults to `0` and, when positive, covers
+binding and receipt of the first datagram. Reading the response payload from
+stdin and sending it happen outside that setup timeout. The listener sends a
+zero-length response when its decoded input is empty; it does not expose
+stream-only `--wait` or `--close-write` controls. As with the connector, the
+response is not sent until stdin reaches EOF; pressing Enter alone is not
+enough. Use `npc net listen udp 9000 </dev/null` for an empty response.
 
 `cert connect` and `cert inspect` remain inspection commands: they always report
 certificate verification status, but a failed verification is not enforced.

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -8,6 +10,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,6 +26,19 @@ var netListenTCPCmd = binaryOutputCommand(listenStreamNetworkCommand(&cobra.Comm
 	Use:   "tcp [host:]port",
 	Short: "Exchange raw bytes over one accepted TCP connection",
 	RunE:  runNetListenTCP,
+}), true)
+
+var netListenUDPCmd = binaryOutputCommand(listenDatagramNetworkCommand(&cobra.Command{
+	Use:   "udp [host:]port",
+	Short: "Exchange one raw UDP request and response datagram",
+	Long: `Exchange exactly one request and one response datagram over UDP.
+
+The listener writes the first received datagram to stdout or --output. Decoded
+stdin or --input then becomes one response datagram to that same peer, including
+when the response is empty. Response input must reach EOF before it is sent;
+pressing Enter alone does not send it. Omit the host to bind all available local
+IPv4 and IPv6 addresses.`,
+	RunE: runNetListenUDP,
 }), true)
 
 var netListenTLSCmd = binaryOutputCommand(listenTLSStreamNetworkCommand(&cobra.Command{
@@ -76,6 +92,87 @@ func runNetListenTCP(cmd *cobra.Command, args []string) error {
 		options.wait,
 		options.closeWrite,
 	)
+}
+
+func runNetListenUDP(cmd *cobra.Command, args []string) error {
+	options, err := networkDatagramListenOptionsFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	setupContext, cancel := networkSetupContext(cmd.Context(), options.timeout)
+	address, err := normalizeListenAddress(args[0])
+	if err != nil {
+		cancel()
+		return err
+	}
+	listener, err := netconn.ListenUDP(setupContext, address)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if options.verbose {
+		if err := writeUDPListeningDetails(cmd.ErrOrStderr(), listener); err != nil {
+			cancel()
+			return errors.Join(err, listener.Close())
+		}
+	}
+	request, peer, err := netconn.ReceiveUDPFrom(setupContext, listener)
+	cancel()
+	if err != nil {
+		return errors.Join(err, listener.Close())
+	}
+	if options.verbose {
+		if err := writeUDPReceivedDetails(cmd.ErrOrStderr(), listener.LocalAddr(), peer); err != nil {
+			return errors.Join(err, listener.Close())
+		}
+	}
+	exchangeErr := respondUDPDatagram(
+		cmd.Context(),
+		listener,
+		peer,
+		request,
+		cmd.InOrStdin(),
+		cmd.OutOrStdout(),
+	)
+	return errors.Join(exchangeErr, listener.Close())
+}
+
+type networkDatagramListenOptions struct {
+	timeout time.Duration
+	verbose bool
+}
+
+func networkDatagramListenOptionsFromCommand(cmd *cobra.Command) (networkDatagramListenOptions, error) {
+	timeout, err := cmd.Flags().GetDuration("timeout")
+	if err != nil {
+		return networkDatagramListenOptions{}, fmt.Errorf("read timeout flag: %w", err)
+	}
+	verbose, err := cmd.Flags().GetBool("verbose")
+	if err != nil {
+		return networkDatagramListenOptions{}, fmt.Errorf("read verbose flag: %w", err)
+	}
+	return networkDatagramListenOptions{timeout: timeout, verbose: verbose}, nil
+}
+
+func respondUDPDatagram(
+	ctx context.Context,
+	connection *net.UDPConn,
+	peer *net.UDPAddr,
+	request []byte,
+	input io.Reader,
+	output io.Writer,
+) error {
+	if _, err := io.Copy(output, bytes.NewReader(request)); err != nil {
+		return fmt.Errorf("write UDP request: %w", err)
+	}
+	if err := finalizeOutputEncoding(output); err != nil {
+		return fmt.Errorf("finalize UDP request output encoding: %w", err)
+	}
+	response, err := netconn.ReadDatagramContext(ctx, input)
+	if err != nil {
+		return err
+	}
+	return netconn.SendUDPTo(ctx, connection, response, peer)
 }
 
 func runNetListenTLS(cmd *cobra.Command, args []string) error {
@@ -201,6 +298,20 @@ func writeTCPListeningDetails(output io.Writer, listener net.Listener) error {
 	return nil
 }
 
+func writeUDPListeningDetails(output io.Writer, listener net.PacketConn) error {
+	if _, err := fmt.Fprintf(output, "listening udp %s\n", listener.LocalAddr()); err != nil {
+		return fmt.Errorf("write UDP listener details: %w", err)
+	}
+	return nil
+}
+
+func writeUDPReceivedDetails(output io.Writer, local, remote net.Addr) error {
+	if _, err := fmt.Fprintf(output, "received udp %s <- %s\n", local, remote); err != nil {
+		return fmt.Errorf("write received UDP datagram details: %w", err)
+	}
+	return nil
+}
+
 func writeTCPAcceptedDetails(output io.Writer, connection net.Conn) error {
 	if _, err := fmt.Fprintf(
 		output,
@@ -267,7 +378,7 @@ func escapeNetworkDiagnosticValue(value string) string {
 
 func init() {
 	netCmd.AddCommand(netListenCmd)
-	netListenCmd.AddCommand(netListenTCPCmd, netListenTLSCmd)
+	netListenCmd.AddCommand(netListenTCPCmd, netListenTLSCmd, netListenUDPCmd)
 
 	netListenTLSCmd.Flags().String(tlsCertFlagName, "", "server certificate chain PEM path")
 	netListenTLSCmd.Flags().String(tlsKeyFlagName, "", "server private key path")

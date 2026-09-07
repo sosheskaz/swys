@@ -8,7 +8,10 @@ import (
 	"net"
 )
 
-var errNonTCPListener = errors.New("TCP listen config returned a non-TCP listener")
+var (
+	errNonTCPListener = errors.New("TCP listen config returned a non-TCP listener")
+	errNonUDPListener = errors.New("UDP listen config returned a non-UDP connection")
+)
 
 // ListenTCP binds a TCP listener using the supplied setup context.
 func ListenTCP(ctx context.Context, address string) (*net.TCPListener, error) {
@@ -24,6 +27,22 @@ func ListenTCP(ctx context.Context, address string) (*net.TCPListener, error) {
 		return nil, errors.Join(errNonTCPListener, listener.Close())
 	}
 	return tcpListener, nil
+}
+
+// ListenUDP binds a UDP socket using the supplied setup context.
+func ListenUDP(ctx context.Context, address string) (*net.UDPConn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("listen on UDP endpoint %q: %w", address, err)
+	}
+	connection, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", address)
+	if err != nil {
+		return nil, fmt.Errorf("listen on UDP endpoint %q: %w", address, err)
+	}
+	udpConnection, ok := connection.(*net.UDPConn)
+	if !ok {
+		return nil, errors.Join(errNonUDPListener, connection.Close())
+	}
+	return udpConnection, nil
 }
 
 type acceptTCPResult struct {

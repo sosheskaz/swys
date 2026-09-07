@@ -467,7 +467,7 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 		}
 	}
 	switch cmd {
-	case netConnectTCPCmd, netConnectUDPCmd, netListenTCPCmd:
+	case netConnectTCPCmd, netConnectUDPCmd, netListenTCPCmd, netListenUDPCmd:
 		return nil
 	case netListenTLSCmd:
 		return validateTLSListenFlagsBeforeIO(cmd)

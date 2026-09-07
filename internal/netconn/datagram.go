@@ -99,6 +99,47 @@ func ReceiveUDP(ctx context.Context, connection *net.UDPConn) ([]byte, error) {
 	return buffer[:read], nil
 }
 
+// ReceiveUDPFrom receives exactly one datagram and its source from an
+// unconnected UDP socket.
+func ReceiveUDPFrom(ctx context.Context, connection *net.UDPConn) ([]byte, *net.UDPAddr, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, fmt.Errorf("receive UDP datagram: %w", err)
+	}
+	buffer := make([]byte, maxUDPDatagramSize)
+	var peer *net.UDPAddr
+	read, err := udpOperation(ctx, connection, func() (int, error) {
+		var readErr error
+		var read int
+		read, peer, readErr = connection.ReadFromUDP(buffer)
+		if readErr != nil {
+			return read, fmt.Errorf("read UDP datagram: %w", readErr)
+		}
+		return read, nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("receive UDP datagram on %q: %w", connection.LocalAddr(), err)
+	}
+	return buffer[:read], peer, nil
+}
+
+// SendUDPTo sends exactly one datagram to a selected peer from an unconnected
+// UDP socket.
+func SendUDPTo(ctx context.Context, connection *net.UDPConn, payload []byte, peer *net.UDPAddr) error {
+	if len(payload) > MaxUDPPayloadSize {
+		return fmt.Errorf("%w: got %d bytes, maximum is %d", ErrDatagramTooLarge, len(payload), MaxUDPPayloadSize)
+	}
+	written, err := udpOperation(ctx, connection, func() (int, error) {
+		return connection.WriteToUDP(payload, peer)
+	})
+	if err != nil {
+		return fmt.Errorf("send UDP datagram to %q: %w", peer, err)
+	}
+	if written != len(payload) {
+		return fmt.Errorf("send UDP datagram to %q: wrote %d of %d bytes: %w", peer, written, len(payload), io.ErrShortWrite)
+	}
+	return nil
+}
+
 func udpOperation(
 	ctx context.Context,
 	connection *net.UDPConn,

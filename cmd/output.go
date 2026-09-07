@@ -8,11 +8,44 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 )
 
 type outputEncoder func(io.Writer) (io.Writer, io.Closer)
 
 type inputDecoder func(io.Reader) io.Reader
+
+type finalizingOutput struct {
+	io.Writer
+	closer io.Closer
+	err    error
+	once   sync.Once
+}
+
+func (output *finalizingOutput) finalize() error {
+	closed := false
+	output.once.Do(func() {
+		closed = true
+		output.err = output.closer.Close()
+	})
+	if !closed {
+		return nil
+	}
+	return output.err
+}
+
+// Close finalizes the encoder without closing its underlying output.
+func (output *finalizingOutput) Close() error {
+	return output.finalize()
+}
+
+func finalizeOutputEncoding(output io.Writer) error {
+	finalizer, ok := output.(interface{ finalize() error })
+	if !ok {
+		return nil
+	}
+	return finalizer.finalize()
+}
 
 type byteEncoding struct {
 	encoder outputEncoder

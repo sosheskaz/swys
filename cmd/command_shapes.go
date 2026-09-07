@@ -142,6 +142,17 @@ func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 	)
 }
 
+func listenDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
+	addCommandShape(command, networkShape)
+	command.Flags().Duration("timeout", 0, "bind resolution and first datagram timeout (0 disables)")
+	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
+	command.Args = networkAddressArgs(command.Args, true)
+	if command.RunE == nil {
+		panic(fmt.Sprintf("listenDatagramNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
+	}
+	return command
+}
+
 func listenTLSStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 	return streamNetworkCommandWithTimeout(
 		command,
