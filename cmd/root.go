@@ -267,6 +267,13 @@ func commandOutputOptionsFromCommand(cmd *cobra.Command) (commandOutputOptions, 
 
 func commandOutputOptionsForOS(cmd *cobra.Command, goos string) (commandOutputOptions, error) {
 	options := commandOutputOptions{sensitive: commandHasShape(cmd, sensitiveOutputShape)}
+	if cmd == keyConvertCmd {
+		target, err := keyConversionTargetFromCommand(cmd)
+		if err != nil {
+			return commandOutputOptions{}, err
+		}
+		options.sensitive = !isPublicKeyFormat(target)
+	}
 	if !cmd.Flags().Changed("mode") {
 		return options, nil
 	}
