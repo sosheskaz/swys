@@ -129,3 +129,25 @@ never fixture data; generate ephemeral private fixtures during test setup.
 
 Run `mise run check` locally before pushing; `mise run test:race` for
 anything concurrency-adjacent.
+
+## Fuzzing
+
+Fuzz seed corpora run with the ordinary unit and race suites. Run mutation
+campaigns separately, selecting one target per invocation:
+
+```sh
+mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
+```
+
+These targets bound generated input sizes and check key identity, certificate
+order and DER preservation, base64url acceptance against the standard library
+(including one-byte reads), and authenticated decryption against an independent
+standard-library wire decoder. Authentication and structure failures must emit
+no plaintext. Parser round trips cover successfully parsed artifacts; they do
+not prove rejection of every invalid input.
+
+Keep minimized failures in the package's `testdata/fuzz/<target>` directory after
+reviewing their contents. Never add real private keys or deployment data.
