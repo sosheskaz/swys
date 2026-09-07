@@ -3,6 +3,7 @@ package asym
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -43,11 +44,11 @@ func (f *TextFormatter) formatCompact(info *CertInfo, writer io.Writer) error {
 	switch {
 	case len(info.DNSNames) > maxDNSNames:
 		shown := strings.Join(info.DNSNames[:maxDNSNames], ", ")
-		if _, err := fmt.Fprintf(writer, "  DNS: %s, and %d more\n", shown, len(info.DNSNames)-maxDNSNames); err != nil {
+		if _, err := fmt.Fprintf(writer, "  DNS: %s, and %d more\n", EscapeDiagnosticValue(shown), len(info.DNSNames)-maxDNSNames); err != nil {
 			return fmt.Errorf("write DNS names: %w", err)
 		}
 	case len(info.DNSNames) > 0:
-		if _, err := fmt.Fprintf(writer, "  DNS: %s\n", strings.Join(info.DNSNames, ", ")); err != nil {
+		if _, err := fmt.Fprintf(writer, "  DNS: %s\n", EscapeDiagnosticValue(strings.Join(info.DNSNames, ", "))); err != nil {
 			return fmt.Errorf("write DNS names: %w", err)
 		}
 	default:
@@ -116,7 +117,7 @@ func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
 				chainNames[j] = cert.Subject
 			}
 		}
-		if _, err := fmt.Fprintf(writer, "    [%d] %s\n", i+1, strings.Join(chainNames, " -> ")); err != nil {
+		if _, err := fmt.Fprintf(writer, "    [%d] %s\n", i+1, EscapeDiagnosticValue(strings.Join(chainNames, " -> "))); err != nil {
 			return fmt.Errorf("write certificate chain: %w", err)
 		}
 	}
@@ -137,15 +138,15 @@ func writeSummary(info *CertInfo, writer io.Writer) error {
 		writer,
 		"%s %s | %s | expires %s (%s)\n",
 		status,
-		info.CommonName(),
-		info.IssuerCommonName(),
+		EscapeDiagnosticValue(info.CommonName()),
+		EscapeDiagnosticValue(info.IssuerCommonName()),
 		info.NotAfter.Format("2006-01-02"),
-		info.RemainingTime,
+		EscapeDiagnosticValue(info.RemainingTime),
 	); err != nil {
 		return fmt.Errorf("write certificate summary: %w", err)
 	}
 	if !info.Verified && info.VerifyError != "" {
-		if _, err := fmt.Fprintf(writer, "  Error: %s\n", info.VerifyError); err != nil {
+		if _, err := fmt.Fprintf(writer, "  Error: %s\n", EscapeDiagnosticValue(info.VerifyError)); err != nil {
 			return fmt.Errorf("write certificate verification error: %w", err)
 		}
 	}
@@ -154,7 +155,7 @@ func writeSummary(info *CertInfo, writer io.Writer) error {
 
 func writeField(writer io.Writer, label, value string) error {
 	const labelWidth = 12
-	if _, err := fmt.Fprintf(writer, "  %*s: %s\n", labelWidth, label, value); err != nil {
+	if _, err := fmt.Fprintf(writer, "  %*s: %s\n", labelWidth, label, EscapeDiagnosticValue(value)); err != nil {
 		return fmt.Errorf("write certificate field %q: %w", label, err)
 	}
 	return nil
@@ -165,4 +166,18 @@ func joinOrNone(values []string) string {
 		return "(none)"
 	}
 	return strings.Join(values, ", ")
+}
+
+// EscapeDiagnosticValue keeps untrusted values on one terminal-safe display line.
+func EscapeDiagnosticValue(value string) string {
+	var escaped strings.Builder
+	for _, char := range value {
+		if strconv.IsPrint(char) {
+			escaped.WriteRune(char)
+		} else {
+			quoted := strconv.QuoteRune(char)
+			escaped.WriteString(quoted[1 : len(quoted)-1])
+		}
+	}
+	return escaped.String()
 }

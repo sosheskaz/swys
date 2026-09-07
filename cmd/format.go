@@ -85,7 +85,7 @@ func writeCertificateVerificationStatus(output io.Writer, infos []*asym.CertInfo
 		if info.Verified {
 			status = "verified"
 		} else if info.VerifyError != "" {
-			status += ": " + info.VerifyError
+			status += ": " + asym.EscapeDiagnosticValue(info.VerifyError)
 		}
 		if _, err := fmt.Fprintf(output, "%s: %s\n", label, status); err != nil {
 			return fmt.Errorf("write certificate verification status: %w", err)
