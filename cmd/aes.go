@@ -17,10 +17,11 @@ const (
 )
 
 var (
-	errUnknownAESCipherMode = errors.New("unknown AES cipher mode")
-	errAADCipherMode        = errors.New("--aad is only valid with --cipher-mode gcm")
-	errIVCipherMode         = errors.New("--iv is only valid with --cipher-mode cbc")
-	aesCipherModes          = map[string]aesCipherMode{
+	errUnknownAESCipherMode  = errors.New("unknown AES cipher mode")
+	errAADCipherMode         = errors.New("--aad is only valid with --cipher-mode gcm")
+	errIVCipherMode          = errors.New("--iv is only valid with --cipher-mode cbc")
+	errAESKeyOutputCollision = errors.New("AES keyfile and output collide")
+	aesCipherModes           = map[string]aesCipherMode{
 		string(aesCipherModeCBC): aesCipherModeCBC,
 		string(aesCipherModeGCM): aesCipherModeGCM,
 	}
@@ -91,6 +92,23 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 	}
 	if mode == aesCipherModeGCM && cmd.Flags().Changed("iv") {
 		return errIVCipherMode
+	}
+	keyfile, err := cmd.Flags().GetString("keyfile")
+	if err != nil {
+		return fmt.Errorf("read keyfile flag: %w", err)
+	}
+	output, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return fmt.Errorf("read output flag: %w", err)
+	}
+	if keyfile != "" && output != "" {
+		same, err := sameCommandPath(keyfile, output)
+		if err != nil {
+			return err
+		}
+		if same {
+			return fmt.Errorf("%w: --keyfile %q and --output %q", errAESKeyOutputCollision, keyfile, output)
+		}
 	}
 	return nil
 }
