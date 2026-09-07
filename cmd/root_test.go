@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -109,9 +111,7 @@ func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
 
 func TestCommandErrorBeforeWriteLeavesEmptyOutputFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "existing")
-	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeOwnerOnlyFixture(t, path, "old contents")
 
 	_, err := executeRoot(t, "aes", "genkey", "--bits", "64", "--output", path)
 	if !errors.Is(err, errInvalidAESKeySize) {
@@ -238,13 +238,7 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 			if len(data) != 32 {
 				t.Fatalf("output length = %d, want 32-byte replacement", len(data))
 			}
-			info, err := os.Stat(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := info.Mode().Perm(); got != 0o600 {
-				t.Fatalf("output permissions = %04o, want 0600", got)
-			}
+			assertPrivateOutput(t, path)
 		})
 	}
 }
@@ -259,6 +253,10 @@ func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "key")
 			if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 				t.Fatal(err)
+			}
+			before, statErr := os.Stat(path)
+			if statErr != nil {
+				t.Fatal(statErr)
 			}
 			args := append(append([]string{}, command...), "--output", path)
 			if _, err := executeRoot(t, args...); !errors.Is(err, securefile.ErrNotOwnerOnly) {
@@ -275,8 +273,8 @@ func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := info.Mode().Perm(); got != 0o644 {
-				t.Fatalf("output permissions = %04o, want unchanged 0644", got)
+			if got := info.Mode().Perm(); got != before.Mode().Perm() {
+				t.Fatalf("output permissions = %04o, want unchanged %04o", got, before.Mode().Perm())
 			}
 		})
 	}
@@ -287,7 +285,12 @@ func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path, "--mode", "0640"); err != nil {
+	_, runErr := executeRoot(t, "key", "generate", "aes256", "--output", path, "--mode", "0640")
+	if runtime.GOOS == "windows" {
+		assertWindowsModeRejection(t, runErr, path, "old contents")
+		return
+	}
+	if err := runErr; err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -325,6 +328,10 @@ func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	before, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
 	if _, err := executeRoot(t, "ordinary-output-test", "--output", path); err != nil {
 		t.Fatal(err)
 	}
@@ -332,8 +339,8 @@ func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o644 {
-		t.Fatalf("output permissions = %04o, want preserved 0644", got)
+	if got := info.Mode().Perm(); got != before.Mode().Perm() {
+		t.Fatalf("output permissions = %04o, want preserved %04o", got, before.Mode().Perm())
 	}
 }
 
@@ -341,9 +348,7 @@ func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "key")
 	alias := filepath.Join(dir, "key-alias")
-	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeOwnerOnlyFixture(t, path, "old contents")
 	if err := os.Link(path, alias); err != nil {
 		t.Skipf("create hard link: %v", err)
 	}
@@ -365,11 +370,13 @@ func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 		t.Skip("root ignores file permissions; skipping under root")
 	}
 	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeOwnerOnlyFixture(t, path, "old contents")
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)
+	}
+	before, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatal(statErr)
 	}
 	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path); err == nil {
 		t.Fatal("execute command succeeded, want output-open error")
@@ -378,8 +385,8 @@ func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o000 {
-		t.Fatalf("output permissions = %04o, want unchanged 0000", got)
+	if got := info.Mode().Perm(); got != before.Mode().Perm() {
+		t.Fatalf("output permissions = %04o, want unchanged %04o", got, before.Mode().Perm())
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
@@ -405,7 +412,12 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.modeText, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "key")
-			if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.modeText); err != nil {
+			_, runErr := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.modeText)
+			if runtime.GOOS == "windows" {
+				assertWindowsModeRejection(t, runErr, path, "")
+				return
+			}
+			if err := runErr; err != nil {
 				t.Fatal(err)
 			}
 			info, err := os.Stat(path)
@@ -424,7 +436,12 @@ func TestOutputModeOverridesExistingPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", "0400"); err != nil {
+	_, runErr := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", "0400")
+	if runtime.GOOS == "windows" {
+		assertWindowsModeRejection(t, runErr, path, "old contents")
+		return
+	}
+	if err := runErr; err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -454,8 +471,12 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.mode)
-			if !errors.Is(err, errInvalidOutputMode) {
-				t.Fatalf("error = %v, want invalid output mode", err)
+			wantErr := errInvalidOutputMode
+			if runtime.GOOS == "windows" {
+				wantErr = errOutputModeUnsupported
+			}
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("error = %v, want %v", err, wantErr)
 			}
 			data, readErr := os.ReadFile(path)
 			if readErr != nil {
@@ -470,8 +491,12 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 
 func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
 	_, err := executeRoot(t, "key", "generate", "ed25519", "--mode", "0640")
-	if !errors.Is(err, errModeRequiresRegularOutput) {
-		t.Fatalf("error = %v, want --mode-requires-regular-output", err)
+	wantErr := errModeRequiresRegularOutput
+	if runtime.GOOS == "windows" {
+		wantErr = errOutputModeUnsupported
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -522,15 +547,18 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 			dir := t.TempDir()
 			targetPath := filepath.Join(dir, "target")
 			linkPath := filepath.Join(dir, "link")
-			if err := os.WriteFile(targetPath, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writeOwnerOnlyFixture(t, targetPath, "preserve")
 			if err := os.Symlink(targetPath, linkPath); err != nil {
 				t.Skipf("create symlink: %v", err)
 			}
 
 			args := append([]string{"key", "generate", "aes256", "--output", linkPath}, tt.modeArgs...)
-			if _, err := executeRoot(t, args...); err != nil {
+			_, runErr := executeRoot(t, args...)
+			if runtime.GOOS == "windows" && len(tt.modeArgs) > 0 {
+				assertWindowsModeRejection(t, runErr, targetPath, "preserve")
+				return
+			}
+			if err := runErr; err != nil {
 				t.Fatal(err)
 			}
 			target, err := os.ReadFile(targetPath)
@@ -547,11 +575,14 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 			if info.Mode()&os.ModeSymlink == 0 {
 				t.Fatal("output path is no longer a symlink")
 			}
+			if runtime.GOOS == "windows" {
+				assertPrivateOutput(t, targetPath)
+			}
 			targetInfo, err := os.Stat(targetPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := targetInfo.Mode().Perm(); got != tt.wantMode {
+			if got := targetInfo.Mode().Perm(); runtime.GOOS != "windows" && got != tt.wantMode {
 				t.Fatalf("output permissions = %04o, want %04o", got, tt.wantMode)
 			}
 		})
@@ -595,7 +626,12 @@ func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", linkPath, "--mode", "0640"); err != nil {
+	_, runErr := executeRoot(t, "key", "generate", "aes256", "--output", linkPath, "--mode", "0640")
+	if runtime.GOOS == "windows" {
+		assertWindowsModeRejection(t, runErr, targetPath, "")
+		return
+	}
+	if err := runErr; err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.ReadFile(targetPath)
@@ -641,7 +677,7 @@ func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
 	if symlinkErr == nil || !strings.Contains(symlinkErr.Error(), "is a directory") {
 		t.Fatalf("symlinked directory error = %v, want directory rejection", symlinkErr)
 	}
-	if directErr.Error() != strings.ReplaceAll(symlinkErr.Error(), linkPath, targetDir) {
+	if directErr.Error() != strings.ReplaceAll(symlinkErr.Error(), strconv.Quote(linkPath), strconv.Quote(targetDir)) {
 		t.Fatalf("error messages diverge: direct=%q symlink=%q", directErr, symlinkErr)
 	}
 }
@@ -772,7 +808,15 @@ func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
 	rootCmd.AddCommand(command)
 	t.Cleanup(func() { rootCmd.RemoveCommand(command) })
 
-	if _, err := executeRoot(t, "output-mode-test", "--output", path, "--mode", "0640"); err != nil {
+	_, runErr := executeRoot(t, "output-mode-test", "--output", path, "--mode", "0640")
+	if runtime.GOOS == "windows" {
+		assertWindowsModeRejection(t, runErr, path, "old contents")
+		if observed != 0 {
+			t.Fatalf("command observed mode %04o, want rejection before command execution", observed)
+		}
+		return
+	}
+	if err := runErr; err != nil {
 		t.Fatal(err)
 	}
 	if observed != 0o640 {

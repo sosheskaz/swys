@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -268,6 +269,10 @@ func TestAESRootOutputModeAndCBCCipherModeCompose(t *testing.T) {
 		"--output", outputPath,
 		"--mode", "0640",
 	)
+	if runtime.GOOS == "windows" {
+		assertWindowsModeRejection(t, err, outputPath, "")
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

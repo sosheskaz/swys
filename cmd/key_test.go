@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -257,7 +258,11 @@ func TestKeyGeneratePublicSidecarUsesOrdinaryOverwriteSemantics(t *testing.T) {
 	if err := os.WriteFile(publicPath, []byte("replace"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath, "--mode", "0600"); err != nil {
+	args := []string{"key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath}
+	if runtime.GOOS != "windows" {
+		args = append(args, "--mode", "0600")
+	}
+	if _, _, err := executeRootStreams(t, args...); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(publicPath)
@@ -283,7 +288,7 @@ func TestKeyGenerateRetainsPrivateOutputWhenPublicWriteFails(t *testing.T) {
 	privatePath := filepath.Join(dir, "private.pem")
 	publicPath := filepath.Join(dir, "missing", "public.pem")
 	_, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", privatePath, "--public-out", publicPath)
-	if err == nil || !strings.Contains(err.Error(), "private key retained") || !strings.Contains(err.Error(), privatePath) {
+	if err == nil || !strings.Contains(err.Error(), "private key retained") || !strings.Contains(err.Error(), strconv.Quote(privatePath)) {
 		t.Fatalf("public output error = %v, want retained private-key path", err)
 	}
 	privateData, readErr := os.ReadFile(privatePath)
@@ -567,13 +572,7 @@ func TestKeyGenerateOutputUsesPrivatePermissions(t *testing.T) {
 	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", path); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("output permissions = %04o, want 0600", info.Mode().Perm())
-	}
+	assertPrivateOutput(t, path)
 }
 
 func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
