@@ -20,16 +20,51 @@ jobs:
       group: release-please
       cancel-in-progress: false
     outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      releases_created: ${{ steps.publish.outputs.releases_created }}
+      tag_name: ${{ steps.publish.outputs.tag_name }}
     steps:
-      - name: Run release-please
-        id: release
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish merged release
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PLEASE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          before=$(mktemp)
+          after=$(mktemp)
+          trap 'rm -f "$before" "$after"' EXIT
+
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[].tag_name' | sort -u > "$before"
+          release-please github-release \
+            --repo-url="${GITHUB_REPOSITORY}" \
+            --target-branch=main \
+            --config-file=release-please-config.json \
+            --manifest-file=.release-please-manifest.json \
+            --token="${RELEASE_PLEASE_TOKEN}"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[].tag_name' | sort -u > "$after"
+
+          tag_name=$(comm -13 "$before" "$after" | head -n 1)
+          if [[ -n "$tag_name" ]]; then
+            echo "releases_created=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          else
+            echo "releases_created=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update release pull request
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ github.token }}
+        run: |
+          release-please release-pr \
+            --repo-url="${GITHUB_REPOSITORY}" \
+            --target-branch=main \
+            --config-file=release-please-config.json \
+            --manifest-file=.release-please-manifest.json \
+            --token="${RELEASE_PLEASE_TOKEN}"
 
   # GITHUB_TOKEN flows to called workflows automatically; no secrets:inherit.
   release:
