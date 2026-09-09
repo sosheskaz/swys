@@ -3,6 +3,8 @@ name: Renovate
 on:
   schedule:
     - cron: '0 */6 * * *'
+  push:
+    branches: [main]
   pull_request:
     paths:
       - renovate.json
