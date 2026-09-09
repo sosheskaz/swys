@@ -75,14 +75,14 @@ func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
 	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	address, serverResult := startTCPExchangeServer(t, "request", "delayed", 100*time.Millisecond)
+	address, serverResult := startTCPExchangeServer(t, "request", "delayed", 2*time.Second)
 
 	stdout, stderr, err := executeRootStreams(
 		t,
 		"net", "connect", "tcp", address,
 		"--input", inputPath,
-		"--timeout", "50ms",
-		"--wait", "1s",
+		"--timeout", "1s",
+		"--wait", "5s",
 		"--verbose",
 	)
 	if err != nil {

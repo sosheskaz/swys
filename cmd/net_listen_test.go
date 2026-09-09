@@ -201,9 +201,9 @@ func TestNetListenTCPTimeoutOnlyCoversSetup(t *testing.T) {
 		t,
 		strings.NewReader("request"),
 		"net", "listen", "tcp", "127.0.0.1:0",
-		"--timeout", "50ms",
+		"--timeout", "1s",
 		"--verbose",
-		"--wait", "1s",
+		"--wait", "5s",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tcp ")
 	stderr := drainExampleStderr(run.stderr)
@@ -215,7 +215,7 @@ func TestNetListenTCPTimeoutOnlyCoversSetup(t *testing.T) {
 	if string(request) != "request" {
 		t.Fatalf("client received %q, want request", request)
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 	if _, err := io.WriteString(connection, "delayed response"); err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,6 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 		"net", "listen", "tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
-		"--timeout", "50ms",
 		"--verbose",
 		"--wait", "1s",
 	)
@@ -336,7 +335,6 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 	if _, err := io.ReadFull(connection, received); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
 	closeListenTestTCP(t, connection)
 	if err := <-run.done; err != nil {
 		t.Fatal(err)

@@ -121,6 +121,7 @@ func TestDialTLSCancellationClosesConnection(t *testing.T) {
 			t.Errorf("close stalled TLS listener: %v", closeErr)
 		}
 	})
+	serverAccepted := make(chan struct{})
 	serverDone := make(chan error, 1)
 	go func() {
 		connection, acceptErr := listener.Accept()
@@ -128,17 +129,36 @@ func TestDialTLSCancellationClosesConnection(t *testing.T) {
 			serverDone <- acceptErr
 			return
 		}
+		close(serverAccepted)
 		_, copyErr := io.Copy(io.Discard, connection)
 		serverDone <- errors.Join(copyErr, connection.Close())
 	}()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	connection, err := DialTLS(ctx, listener.Addr().String(), &tls.Config{
-		InsecureSkipVerify: true,
-	})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context deadline exceeded", err)
+	type dialResult struct {
+		connection *tls.Conn
+		err        error
+	}
+	dialDone := make(chan dialResult, 1)
+	go func() {
+		connection, err := DialTLS(ctx, listener.Addr().String(), &tls.Config{
+			InsecureSkipVerify: true,
+		})
+		dialDone <- dialResult{connection: connection, err: err}
+	}()
+	select {
+	case <-serverAccepted:
+		cancel()
+	case result := <-dialDone:
+		t.Fatalf("DialTLS returned before cancellation: connection = %v, error = %v", result.connection, result.err)
+	case <-time.After(time.Second):
+		t.Fatal("server did not accept the TLS connection")
+	}
+	result := <-dialDone
+	connection, err := result.connection, result.err
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
 	}
 	if connection != nil {
 		t.Fatal("DialTLS returned a connection after cancellation")

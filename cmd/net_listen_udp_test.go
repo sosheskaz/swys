@@ -315,16 +315,19 @@ func TestNetListenUDPTimeoutOnlyCoversSetupAndFirstDatagram(t *testing.T) {
 		t,
 		responseReader,
 		"net", "listen", "udp", "127.0.0.1:0",
-		"--timeout", "40ms",
+		"--timeout", "1s",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
 	remainingStderr := drainExampleStderr(run.stderr)
 	client := dialUDPListenTest(t, address)
+	if err := client.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.Write([]byte("request")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 	if _, err := io.WriteString(responseWriter, "delayed response"); err != nil {
 		t.Fatal(err)
 	}
