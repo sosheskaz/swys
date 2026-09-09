@@ -3,12 +3,10 @@
 # Tasks live in .mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
 go = "1.26.7"
-node = "24.19.0"
 golangci-lint = "2.12.2"
 goreleaser = "2.16.0"
 ko = "0.19.1"
 lefthook = "2.1.12"
-"npm:prettier" = "3.9.6"
 shfmt = "3.14.0"
 taplo = "0.10.0"
 uv = "0.12.9"
