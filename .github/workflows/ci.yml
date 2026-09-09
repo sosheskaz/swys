@@ -17,6 +17,8 @@ concurrency:
 
 env:
   CGO_ENABLED: '0'
+  MISE_EXEC_AUTO_INSTALL: 'false'
+  MISE_TASK_RUN_AUTO_INSTALL: 'false'
 
 jobs:
   go:
@@ -42,11 +44,20 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: 'go golangci-lint go:golang.org/x/vuln/cmd/govulncheck uv'
+          install_args: 'go golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
           cache: true
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Go caches
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Resolve Go cache identity
+        id: go-toolchain
+        run: |
+          go_version="$(go env GOVERSION)"
+          golangci_version="$(golangci-lint version --short)"
+          echo "cache_prefix=${RUNNER_OS}-${RUNNER_ARCH}-golang-${go_version}-golangci-${golangci_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/go-build
@@ -55,9 +66,9 @@ jobs:
           # Arch in the key: runners are mixed amd64/arm64 and go-build cache
           # entries are GOARCH-specific — a cross-arch restore is all misses
           # and then clobbers the shared key with foreign objects.
-          key: ${{ runner.os }}-${{ runner.arch }}-golang-${{ hashFiles('go.sum', 'mise.toml') }}
+          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-${{ hashFiles('.golangci.yml', 'go.mod', 'go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-golang-
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-
 
       - name: Download modules
         run: go mod download
@@ -120,3 +131,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: mise run report:coverage coverage.out coverage-base.out
+
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}

@@ -19,6 +19,9 @@ jobs:
     name: Changed-file checks
     runs-on: sosheskaz
     timeout-minutes: 15
+    env:
+      MISE_EXEC_AUTO_INSTALL: 'false'
+      MISE_TASK_RUN_AUTO_INSTALL: 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,9 +33,10 @@ jobs:
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install_args: >-
-            go shfmt taplo golangci-lint goreleaser lefthook uv yamllint zizmor
+            shfmt taplo golangci-lint goreleaser lefthook uv yamllint zizmor
             aqua:rhysd/actionlint aqua:koalaman/shellcheck
           cache: true
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Register problem matchers
         run: |
@@ -41,8 +45,6 @@ jobs:
 
       - name: Run pre-commit checks
         env:
-          MISE_EXEC_AUTO_INSTALL: 'false'
-          MISE_TASK_RUN_AUTO_INSTALL: 'false'
           YAMLLINT_FORMAT: github
           # Feeds the shellcheck problem matcher (repo-local variable read by
           # the lefthook shellcheck job; deliberately NOT SHELLCHECK_OPTS,

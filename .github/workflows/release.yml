@@ -19,6 +19,8 @@ permissions:
 
 env:
   REF: ${{ inputs.release_tag || github.ref }}
+  MISE_EXEC_AUTO_INSTALL: 'false'
+  MISE_TASK_RUN_AUTO_INSTALL: 'false'
 
 jobs:
   goreleaser:
@@ -50,7 +52,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: 'go goreleaser ko uv'
+          install_args: 'go goreleaser ko'
           cache: false
 
       - name: Log in to GHCR

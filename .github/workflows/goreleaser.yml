@@ -25,6 +25,8 @@ permissions:
 
 env:
   CGO_ENABLED: '0'
+  MISE_EXEC_AUTO_INSTALL: 'false'
+  MISE_TASK_RUN_AUTO_INSTALL: 'false'
 
 jobs:
   snapshot:
@@ -41,8 +43,9 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: 'go goreleaser ko uv'
+          install_args: 'go goreleaser ko'
           cache: true
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Validate configuration
         run: mise exec -- goreleaser check
