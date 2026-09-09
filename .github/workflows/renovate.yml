@@ -8,7 +8,13 @@ on:
       - renovate.json
       - mise.toml
       - .github/workflows/renovate.yml
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: Renovate log verbosity (repository uses RENOVATE_LOG_LEVEL, then info)
+        type: choice
+        options: [repository, info, debug]
+        default: repository
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -63,7 +69,7 @@ jobs:
           permission-pull-requests: write
           permission-workflows: write
           permission-checks: read
-          permission-statuses: read
+          permission-statuses: write
 
       # The dry-run resolves the config *name* from the default branch, so it
       # cannot work until renovate.json exists there (bootstrap PRs would fail
@@ -94,5 +100,6 @@ jobs:
           RENOVATE_DRY_RUN: ${{ github.event_name == 'pull_request' && 'full' || '' }}
           RENOVATE_BASE_BRANCHES: ${{ github.event_name == 'pull_request' && format('["{0}"]', github.head_ref) || '' }}
           RENOVATE_USE_BASE_BRANCH_CONFIG: ${{ github.event_name == 'pull_request' && 'merge' || '' }}
-          LOG_LEVEL: info
+          LOG_LEVEL: ${{ inputs.log_level != 'repository' && inputs.log_level || vars.RENOVATE_LOG_LEVEL || 'info' }}
+          LOG_FORMAT: json
         run: renovate
