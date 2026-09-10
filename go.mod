@@ -3,7 +3,7 @@ module github.com/sosheskaz-systems/npc
 go 1.26.0
 
 require (
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
