@@ -405,6 +405,7 @@ func TestKeyFormattersPropagateWriterErrors(t *testing.T) {
 	}
 }
 
+//nolint:staticcheck // Raw fields are required to construct malformed keys that safe parsers reject.
 func TestNewKeyRejectsMalformedECDSAKeys(t *testing.T) {
 	t.Parallel()
 

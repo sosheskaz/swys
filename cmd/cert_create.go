@@ -22,7 +22,7 @@ import (
 const (
 	defaultLeafValidityDays = 30
 	defaultCAValidityDays   = 365
-	maxCertificateDays      = int((time.Duration(1<<63 - 1)) / (24 * time.Hour))
+	maxCertificateDays      = int(time.Duration(1<<63-1) / (24 * time.Hour))
 )
 
 func newCertCreateCmd() *cobra.Command {
