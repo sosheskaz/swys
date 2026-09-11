@@ -24,35 +24,11 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if err := cmd.ValidateRequiredFlags(); err != nil {
-				return fmt.Errorf("validate required flags: %w", err)
+			// HTTP selects and opens its body before invoking shared I/O setup.
+			if commandHasShape(cmd, httpRequestShape) {
+				return nil
 			}
-			if err := cmd.ValidateFlagGroups(); err != nil {
-				return fmt.Errorf("validate flag groups: %w", err)
-			}
-			if err := validateAESFlagsBeforeIO(cmd); err != nil {
-				return fmt.Errorf("validate AES flags: %w", err)
-			}
-			if err := validateKeyFlagsBeforeIO(cmd); err != nil {
-				return fmt.Errorf("validate key flags: %w", err)
-			}
-			if err := validateCertFlagsBeforeIO(cmd); err != nil {
-				return fmt.Errorf("validate certificate flags: %w", err)
-			}
-			if err := validateNetFlagsBeforeIO(cmd); err != nil {
-				return fmt.Errorf("validate network flags: %w", err)
-			}
-			cleanup, err := configureIO(cmd)
-			if err != nil {
-				return err
-			}
-			originalContext := cmd.Context()
-			state := &commandIO{cleanup: func() error {
-				defer cmd.SetContext(originalContext)
-				return cleanup()
-			}}
-			cmd.SetContext(context.WithValue(originalContext, commandIOKey{}, state))
-			return nil
+			return configureCommandIO(cmd)
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
 			return closeCommandIO(cmd)
@@ -71,8 +47,40 @@ func newRootCmd() *cobra.Command {
 		"",
 		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
 	)
-	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newNetCmd())
+	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newNetCmd(), newHTTPCmd())
 	return rootCmd
+}
+
+func configureCommandIO(cmd *cobra.Command) error {
+	if err := cmd.ValidateRequiredFlags(); err != nil {
+		return fmt.Errorf("validate required flags: %w", err)
+	}
+	if err := cmd.ValidateFlagGroups(); err != nil {
+		return fmt.Errorf("validate flag groups: %w", err)
+	}
+	if err := validateAESFlagsBeforeIO(cmd); err != nil {
+		return fmt.Errorf("validate AES flags: %w", err)
+	}
+	if err := validateKeyFlagsBeforeIO(cmd); err != nil {
+		return fmt.Errorf("validate key flags: %w", err)
+	}
+	if err := validateCertFlagsBeforeIO(cmd); err != nil {
+		return fmt.Errorf("validate certificate flags: %w", err)
+	}
+	if err := validateNetFlagsBeforeIO(cmd); err != nil {
+		return fmt.Errorf("validate network flags: %w", err)
+	}
+	cleanup, err := configureIO(cmd)
+	if err != nil {
+		return err
+	}
+	originalContext := cmd.Context()
+	state := &commandIO{cleanup: func() error {
+		defer cmd.SetContext(originalContext)
+		return cleanup()
+	}}
+	cmd.SetContext(context.WithValue(originalContext, commandIOKey{}, state))
+	return nil
 }
 
 type commandIOKey struct{}
@@ -133,8 +141,7 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 	var closers []io.Closer
 
 	cleanup := func() error {
-		cmd.SetIn(originalIn)
-		cmd.SetOut(originalOut)
+		restoreCommandStreams(cmd, originalIn, originalOut)
 
 		var closeErr error
 		for i := len(closers) - 1; i >= 0; i-- {
@@ -157,6 +164,11 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 	outputOptions, err := commandOutputOptionsFromCommand(cmd)
 	if err != nil {
 		return fail(err)
+	}
+	if commandHasShape(cmd, httpRequestShape) {
+		// HTTP opens its selected body before output setup, including JSON and
+		// multipart sources that are not represented by the global input flag.
+		inputPath = ""
 	}
 	if outputOptions.mode != nil && outputPath == "" {
 		return fail(fmt.Errorf("%w: --mode requires --output", errModeRequiresRegularOutput))
@@ -200,6 +212,18 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 	cmd.SetOut(output)
 
 	return cleanup, nil
+}
+
+func restoreCommandStreams(cmd *cobra.Command, input io.Reader, output io.Writer) {
+	if commandHasShape(cmd, httpRequestShape) {
+		// HTTP commands inherit streams from the root. Clear temporary
+		// bindings so a reused command tree sees its newly supplied streams.
+		cmd.SetIn(nil)
+		cmd.SetOut(nil)
+		return
+	}
+	cmd.SetIn(input)
+	cmd.SetOut(output)
 }
 
 type commandOutputOptions struct {

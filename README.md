@@ -67,6 +67,7 @@ npc key generate <algorithm>       # generate a key with an explicit algorithm
 npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
+npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
 npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
 ```
@@ -250,6 +251,113 @@ Text, long, and JSON views include it in their structured output; PEM views
 report it on stderr so stdout remains a clean certificate artifact. `net
 connect tls` is the data-bearing client and therefore fails the handshake before
 sending input when verification fails.
+
+### HTTP requests
+
+A URL alone makes a GET request and streams the response body. Use an explicit
+method for requests with bodies; body flags never silently change the method:
+
+```fish
+npc http https://example.com
+npc http -X GET https://example.com --output response.html
+npc http -X POST https://example.com/api --json '{"name":"demo"}'
+npc http -X POST https://example.com/api --json @payload.json
+printf 'payload' | npc http -X PUT https://example.com/object
+npc http -X PROPFIND https://example.com/files --stdin never
+```
+
+Use `--method METHOD` or `-X METHOD` to select the request method. Standard
+methods appear in flag completion; custom method tokens are also accepted,
+preserving their spelling.
+A bare `npc http` shows help. URLs without a scheme default to HTTPS:
+`npc http whoami.example.com` uses `https://whoami.example.com`. Use an explicit
+`http://` URL for plain HTTP; failed HTTPS requests never retry as HTTP.
+
+Choose one body source: `--input FILE` for raw file bytes, `--input -` for
+stdin, `--data STRING` for literal bytes, or `--json JSON|@FILE|@-` for a JSON
+body with `Content-Type: application/json`. JSON convenience sets the content
+type without parsing or rewriting the payload. `--input-encoding` decodes raw
+and JSON body sources using the same encodings as other npc commands.
+
+Repeated `--form name=value` fields produce a URL-encoded form. Add `--file
+name=path` for multipart fields and streamed regular-file uploads:
+
+```fish
+npc http -X POST https://example.com/form --form name=demo --form tag=one --form tag=two
+npc http -X POST https://example.com/upload --form name=demo --file attachment=report.txt
+npc http -X GET https://example.com -H 'Accept: application/json'
+```
+
+`--header/-H` is repeatable; an explicit content type overrides the raw/JSON/form
+default. Requests send `User-Agent: npc/<version>` by default (`npc/dev` when
+build version information is unavailable or reports `(devel)`). Use
+`-H 'User-Agent: custom/1.0'` to override it or `-H 'User-Agent:'` to suppress it.
+Multipart content type and boundary, content length, and transfer
+encoding are generated from the body and cannot be supplied as custom headers.
+Conflicting body sources, invalid options, and input/upload/output path
+collisions are rejected before opening the output. Multipart `--file` paths
+must be regular files; stdin uploads use the raw-body interface.
+
+With `--stdin auto` (the default), an explicit method other than GET/HEAD uses
+non-terminal stdin when no body source was supplied. Terminal stdin is left
+alone unless explicitly selected. GET shorthand never consumes stdin and
+rejects body flags; explicit GET/HEAD require explicit input to send a body.
+Use `--stdin never` to keep inherited script input untouched, or `--stdin always`
+to select stdin regardless of terminal status. Non-terminal input can still
+block waiting for a producer. Once stdin is selected, the request owns it and
+may close it to interrupt an upload on cancellation or an early response.
+
+HTTPS verifies certificates and hostnames by default and negotiates HTTP/1.1
+or HTTP/2. The existing `--ca`, `--system-ca`, `--cert`, `--key`, `--servername`,
+and `--insecure` controls apply. HTTP uses normal environment proxy settings.
+`--timeout` defaults to 10 seconds for dialing and TLS handshaking;
+`--request-timeout` optionally bounds the whole exchange, including upload and
+response transfer, and defaults to `0` (disabled).
+
+Redirects are followed by default, up to `--max-redirects 10`; `--follow=false`
+returns the first response. Standard 301/302/303 redirects change non-GET/HEAD
+methods to GET and drop the body; 307/308 retain the method and body. Literal,
+regular-file, and multipart regular-file bodies can be replayed. A redirect
+requiring replay of stdin or another non-replayable stream returns that
+redirect's body and an error. Redirect-limit failures also preserve the last
+response body. No application-level retry loop is added.
+
+HTTP 4xx/5xx statuses return nonzero while preserving the response body. Use
+`--fail=false` to treat any completed HTTP response as success. Transport and
+output failures still return errors. Partial output remains available under
+npc's normal streaming-output contract.
+
+By default, npc advertises `gzip`, Brotli (`br`), and Zstandard (`zstd`)
+compression and streams the decompressed response body. Automatic negotiation
+is disabled for HEAD and range requests. Supplying `Accept-Encoding` yourself,
+including an empty value, disables automatic negotiation and leaves the
+response body and its encoding headers untouched.
+
+By default, stdout or `--output` contains only the response body. HEAD prints
+the status and headers; `--include` adds them for other methods. Body-only text
+output also accepts `--encoding`; encoded output cannot be combined with
+headers or a JSON envelope.
+
+Tracing is an option on the request:
+
+```fish
+npc http -X GET https://example.com --trace
+npc http -X GET https://example.com --format json --trace | jq .
+```
+
+Text-mode traces go to stderr and summarize each hop's DNS, connection, TLS,
+first-byte, and transfer timings. `--format/-f json` instead emits a response
+envelope containing method, final URL, status, protocol, headers, a `body`
+string, `body_encoding: "base64"`, and `complete`. The body is always base64,
+including JSON and text responses, and is streamed without buffering the whole
+response. Bytes reflect the decoded HTTP response body when npc negotiated
+gzip, Brotli, or Zstandard compression. URL passwords are redacted in reports.
+
+With `-f json --trace`, the trace is embedded in the envelope rather than printed
+on stderr. Failed transfers include an error and `complete: false` when the
+output remains writable; a completed 4xx/5xx response has `complete: true` and
+still returns nonzero by default. An output-write failure can leave incomplete
+JSON. The JSON envelope already includes headers, so `--include` is rejected.
 
 ### Key lifecycle walkthrough
 
@@ -605,8 +713,9 @@ unbounded-input code proves bounded memory in benchmarks.
 ## Product direction and roadmap
 
 This section preserves the intended product shape and design principles. It is
-not a command reference: `http`, `grpc`, `hash`, `sign`, `encode`, `decode`,
-`rand`, `zip`, `unzip`, and UDP transport are future work. See
+not a command reference: `grpc`, `hash`, `sign`, `encode`, `decode`, `rand`,
+`zip`, and `unzip` are future work. HTTP requests and TCP/TLS/UDP transport are
+implemented. See
 [Commands today](#commands-today) for the implemented surface.
 
 ### Product shape
@@ -617,7 +726,7 @@ detail from the layers beneath it rather than reimplementing them:
 
 | Layer | Domain                           | Nouns                                      |
 | ----- | -------------------------------- | ------------------------------------------ |
-| L4    | Raw transport (netcat successor) | `net` (`tcp`; later `udp`)                 |
+| L4    | Raw transport (netcat successor) | `net` (`tcp`, `tls`, `udp`)                |
 | L5/6  | TLS, X.509, crypto primitives    | `cert`, `key`, `aes`, `hash`, `sign`       |
 | L7    | Application protocols            | `http`, later `grpc`                       |
 | —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
@@ -654,11 +763,13 @@ In short: step manages identity artifacts; age encrypts files for humans;
 These are product features, not style preferences. Regressions against them
 are bugs, and where possible they are enforced by tests rather than review.
 
-1. **Noun-verb grammar, no exceptions.** `npc <noun> <verb> [mechanism] [flags]`.
+1. **Noun-verb grammar.** `npc <noun> <verb> [mechanism] [flags]`.
    Nouns are resources (`cert`, `key`, `net`, `http`); verbs are actions
    (`inspect`, `generate`, `connect`, `listen`). Bare nouns print help — no
    implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
-   should correctly guess `key inspect`.
+   should correctly guess `key inspect`. HTTP defaults to GET when given a URL
+   and accepts custom methods through `--method` (`-X`); bare `http` still
+   shows help.
 
    _When is an algorithm a noun?_ An algorithm appears in the command path
    when it is (a) established by out-of-band mutual agreement between the
@@ -728,8 +839,9 @@ Recorded here so they are decided deliberately, not by accident:
   container, and add stanza-level inspection age itself doesn't prioritize.
   Decide when the feature is scheduled. Passphrase-derived keys (KDF choice)
   ride with this decision.
-- **HTTP verb surface.** Methods-as-verbs (`http get`) reads naturally but
-  implies breadth; `http trace` may deliver most of the value first.
+- **HTTP expansion.** Basic requests use `http URL [-X METHOD]`, with standard
+  method flag completion for discoverability and `--trace` for diagnostics.
+  Higher-level header analysis and gRPC remain later work.
 - **nectat disposition.** The L4 core absorbs the `nectat` prototype
   (preserving its flush → cancel → linger → close shutdown ordering); the
   standalone repo is then archived.

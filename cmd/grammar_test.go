@@ -60,7 +60,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 			} else {
 				isTransportVerb := command.Name() == "connect" || command.Name() == "listen"
 				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
-				if !verbs[child.Name()] && !isTransport {
+				isHTTP := command == root && child.Name() == httpCommandName && commandHasShape(child, httpRequestShape)
+				if !verbs[child.Name()] && !isTransport && !isHTTP {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}
 				binary := commandHasShape(child, binaryOutputShape)
@@ -70,14 +71,14 @@ func commandTreeViolations(root *cobra.Command) []string {
 					violations = append(violations, fmt.Sprintf("leaf command %q has no output shape", child.CommandPath()))
 				case binary && structured:
 					violations = append(violations, fmt.Sprintf("leaf command %q has conflicting output shapes", child.CommandPath()))
-				case binary && child.Flags().Lookup(encodingFlagName) == nil:
+				case binary && child.Flag(encodingFlagName) == nil:
 					violations = append(violations, fmt.Sprintf("binary command %q has no --encoding flag", child.CommandPath()))
-				case structured && child.Flags().Lookup(formatFlagName) == nil:
+				case structured && child.Flag(formatFlagName) == nil:
 					violations = append(violations, fmt.Sprintf("structured command %q has no --format flag", child.CommandPath()))
 				}
 			}
 
-			if commandHasShape(child, networkShape) && child.Flags().Lookup("timeout") == nil {
+			if commandHasShape(child, networkShape) && child.Flag("timeout") == nil {
 				violations = append(violations, fmt.Sprintf("network command %q has no --timeout flag", child.CommandPath()))
 			}
 			if commandHasShape(child, sensitiveOutputShape) && !commandHasShape(child, binaryOutputShape) {
