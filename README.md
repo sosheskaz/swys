@@ -335,9 +335,26 @@ private key is retained and the error identifies its path (or notes that it was
 already emitted to stdout).
 
 `key public`, `key inspect`, and `key convert` accept one unencrypted PKCS#8,
-PKCS#1, or SEC1 private key, or one PKIX public key, in PEM or DER form. All
-three commands support `--input-encoding` for wrapped key bytes. Encrypted
-private keys and OpenSSH input are not supported.
+PKCS#1, or SEC1 private key, or one PKIX public key, in PEM or DER form. They
+also accept one unencrypted OpenSSH private key or one `authorized_keys` public
+entry for Ed25519, RSA, or ECDSA P-256/P-384/P-521. Blank lines, comment lines,
+public-key options, and inline comments are accepted; extra key entries and
+malformed non-comment lines are rejected. Options/comments are not retained
+when converting a key. Encrypted private keys are rejected without prompting.
+
+All three commands support `--input-encoding` for wrapped key bytes. Existing
+OpenSSH private keys also work with certificate creation and TLS client/server
+identity loading. OpenSSH remains a public-key-only output format; private-key
+generation and conversion keep their existing containers.
+
+```fish
+npc key inspect --input ~/.ssh/id_ed25519 --format json
+npc key public --input ~/.ssh/id_ed25519 --output public.pem
+npc key convert --input ~/.ssh/id_ed25519.pub --to pkix-der --output public.der
+```
+
+These examples require an unencrypted private key; passphrase-protected SSH
+keys return the encrypted-private-key error.
 
 The key noun and lifecycle verbs also have composable Cobra aliases for
 interactive use:

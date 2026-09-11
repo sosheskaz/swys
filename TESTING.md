@@ -137,6 +137,8 @@ campaigns separately, selecting one target per invocation:
 
 ```sh
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelope$' -fuzztime=60s -parallel=2
+mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
@@ -148,6 +150,13 @@ order and DER preservation, base64url acceptance against the standard library
 standard-library wire decoder. Authentication and structure failures must emit
 no plaintext. Parser round trips cover successfully parsed artifacts; they do
 not prove rejection of every invalid input.
+
+The OpenSSH targets seed generated keys and exercise decoded private envelopes
+and public-entry framing. Successful parses must preserve key identity through
+canonical serialization; trailing envelope bytes, extra public entries, and
+malformed lines must be rejected. Deterministic mutations additionally check
+duplicated public/private fields, Ed25519 seed consistency, ECDSA type labels,
+and private-block alignment.
 
 Keep minimized failures in the package's `testdata/fuzz/<target>` directory after
 reviewing their contents. Never add real private keys or deployment data.

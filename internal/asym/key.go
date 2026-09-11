@@ -211,16 +211,199 @@ func validateECDSAPublicKey(key *ecdsa.PublicKey) error {
 	return nil
 }
 
-// ParseKey parses one supported PEM or DER key artifact.
+// ParseKey parses one supported PEM, DER, or OpenSSH key artifact.
 func ParseKey(data []byte) (*Key, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
 		return nil, ErrEmptyKeyInput
 	}
+	if bytes.HasPrefix(trimmed, []byte("-----BEGIN OPENSSH PRIVATE KEY-----")) {
+		return parseOpenSSHPrivateKey(trimmed)
+	}
 	if bytes.HasPrefix(trimmed, []byte("-----BEGIN ")) {
 		return parsePEMKey(trimmed)
 	}
-	return parseDERKey(data)
+	key, derErr := parseDERKey(data)
+	if derErr == nil {
+		return key, nil
+	}
+	if !errors.Is(derErr, ErrMalformedKey) {
+		return nil, derErr
+	}
+	key, openSSHErr := parseOpenSSHPublicKey(trimmed)
+	if openSSHErr == nil {
+		return key, nil
+	}
+	if !errors.Is(openSSHErr, ErrMalformedKey) {
+		return nil, openSSHErr
+	}
+	return nil, errors.Join(derErr, openSSHErr)
+}
+
+func parseOpenSSHPrivateKey(data []byte) (*Key, error) {
+	block, rest := pemstrict.Decode(data)
+	if block == nil || block.Type != "OPENSSH PRIVATE KEY" {
+		return nil, fmt.Errorf("%w: decode OpenSSH private key", ErrMalformedKey)
+	}
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return nil, ErrTrailingKeyData
+	}
+	envelope, err := parseOpenSSHPrivateEnvelope(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	material, err := ssh.ParseRawPrivateKey(data)
+	if err != nil {
+		var passphraseMissing *ssh.PassphraseMissingError
+		if errors.As(err, &passphraseMissing) {
+			return nil, ErrEncryptedPrivateKey
+		}
+		if openSSHPublicKeyTypeUnsupported(envelope.PublicKey) {
+			return nil, fmt.Errorf("%w: OpenSSH private key", ErrUnsupportedKeyType)
+		}
+		return nil, fmt.Errorf("%w: parse OpenSSH private key: %w", ErrMalformedKey, err)
+	}
+	if pointer, ok := material.(*ed25519.PrivateKey); ok {
+		if pointer == nil {
+			return nil, fmt.Errorf("%w: nil Ed25519 private key", ErrMalformedKey)
+		}
+		material = *pointer
+	}
+	key, err := NewKey(material)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOpenSSHPrivateIdentity(envelope, key); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+func parseOpenSSHPublicKey(data []byte) (*Key, error) {
+	nonComment := make([][]byte, 0, 1)
+	for line := range bytes.Lines(data) {
+		line = bytes.TrimSuffix(line, []byte{'\n'})
+		line = bytes.TrimSuffix(line, []byte{'\r'})
+		if bytes.ContainsRune(line, '\r') {
+			return nil, fmt.Errorf("%w: bare carriage return in authorized_keys input", ErrMalformedKey)
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+		nonComment = append(nonComment, line)
+	}
+
+	if len(nonComment) != 1 {
+		validLines := 0
+		for _, line := range nonComment {
+			if _, _, _, rest, err := ssh.ParseAuthorizedKey(append(append([]byte(nil), line...), '\n')); err == nil && len(bytes.TrimSpace(rest)) == 0 {
+				validLines++
+			}
+		}
+		if validLines > 1 {
+			return nil, ErrTrailingKeyData
+		}
+		return nil, fmt.Errorf("%w: authorized_keys input must contain exactly one valid non-comment line", ErrMalformedKey)
+	}
+
+	publicKey, _, _, rest, err := ssh.ParseAuthorizedKey(append(append([]byte(nil), nonComment[0]...), '\n'))
+	if err != nil {
+		return nil, fmt.Errorf("%w: parse authorized_keys input: %w", ErrMalformedKey, err)
+	}
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("%w: trailing authorized_keys data", ErrMalformedKey)
+	}
+	cryptoPublicKey, ok := publicKey.(ssh.CryptoPublicKey)
+	if !ok {
+		return nil, fmt.Errorf("%w: OpenSSH public key type %q", ErrUnsupportedKeyType, publicKey.Type())
+	}
+	return NewKey(cryptoPublicKey.CryptoPublicKey())
+}
+
+type openSSHPrivateEnvelope struct { //nolint:govet // Field order is the OpenSSH wire format consumed by ssh.Unmarshal.
+	CipherName   string
+	KDFName      string
+	KDFOptions   string
+	NumKeys      uint32
+	PublicKey    []byte
+	PrivateBlock []byte
+	Rest         []byte `ssh:"rest"`
+}
+
+func parseOpenSSHPrivateEnvelope(data []byte) (*openSSHPrivateEnvelope, error) {
+	const authMagic = "openssh-key-v1\x00"
+	if len(data) < len(authMagic) || string(data[:len(authMagic)]) != authMagic {
+		return nil, fmt.Errorf("%w: invalid OpenSSH private-key envelope", ErrMalformedKey)
+	}
+	var envelope openSSHPrivateEnvelope
+	if err := ssh.Unmarshal(data[len(authMagic):], &envelope); err != nil {
+		return nil, fmt.Errorf("%w: parse OpenSSH private-key envelope: %w", ErrMalformedKey, err)
+	}
+	if len(envelope.Rest) != 0 {
+		return nil, ErrTrailingKeyData
+	}
+	return &envelope, nil
+}
+
+func validateOpenSSHPrivateIdentity(envelope *openSSHPrivateEnvelope, key *Key) error {
+	// The upstream parser decodes private material but does not check all
+	// duplicated public fields or enforce the unencrypted cipher's block size.
+	if len(envelope.PrivateBlock) < 8 || len(envelope.PrivateBlock)%8 != 0 {
+		return fmt.Errorf("%w: unaligned OpenSSH private block", ErrMalformedKey)
+	}
+	public, err := key.Public()
+	if err != nil {
+		return err
+	}
+	canonical, err := ssh.NewPublicKey(public)
+	if err != nil {
+		return fmt.Errorf("%w: encode OpenSSH public key: %w", ErrMalformedKey, err)
+	}
+	outer, err := ssh.ParsePublicKey(envelope.PublicKey)
+	if err != nil || !bytes.Equal(outer.Marshal(), canonical.Marshal()) {
+		return fmt.Errorf("%w: OpenSSH envelope public key does not match private key", ErrMalformedKey)
+	}
+	header := struct { //nolint:govet // Field order is the SSH private-block wire format.
+		Check1, Check2 uint32
+		Type           string
+		Rest           []byte `ssh:"rest"`
+	}{}
+	if err := ssh.Unmarshal(envelope.PrivateBlock, &header); err != nil {
+		return fmt.Errorf("%w: decode OpenSSH private header: %w", ErrMalformedKey, err)
+	}
+	if header.Type != canonical.Type() {
+		return fmt.Errorf("%w: OpenSSH private key type does not match public key", ErrMalformedKey)
+	}
+	if private, ok := key.material.(ed25519.PrivateKey); ok {
+		fields := struct {
+			Public, Private []byte
+			Comment         string
+			Padding         []byte `ssh:"rest"`
+		}{}
+		if err := ssh.Unmarshal(header.Rest, &fields); err != nil {
+			return fmt.Errorf("%w: decode OpenSSH Ed25519 fields: %w", ErrMalformedKey, err)
+		}
+		derived := ed25519.NewKeyFromSeed(private.Seed())
+		if !bytes.Equal(private, derived) || !bytes.Equal(fields.Public, derived[ed25519.SeedSize:]) {
+			return fmt.Errorf("%w: inconsistent OpenSSH Ed25519 key fields", ErrMalformedKey)
+		}
+	}
+	return nil
+}
+
+func openSSHPublicKeyTypeUnsupported(publicKeyBlob []byte) bool {
+	publicKey, err := ssh.ParsePublicKey(publicKeyBlob)
+	if err != nil {
+		return false
+	}
+	cryptoPublicKey, ok := publicKey.(ssh.CryptoPublicKey)
+	if !ok {
+		return true
+	}
+	_, err = NewKey(cryptoPublicKey.CryptoPublicKey())
+	return errors.Is(err, ErrUnsupportedKeyType)
 }
 
 func parsePEMKey(data []byte) (*Key, error) {

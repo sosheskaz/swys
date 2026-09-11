@@ -2,6 +2,8 @@ package asym
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/dsa" //nolint:staticcheck // DSA is intentionally used to verify unsupported-key rejection.
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -13,6 +15,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"strconv"
@@ -72,6 +75,180 @@ func TestKeyPrivateFormatRoundTrips(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestParseKeyAcceptsOpenSSHPrivateKeys(t *testing.T) {
+	t.Parallel()
+
+	privateKeys := []crypto.PrivateKey{
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmEd25519),
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmRSA2048),
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmECDSAP256),
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmECDSAP384),
+		mustGenerateECDSAKey(t, elliptic.P521()),
+	}
+	for _, privateKey := range privateKeys {
+		t.Run(fmt.Sprintf("%T", privateKey), func(t *testing.T) {
+			t.Parallel()
+			block, err := ssh.MarshalPrivateKey(privateKey, "generated fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := ParseKey(pem.EncodeToMemory(block))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !parsed.IsPrivate() {
+				t.Fatal("parsed OpenSSH key is public, want private")
+			}
+			want, err := NewKey(privateKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(mustPublicDER(t, parsed), mustPublicDER(t, want)) {
+				t.Fatal("parsed OpenSSH public key differs")
+			}
+		})
+	}
+}
+
+func TestParseKeyAcceptsOneAuthorizedKeyEntry(t *testing.T) {
+	t.Parallel()
+
+	privateKeys := []crypto.PrivateKey{
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmEd25519),
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmRSA2048),
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmECDSAP256),
+		mustGenerateOpenSSHTestKey(t, KeyAlgorithmECDSAP384),
+		mustGenerateECDSAKey(t, elliptic.P521()),
+	}
+	for _, privateKey := range privateKeys {
+		signer, ok := privateKey.(crypto.Signer)
+		if !ok {
+			t.Fatalf("private key %T does not implement crypto.Signer", privateKey)
+		}
+		publicKey, err := ssh.NewPublicKey(signer.Public())
+		if err != nil {
+			t.Fatal(err)
+		}
+		line := bytes.TrimSpace(ssh.MarshalAuthorizedKey(publicKey))
+		fixture := append([]byte("\n# generated fixture\nrestrict,command=\"npc test\" "), line...)
+		fixture = append(fixture, []byte(" user@example\n\n")...)
+		parsed, err := ParseKey(fixture)
+		if err != nil {
+			t.Fatalf("ParseKey(%s): %v", publicKey.Type(), err)
+		}
+		if parsed.IsPrivate() {
+			t.Fatalf("ParseKey(%s) is private, want public", publicKey.Type())
+		}
+	}
+}
+
+func TestParseKeyRejectsInvalidOpenSSHInputs(t *testing.T) {
+	t.Parallel()
+
+	privateKey := mustGenerateOpenSSHTestKey(t, KeyAlgorithmEd25519)
+	signer, ok := privateKey.(crypto.Signer)
+	if !ok {
+		t.Fatalf("private key %T does not implement crypto.Signer", privateKey)
+	}
+	publicKey, err := ssh.NewPublicKey(signer.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicLine := ssh.MarshalAuthorizedKey(publicKey)
+	privateBlock, err := ssh.MarshalPrivateKey(privateKey, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePEM := pem.EncodeToMemory(privateBlock)
+	privateEnvelopeTrailing := pem.EncodeToMemory(&pem.Block{
+		Type:  privateBlock.Type,
+		Bytes: append(append([]byte(nil), privateBlock.Bytes...), []byte("trailing")...),
+	})
+	encryptedBlock, err := ssh.MarshalPrivateKeyWithPassphrase(privateKey, "fixture", []byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		want error
+		name string
+		data []byte
+	}{
+		{name: "encrypted private", data: pem.EncodeToMemory(encryptedBlock), want: ErrEncryptedPrivateKey},
+		{name: "private trailing junk", data: append(append([]byte(nil), privatePEM...), []byte("junk")...), want: ErrTrailingKeyData},
+		{name: "private envelope trailing junk", data: privateEnvelopeTrailing, want: ErrTrailingKeyData},
+		{name: "two public keys", data: append(append([]byte(nil), publicLine...), publicLine...), want: ErrTrailingKeyData},
+		{name: "malformed line before public key", data: append([]byte("not-a-key\n"), publicLine...), want: ErrMalformedKey},
+		{name: "malformed public key", data: []byte("ssh-ed25519 invalid"), want: ErrMalformedKey},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseKey(test.data)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+			if errors.Is(test.want, ErrTrailingKeyData) && errors.Is(err, ErrMalformedKey) {
+				t.Fatalf("error = %v, trailing data must not be classified as malformed", err)
+			}
+		})
+	}
+}
+
+func TestParseKeyRejectsUnsupportedOpenSSHTypes(t *testing.T) {
+	t.Parallel()
+
+	var parameters dsa.Parameters
+	if err := dsa.GenerateParameters(&parameters, rand.Reader, dsa.L1024N160); err != nil {
+		t.Fatal(err)
+	}
+	privateKey := &dsa.PrivateKey{PublicKey: dsa.PublicKey{Parameters: parameters}}
+	if err := dsa.GenerateKey(privateKey, rand.Reader); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseKey(ssh.MarshalAuthorizedKey(publicKey)); !errors.Is(err, ErrUnsupportedKeyType) || errors.Is(err, ErrMalformedKey) {
+		t.Fatalf("DSA public error = %v, want only unsupported key type", err)
+	}
+	unsupportedDERKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(unsupportedDERKey.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseKey(publicDER); !errors.Is(err, ErrUnsupportedKeyType) || errors.Is(err, ErrMalformedKey) {
+		t.Fatalf("X25519 DER error = %v, want only unsupported key type", err)
+	}
+
+	const authMagic = "openssh-key-v1\x00"
+	privateEnvelope := struct { //nolint:govet // Field order is the fixture's OpenSSH private-block wire format.
+		Check1 uint32
+		Check2 uint32
+		Type   string
+		Rest   []byte `ssh:"rest"`
+	}{Check1: 1, Check2: 1, Type: ssh.InsecureKeyAlgoDSA} //nolint:staticcheck // DSA is intentionally unsupported fixture data.
+	envelope := struct { //nolint:govet // Field order is the fixture's OpenSSH envelope wire format.
+		CipherName   string
+		KDFName      string
+		KDFOptions   string
+		NumKeys      uint32
+		PublicKey    []byte
+		PrivateBlock []byte
+	}{
+		CipherName: "none", KDFName: "none", NumKeys: 1,
+		PublicKey: publicKey.Marshal(), PrivateBlock: ssh.Marshal(privateEnvelope),
+	}
+	block := &pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: append([]byte(authMagic), ssh.Marshal(envelope)...)}
+	if _, err := ParseKey(pem.EncodeToMemory(block)); !errors.Is(err, ErrUnsupportedKeyType) || errors.Is(err, ErrMalformedKey) {
+		t.Fatalf("DSA private error = %v, want only unsupported key type", err)
 	}
 }
 
@@ -532,6 +709,24 @@ func mustPublicDER(t *testing.T, key *Key) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func mustGenerateOpenSSHTestKey(t *testing.T, algorithm KeyAlgorithm) crypto.PrivateKey {
+	t.Helper()
+	key, err := GeneratePrivateKey(algorithm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func mustGenerateECDSAKey(t *testing.T, curve elliptic.Curve) crypto.PrivateKey {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 type keyFailingWriter struct {
