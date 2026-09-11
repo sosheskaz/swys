@@ -70,15 +70,20 @@ func configureCommandIO(cmd *cobra.Command) error {
 	if err := validateNetFlagsBeforeIO(cmd); err != nil {
 		return fmt.Errorf("validate network flags: %w", err)
 	}
-	cleanup, err := configureIO(cmd)
+	cleanup, preparedOutput, preparedWriter, err := configureIO(cmd)
 	if err != nil {
 		return err
 	}
 	originalContext := cmd.Context()
-	state := &commandIO{cleanup: func() error {
-		defer cmd.SetContext(originalContext)
+	state := &commandIO{preparedOutput: preparedOutput, preparedWriter: preparedWriter}
+	state.cleanup = func() error {
+		defer func() {
+			state.preparedOutput = nil
+			state.preparedWriter = nil
+			cmd.SetContext(originalContext)
+		}()
 		return cleanup()
-	}}
+	}
 	cmd.SetContext(context.WithValue(originalContext, commandIOKey{}, state))
 	return nil
 }
@@ -86,9 +91,11 @@ func configureCommandIO(cmd *cobra.Command) error {
 type commandIOKey struct{}
 
 type commandIO struct {
-	err     error
-	cleanup func() error
-	once    sync.Once
+	err            error
+	cleanup        func() error
+	preparedWriter io.Writer
+	preparedOutput []byte
+	once           sync.Once
 }
 
 func (state *commandIO) close() error {
@@ -135,13 +142,14 @@ func generateIV(blockSize int) ([]byte, error) {
 	return iv, nil
 }
 
-func configureIO(cmd *cobra.Command) (func() error, error) {
+func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 	originalIn := cmd.InOrStdin()
 	originalOut := cmd.OutOrStdout()
+	preparesOutput := commandPreparesOutput(cmd)
 	var closers []io.Closer
 
 	cleanup := func() error {
-		restoreCommandStreams(cmd, originalIn, originalOut)
+		restoreConfiguredStreams(cmd, originalIn, originalOut, preparesOutput)
 
 		var closeErr error
 		for i := len(closers) - 1; i >= 0; i-- {
@@ -149,13 +157,13 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 		}
 		return closeErr
 	}
-	fail := func(err error) (func() error, error) {
-		return func() error { return nil }, errors.Join(err, cleanup())
+	fail := func(err error) (func() error, []byte, io.Writer, error) {
+		return func() error { return nil }, nil, nil, errors.Join(err, cleanup())
 	}
 
-	inputPath, err := cmd.Flags().GetString("input")
+	inputPath, err := commandInputPath(cmd)
 	if err != nil {
-		return fail(fmt.Errorf("read input flag: %w", err))
+		return fail(err)
 	}
 	outputPath, err := cmd.Flags().GetString("output")
 	if err != nil {
@@ -164,11 +172,6 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 	outputOptions, err := commandOutputOptionsFromCommand(cmd)
 	if err != nil {
 		return fail(err)
-	}
-	if commandHasShape(cmd, httpRequestShape) {
-		// HTTP opens its selected body before output setup, including JSON and
-		// multipart sources that are not represented by the global input flag.
-		inputPath = ""
 	}
 	if outputOptions.mode != nil && outputPath == "" {
 		return fail(fmt.Errorf("%w: --mode requires --output", errModeRequiresRegularOutput))
@@ -181,37 +184,92 @@ func configureIO(cmd *cobra.Command) (func() error, error) {
 		return fail(err)
 	}
 
+	input := originalIn
 	if inputPath != "" {
 		// The path is intentionally supplied by the CLI user.
-		input, openErr := os.Open(inputPath) //nolint:gosec // opening an explicitly user-selected CLI path is intended
+		openedInput, openErr := os.Open(inputPath) //nolint:gosec // opening an explicitly user-selected CLI path is intended
 		if openErr != nil {
 			return fail(fmt.Errorf("open %q for reading: %w", inputPath, openErr))
 		}
-		closers = append(closers, input)
-		cmd.SetIn(decoder(input))
-	} else {
-		cmd.SetIn(decoder(cmd.InOrStdin()))
+		closers = append(closers, openedInput)
+		input = openedInput
+	}
+	input = decoder(input)
+	setConfiguredInput(cmd, input, preparesOutput)
+
+	preparedOutput, err := prepareCommandOutput(cmd, input)
+	if err != nil {
+		return fail(err)
 	}
 
+	output := originalOut
 	if outputPath != "" {
 		// The path is intentionally supplied by the CLI user.
-		output, openErr := openCommandOutput(outputPath, outputOptions)
+		openedOutput, openErr := openCommandOutput(outputPath, outputOptions)
 		if openErr != nil {
 			return fail(openErr)
 		}
-		closers = append(closers, output)
-		cmd.SetOut(output)
+		closers = append(closers, openedOutput)
+		output = openedOutput
 	}
 
-	output, closer := encoder(cmd.OutOrStdout())
+	output, closer := encoder(output)
 	if closer != nil {
 		finalizer := &finalizingOutput{Writer: output, closer: closer}
 		closers = append(closers, finalizer)
 		output = finalizer
 	}
-	cmd.SetOut(output)
+	setConfiguredOutput(cmd, output, preparesOutput)
 
-	return cleanup, nil
+	return cleanup, preparedOutput, output, nil
+}
+
+func commandInputPath(cmd *cobra.Command) (string, error) {
+	if commandHasShape(cmd, httpRequestShape) {
+		// HTTP already opened its selected body before output setup.
+		return "", nil
+	}
+	path, err := cmd.Flags().GetString("input")
+	if err != nil {
+		return "", fmt.Errorf("read input flag: %w", err)
+	}
+	return path, nil
+}
+
+func setConfiguredInput(cmd *cobra.Command, input io.Reader, preparesOutput bool) {
+	if !preparesOutput {
+		cmd.SetIn(input)
+	}
+}
+
+func setConfiguredOutput(cmd *cobra.Command, output io.Writer, preparesOutput bool) {
+	if !preparesOutput {
+		cmd.SetOut(output)
+	}
+}
+
+func restoreConfiguredStreams(
+	cmd *cobra.Command,
+	input io.Reader,
+	output io.Writer,
+	preparesOutput bool,
+) {
+	if preparesOutput {
+		return
+	}
+	restoreCommandStreams(cmd, input, output)
+}
+
+func takePreparedOutput(cmd *cobra.Command) ([]byte, io.Writer, error) {
+	state, ok := cmd.Context().Value(commandIOKey{}).(*commandIO)
+	if !ok || state.preparedOutput == nil || state.preparedWriter == nil {
+		return nil, nil, errPreparedOutputUnavailable
+	}
+	prepared := state.preparedOutput
+	writer := state.preparedWriter
+	state.preparedOutput = nil
+	state.preparedWriter = nil
+	return prepared, writer, nil
 }
 
 func restoreCommandStreams(cmd *cobra.Command, input io.Reader, output io.Writer) {

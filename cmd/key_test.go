@@ -373,6 +373,10 @@ func TestKeyCommandAliasesCompose(t *testing.T) {
 	if block, _ := pem.Decode([]byte(publicPEM)); block == nil || block.Type != "PUBLIC KEY" {
 		t.Fatalf("public alias output = %q, want PKIX PEM", publicPEM)
 	}
+	publicPath := filepath.Join(t.TempDir(), "public.pem")
+	if err := os.WriteFile(publicPath, []byte(publicPEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	inspected, _, err := executeRootStreams(t, "k", "i", "--input", privatePath, "--format", "json")
 	if err != nil {
@@ -382,7 +386,7 @@ func TestKeyCommandAliasesCompose(t *testing.T) {
 		t.Fatalf("inspect alias output = %+v", info)
 	}
 
-	openSSH, _, err := executeRootStreams(t, "k", "c", "--input", privatePath, "--to", "openssh")
+	openSSH, _, err := executeRootStreams(t, "k", "c", "--input", publicPath, "--to", "openssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +473,7 @@ func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
 		t.Fatalf("inspect output leaked private key: %q", privateJSON)
 	}
 
-	openSSH, _, err := executeRootStreams(t, "key", "convert", "--input", privatePath, "--to", "openssh")
+	openSSH, _, err := executeRootStreams(t, "key", "public", "--input", privatePath, "--to", "openssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +513,7 @@ func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
 
 	encodedDER, _, err := executeRootStreams(
 		t,
-		"key", "convert", "--input", encodedPath, "--input-encoding", "base64", "--to", "pkix-der", "--encoding", "base64",
+		"key", "public", "--input", encodedPath, "--input-encoding", "base64", "--to", "pkix-der", "--encoding", "base64",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -542,6 +546,7 @@ func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
 	assertPositionalCompletionContains(t, newKeyGenerateCmd(), "ed25519")
 	assertPositionalCompletionContains(t, newKeyGenerateCmd(), "ecdsa-p256")
 	assertFlagCompletionContains(t, newKeyGenerateCmd(), "public-format", "openssh")
+	assertFlagCompletionContains(t, newKeyPublicCmd(), "to", "openssh")
 	assertFlagCompletionContains(t, newKeyConvertCmd(), "to", "openssh")
 	assertFlagCompletionContains(t, newKeyInspectCmd(), formatFlagName, "json")
 	assertFlagCompletionContains(t, newKeyInspectCmd(), inputEncodingFlagName, "base64")

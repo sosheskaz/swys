@@ -18,6 +18,7 @@ var (
 	errUnknownKeyFormat           = errors.New("unknown key output format")
 	errKeyOutputCollision         = errors.New("private and public key outputs collide")
 	errInvalidKeyGenerateFlags    = errors.New("invalid key generation flags")
+	errPreparedOutputUnavailable  = errors.New("prepared command output is unavailable")
 	errInvalidCertificateFlags    = errors.New("invalid certificate flags")
 	errCertificateInputSelection  = errors.New("invalid certificate stdin selection")
 	errCertificatePathCollision   = errors.New("certificate input and output paths collide")

@@ -28,6 +28,13 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			public := strings.HasPrefix(target, "pkix-") || target == "openssh"
+			if public {
+				publicInput := filepath.Join(t.TempDir(), "public.pem")
+				if _, err := executeRoot(t, "key", "public", "--input", input, "--output", publicInput); err != nil {
+					t.Fatal(err)
+				}
+				input = publicInput
+			}
 			for _, scenario := range []string{"new", "secure", "insecure", "override"} {
 				t.Run(scenario, func(t *testing.T) {
 					t.Parallel()

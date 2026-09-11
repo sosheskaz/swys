@@ -35,19 +35,28 @@ func newKeyPublicCmd() *cobra.Command {
 		Aliases: []string{"pub", "p"},
 		Use:     "public",
 		Short:   "Derive or canonicalize a public key",
-		Args:    cobra.NoArgs,
+		Long: `Derive the public component of a private key or canonicalize an existing public key.
+The --to flag selects PKIX PEM, PKIX DER, or one canonical OpenSSH
+authorized_keys entry. It defaults to PKIX PEM.`,
+		Example: `  npc key public --input private.pem --output public.pem
+  npc key public --input id_ed25519 --to openssh --output id_ed25519.pub
+  npc key public --input private.pem --to pkix-der --output public.der`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			key, err := readKey(cmd)
+			encoded, output, err := takePreparedOutput(cmd)
 			if err != nil {
 				return err
 			}
-			encoded, err := key.Marshal(asym.KeyFormatPKIXPEM)
-			if err != nil {
-				return err
-			}
-			return writeKeyBytes(cmd, encoded, "public key")
+			return writeKey(output, encoded, "public key")
 		},
 	}, true)
+	keyPublicCmd.Flags().String(
+		"to",
+		"pkix-pem",
+		"public-key target ("+strings.Join(keyPublicFormatNames(), ", ")+")",
+	)
+	registerFlagCompletion(keyPublicCmd, "to", keyPublicFormatNames)
+	addCommandShape(keyPublicCmd, "key-public")
 	return keyPublicCmd
 }
 
@@ -81,21 +90,17 @@ func newKeyConvertCmd() *cobra.Command {
 		Aliases: []string{"conv", "c"},
 		Use:     "convert",
 		Short:   "Convert a key to another standard container",
-		Args:    cobra.NoArgs,
+		Long: `Convert a key to another standard container without changing whether it is private or public.
+Use key public to derive public material from a private key.`,
+		Example: `  npc key convert --input id_ed25519.pub --to pkix-pem
+  npc key convert --input private.pem --to pkcs8-der --output private.der`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			key, err := readKey(cmd)
+			encoded, output, err := takePreparedOutput(cmd)
 			if err != nil {
 				return err
 			}
-			target, err := keyConversionTargetFromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			encoded, err := key.Marshal(target)
-			if err != nil {
-				return err
-			}
-			return writeKeyBytes(cmd, encoded, "converted key")
+			return writeKey(output, encoded, "converted key")
 		},
 	}, true)
 	keyConvertCmd.Flags().String(
@@ -112,7 +117,11 @@ func newKeyConvertCmd() *cobra.Command {
 }
 
 func readKey(cmd *cobra.Command) (*asym.Key, error) {
-	data, err := readArtifact(cmd.InOrStdin(), maxKeyArtifactBytes)
+	return readKeyFrom(cmd.InOrStdin())
+}
+
+func readKeyFrom(input io.Reader) (*asym.Key, error) {
+	data, err := readArtifact(input, maxKeyArtifactBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read key input: %w", err)
 	}
@@ -124,7 +133,11 @@ func readKey(cmd *cobra.Command) (*asym.Key, error) {
 }
 
 func writeKeyBytes(cmd *cobra.Command, data []byte, description string) error {
-	if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(data)); err != nil {
+	return writeKey(cmd.OutOrStdout(), data, description)
+}
+
+func writeKey(output io.Writer, data []byte, description string) error {
+	if _, err := io.Copy(output, bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("write %s: %w", description, err)
 	}
 	return nil
@@ -161,10 +174,18 @@ func isPublicKeyFormat(format asym.KeyFormat) bool {
 }
 
 func keyPublicFormatFromCommand(cmd *cobra.Command) (asym.KeyFormat, error) {
-	name, err := cmd.Flags().GetString("public-format")
+	return keyPublicTargetFromCommand(cmd, "public-format")
+}
+
+func keyPublicTargetFromCommand(cmd *cobra.Command, flagName string) (asym.KeyFormat, error) {
+	name, err := cmd.Flags().GetString(flagName)
 	if err != nil {
-		return "", fmt.Errorf("read public-format flag: %w", err)
+		return "", fmt.Errorf("read %s flag: %w", flagName, err)
 	}
+	return keyPublicTarget(name)
+}
+
+func keyPublicTarget(name string) (asym.KeyFormat, error) {
 	target, ok := keyConversionTargets[name]
 	if !ok || !isPublicKeyFormat(target) {
 		return "", fmt.Errorf(
@@ -214,12 +235,78 @@ func validateKeyFlagsBeforeIO(cmd *cobra.Command) error {
 	switch {
 	case commandHasShape(cmd, "key-generate"):
 		return validateKeyGenerateFlags(cmd)
+	case commandHasShape(cmd, "key-public"):
+		_, err := keyPublicTargetFromCommand(cmd, "to")
+		return err
 	case commandHasShape(cmd, "key-convert"):
 		_, err := keyConversionTargetFromCommand(cmd)
 		return err
 	default:
 		return nil
 	}
+}
+
+func commandPreparesOutput(cmd *cobra.Command) bool {
+	return commandHasShape(cmd, "key-public") || commandHasShape(cmd, "key-convert")
+}
+
+func prepareCommandOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	switch {
+	case commandHasShape(cmd, "key-public"):
+		return prepareKeyPublicOutput(cmd, input)
+	case commandHasShape(cmd, "key-convert"):
+		return prepareKeyConversionOutput(cmd, input)
+	default:
+		return nil, nil
+	}
+}
+
+func prepareKeyPublicOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	key, err := readKeyFrom(input)
+	if err != nil {
+		return nil, err
+	}
+	target, err := keyPublicTargetFromCommand(cmd, "to")
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := key.Marshal(target)
+	if err != nil {
+		return nil, fmt.Errorf("serialize public key as %s: %w", target, err)
+	}
+	return encoded, nil
+}
+
+func prepareKeyConversionOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	key, err := readKeyFrom(input)
+	if err != nil {
+		return nil, err
+	}
+	target, err := keyConversionTargetFromCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	targetIsPublic := isPublicKeyFormat(target)
+	if key.IsPrivate() == targetIsPublic {
+		if key.IsPrivate() {
+			return nil, fmt.Errorf(
+				"%w: cannot convert private key to public target %q; use npc key public --to %s",
+				asym.ErrInvalidKeyConversion,
+				target,
+				target,
+			)
+		}
+		return nil, fmt.Errorf(
+			"%w: cannot convert public key to private target %q",
+			asym.ErrInvalidKeyConversion,
+			target,
+		)
+	}
+	encoded, err := key.Marshal(target)
+	if err != nil {
+		return nil, fmt.Errorf("serialize key as %s: %w", target, err)
+	}
+	return encoded, nil
 }
 
 func validateKeyGenerateFlags(cmd *cobra.Command) error {

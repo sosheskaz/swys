@@ -395,14 +395,29 @@ possible to confirm that a certificate contains the expected public key:
 npc cert inspect --input certificate.pem --format json
 ```
 
-Convert the public key for an OpenSSH `authorized_keys` file, or convert it to
-binary PKIX DER for a program that expects DER:
+Derive the public key in the container needed by its consumer. `key public`
+defaults to PKIX PEM and also supports PKIX DER and one canonical OpenSSH
+`authorized_keys` entry:
 
 ```fish
-npc key convert --input private.pem --to openssh --output public.openssh
+npc key public --input private.pem --to openssh --output public.openssh
+npc key public --input private.pem --to pkix-der --output public.der
+npc key public --input private.pem --output public.pem
+```
+
+`key convert` reserializes a key while preserving whether it is private or
+public. Public inputs can use `pkix-pem`, `pkix-der`, or `openssh`; private
+inputs can use an algorithm-compatible PKCS#8, PKCS#1, or SEC1 target:
+
+```fish
 npc key convert --input public.pem --to pkix-der --output public.der
+npc key convert --input private.pem --to pkcs8-der --output private.der
 npc key inspect --input public.der
 ```
+
+Earlier prerelease versions allowed `key convert` to derive public material
+from private input. Replace those invocations with `key public --to`; rejected
+private-to-public conversions report that command directly.
 
 Binary key containers can be wrapped for text-only transport and decoded by any
 key-consuming command. Encoding is not encryption; a base64-wrapped private key
@@ -448,16 +463,20 @@ also accept one unencrypted OpenSSH private key or one `authorized_keys` public
 entry for Ed25519, RSA, or ECDSA P-256/P-384/P-521. Blank lines, comment lines,
 public-key options, and inline comments are accepted; extra key entries and
 malformed non-comment lines are rejected. Options/comments are not retained
-when converting a key. Encrypted private keys are rejected without prompting.
+when canonicalizing a public key. Encrypted private keys are rejected without
+prompting.
 
-All three commands support `--input-encoding` for wrapped key bytes. Existing
-OpenSSH private keys also work with certificate creation and TLS client/server
-identity loading. OpenSSH remains a public-key-only output format; private-key
-generation and conversion keep their existing containers.
+All three commands support `--input-encoding` for wrapped key bytes. `key
+public` and `key convert` parse, validate, and serialize their complete result
+before opening `--output`, so invalid input and incompatible conversions leave
+existing destinations unchanged and do not create missing destinations.
+Existing OpenSSH private keys also work with certificate creation and TLS
+client/server identity loading. OpenSSH remains a public-key-only output
+format; private-key generation and conversion keep their existing containers.
 
 ```fish
 npc key inspect --input ~/.ssh/id_ed25519 --format json
-npc key public --input ~/.ssh/id_ed25519 --output public.pem
+npc key public --input ~/.ssh/id_ed25519 --to openssh --output id_ed25519.pub
 npc key convert --input ~/.ssh/id_ed25519.pub --to pkix-der --output public.der
 ```
 
@@ -468,10 +487,10 @@ The key noun and lifecycle verbs also have composable Cobra aliases for
 interactive use:
 
 ```fish
-npc k g ed25519                 # npc key generate ed25519
-npc k p --input private.pem     # npc key public
-npc k i --input private.pem     # npc key inspect
-npc k c --input private.pem --to openssh # npc key convert
+npc k g ed25519                            # npc key generate ed25519
+npc k p --input private.pem --to openssh   # npc key public
+npc k i --input private.pem                # npc key inspect
+npc k c --input private.pem --to pkcs8-der # npc key convert
 ```
 
 The longer verb aliases are `gen`, `pub`, `ins`, and `conv`.
