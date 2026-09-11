@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +25,6 @@ const (
 	structuredOutputShape        = "structured-output"
 	networkShape                 = "network"
 	streamNetworkShape           = "stream-network"
-	compatibilityShape           = "compatibility"
 )
 
 var errInvalidHostPort = errors.New("invalid host:port")
@@ -229,11 +227,6 @@ func normalizeListenAddress(address string) (string, error) {
 	return net.JoinHostPort("", strconv.FormatUint(port, 10)), nil
 }
 
-func compatibilityAliasCommand(command *cobra.Command) *cobra.Command {
-	addCommandShape(command, compatibilityShape)
-	return command
-}
-
 func addCommandShape(command *cobra.Command, shape string) {
 	if command.Annotations == nil {
 		command.Annotations = make(map[string]string)
@@ -243,11 +236,6 @@ func addCommandShape(command *cobra.Command, shape string) {
 
 func commandHasShape(command *cobra.Command, shape string) bool {
 	return command.Annotations[commandShapeAnnotationPrefix+shape] == "true"
-}
-
-func compatibilityAliasInvoked(command *cobra.Command) bool {
-	calledAs := command.CalledAs()
-	return calledAs != "" && calledAs != command.Name() && slices.Contains(command.Aliases, calledAs)
 }
 
 func registerFlagCompletion(command *cobra.Command, name string, values func() []string) {

@@ -35,30 +35,80 @@ func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
 	}
 }
 
-func TestLegacyX509ForwardsToCertificateInspection(t *testing.T) {
+func TestCertificateAliasesShowHelpWithoutSideEffects(t *testing.T) {
+	t.Parallel()
+	for _, alias := range newCertCmd().Aliases {
+		t.Run(alias, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "existing-output")
+			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			rootCmd := newRootCmd()
+			rootCmd.SetIn(panicCertificateReader{})
+			stdout, stderr, err := executeRootCommandStreams(t, rootCmd, alias, "--output", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stdout, "Usage:") {
+				t.Fatalf("stdout = %q, want command help", stdout)
+			}
+			if stderr != "" {
+				t.Fatalf("stderr = %q, want no warning", stderr)
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(data) != "preserve" {
+				t.Fatalf("output file = %q, want preserved contents", data)
+			}
+		})
+	}
+}
+
+func TestCertificateAliasSubcommandsMatchCanonicalCommand(t *testing.T) {
 	t.Parallel()
 	certificate := newTLSCertificateChain(t).Certificate[0]
 	path := filepath.Join(t.TempDir(), "certificate.pem")
-	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate})
+	data := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: certificate})
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	wantStdout, wantStderr, err := executeRootStreams(t, "cert", "inspect", "--input", path, "--format", "pem")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, alias := range newCertCmd().Aliases {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
-			stdout, stderr, err := executeRootStreams(t, alias, "--input", path, "--format", "pem")
+			stdout, stderr, err := executeRootStreams(t, alias, "inspect", "--input", path, "--format", "pem")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(stdout, "-----BEGIN CERTIFICATE-----") || strings.Contains(stdout, "Usage:") {
-				t.Fatalf("stdout = %q, want certificate output", stdout)
+			if stdout != wantStdout || stderr != wantStderr {
+				t.Fatalf("alias output = (%q, %q), want (%q, %q)", stdout, stderr, wantStdout, wantStderr)
 			}
-			if !strings.Contains(stderr, "npc "+alias+" is deprecated") || !strings.Contains(stderr, "cert inspect") {
-				t.Fatalf("stderr = %q, want %s migration warning", stderr, alias)
+
+			for _, subcommand := range []string{"connect", "create", "csr", "inspect"} {
+				output, err := executeRoot(t, alias, subcommand, "--help")
+				if err != nil {
+					t.Fatalf("%s help: %v", subcommand, err)
+				}
+				if !strings.Contains(output, "Usage:") || strings.Contains(output, "deprecated") {
+					t.Fatalf("%s help = %q, want ordinary command help", subcommand, output)
+				}
 			}
 		})
 	}
+}
+
+type panicCertificateReader struct{}
+
+func (panicCertificateReader) Read([]byte) (int, error) {
+	panic("certificate alias help read stdin")
 }
 
 func TestKeyGenerateRequiresAlgorithmAndPreservesLegacyCompatibility(t *testing.T) {

@@ -14,25 +14,12 @@ import (
 const certificatePEMType = "CERTIFICATE"
 
 func newCertCmd() *cobra.Command {
-	certCmd := compatibilityAliasCommand(structuredOutputCommand(&cobra.Command{
+	certCmd := &cobra.Command{
 		Aliases: []string{"x509", "certificate", "x.509"},
 		Use:     "cert",
 		Short:   "Create, inspect, and retrieve X.509 certificates",
 		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !compatibilityAliasInvoked(cmd) {
-				return cmd.Help()
-			}
-			if _, err := fmt.Fprintf(
-				cmd.ErrOrStderr(),
-				"warning: npc %s is deprecated; use npc cert inspect\n",
-				cmd.CalledAs(),
-			); err != nil {
-				return fmt.Errorf("write certificate alias deprecation warning: %w", err)
-			}
-			return runCertInspect(cmd, args)
-		},
-	}, certFormatNames))
+	}
 	certCmd.AddCommand(newCertInspectCmd(), newConnectCmd(), newCertCreateCmd(), newCertCSRCmd())
 	return certCmd
 }

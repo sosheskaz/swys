@@ -24,9 +24,6 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if commandHasShape(cmd, compatibilityShape) && !compatibilityAliasInvoked(cmd) {
-				return nil
-			}
 			if err := cmd.ValidateRequiredFlags(); err != nil {
 				return fmt.Errorf("validate required flags: %w", err)
 			}

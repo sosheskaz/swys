@@ -54,7 +54,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 			}
 
 			if child.HasSubCommands() {
-				if (child.Run != nil || child.RunE != nil) && !commandHasShape(child, compatibilityShape) {
+				if child.Run != nil || child.RunE != nil {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}
 			} else {

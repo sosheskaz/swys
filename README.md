@@ -537,10 +537,10 @@ The former `aes genkey` command remains available as a hidden compatibility
 command for one release and prints a migration warning. The former canonical
 `key generate --bits 256` form is replaced by
 `key generate aes256`; bare `key generate` now reports the required algorithm
-argument. The legacy certificate aliases (`x509`, `certificate`, and `x.509`)
-likewise forward to `cert inspect` with a warning so existing inspection
-pipelines continue to produce certificate data. New invocations should use the
-noun-verb form.
+`x509`, `certificate`, and `x.509` are ordinary aliases for `cert`:
+`npc x509 inspect` is equivalent to `npc cert inspect`. Bare aliases show help
+immediately without reading stdin or emitting warnings. Existing invocations
+that used a bare alias for inspection must add `inspect`.
 
 For `--output` paths, npc opens the destination and streams output to it as the
 command runs, following symlinks like normal shell redirection. Before opening
