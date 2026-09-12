@@ -137,6 +137,8 @@ campaigns separately, selecting one target per invocation:
 
 ```sh
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzFormatFingerprint$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzEscapeDiagnosticValue$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelope$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/pemstrict -run='^$' -fuzz='^FuzzDecode$' -fuzztime=30s -parallel=2
@@ -159,6 +161,11 @@ compatibility mode may emit previously decrypted buffer prefixes before a later
 structure or padding failure; its target checks that streamed prefix against
 independent CBC decryption. Parser round trips cover successfully parsed
 artifacts; they do not prove rejection of every invalid input.
+
+The asymmetric formatting targets preserve exact fingerprint byte ordering.
+`FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
+and free of non-printing runes. Printable diagnostic values are preserved,
+while escaping is idempotent.
 
 The OpenSSH targets seed generated keys and exercise decoded private envelopes
 and public-entry framing. Successful parses must preserve key identity through
