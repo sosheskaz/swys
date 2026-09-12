@@ -139,6 +139,7 @@ campaigns separately, selecting one target per invocation:
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelope$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
+mise exec -- go test ./internal/pemstrict -run='^$' -fuzz='^FuzzDecode$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
@@ -164,7 +165,14 @@ and public-entry framing. Successful parses must preserve key identity through
 canonical serialization; trailing envelope bytes, extra public entries, and
 malformed lines must be rejected. Deterministic mutations additionally check
 duplicated public/private fields, Ed25519 seed consistency, ECDSA type labels,
-and private-block alignment.
+and private-block alignment. The strict PEM target checks successful first-block
+decoding against `encoding/pem`, exact suffix preservation, unchanged input and
+failure returns, and that a decoded block never originates at a later BEGIN
+line. Because `encoding/pem` skips malformed blocks, it cannot witness
+strictness on its own: malformed first blocks are framed in four shapes — a body
+byte outside the base64 alphabet, a missing END line, an END line naming another
+type, and truncation after the BEGIN line — each followed by a generated number
+of valid blocks, and must be rejected instead of skipped.
 
 Keep minimized failures in the package's `testdata/fuzz/<target>` directory after
 reviewing their contents. Never add real private keys or deployment data.
