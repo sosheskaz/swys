@@ -143,6 +143,10 @@ mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztim
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagram$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagramInputFailure$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesBidirectionalBytesWithoutHalfClose$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesPrefixesBeforeInputFailure$' -fuzztime=30s -parallel=2
 ```
 
 These targets bound generated input sizes and check key identity, certificate
