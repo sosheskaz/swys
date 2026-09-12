@@ -141,15 +141,19 @@ mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelop
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
 ```
 
 These targets bound generated input sizes and check key identity, certificate
 order and DER preservation, base64url acceptance against the standard library
 (including one-byte reads), and authenticated decryption against an independent
-standard-library wire decoder. Authentication and structure failures must emit
-no plaintext. Parser round trips cover successfully parsed artifacts; they do
-not prove rejection of every invalid input.
+standard-library wire decoder. Authentication and structure failures in
+authenticated modes must emit no plaintext. The unauthenticated CBC
+compatibility mode may emit previously decrypted buffer prefixes before a later
+structure or padding failure; its target checks that streamed prefix against
+independent CBC decryption. Parser round trips cover successfully parsed
+artifacts; they do not prove rejection of every invalid input.
 
 The OpenSSH targets seed generated keys and exercise decoded private envelopes
 and public-entry framing. Successful parses must preserve key identity through
