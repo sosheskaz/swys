@@ -143,6 +143,9 @@ mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelop
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/pemstrict -run='^$' -fuzz='^FuzzDecode$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzByteEncodingRoundTrip$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzByteDecoders$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzStripNewlinesInputFailure$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzReadArtifact$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
@@ -172,6 +175,12 @@ The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
 and free of non-printing runes. Printable diagnostic values are preserved,
 while escaping is idempotent.
+
+The byte-encoding targets compare every distinct registered encoder and decoder
+with the standard library, including arbitrary binary input, independently
+varied incremental writes and wrapped lines, one-byte reads, invalid-input
+prefixes, and source errors returned with data. Decoder failures may expose the
+prefix produced by the corresponding streaming standard-library decoder.
 
 The OpenSSH targets seed generated keys and exercise decoded private envelopes
 and public-entry framing. Successful parses must preserve key identity through
