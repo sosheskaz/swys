@@ -91,6 +91,9 @@ jobs:
       - name: Test (race detector)
         run: mise run test:race -- -shuffle=on
 
+      - name: Fuzz smoke campaign
+        run: mise run test:fuzz
+
       - name: Benchmark smoke test
         run: mise run bench -- -benchtime=1x
 

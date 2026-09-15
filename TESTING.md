@@ -123,6 +123,7 @@ never fixture data; generate ephemeral private fixtures during test setup.
 | Suite passes, raced + shuffled        | `ci.yml` test steps on every PR                                                                                     |
 | Coverage maintained or increased      | CI sticky PR comment (delta vs main); reviewer blocks unjustified drops                                             |
 | Benchmarks don't rot                  | CI benchmark smoke run (`-benchtime=1x`)                                                                            |
+| Portable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target)                                                    |
 | Vulnerable dependencies               | `govulncheck` per PR + weekly scheduled run                                                                         |
 | Config/workflow validity              | lefthook (local + changed-files CI)                                                                                 |
 | No secret/deployment keys in fixtures | `.gitignore` patterns and review; provenance-backed published public vector and compatibility keys may be committed |
@@ -132,8 +133,13 @@ anything concurrency-adjacent.
 
 ## Fuzzing
 
-Fuzz seed corpora run with the ordinary unit and race suites. Run mutation
-campaigns separately, selecting one target per invocation:
+Fuzz seed corpora run with the ordinary unit and race suites. CI also discovers
+every portable target declared in a `*_fuzz_test.go` artifact and runs each with
+a fixed `-fuzztime=100x` budget through `mise run test:fuzz`.
+Platform-constrained targets remain seed-corpus tests on matching runners. This
+bounded smoke campaign catches harness rot and shallow regressions; use the
+longer mutation campaigns below for meaningful exploration, selecting one target
+per invocation:
 
 ```sh
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#MISE description="Run a bounded mutation smoke campaign for every portable fuzz target"
+set -euo pipefail
+
+fuzz_iterations=100
+target_count=0
+fuzz_files="$(find . -type f -name '*_fuzz_test.go' -print | sort)"
+
+while IFS= read -r fuzz_file; do
+  package="$(go list -buildvcs=false "${fuzz_file%/*}")"
+  target_list="$(sed -nE 's/^func (Fuzz[[:alnum:]_]+)\(.*/\1/p' "$fuzz_file")"
+  if [[ -z "$target_list" ]]; then
+    printf 'no fuzz targets found in %s\n' "$fuzz_file" >&2
+    exit 1
+  fi
+  while IFS= read -r target; do
+    target_count=$((target_count + 1))
+    printf '==> %s %s (%dx)\n' "$package" "$target" "$fuzz_iterations"
+    go test -buildvcs=false "$package" \
+      -run='^$' \
+      -fuzz="^${target}$" \
+      -fuzztime="${fuzz_iterations}x" \
+      -parallel=2
+  done <<<"$target_list"
+done <<<"$fuzz_files"
+
+if ((target_count == 0)); then
+  printf 'no fuzz targets found\n' >&2
+  exit 1
+fi
+printf 'completed %d fuzz targets\n' "$target_count"
