@@ -146,6 +146,8 @@ mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztim
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzByteEncodingRoundTrip$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzByteDecoders$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzStripNewlinesInputFailure$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParseALPN$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzEscapeNetworkDiagnosticValue$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzReadArtifact$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
@@ -169,7 +171,14 @@ authenticated modes must emit no plaintext. The unauthenticated CBC
 compatibility mode may emit previously decrypted buffer prefixes before a later
 structure or padding failure; its target checks that streamed prefix against
 independent CBC decryption. Parser round trips cover successfully parsed
-artifacts; they do not prove rejection of every invalid input.
+artifacts; they do not prove rejection of every invalid input. The ALPN target
+uses an independently structured delimiter oracle to check ordered opaque
+protocol bytes, empty elements, surrounding Unicode whitespace, and the TLS
+one-byte length boundary. The network diagnostic target characterizes the
+`strconv.Quote`-based escaping contract used for peer-controlled SNI: output
+must remain one printable line and recover its exact original bytes through Go
+string unquoting. Deterministic client and listener tests require negotiated
+ALPN diagnostics to apply the same escaping.
 
 The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8

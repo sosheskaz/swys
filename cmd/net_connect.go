@@ -460,6 +460,8 @@ func writeTLSConnectionDetails(output io.Writer, connection *tls.Conn, config *t
 	alpn := state.NegotiatedProtocol
 	if alpn == "" {
 		alpn = networkNoValue
+	} else {
+		alpn = escapeNetworkDiagnosticValue(alpn)
 	}
 	fields := []struct{ label, value string }{
 		{label: "version", value: tls.VersionName(state.Version)},

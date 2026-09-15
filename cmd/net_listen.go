@@ -373,6 +373,8 @@ func writeTLSAcceptedDetails(output io.Writer, connection *tls.Conn) error {
 	alpn := state.NegotiatedProtocol
 	if alpn == "" {
 		alpn = networkNoValue
+	} else {
+		alpn = escapeNetworkDiagnosticValue(alpn)
 	}
 	serverName := state.ServerName
 	if serverName == "" {

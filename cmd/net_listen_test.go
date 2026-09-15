@@ -361,8 +361,9 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 	}
 }
 
-func TestNetListenTLSVerboseEscapesSNI(t *testing.T) {
+func TestNetListenTLSVerboseEscapesMetadata(t *testing.T) {
 	t.Parallel()
+	const hostileALPN = "h2\n  sni: attacker.example"
 	identity := createNetworkTestIdentity(t)
 	run := startExampleListenCommand(
 		t,
@@ -370,12 +371,13 @@ func TestNetListenTLSVerboseEscapesSNI(t *testing.T) {
 		"net", "listen", "tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
+		"--alpn", hostileALPN,
 		"--verbose",
 		"--wait", "1s",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tls ")
 	stderr := drainExampleStderr(run.stderr)
-	config := tlsClientConfig(t, &identity, nil, nil)
+	config := tlsClientConfig(t, &identity, nil, []string{hostileALPN})
 	config.ServerName = "peer.example\nFORGED-DIAGNOSTIC\x1b[2J"
 	// The hostile SNI intentionally cannot match the test server certificate.
 	config.InsecureSkipVerify = true
@@ -390,6 +392,12 @@ func TestNetListenTLSVerboseEscapesSNI(t *testing.T) {
 	}
 	if want := `sni: peer.example\nFORGED-DIAGNOSTIC\x1b[2J`; !strings.Contains(stderrText, want) {
 		t.Fatalf("stderr = %q, want escaped SNI %q", stderrText, want)
+	}
+	if strings.Contains(stderrText, "\n  sni: attacker.example") {
+		t.Fatalf("stderr contains forged ALPN diagnostic line: %q", stderrText)
+	}
+	if want := `alpn: h2\n  sni: attacker.example`; !strings.Contains(stderrText, want) {
+		t.Fatalf("stderr = %q, want escaped ALPN %q", stderrText, want)
 	}
 }
 

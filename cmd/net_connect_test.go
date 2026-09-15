@@ -174,8 +174,9 @@ func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
 
 func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 	t.Parallel()
+	const hostileALPN = "h2\n  server name: attacker.example"
 	identity := createNetworkTestIdentity(t)
-	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{"h2", "http/1.1"})
+	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{hostileALPN})
 	inputPath := filepath.Join(t.TempDir(), "request")
 	if err := os.WriteFile(inputPath, []byte("request"), 0o600); err != nil {
 		t.Fatal(err)
@@ -186,7 +187,7 @@ func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 		"net", "connect", "tls", address,
 		"--input", inputPath,
 		"--servername", "localhost",
-		"--alpn", "http/1.1",
+		"--alpn", hostileALPN,
 		"--insecure",
 		"--verbose",
 		"--wait", "1s",
@@ -200,7 +201,13 @@ func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 	if !strings.Contains(stderr, "warning: TLS certificate verification is disabled") {
 		t.Fatalf("stderr = %q, want insecure warning", stderr)
 	}
-	if result := <-serverResult; result.err != nil || result.alpn != "http/1.1" {
+	if strings.Contains(stderr, "\n  server name: attacker.example") {
+		t.Fatalf("stderr contains forged ALPN diagnostic line: %q", stderr)
+	}
+	if want := `alpn: h2\n  server name: attacker.example`; !strings.Contains(stderr, want) {
+		t.Fatalf("stderr = %q, want escaped ALPN %q", stderr, want)
+	}
+	if result := <-serverResult; result.err != nil || result.alpn != hostileALPN {
 		t.Fatalf("server result = %+v", result)
 	}
 }
