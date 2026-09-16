@@ -314,6 +314,25 @@ and `--insecure` controls apply. HTTP uses normal environment proxy settings.
 `--request-timeout` optionally bounds the whole exchange, including upload and
 response transfer, and defaults to `0` (disabled).
 
+Use repeatable `--resolve HOST:PORT:ADDRESS[,ADDRESS]` rules to connect a URL's
+exact host and port through specified numeric addresses without changing its
+HTTP Host header or TLS identity:
+
+```fish
+npc http https://service.example \
+    --resolve service.example:443:192.0.2.10
+npc http https://service.example \
+    --resolve 'service.example:443:[2001:db8::10],192.0.2.10'
+```
+
+ASCII host matching is case-insensitive (international names use their ASCII
+Punycode form), later rules for the same host and port replace earlier rules,
+and addresses are attempted in their listed order. IPv6 hosts and addresses
+use brackets. Rules also apply to matching redirect destinations. Wildcard
+hosts and curl's temporary or removal rule forms are not supported. Environment
+proxies remain in effect; when a proxy resolves the origin, an origin
+`--resolve` rule does not bypass it.
+
 Redirects are followed by default, up to `--max-redirects 10`; `--follow=false`
 returns the first response. Standard 301/302/303 redirects change non-GET/HEAD
 methods to GET and drop the body; 307/308 retain the method and body. Literal,

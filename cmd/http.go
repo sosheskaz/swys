@@ -23,9 +23,10 @@ const (
 )
 
 var (
-	errInvalidHTTPFlags = errors.New("invalid HTTP options")
-	errHTTPStatus       = errors.New("HTTP response status indicates failure")
-	errHTTPRedirect     = errors.New("HTTP redirect could not be followed")
+	errInvalidHTTPFlags   = errors.New("invalid HTTP options")
+	errInvalidHTTPResolve = errors.New("invalid HTTP resolve rule")
+	errHTTPStatus         = errors.New("HTTP response status indicates failure")
+	errHTTPRedirect       = errors.New("HTTP redirect could not be followed")
 )
 
 type httpOptions struct {
@@ -42,6 +43,7 @@ type httpOptions struct {
 	headers        []string
 	forms          []string
 	files          []string
+	resolves       []string
 	requestTimeout time.Duration
 	timeout        time.Duration
 	maxRedirects   int
@@ -64,6 +66,8 @@ func newHTTPCmd() *cobra.Command {
 The method defaults to GET and does not consume stdin. Use --method (-X) to
 select a standard or custom HTTP method; method spelling is preserved.
 URLs without a scheme default to HTTPS. Use http:// for plain HTTP.
+Use --resolve HOST:PORT:ADDRESS[,ADDRESS] to override direct connection
+addresses without changing the URL host or TLS identity.
 Explicit methods other than GET and HEAD automatically read non-terminal stdin
 unless a body option is supplied. Use --stdin never to disable this behavior.
 --trace writes diagnostics to stderr; with --format json it adds trace data to
@@ -112,6 +116,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 		}
 	})
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request header (Name: value); repeatable")
+	flags.StringArrayVar(&options.resolves, "resolve", nil, "resolve host:port to numeric address(es); repeatable")
 	flags.StringVar(&options.data, "data", "", "literal raw request body")
 	flags.StringVar(&options.jsonData, httpFormatJSON, "", "JSON body: literal JSON, @file, or @- for stdin")
 	flags.StringArrayVar(&options.forms, "form", nil, "URL-encoded form field (name=value); repeatable")

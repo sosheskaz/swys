@@ -27,7 +27,7 @@ func executeHTTPRequest(cmd *cobra.Command, options *httpOptions, prepared *http
 		return fmt.Errorf("%w: request was not prepared", errInvalidHTTPFlags)
 	}
 
-	transport := newHTTPTransport(options, prepared.tlsConfig)
+	transport := newHTTPTransport(options, prepared.tlsConfig, prepared.resolver)
 	defer transport.CloseIdleConnections()
 
 	request, cancel := httpRequestWithTimeout(prepared.request, options.requestTimeout)
@@ -73,7 +73,7 @@ func closeHTTPBodyOnCancellation(ctx context.Context, body io.Closer) func() err
 	}
 }
 
-func newHTTPTransport(options *httpOptions, configuredTLS *tls.Config) *http.Transport {
+func newHTTPTransport(options *httpOptions, configuredTLS *tls.Config, resolver httpResolver) *http.Transport {
 	tlsConfig := configuredTLS
 	if tlsConfig == nil {
 		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
@@ -83,7 +83,7 @@ func newHTTPTransport(options *httpOptions, configuredTLS *tls.Config) *http.Tra
 	dialer := &net.Dialer{Timeout: options.timeout}
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         dialer.DialContext,
+		DialContext:         resolver.dialContext(dialer, options.timeout),
 		DisableCompression:  true,
 		ForceAttemptHTTP2:   true,
 		TLSClientConfig:     tlsConfig,

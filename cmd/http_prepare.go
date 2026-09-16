@@ -16,6 +16,7 @@ type httpPreparedRequest struct {
 	request   *http.Request
 	body      *httpBody
 	tlsConfig *tls.Config
+	resolver  httpResolver
 }
 
 func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions) (*httpPreparedRequest, error) {
@@ -24,6 +25,10 @@ func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions)
 		return nil, err
 	}
 	if err := validateHTTPOptions(cmd, options, method); err != nil {
+		return nil, err
+	}
+	resolver, err := parseHTTPResolves(options.resolves)
+	if err != nil {
 		return nil, err
 	}
 	headers, err := parseHTTPHeaders(options.headers)
@@ -61,7 +66,7 @@ func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions)
 	if body.contentType != "" && request.Header.Get("Content-Type") == "" {
 		request.Header.Set("Content-Type", body.contentType)
 	}
-	return &httpPreparedRequest{request: request, body: body, tlsConfig: config}, nil
+	return &httpPreparedRequest{request: request, body: body, tlsConfig: config, resolver: resolver}, nil
 }
 
 func defaultHTTPUserAgent() string {
