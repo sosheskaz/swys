@@ -156,12 +156,18 @@ mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParseALPN$' -fuzztime=30s -para
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzEscapeNetworkDiagnosticValue$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzReadArtifact$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPField$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParseHTTPHeaders$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPDecodedBody$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzSupportedHTTPContentCodings$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzWriteHTTPJSONResponse$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagram$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagramInputFailure$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesBidirectionalBytesWithoutHalfClose$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesBidirectionalBytes$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesPrefixesBeforeInputFailure$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/securefile -run='^$' -fuzz='^FuzzDarwinReturnedCommonAttributes$' -fuzztime=30s -parallel=2
 ```
 
 The artifact reader target exercises contiguous and one-byte reads at generated
@@ -180,11 +186,16 @@ independent CBC decryption. Parser round trips cover successfully parsed
 artifacts; they do not prove rejection of every invalid input. The ALPN target
 uses an independently structured delimiter oracle to check ordered opaque
 protocol bytes, empty elements, surrounding Unicode whitespace, and the TLS
-one-byte length boundary. The network diagnostic target characterizes the
-`strconv.Quote`-based escaping contract used for peer-controlled SNI: output
-must remain one printable line and recover its exact original bytes through Go
-string unquoting. Deterministic client and listener tests require negotiated
-ALPN diagnostics to apply the same escaping.
+one-byte length boundary. The network diagnostic target pins the escaping of
+peer-controlled SNI against an independent rune-by-rune reference escaper:
+printable runes pass through, the short forms and the `\xNN`, `\uNNNN`, and
+`\UNNNNNNNN` escapes match Go's own spelling down to hex-digit case, and bytes
+outside a valid encoding keep their own value. Output must also remain one
+printable line and recover its exact original bytes through Go string
+unquoting, but those invariants hold for any `strconv.Quote` body; exact
+equality with the reference is what a later implementation cannot weaken.
+Deterministic client and listener tests require negotiated ALPN diagnostics to
+apply the same escaping.
 
 The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
@@ -209,7 +220,26 @@ line. Because `encoding/pem` skips malformed blocks, it cannot witness
 strictness on its own: malformed first blocks are framed in four shapes — a body
 byte outside the base64 alphabet, a missing END line, an END line naming another
 type, and truncation after the BEGIN line — each followed by a generated number
-of valid blocks, and must be rejected instead of skipped.
+of valid blocks, and must be rejected instead of skipped. When trailing blocks
+are present the target first witnesses that `encoding/pem` does decode one of
+them, so the rejection shows a skip was refused rather than that there was
+nothing to skip to.
+
+The relay targets check that both directions preserve their exact bytes across
+generated chunk sizes and that the connection is closed once. Half close is a
+generated dimension rather than a fixed argument: because `Relay` races the two
+directions and only the input-first ordering reaches the half-close decision,
+the fixture holds the peer direction open until `CloseWrite` runs. That forces
+the ordering, so the target requires exactly one half close when it is asked
+for and none when it is not. A failed input copy returns before that decision,
+so its target requires no half close under either setting.
+
+The Darwin attribute-response target, built only on darwin, re-derives
+acceptance from the response bytes instead of merely checking for panics: the
+header must be present, the reported size must be at least the header and no
+larger than the buffer, and the returned-attributes bit must be set. Accepted
+responses return exactly the common-attribute word the buffer carries; rejected
+ones return zero and a malformed-response error.
 
 Keep minimized failures in the package's `testdata/fuzz/<target>` directory after
 reviewing their contents. Never add real private keys or deployment data.

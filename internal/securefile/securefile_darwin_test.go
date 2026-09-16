@@ -109,9 +109,38 @@ func FuzzDarwinReturnedCommonAttributes(f *testing.F) {
 		darwinAttributeResponseHeader,
 		unix.ATTR_CMN_RETURNED_ATTRS|unix.ATTR_CMN_EXTENDED_SECURITY,
 	))
-	f.Fuzz(func(_ *testing.T, buffer []byte) {
-		if _, err := darwinReturnedCommonAttributes(buffer); err != nil {
-			return
+	f.Add(darwinAttributeResponse(darwinAttributeResponseHeader-1, unix.ATTR_CMN_RETURNED_ATTRS))
+	f.Add(darwinAttributeResponse(darwinAttributeResponseHeader+1, unix.ATTR_CMN_RETURNED_ATTRS))
+	f.Add(darwinAttributeResponse(darwinAttributeResponseHeader, 0))
+	f.Add([]byte{})
+
+	f.Fuzz(func(t *testing.T, buffer []byte) {
+		if len(buffer) > darwinMaxAttributeResponse {
+			t.Skip()
+		}
+		// Re-derive acceptance from the buffer bytes so every bound in the
+		// parser is pinned rather than merely exercised.
+		common, err := darwinReturnedCommonAttributes(buffer)
+		valid := len(buffer) >= darwinAttributeResponseHeader
+		var want uint32
+		if valid {
+			reported := binary.NativeEndian.Uint32(buffer[0:4])
+			want = binary.NativeEndian.Uint32(buffer[4:8])
+			valid = reported >= darwinAttributeResponseHeader &&
+				uint64(reported) <= uint64(len(buffer)) &&
+				want&unix.ATTR_CMN_RETURNED_ATTRS != 0
+		}
+		if (err == nil) != valid {
+			t.Fatalf("attribute response acceptance = %v, want valid %t", err, valid)
+		}
+		if valid && common != want {
+			t.Fatalf("common attributes = %#x, want %#x", common, want)
+		}
+		if !valid && !errors.Is(err, errMalformedDarwinAttributeResponse) {
+			t.Fatalf("error = %v, want malformed response", err)
+		}
+		if !valid && common != 0 {
+			t.Fatalf("rejected attribute response returned %#x, want 0", common)
 		}
 	})
 }

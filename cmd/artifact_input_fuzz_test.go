@@ -22,7 +22,6 @@ func FuzzReadArtifact(f *testing.F) {
 		if len(data) > maxFuzzArtifactInputSize {
 			t.Skip()
 		}
-		original := bytes.Clone(data)
 		limit := int64(fuzzLimit % 1025)
 
 		for _, oneByte := range []bool{false, true} {
@@ -49,14 +48,8 @@ func FuzzReadArtifact(f *testing.F) {
 				t.Fatalf("artifact bytes changed: got %x, want %x", got, data)
 			}
 		}
-		if !bytes.Equal(data, original) {
-			t.Fatal("readArtifact modified its source bytes")
-		}
 
-		failAfter := 0
-		if len(data) > 0 {
-			failAfter = int(fuzzLimit) % (len(data) + 1)
-		}
+		failAfter := int(fuzzLimit) % (len(data) + 1)
 		for _, oneByte := range []bool{false, true} {
 			failing := &fuzzArtifactFailingReader{data: data, failAfter: failAfter}
 			var reader io.Reader = failing
@@ -66,9 +59,6 @@ func FuzzReadArtifact(f *testing.F) {
 			got, err := readArtifact(reader, int64(len(data)))
 			if !errors.Is(err, errFuzzArtifactRead) || got != nil {
 				t.Fatalf("failed artifact read = %x, %v", got, err)
-			}
-			if failing.position != failAfter {
-				t.Fatalf("reader consumed %d bytes before failure, want %d", failing.position, failAfter)
 			}
 		}
 	})

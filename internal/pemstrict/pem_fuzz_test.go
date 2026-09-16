@@ -95,11 +95,18 @@ func checkMalformedFirstFuzzPEM(t *testing.T, payload []byte, malformation, trai
 	t.Helper()
 	shape := malformation % malformedFuzzPEMShapes
 	trailing := trailingBlocks % (maxFuzzPEMTrailingBlocks + 1)
-	first := malformedFirstFuzzPEM(payload, shape)
+	first := malformedFirstFuzzPEM(t, payload, shape)
 	input := append(bytes.Clone(first), trailingFuzzPEMBlocks(trailing)...)
 
 	if standard, _ := pem.Decode(first); standard != nil {
 		t.Fatalf("shape %d produced a decodable first block, so the strictness check proves nothing", shape)
+	}
+	// Without a later block to skip to there is nothing for strictness to
+	// prevent, so witness the skip encoding/pem would have performed.
+	if trailing > 0 {
+		if standard, _ := pem.Decode(input); standard == nil {
+			t.Fatalf("shape %d with %d trailing blocks gave encoding/pem nothing to skip to", shape, trailing)
+		}
 	}
 
 	block, rest := Decode(input)
@@ -114,8 +121,11 @@ func checkMalformedFirstFuzzPEM(t *testing.T, payload []byte, malformation, trai
 // malformedFirstFuzzPEM frames payload in a first block that no PEM decoder may
 // accept. The payload is always base64 encoded, so only the surrounding
 // structure decides validity and the premise holds for every generated input.
-func malformedFirstFuzzPEM(payload []byte, shape uint8) []byte {
+func malformedFirstFuzzPEM(t *testing.T, payload []byte, shape uint8) []byte {
+	t.Helper()
 	body := base64.StdEncoding.EncodeToString(payload)
+	// Every shape is named explicitly so raising malformedFuzzPEMShapes cannot
+	// fold a new shape into an existing arm.
 	switch shape {
 	case 0: // a byte outside the base64 alphabet
 		return []byte("-----BEGIN FUZZ DATA-----\n" + body + "!\n-----END FUZZ DATA-----\n")
@@ -123,8 +133,11 @@ func malformedFirstFuzzPEM(payload []byte, shape uint8) []byte {
 		return []byte("-----BEGIN FUZZ DATA-----\n" + body + "\n")
 	case 2: // END line naming another type
 		return []byte("-----BEGIN FUZZ DATA-----\n" + body + "\n-----END OTHER DATA-----\n")
-	default: // truncated after the BEGIN line
+	case 3: // truncated after the BEGIN line
 		return []byte("-----BEGIN FUZZ DATA-----\n")
+	default:
+		t.Fatalf("malformation shape %d has no framing", shape)
+		return nil
 	}
 }
 

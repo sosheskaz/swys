@@ -10,21 +10,35 @@ import (
 	"time"
 )
 
-const maxFuzzRelayPayloadSize = 8 << 10
+const (
+	maxFuzzRelayPayloadSize = 8 << 10
+	// fuzzRelayHalfCloseWait turns a missing CloseWrite into a fast, named
+	// failure instead of a hang that only the package test timeout catches.
+	fuzzRelayHalfCloseWait = 5 * time.Second
+)
 
-var errFuzzRelayInput = errors.New("fuzz relay input failure")
+var (
+	errFuzzRelayInput            = errors.New("fuzz relay input failure")
+	errFuzzRelayHalfCloseMissing = errors.New("fuzz relay peer was never half closed")
+)
 
-func FuzzRelayPreservesBidirectionalBytesWithoutHalfClose(f *testing.F) {
-	f.Add([]byte{}, []byte{}, uint8(1), uint8(1))
-	f.Add([]byte("request"), []byte("response"), uint8(3), uint8(5))
-	f.Add([]byte{0x00, 0xff, 0x80}, []byte{0xfe, 0x00, 0x7f}, uint8(255), uint8(255))
+func FuzzRelayPreservesBidirectionalBytes(f *testing.F) {
+	f.Add([]byte{}, []byte{}, uint8(1), uint8(1), false)
+	f.Add([]byte{}, []byte{}, uint8(1), uint8(1), true)
+	f.Add([]byte("request"), []byte("response"), uint8(3), uint8(5), false)
+	f.Add([]byte("request"), []byte("response"), uint8(3), uint8(5), true)
+	f.Add([]byte{0x00, 0xff, 0x80}, []byte{0xfe, 0x00, 0x7f}, uint8(255), uint8(255), false)
+	f.Add([]byte{0x00, 0xff, 0x80}, []byte{0xfe, 0x00, 0x7f}, uint8(255), uint8(255), true)
 
-	f.Fuzz(func(t *testing.T, input, peer []byte, inputChunk, peerChunk uint8) {
+	f.Fuzz(func(t *testing.T, input, peer []byte, inputChunk, peerChunk uint8, closeWrite bool) {
 		if len(input) > maxFuzzRelayPayloadSize || len(peer) > maxFuzzRelayPayloadSize {
 			t.Skip()
 		}
 
-		connection := newFuzzStreamConn(peer, peerChunk)
+		// Relay races both directions, and only the input-first ordering reaches
+		// the half-close decision. Holding the peer direction open until
+		// CloseWrite forces that ordering instead of leaving it to the scheduler.
+		connection := newFuzzStreamConn(peer, peerChunk, closeWrite)
 		var output bytes.Buffer
 		err := Relay(
 			t.Context(),
@@ -32,7 +46,7 @@ func FuzzRelayPreservesBidirectionalBytesWithoutHalfClose(f *testing.F) {
 			newFuzzChunkReader(input, inputChunk),
 			&output,
 			0,
-			false,
+			closeWrite,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -46,29 +60,38 @@ func FuzzRelayPreservesBidirectionalBytesWithoutHalfClose(f *testing.F) {
 		if connection.closes != 1 {
 			t.Fatalf("connection close count = %d, want 1", connection.closes)
 		}
-		if connection.closeWrites != 0 {
-			t.Fatalf("connection CloseWrite count = %d, want 0", connection.closeWrites)
+		wantCloseWrites := 0
+		if closeWrite {
+			wantCloseWrites = 1
+		}
+		if connection.closeWrites != wantCloseWrites {
+			t.Fatalf("connection CloseWrite count = %d, want %d for closeWrite %t", connection.closeWrites, wantCloseWrites, closeWrite)
 		}
 	})
 }
 
 func FuzzRelayPreservesPrefixesBeforeInputFailure(f *testing.F) {
-	f.Add([]byte{}, []byte{}, uint8(1), uint8(1))
-	f.Add([]byte("partial request"), []byte("response"), uint8(3), uint8(5))
-	f.Add([]byte{0x00, 0xff, 0x80}, []byte{0xfe, 0x00, 0x7f}, uint8(255), uint8(255))
+	f.Add([]byte{}, []byte{}, uint8(1), uint8(1), false)
+	f.Add([]byte{}, []byte{}, uint8(1), uint8(1), true)
+	f.Add([]byte("partial request"), []byte("response"), uint8(3), uint8(5), false)
+	f.Add([]byte("partial request"), []byte("response"), uint8(3), uint8(5), true)
+	f.Add([]byte{0x00, 0xff, 0x80}, []byte{0xfe, 0x00, 0x7f}, uint8(255), uint8(255), false)
+	f.Add([]byte{0x00, 0xff, 0x80}, []byte{0xfe, 0x00, 0x7f}, uint8(255), uint8(255), true)
 
-	f.Fuzz(func(t *testing.T, input, peer []byte, inputChunk, peerChunk uint8) {
+	f.Fuzz(func(t *testing.T, input, peer []byte, inputChunk, peerChunk uint8, closeWrite bool) {
 		if len(input) > maxFuzzRelayPayloadSize || len(peer) > maxFuzzRelayPayloadSize {
 			t.Skip()
 		}
 
-		connection := newFuzzStreamConn(peer, peerChunk)
+		// A failed input copy returns before the half-close decision, so the peer
+		// direction must not be gated on CloseWrite here.
+		connection := newFuzzStreamConn(peer, peerChunk, false)
 		var output bytes.Buffer
 		inputWithFailure := io.MultiReader(
 			newFuzzChunkReader(input, inputChunk),
 			iotest.ErrReader(errFuzzRelayInput),
 		)
-		err := Relay(t.Context(), connection, inputWithFailure, &output, 0, true)
+		err := Relay(t.Context(), connection, inputWithFailure, &output, 0, closeWrite)
 		if !errors.Is(err, errFuzzRelayInput) {
 			t.Fatalf("error = %v, want input failure", err)
 		}
@@ -82,7 +105,7 @@ func FuzzRelayPreservesPrefixesBeforeInputFailure(f *testing.F) {
 			t.Fatalf("connection close count = %d, want 1", connection.closes)
 		}
 		if connection.closeWrites != 0 {
-			t.Fatalf("connection CloseWrite count = %d, want 0 after input failure", connection.closeWrites)
+			t.Fatalf("connection CloseWrite count = %d, want 0 after input failure with closeWrite %t", connection.closeWrites, closeWrite)
 		}
 	})
 }
@@ -108,18 +131,37 @@ func (reader *fuzzChunkReader) Read(buffer []byte) (int, error) {
 }
 
 type fuzzStreamConn struct {
-	peer        *fuzzChunkReader
+	peer *fuzzChunkReader
+	// halfClosed, when non-nil, keeps the peer direction from reporting EOF
+	// until CloseWrite runs. Only CloseWrite closes it, so a relay that never
+	// half closes cannot finish this fixture.
+	halfClosed  chan struct{}
 	sent        bytes.Buffer
 	closes      int
 	closeWrites int
 }
 
-func newFuzzStreamConn(peer []byte, chunk uint8) *fuzzStreamConn {
-	return &fuzzStreamConn{peer: newFuzzChunkReader(peer, chunk)}
+func newFuzzStreamConn(peer []byte, chunk uint8, awaitHalfClose bool) *fuzzStreamConn {
+	connection := &fuzzStreamConn{peer: newFuzzChunkReader(peer, chunk)}
+	if awaitHalfClose {
+		connection.halfClosed = make(chan struct{})
+	}
+	return connection
 }
 
 func (connection *fuzzStreamConn) Read(buffer []byte) (int, error) {
-	return connection.peer.Read(buffer)
+	read, err := connection.peer.Read(buffer)
+	if connection.halfClosed == nil || !errors.Is(err, io.EOF) {
+		return read, err
+	}
+	timer := time.NewTimer(fuzzRelayHalfCloseWait)
+	defer timer.Stop()
+	select {
+	case <-connection.halfClosed:
+		return read, err
+	case <-timer.C:
+		return read, errFuzzRelayHalfCloseMissing
+	}
 }
 
 func (connection *fuzzStreamConn) Write(buffer []byte) (int, error) {
@@ -132,8 +174,13 @@ func (connection *fuzzStreamConn) Close() error {
 	return nil
 }
 
+// CloseWrite runs on Relay's own goroutine, so closeWrites needs no
+// synchronization; the channel is what the peer goroutine observes.
 func (connection *fuzzStreamConn) CloseWrite() error {
 	connection.closeWrites++
+	if connection.halfClosed != nil && connection.closeWrites == 1 {
+		close(connection.halfClosed)
+	}
 	return nil
 }
 
