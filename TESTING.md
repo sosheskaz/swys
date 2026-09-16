@@ -145,6 +145,7 @@ per invocation:
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzFormatFingerprint$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzEscapeDiagnosticValue$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzCertificateJSON$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelope$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/pemstrict -run='^$' -fuzz='^FuzzDecode$' -fuzztime=30s -parallel=2
@@ -161,8 +162,11 @@ mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParseHTTPHeaders$' -fuzztime=30
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPDecodedBody$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzSupportedHTTPContentCodings$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzWriteHTTPJSONResponse$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzWriteHTTPHead$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPTraceText$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzUnpadPKCS7$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagram$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagramInputFailure$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesBidirectionalBytes$' -fuzztime=30s -parallel=2
@@ -196,6 +200,30 @@ unquoting, but those invariants hold for any `strconv.Quote` body; exact
 equality with the reference is what a later implementation cannot weaken.
 Deterministic client and listener tests require negotiated ALPN diagnostics to
 apply the same escaping.
+
+Peer-supplied certificate DER is driven through parsing and the JSON formatter.
+Successful renders must survive a decode: the serial parses back as hex to the
+same integer, the signature and SPKI base64-decode to the same bytes, and both
+fingerprints match an independently derived colon-hex encoding. Chain
+verification is pinned to an explicit root pool and `CurrentTime` because the
+fuzzing engine assumes targets are deterministic.
+
+The HTTP response head and trace targets render peer-controlled header names,
+header values, request targets, and negotiated TLS metadata. Neither may leave
+its line: output stays valid UTF-8 with no raw control characters, the head
+occupies exactly one line per emitted header value between its status line and
+blank separator, and every trace line classifies as a numbered hop summary or
+one of that hop's declared fields in order. Names and values already made of
+printable runes must render verbatim, which pins content without restating the
+escaper. Trace hops are built from generated timestamps rather than wall-clock
+time. The trace target renders the textual summary; the certificate chain a hop
+captures reaches JSON output only, and is covered by the certificate target.
+
+The PKCS#7 padding target states the contract independently of how the pad
+length is derived: a successful result is a prefix of its input whose removed
+suffix consists entirely of bytes equal to that suffix's own length, and a
+separate dimension supplies independently padded messages so an implementation
+that rejected everything could not pass.
 
 The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
