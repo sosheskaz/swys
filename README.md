@@ -392,8 +392,16 @@ npc http -X GET https://example.com -H 'Accept: application/json'
 default. Requests send `User-Agent: npc/<version>` by default (`npc/dev` when
 build version information is unavailable or reports `(devel)`). Use
 `-H 'User-Agent: custom/1.0'` to override it or `-H 'User-Agent:'` to suppress it.
+Generated shell completion can continue an unquoted `Authorization:Bearer ` or
+`Authorization:Basic ` prefix in the same argument. Cobra's generated shell
+scripts cannot request completion while a quoted header argument is still open.
+Completion scripts generated with `--no-descriptions` also omit the space after
+the authorization scheme; type it manually before entering credentials.
 Multipart content type and boundary, content length, and transfer
 encoding are generated from the body and cannot be supplied as custom headers.
+For a manually constructed multipart body, `Content-Type: multipart/form-data`
+must include the boundary matching that body. `--file` generates both body and
+boundary and therefore rejects a custom content type.
 Conflicting body sources, invalid options, and input/upload/output path
 collisions are rejected before opening the output. Multipart `--file` paths
 must be regular files; stdin uploads use the raw-body interface.
@@ -450,7 +458,8 @@ By default, npc advertises `gzip`, Brotli (`br`), and Zstandard (`zstd`)
 compression and streams the decompressed response body. Automatic negotiation
 is disabled for HEAD and range requests. Supplying `Accept-Encoding` yourself,
 including an empty value, disables automatic negotiation and leaves the
-response body and its encoding headers untouched.
+response body and its encoding headers untouched. Header completion includes
+the registered `deflate` coding, but npc does not decode deflate responses.
 
 By default, stdout or `--output` contains only the response body. HEAD prints
 the status and headers; `--include` adds them for other methods. Body-only text

@@ -132,7 +132,7 @@ func httpJSONBody(options *httpOptions, stdin io.Reader, decoder inputDecoder) (
 	} else {
 		body = httpLiteralBody(options.jsonData, decoder, options.inputEncoding == httpEncodingRaw)
 	}
-	body.contentType = "application/json"
+	body.contentType = httpMediaTypeJSON
 	return body, nil
 }
 

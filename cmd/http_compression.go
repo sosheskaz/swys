@@ -71,7 +71,7 @@ func supportedHTTPContentCodings(values []string) ([]string, bool) {
 		for coding := range strings.SplitSeq(value, ",") {
 			coding = strings.ToLower(strings.TrimSpace(coding))
 			switch coding {
-			case "gzip", "br", "zstd":
+			case httpCodingGzip, httpCodingBrotli, httpCodingZstd:
 				codings = append(codings, coding)
 			case "identity":
 			case "":
@@ -124,7 +124,7 @@ func (body *httpDecodedBody) initializeReader() {
 	for index := len(body.codings) - 1; index >= 0; index-- {
 		coding := body.codings[index]
 		switch coding {
-		case "gzip":
+		case httpCodingGzip:
 			decoder, err := gzip.NewReader(reader)
 			if err != nil {
 				body.initErr = fmt.Errorf("decode HTTP response body (%s): %w", strings.Join(body.codings, ", "), err)
@@ -132,9 +132,9 @@ func (body *httpDecodedBody) initializeReader() {
 			}
 			body.closers = append(body.closers, decoder)
 			reader = decoder
-		case "br":
+		case httpCodingBrotli:
 			reader = brotli.NewReader(reader)
-		case "zstd":
+		case httpCodingZstd:
 			decoder, err := zstd.NewReader(
 				reader,
 				zstd.WithDecoderConcurrency(1),

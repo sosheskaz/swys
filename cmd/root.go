@@ -27,7 +27,8 @@ func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
 		Version:       version.Get().String(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			prepareHTTPCompletion(cmd, args)
 			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
 			if commandHasShape(cmd, hashGroupShape) || commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
 				return nil
@@ -51,7 +52,10 @@ func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
 		"",
 		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
 	)
-	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newHashCmd(), newNetCmd(), newHTTPCmd(), newDNSCmd(dnsDeps))
+	httpCmd := newHTTPCmd()
+	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newHashCmd(), newNetCmd(), httpCmd, newDNSCmd(dnsDeps))
+	registerHTTPBodyCompletionGroups(httpCmd)
+	configureFishCompletionGeneration(rootCmd)
 	return rootCmd
 }
 

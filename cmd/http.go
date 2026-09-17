@@ -12,14 +12,18 @@ import (
 )
 
 const (
-	httpRequestShape = "http-request"
-	httpCommandName  = "http"
-	httpFormatText   = "text"
-	httpFormatJSON   = "json"
-	httpEncodingRaw  = "raw"
-	httpStdinAuto    = "auto"
-	httpStdinNever   = "never"
-	httpStdinAlways  = "always"
+	httpRequestShape  = "http-request"
+	httpCommandName   = "http"
+	httpFormatText    = "text"
+	httpFormatJSON    = "json"
+	httpEncodingRaw   = "raw"
+	httpStdinAuto     = "auto"
+	httpStdinNever    = "never"
+	httpStdinAlways   = "always"
+	httpMediaTypeJSON = "application/json"
+	httpCodingGzip    = "gzip"
+	httpCodingBrotli  = "br"
+	httpCodingZstd    = "zstd"
 )
 
 var (
@@ -71,7 +75,10 @@ addresses without changing the URL host or TLS identity.
 Explicit methods other than GET and HEAD automatically read non-terminal stdin
 unless a body option is supplied. Use --stdin never to disable this behavior.
 --trace writes diagnostics to stderr; with --format json it adds trace data to
-the response envelope, whose body is always a base64 string.`,
+the response envelope, whose body is always a base64 string.
+HTTP header completion suggests common values only. Selecting deflate for
+Accept-Encoding requests an encoding npc does not decode; any explicit
+Accept-Encoding disables automatic negotiation and decompression.`,
 		Args: validateHTTPArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if prepared == nil {
@@ -100,6 +107,11 @@ the response envelope, whose body is always a base64 string.`,
 	return command
 }
 
+func registerHTTPBodyCompletionGroups(command *cobra.Command) {
+	command.MarkFlagsMutuallyExclusive("input", "data", httpFormatJSON, "form")
+	command.MarkFlagsMutuallyExclusive("input", "data", httpFormatJSON, "file")
+}
+
 func addHTTPCommandShape(cmd *cobra.Command) {
 	addCommandShape(cmd, httpRequestShape)
 	addCommandShape(cmd, structuredOutputShape)
@@ -109,12 +121,7 @@ func addHTTPCommandShape(cmd *cobra.Command) {
 func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags := cmd.PersistentFlags()
 	flags.StringP("method", "X", http.MethodGet, "HTTP request method")
-	registerFlagCompletion(cmd, "method", func() []string {
-		return []string{
-			http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
-			http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace, "QUERY",
-		}
-	})
+	mustRegisterHTTPCompletion(cmd, "method", completeHTTPMethod)
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request header (Name: value); repeatable")
 	flags.StringArrayVar(&options.resolves, "resolve", nil, "resolve host:port to numeric address(es); repeatable")
 	flags.StringVar(&options.data, "data", "", "literal raw request body")
@@ -138,10 +145,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, "servername", "", "override TLS SNI and verification name")
 	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
-	registerFlagCompletion(cmd, "stdin", func() []string { return []string{httpStdinAuto, httpStdinNever, httpStdinAlways} })
-	registerFlagCompletion(cmd, formatFlagName, func() []string { return []string{httpFormatText, httpFormatJSON} })
-	registerFlagCompletion(cmd, encodingFlagName, byteEncodingNames)
-	registerFlagCompletion(cmd, inputEncodingFlagName, byteEncodingNames)
+	registerHTTPCompletions(cmd, options)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
 		if err := cmd.MarkPersistentFlagFilename(name); err != nil {
 			panic(err)
