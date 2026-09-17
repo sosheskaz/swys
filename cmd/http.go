@@ -112,7 +112,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	registerFlagCompletion(cmd, "method", func() []string {
 		return []string{
 			http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
-			http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace,
+			http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace, "QUERY",
 		}
 	})
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request header (Name: value); repeatable")

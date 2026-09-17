@@ -149,14 +149,26 @@ func TestHTTPRejectsInvalidMethodArgumentsBeforeIO(t *testing.T) {
 
 func TestHTTPMethodCompletion(t *testing.T) {
 	t.Parallel()
-	stdout, _, err := executeRootStreams(t, "__complete", "http", "--method", "P")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, method := range []string{"POST", "PUT", "PATCH"} {
-		if !strings.Contains(stdout, method+"\n") {
-			t.Fatalf("method completion = %q, missing %s", stdout, method)
-		}
+	for _, test := range []struct {
+		name, flag, prefix string
+		want               []string
+	}{
+		{name: "long flag P prefix", flag: "--method", prefix: "P", want: []string{"POST", "PUT", "PATCH"}},
+		{name: "long flag QUERY", flag: "--method", prefix: "Q", want: []string{"QUERY"}},
+		{name: "short flag QUERY", flag: "-X", prefix: "Q", want: []string{"QUERY"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stdout, _, err := executeRootStreams(t, "__complete", "http", test.flag, test.prefix)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, method := range test.want {
+				if !strings.Contains(stdout, method+"\n") {
+					t.Fatalf("method completion = %q, missing %s", stdout, method)
+				}
+			}
+		})
 	}
 }
 
