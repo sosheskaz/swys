@@ -18,14 +18,18 @@ import (
 )
 
 func newRootCmd() *cobra.Command {
+	return newRootCmdWithDNSDependencies(defaultDNSDependencies())
+}
+
+func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "npc",
 		Version:       version.Get().String(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			// HTTP selects and opens its body before invoking shared I/O setup.
-			if commandHasShape(cmd, httpRequestShape) {
+			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
+			if commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
 				return nil
 			}
 			return configureCommandIO(cmd)
@@ -47,7 +51,7 @@ func newRootCmd() *cobra.Command {
 		"",
 		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
 	)
-	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newNetCmd(), newHTTPCmd())
+	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newNetCmd(), newHTTPCmd(), newDNSCmd(dnsDeps))
 	return rootCmd
 }
 

@@ -247,7 +247,7 @@ func validateKeyFlagsBeforeIO(cmd *cobra.Command) error {
 }
 
 func commandPreparesOutput(cmd *cobra.Command) bool {
-	return commandHasShape(cmd, "key-public") || commandHasShape(cmd, "key-convert")
+	return commandHasShape(cmd, "key-public") || commandHasShape(cmd, "key-convert") || commandHasShape(cmd, dnsQueryShape)
 }
 
 func prepareCommandOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
@@ -256,6 +256,12 @@ func prepareCommandOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
 		return prepareKeyPublicOutput(cmd, input)
 	case commandHasShape(cmd, "key-convert"):
 		return prepareKeyConversionOutput(cmd, input)
+	case commandHasShape(cmd, dnsQueryShape):
+		prepared, ok := cmd.Context().Value(dnsPreparedOutputKey{}).([]byte)
+		if !ok {
+			return nil, errPreparedOutputUnavailable
+		}
+		return prepared, nil
 	default:
 		return nil, nil
 	}

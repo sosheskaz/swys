@@ -1,8 +1,9 @@
 module github.com/sosheskaz-systems/npc
 
-go 1.26.0
+go 1.27.0
 
 require (
+	codeberg.org/miekg/dns v0.6.109
 	github.com/andybalholm/brotli v1.2.4
 	github.com/go-logr/logr v1.4.4
 	github.com/klauspost/compress v1.20.0
@@ -15,4 +16,5 @@ require (
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	golang.org/x/net v0.58.0 // indirect
 )

@@ -60,8 +60,9 @@ func commandTreeViolations(root *cobra.Command) []string {
 			} else {
 				isTransportVerb := command.Name() == "connect" || command.Name() == "listen"
 				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
-				isHTTP := command == root && child.Name() == httpCommandName && commandHasShape(child, httpRequestShape)
-				if !verbs[child.Name()] && !isTransport && !isHTTP {
+				isRootUtility := command == root && ((child.Name() == httpCommandName && commandHasShape(child, httpRequestShape)) ||
+					(child.Name() == dnsCommandName && commandHasShape(child, dnsQueryShape)))
+				if !verbs[child.Name()] && !isTransport && !isRootUtility {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}
 				binary := commandHasShape(child, binaryOutputShape)

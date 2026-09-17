@@ -59,6 +59,14 @@ For local transport examples, see the [TCP and TLS walkthrough](#raw-tcp-and-tls
 See [key handling](#key-lifecycle-walkthrough), [certificate creation](#certificate-creation-walkthrough),
 and [AES usage](#aes-quick-start) for flags and output-file behavior.
 
+Resolve a host through the system resolver, or inspect a record from a specific
+DNS server:
+
+```fish
+npc dns example.com
+npc dns @192.0.2.53 example.com MX --short
+```
+
 ## Commands today
 
 ```
@@ -67,6 +75,7 @@ npc key generate <algorithm>       # generate a key with an explicit algorithm
 npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
+npc dns [@server] name [type]      # system resolution or a direct DNS query
 npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
 npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
@@ -75,6 +84,67 @@ npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
 Use `npc --help` or `npc <noun> <verb> --help` for available flags. The
 [product direction](#product-direction-and-roadmap) below also discusses commands
 that are not implemented yet.
+
+### DNS lookups
+
+`npc dns name [type]` uses the system resolver and defaults to an A lookup.
+System mode supports A, AAAA, and PTR records. Use `-x`/`--reverse` with an IP
+address as a convenient PTR form:
+
+```fish
+npc dns example.com
+npc dns example.com AAAA --format json
+npc dns 192.0.2.10 --reverse --short
+```
+
+System resolution intentionally exposes only the data returned by Go's
+`net.Resolver`. Text output marks the responding server, DNS status/header
+fields, and TTLs as unavailable; JSON represents those fields as `null`. It
+does not synthesize packet metadata or silently switch to a direct DNS query.
+The release build uses `CGO_ENABLED=0`. With the pinned Go 1.27 toolchain,
+Darwin still reaches the operating system resolver through its system lookup
+path, while Linux and FreeBSD use Go's built-in resolver and therefore do not
+provide every NSS-style lookup source.
+
+An `@server`, an explicitly supplied `--transport`, or `--port` selects direct
+DNS. `--resolver dns` selects it without those flags. Direct mode accepts the
+single-message record types supported by the bundled DNS library, uses UDP by
+default, and retries a truncated UDP response once over TCP. AXFR and IXFR zone
+transfers are rejected because they require a multi-message transfer protocol.
+Use `--transport tcp` to start with TCP. `--resolver system` conflicts with
+direct-DNS selectors instead of ignoring them.
+
+For PTR records, `--reverse` converts an IP address to its reverse owner name.
+Without `--reverse`, direct mode sends the supplied owner name unchanged;
+system mode accepts a literal IP address because `net.Resolver` does not expose
+raw reverse-owner queries.
+
+```fish
+npc dns @192.0.2.53 example.com MX
+npc dig @192.0.2.53 example.com TXT --transport tcp --short
+npc nslookup example.com CAA --resolver dns --format json
+```
+
+When direct mode has no `@server`, npc uses configured nameservers from
+`/etc/resolv.conf` on Unix and active network adapters on Windows. It does not
+substitute a public resolver. Direct mode does not apply a resolver search list;
+it canonicalizes the supplied name to a fully qualified DNS name. A received
+DNS response, including NXDOMAIN or SERVFAIL, is rendered with its status and
+counts as a completed exchange; transport, timeout, malformed-response, ID,
+opcode, and question-mismatch failures exit nonzero.
+
+`--short` prints one answer value per line. With `--format json`, it prints a
+JSON array of values instead. TXT values retain DNS zone-file quoting and
+escaping so embedded whitespace, quotes, control bytes, and multi-string TXT
+records remain unambiguous. The `dig` and `nslookup` aliases accept exactly the
+same syntax and flags as `dns`; they do not emulate those programs' `+option`
+syntax.
+
+DNS option validation, resolution, response validation, and rendering all
+finish before npc opens `--output`. Those failures preserve an existing file.
+The final result is then written through the normal output lifecycle; a write
+or close failure after the file is opened can leave an empty or partial file,
+and the nonzero exit status marks it incomplete.
 
 ### Raw TCP, TLS, and UDP walkthrough
 
@@ -153,10 +223,9 @@ response datagram; `--wait 0` waits indefinitely. UDP does not expose
 always expects one response: a non-replying service produces a timeout error,
 while `--wait 0` waits indefinitely. There is no send-only mode.
 
-The byte encodings make it possible to send and receive a raw DNS packet
-without a DNS-specific parser. This query asks a public resolver for the A
-record of `example.com`; replace the endpoint with the resolver you intend to
-query:
+The byte encodings also make it possible to send and receive a raw DNS packet
+when testing packet bytes themselves. Replace the endpoint and packet with the
+resolver and query you intend to test:
 
 ```fish
 printf '%s\n' '1a2b01000001000000000000076578616d706c6503636f6d0000010001' |
