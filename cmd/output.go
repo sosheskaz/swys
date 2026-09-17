@@ -17,9 +17,10 @@ type inputDecoder func(io.Reader) io.Reader
 
 type finalizingOutput struct {
 	io.Writer
-	closer io.Closer
-	err    error
-	once   sync.Once
+	closer     io.Closer
+	underlying io.Writer
+	err        error
+	once       sync.Once
 }
 
 func (output *finalizingOutput) finalize() error {
@@ -45,6 +46,28 @@ func finalizeOutputEncoding(output io.Writer) error {
 		return nil
 	}
 	return finalizer.finalize()
+}
+
+func writeUnencoded(output io.Writer, data []byte) (int, error) {
+	finalizer, ok := output.(*finalizingOutput)
+	if !ok || finalizer.underlying == nil {
+		written, err := output.Write(data)
+		if err == nil && written != len(data) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			return written, fmt.Errorf("write unencoded output: %w", err)
+		}
+		return written, nil
+	}
+	written, err := finalizer.underlying.Write(data)
+	if err == nil && written != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return written, fmt.Errorf("write unencoded output: %w", err)
+	}
+	return written, nil
 }
 
 type byteEncoding struct {

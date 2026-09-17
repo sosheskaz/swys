@@ -76,6 +76,7 @@ npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
 npc dns [@server] name [type]      # system resolution or a direct DNS query
+npc hash sha256|sha512|sha1|md5   # stream one input into an explicit digest
 npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
 npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
@@ -150,6 +151,20 @@ finish before npc opens `--output`. Those failures preserve an existing file.
 The final result is then written through the normal output lifecycle; a write
 or close failure after the file is opened can leave an empty or partial file,
 and the nonzero exit status marks it incomplete.
+
+### Checksums
+
+Hash one stdin stream with an explicit algorithm. Text output defaults to
+lowercase hexadecimal followed by a newline; `--encoding raw` writes the exact
+digest bytes. MD5 and SHA-1 are available for compatibility checks.
+
+```fish
+printf 'hello' | npc hash sha256
+npc hash sha512 --input archive.tar --output archive.tar.sha512
+```
+
+All hash algorithms accept `--input-encoding` and the shared output encodings.
+They do not accept filename operands, labels, manifests, or multiple inputs.
 
 ### Raw TCP, TLS, and UDP walkthrough
 
@@ -836,7 +851,7 @@ unbounded-input code proves bounded memory in benchmarks.
 ## Product direction and roadmap
 
 This section preserves the intended product shape and design principles. It is
-not a command reference: `grpc`, `hash`, `sign`, `encode`, `decode`, `rand`,
+not a command reference: `grpc`, `sign`, `encode`, `decode`, `rand`,
 `zip`, and `unzip` are future work. HTTP requests and TCP/TLS/UDP transport are
 implemented. See
 [Commands today](#commands-today) for the implemented surface.

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -27,6 +28,102 @@ func TestCommandTreeRejectsUnclassifiedLeaf(t *testing.T) {
 	}
 }
 
+func TestCommandTreeScopesHashAlgorithmsToRootGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		algorithm string
+		want      []string
+		nested    bool
+	}{
+		{name: "approved root algorithm", algorithm: "sha256"},
+		{
+			name:      "unapproved root algorithm",
+			algorithm: "crc32",
+			want:      []string{`leaf command "root hash crc32" is not an allowed verb`},
+		},
+		{
+			name:      "approved name in nested hash group",
+			algorithm: "sha256",
+			nested:    true,
+			want:      []string{`leaf command "root crypto hash sha256" is not an allowed verb`},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := &cobra.Command{Use: "root"}
+			hash := &cobra.Command{Use: "hash"}
+			hash.AddCommand(binaryOutputCommand(&cobra.Command{
+				Use: test.algorithm,
+				Run: func(*cobra.Command, []string) {},
+			}, true))
+			if test.nested {
+				parent := &cobra.Command{Use: "crypto"}
+				parent.AddCommand(hash)
+				root.AddCommand(parent)
+			} else {
+				root.AddCommand(hash)
+			}
+
+			violations := commandTreeViolations(root)
+			if !slices.Equal(violations, test.want) {
+				t.Fatalf("violations = %q, want %q", violations, test.want)
+			}
+		})
+	}
+}
+
+func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		group  string
+		want   []string
+		nested bool
+	}{
+		{name: "root hash group", group: "hash"},
+		{
+			name:   "nested hash group",
+			group:  "hash",
+			nested: true,
+			want:   []string{`group command "root crypto hash" must not be runnable`},
+		},
+		{
+			name:  "unrelated root group",
+			group: "noun",
+			want:  []string{`group command "root noun" must not be runnable`},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := &cobra.Command{Use: "root"}
+			group := &cobra.Command{Use: test.group, Run: func(*cobra.Command, []string) {}}
+			group.AddCommand(binaryOutputCommand(&cobra.Command{
+				Use: "inspect",
+				Run: func(*cobra.Command, []string) {},
+			}, false))
+			if test.nested {
+				parent := &cobra.Command{Use: "crypto"}
+				parent.AddCommand(group)
+				root.AddCommand(parent)
+			} else {
+				root.AddCommand(group)
+			}
+
+			violations := commandTreeViolations(root)
+			if !slices.Equal(violations, test.want) {
+				t.Fatalf("violations = %q, want %q", violations, test.want)
+			}
+		})
+	}
+}
+
 func commandTreeViolations(root *cobra.Command) []string {
 	// Cobra's generated help/completion trees are outside npc's command grammar.
 	verbs := map[string]bool{
@@ -44,6 +141,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 		"genkey": true,
 	}
 	transportLeaves := map[string]bool{"tcp": true, "tls": true, "udp": true}
+	hashAlgorithmLeaves := map[string]bool{"md5": true, "sha1": true, "sha256": true, "sha512": true}
 
 	var violations []string
 	var walk func(*cobra.Command)
@@ -54,7 +152,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 			}
 
 			if child.HasSubCommands() {
-				if child.Run != nil || child.RunE != nil {
+				isRunnableRootHash := command == root && child.Name() == "hash"
+				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}
 			} else {
@@ -62,7 +161,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
 				isRootUtility := command == root && ((child.Name() == httpCommandName && commandHasShape(child, httpRequestShape)) ||
 					(child.Name() == dnsCommandName && commandHasShape(child, dnsQueryShape)))
-				if !verbs[child.Name()] && !isTransport && !isRootUtility {
+				isHashAlgorithm := command.Name() == "hash" && command.Parent() == root && hashAlgorithmLeaves[child.Name()]
+				if !verbs[child.Name()] && !isTransport && !isRootUtility && !isHashAlgorithm {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}
 				binary := commandHasShape(child, binaryOutputShape)

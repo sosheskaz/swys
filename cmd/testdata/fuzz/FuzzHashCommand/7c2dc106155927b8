@@ -1,0 +1,6 @@
+go test fuzz v1
+[]byte("000=0000")
+byte('\x13')
+byte('d')
+byte('v')
+uint16(0)

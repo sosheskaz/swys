@@ -29,7 +29,7 @@ func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
-			if commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
+			if commandHasShape(cmd, hashGroupShape) || commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
 				return nil
 			}
 			return configureCommandIO(cmd)
@@ -51,7 +51,7 @@ func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
 		"",
 		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
 	)
-	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newNetCmd(), newHTTPCmd(), newDNSCmd(dnsDeps))
+	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newHashCmd(), newNetCmd(), newHTTPCmd(), newDNSCmd(dnsDeps))
 	return rootCmd
 }
 
@@ -217,9 +217,10 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 		output = openedOutput
 	}
 
+	underlyingOutput := output
 	output, closer := encoder(output)
 	if closer != nil {
-		finalizer := &finalizingOutput{Writer: output, closer: closer}
+		finalizer := &finalizingOutput{Writer: output, closer: closer, underlying: underlyingOutput}
 		closers = append(closers, finalizer)
 		output = finalizer
 	}
@@ -426,7 +427,11 @@ func commandCodecs(cmd *cobra.Command) (inputDecoder, outputEncoder, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("read encoding flag: %w", err)
 		}
-		encoder, err = getOutputEncoder(name)
+		if commandHasShape(cmd, hashOutputShape) {
+			encoder, err = hashOutputEncoder(name)
+		} else {
+			encoder, err = getOutputEncoder(name)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
