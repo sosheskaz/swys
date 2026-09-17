@@ -151,7 +151,77 @@ func base64Encoder(encoding *base64.Encoding) outputEncoder {
 }
 
 func base64Decoder(encoding *base64.Encoding) inputDecoder {
-	return func(input io.Reader) io.Reader { return base64.NewDecoder(encoding, stripNewlines(input)) }
+	return func(input io.Reader) io.Reader {
+		return base64.NewDecoder(encoding, &base64PaddingReader{source: stripNewlines(input)})
+	}
+}
+
+var errInvalidBase64Padding = errors.New("invalid base64 padding")
+
+// base64PaddingReader prevents the streaming decoder from treating terminal
+// padding as a boundary between independently encoded values.
+type base64PaddingReader struct {
+	source      io.Reader
+	pendingErr  error
+	dataChars   int
+	wantPadding bool
+	terminal    bool
+}
+
+func (reader *base64PaddingReader) Read(buffer []byte) (int, error) {
+	if reader.pendingErr != nil {
+		return 0, reader.pendingErr
+	}
+	if len(buffer) == 0 {
+		return 0, nil
+	}
+
+	read, readErr := reader.source.Read(buffer)
+	written := 0
+	var validationErr error
+	for _, char := range buffer[:read] {
+		if reader.terminal {
+			validationErr = errInvalidBase64Padding
+			break
+		}
+
+		buffer[written] = char
+		written++
+		switch {
+		case reader.wantPadding:
+			if char == '=' {
+				reader.terminal = true
+			}
+			reader.wantPadding = false
+		case char == '=' && reader.dataChars%4 == 2:
+			reader.wantPadding = true
+		case char == '=' && reader.dataChars%4 == 3:
+			reader.terminal = true
+		default:
+			reader.dataChars++
+		}
+	}
+
+	terminalErr := base64PaddingError(validationErr, readErr)
+	if terminalErr != nil {
+		reader.pendingErr = terminalErr
+		if written > 0 {
+			return written, nil
+		}
+	}
+	return written, terminalErr
+}
+
+func base64PaddingError(validationErr, readErr error) error {
+	if validationErr == nil {
+		return readErr
+	}
+	// Only a plain terminal EOF is decoder control flow. An error that wraps EOF
+	// is still a source failure and must remain discoverable through errors.Is.
+	if readErr == nil || readErr == io.EOF { //nolint:errorlint // exact EOF identity is intentional
+		return validationErr
+	}
+	return errors.Join(validationErr, readErr)
 }
 
 func base64URLDecoder(input io.Reader) io.Reader {

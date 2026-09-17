@@ -168,7 +168,7 @@ func checkByteEncodingRoundTrip(t *testing.T, name string, data []byte, writeChu
 }
 
 func FuzzByteDecoders(f *testing.F) {
-	for _, seed := range []string{"", "0", "00", "Zg==", "Zg=", "MZXW6===", "MZXW6=="} {
+	for _, seed := range []string{"", "0", "00", "Zg==", "Zg=", "000=0000", "YQ==Yg==", "MZXW6===", "MZXW6=="} {
 		f.Add(seed)
 	}
 
@@ -198,6 +198,72 @@ func FuzzByteDecoders(f *testing.F) {
 			}
 		}
 	})
+}
+
+func FuzzBase64DecodersRejectDataAfterTerminalPadding(f *testing.F) {
+	const validationBufferSize = 32 << 10
+	f.Add("000=0000", uint16(4))
+	f.Add("YQ==Yg==", uint16(1))
+	for index, offset := range []int{-4, 0, 4} {
+		prefix := strings.Repeat("AAAA", (validationBufferSize+offset)/4-1) + "YQ=="
+		f.Add(prefix+"Yg==", uint16(validationBufferSize-1+index))
+	}
+
+	f.Fuzz(func(t *testing.T, input string, fuzzReadBufferSize uint16) {
+		if len(input) > 2*validationBufferSize {
+			t.Skip()
+		}
+		clean := strings.NewReplacer("\r", "", "\n", "").Replace(input)
+		if !hasDataAfterValidBase64Padding(clean) {
+			t.Skip()
+		}
+		want, wantErr := base64.StdEncoding.DecodeString(clean)
+		if wantErr == nil {
+			t.Fatal("reference decoder accepted data after terminal padding")
+		}
+		readBufferSize := int(fuzzReadBufferSize)
+		if readBufferSize == 0 {
+			readBufferSize = 1
+		}
+		if readBufferSize > validationBufferSize+1 {
+			readBufferSize = readBufferSize%(validationBufferSize+1) + 1
+		}
+		for _, name := range []string{"base64", "b64"} {
+			decoder, err := getInputDecoder(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, decodeErr := readAllWithBuffer(decoder(strings.NewReader(input)), readBufferSize)
+			if decodeErr == nil {
+				t.Fatalf("%s accepted data after terminal padding with read buffer %d", name, readBufferSize)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("%s decoded prefix = %x, want %x", name, got, want)
+			}
+		}
+	})
+}
+
+func hasDataAfterValidBase64Padding(input string) bool {
+	paddingStart := strings.IndexByte(input, '=')
+	if paddingStart < 0 {
+		return false
+	}
+	var paddingLength int
+	switch paddingStart % 4 {
+	case 2:
+		paddingLength = 2
+	case 3:
+		paddingLength = 1
+	default:
+		return false
+	}
+	paddingEnd := paddingStart + paddingLength
+	if paddingEnd >= len(input) || strings.Trim(input[paddingStart:paddingEnd], "=") != "" {
+		return false
+	}
+	_, err := base64.StdEncoding.DecodeString(input[:paddingEnd])
+	return err == nil
 }
 
 func FuzzStripNewlinesInputFailure(f *testing.F) {
@@ -281,6 +347,13 @@ func referenceStreamingDecode(t *testing.T, name, input string, oneByte bool) ([
 	}
 	if reference.stripNewlines {
 		input = strings.NewReplacer("\r", "", "\n", "").Replace(input)
+	}
+	if name == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(input)
+		if err != nil {
+			return decoded, fmt.Errorf("decode reference %s: %w", name, err)
+		}
+		return decoded, nil
 	}
 	var paddingErr error
 	if name == "base64url" {

@@ -2,14 +2,20 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-var errTestWriteFailed = errors.New("write failed")
+var (
+	errTestSourceReadFailed = errors.New("test source read failure")
+	errTestWriteFailed      = errors.New("write failed")
+)
 
 func TestInputDecoders(t *testing.T) {
 	t.Parallel()
@@ -125,6 +131,168 @@ func TestBase64URLValidationErrorOmitsEOF(t *testing.T) {
 	}
 }
 
+func TestBase64DecodersRejectDataAfterTerminalPadding(t *testing.T) {
+	t.Parallel()
+	const validationBufferSize = 32 << 10
+	readBufferSizes := []int{1, 4, validationBufferSize - 1, validationBufferSize, validationBufferSize + 1}
+	inputs := map[string]string{
+		"single padding":         "000=0000",
+		"double padding":         "YQ==Yg==",
+		"buffer boundary":        strings.Repeat("AAAA", validationBufferSize/4-1) + "YQ==Yg==",
+		"split padding and CRLF": "YQ=\r\n=Yg==",
+	}
+
+	for _, name := range []string{"base64", "b64"} {
+		for inputName, input := range inputs {
+			for _, readBufferSize := range readBufferSizes {
+				t.Run(fmt.Sprintf("%s/%s/read-%d", name, inputName, readBufferSize), func(t *testing.T) {
+					t.Parallel()
+					decoder, err := getInputDecoder(name)
+					if err != nil {
+						t.Fatal(err)
+					}
+					reader := decoder(&maxChunkReader{
+						source: strings.NewReader(input),
+						max:    readBufferSize,
+					})
+					_, err = readAllWithBuffer(reader, readBufferSize)
+					if err == nil {
+						t.Fatalf("decode accepted data after terminal padding with read buffer %d", readBufferSize)
+					}
+					n, stickyErr := reader.Read(make([]byte, 1))
+					if n != 0 || stickyErr == nil || stickyErr.Error() != err.Error() {
+						t.Fatalf("read after validation error = %d, %v; want sticky %v", n, stickyErr, err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestBase64DecodersPreserveValidPaddingPolicyAcrossBoundaries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "padded", input: "YQ==", want: "a"},
+		{name: "CRLF within padding", input: "YQ=\r\n=", want: "a"},
+		{name: "non-zero pad bits remain accepted", input: "Zh==", want: "f"},
+	}
+	for _, encodingName := range []string{"base64", "b64"} {
+		for _, test := range tests {
+			for _, sourceChunkSize := range []int{1, 4} {
+				t.Run(fmt.Sprintf("%s/%s/source-%d", encodingName, test.name, sourceChunkSize), func(t *testing.T) {
+					t.Parallel()
+					decoder, err := getInputDecoder(encodingName)
+					if err != nil {
+						t.Fatal(err)
+					}
+					got, err := io.ReadAll(decoder(&maxChunkReader{
+						source: strings.NewReader(test.input),
+						max:    sourceChunkSize,
+					}))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if string(got) != test.want {
+						t.Fatalf("decode = %q, want %q", got, test.want)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestBase64DecoderPreservesSourceErrorWithData(t *testing.T) {
+	t.Parallel()
+	readErr := errTestSourceReadFailed
+	source := &dataAndErrorReader{data: []byte("YQ=="), err: readErr}
+	decoder, err := getInputDecoder("base64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := decoder(source)
+	got, err := readAllWithBuffer(reader, 1)
+	if string(got) != "a" {
+		t.Fatalf("decoded bytes = %q, want %q", got, "a")
+	}
+	if !errors.Is(err, readErr) {
+		t.Fatalf("decode error = %v, want source error", err)
+	}
+
+	n, stickyErr := reader.Read(make([]byte, 1))
+	if n != 0 {
+		t.Fatalf("read after source error = %d bytes, want 0", n)
+	}
+	if !errors.Is(stickyErr, readErr) {
+		t.Fatalf("read after source error = %v, want sticky source error", stickyErr)
+	}
+	if source.reads != 1 {
+		t.Fatalf("source reads = %d, want 1", source.reads)
+	}
+}
+
+func TestBase64ValidationErrorOmitsEOF(t *testing.T) {
+	t.Parallel()
+	source := &dataAndErrorReader{data: []byte("YQ==Yg=="), err: io.EOF}
+	decoder, err := getInputDecoder("base64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(decoder(source))
+	if string(got) != "a" {
+		t.Fatalf("decoded prefix = %q, want %q", got, "a")
+	}
+	if !errors.Is(err, errInvalidBase64Padding) {
+		t.Fatalf("decode error = %v, want invalid padding", err)
+	}
+	if errors.Is(err, io.EOF) {
+		t.Fatalf("decode error = %v, want corruption without EOF", err)
+	}
+}
+
+func TestKeyPublicMalformedBase64PreservesExistingOutput(t *testing.T) {
+	t.Parallel()
+	privatePEM, _, err := executeRootStreams(t, "key", "generate", "ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateBytes := []byte(privatePEM)
+	for len(privateBytes)%3 == 0 {
+		privateBytes = append(privateBytes, '\n')
+	}
+	encodedPrivate := base64.StdEncoding.EncodeToString(privateBytes)
+	if !strings.HasSuffix(encodedPrivate, "=") {
+		t.Fatalf("test setup produced unpadded base64 input %q", encodedPrivate)
+	}
+
+	rootCmd := newRootCmd()
+	// A second padded segment decodes to whitespace, so the key parser accepts
+	// it if the shared decoder mistakenly treats padding as a chunk delimiter.
+	rootCmd.SetIn(&sequenceReader{chunks: [][]byte{[]byte(encodedPrivate), []byte("Cg==")}})
+	outputPath := filepath.Join(t.TempDir(), "public.pem")
+	if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = executeRootCommandStreams(
+		t,
+		rootCmd,
+		"key", "public", "--input-encoding", "base64", "--output", outputPath,
+	)
+	if err == nil {
+		t.Error("key public accepted base64 data after terminal padding")
+	}
+	got, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != "preserve" {
+		t.Fatalf("output after malformed input = %q, want preserved contents", got)
+	}
+}
+
 func TestNewlineStrippingReaderDoesNotReturnZeroWithoutError(t *testing.T) {
 	t.Parallel()
 	source := &sequenceReader{chunks: [][]byte{[]byte("\r\n\r\n"), []byte("ab")}}
@@ -145,6 +313,52 @@ func TestNewlineStrippingReaderDoesNotReturnZeroWithoutError(t *testing.T) {
 type sequenceReader struct {
 	err    error
 	chunks [][]byte
+}
+
+type maxChunkReader struct {
+	source io.Reader
+	max    int
+}
+
+func (reader *maxChunkReader) Read(buffer []byte) (int, error) {
+	if len(buffer) > reader.max {
+		buffer = buffer[:reader.max]
+	}
+	return reader.source.Read(buffer) //nolint:wrapcheck // preserve error identity for decoder propagation tests
+}
+
+type dataAndErrorReader struct {
+	err   error
+	data  []byte
+	reads int
+}
+
+func (reader *dataAndErrorReader) Read(buffer []byte) (int, error) {
+	reader.reads++
+	if reader.reads > 1 {
+		return 0, io.EOF
+	}
+	return copy(buffer, reader.data), reader.err
+}
+
+func readAllWithBuffer(reader io.Reader, bufferSize int) ([]byte, error) {
+	var output bytes.Buffer
+	buffer := make([]byte, bufferSize)
+	for {
+		read, err := reader.Read(buffer)
+		if read > 0 {
+			_, _ = output.Write(buffer[:read])
+		}
+		if err != nil {
+			if err == io.EOF {
+				return output.Bytes(), nil
+			}
+			return output.Bytes(), err
+		}
+		if read == 0 {
+			return output.Bytes(), io.ErrNoProgress
+		}
+	}
 }
 
 func (r *sequenceReader) Read(buffer []byte) (int, error) {
