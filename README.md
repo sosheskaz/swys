@@ -739,6 +739,8 @@ npc cert csr \
 written as SAN extensions, not only into the common name. An issuer certificate
 must be one PEM `CERTIFICATE`, its private key must match, and the requested
 leaf validity must fit entirely within the issuer's validity window.
+Shell completion offers the `CN=` subject prefix, common validity periods, and
+stdin or filesystem choices for certificate key and issuer artifacts.
 Server-capable leaves with no SAN flags classify their common name as a matching
 DNS or IP SAN.
 With no subject or SAN flags, server-capable leaves and CSRs default to both

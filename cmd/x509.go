@@ -31,6 +31,7 @@ func newCertInspectCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  runCertInspect,
 	}, certFormatNames)
+	certInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return certInspectCmd
 }
 

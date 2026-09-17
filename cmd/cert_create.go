@@ -23,6 +23,8 @@ const (
 	defaultLeafValidityDays = 30
 	defaultCAValidityDays   = 365
 	maxCertificateDays      = int(time.Duration(1<<63-1) / (24 * time.Hour))
+	issuerCertFlagName      = "issuer-cert"
+	issuerKeyFlagName       = "issuer-key"
 )
 
 func newCertCreateCmd() *cobra.Command {
@@ -48,11 +50,11 @@ CA only in an explicitly selected test store, never system-wide.`,
 	addCertificateIdentityFlags(certCreateCmd)
 	certCreateCmd.Flags().Bool("ca", false, "create a self-signed test certificate authority")
 	certCreateCmd.Flags().Int("days", 0, "validity in days (default 30 for leaves, 365 for CAs)")
-	certCreateCmd.Flags().String("issuer-cert", "", "issuer certificate path, or - for stdin")
-	certCreateCmd.Flags().String("issuer-key", "", "issuer private key path, or - for stdin")
+	certCreateCmd.Flags().String(issuerCertFlagName, "", "issuer certificate path, or - for stdin")
+	certCreateCmd.Flags().String(issuerKeyFlagName, "", "issuer private key path, or - for stdin")
 	certCreateCmd.Flags().Bool("server-only", false, "include only the TLS server-authentication usage")
 	certCreateCmd.Flags().Bool("client-only", false, "include only the TLS client-authentication usage")
-	for _, name := range []string{"issuer-cert", "issuer-key"} {
+	for _, name := range []string{issuerCertFlagName, issuerKeyFlagName} {
 		if err := certCreateCmd.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
@@ -60,8 +62,10 @@ CA only in an explicitly selected test store, never system-wide.`,
 	if err := certCreateCmd.MarkFlagRequired("key"); err != nil {
 		panic(err)
 	}
-	certCreateCmd.MarkFlagsRequiredTogether("issuer-cert", "issuer-key")
+	certCreateCmd.MarkFlagsRequiredTogether(issuerCertFlagName, issuerKeyFlagName)
 	certCreateCmd.MarkFlagsMutuallyExclusive("server-only", "client-only")
+	registerCertificateIdentityCompletions(certCreateCmd)
+	registerCertificateCreateCompletions(certCreateCmd)
 
 	addCommandShape(certCreateCmd, "cert-create")
 	return certCreateCmd
@@ -83,6 +87,7 @@ submit the emitted request to the intended CA.`,
 	if err := certCSRCmd.MarkFlagRequired("key"); err != nil {
 		panic(err)
 	}
+	registerCertificateIdentityCompletions(certCSRCmd)
 	addCommandShape(certCSRCmd, "cert-csr")
 	return certCSRCmd
 }
@@ -130,14 +135,14 @@ func certificateSubjectKeyFromCommand(cmd *cobra.Command) (*asym.Key, error) {
 }
 
 func certificateIssuerFromCommand(cmd *cobra.Command) (*x509.Certificate, *asym.Key, error) {
-	issuerCertPath, err := cmd.Flags().GetString("issuer-cert")
+	issuerCertPath, err := cmd.Flags().GetString(issuerCertFlagName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read issuer-cert flag: %w", err)
 	}
 	if issuerCertPath == "" {
 		return nil, nil, nil
 	}
-	issuerKeyPath, err := cmd.Flags().GetString("issuer-key")
+	issuerKeyPath, err := cmd.Flags().GetString(issuerKeyFlagName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read issuer-key flag: %w", err)
 	}
@@ -200,10 +205,10 @@ func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 		if err := validateCertificateIssuerSelection(cmd); err != nil {
 			return err
 		}
-		if err := validateCertificateInputSelection(cmd, "key", "issuer-cert", "issuer-key"); err != nil {
+		if err := validateCertificateInputSelection(cmd, "key", issuerCertFlagName, issuerKeyFlagName); err != nil {
 			return err
 		}
-		return validateCertificatePaths(cmd, "key", "issuer-cert", "issuer-key")
+		return validateCertificatePaths(cmd, "key", issuerCertFlagName, issuerKeyFlagName)
 	case commandHasShape(cmd, "cert-csr"):
 		if _, err := certificateRequestOptionsFromCommand(cmd); err != nil {
 			return err
@@ -232,15 +237,15 @@ func validateCertificateKeySelection(cmd *cobra.Command) error {
 }
 
 func validateCertificateIssuerSelection(cmd *cobra.Command) error {
-	issuerCert, err := cmd.Flags().GetString("issuer-cert")
+	issuerCert, err := cmd.Flags().GetString(issuerCertFlagName)
 	if err != nil {
 		return fmt.Errorf("read issuer-cert flag: %w", err)
 	}
-	issuerKey, err := cmd.Flags().GetString("issuer-key")
+	issuerKey, err := cmd.Flags().GetString(issuerKeyFlagName)
 	if err != nil {
 		return fmt.Errorf("read issuer-key flag: %w", err)
 	}
-	if !cmd.Flags().Changed("issuer-cert") && !cmd.Flags().Changed("issuer-key") {
+	if !cmd.Flags().Changed(issuerCertFlagName) && !cmd.Flags().Changed(issuerKeyFlagName) {
 		return nil
 	}
 	if issuerCert == "" || issuerKey == "" {
@@ -296,10 +301,10 @@ func certificateModeFromCommand(cmd *cobra.Command) (certificateMode, error) {
 	if mode.isCA, err = cmd.Flags().GetBool("ca"); err != nil {
 		return certificateMode{}, fmt.Errorf("read ca flag: %w", err)
 	}
-	if mode.issuerCert, err = cmd.Flags().GetString("issuer-cert"); err != nil {
+	if mode.issuerCert, err = cmd.Flags().GetString(issuerCertFlagName); err != nil {
 		return certificateMode{}, fmt.Errorf("read issuer-cert flag: %w", err)
 	}
-	if mode.issuerKey, err = cmd.Flags().GetString("issuer-key"); err != nil {
+	if mode.issuerKey, err = cmd.Flags().GetString(issuerKeyFlagName); err != nil {
 		return certificateMode{}, fmt.Errorf("read issuer-key flag: %w", err)
 	}
 	if mode.serverOnly, err = cmd.Flags().GetBool("server-only"); err != nil {

@@ -54,5 +54,6 @@ func newConnectCmd() *cobra.Command {
 		},
 	}, certFormatNames))
 	connectCmd.Flags().Bool("chain", false, "include the peer-provided certificate chain")
+	connectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return connectCmd
 }
