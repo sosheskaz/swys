@@ -69,6 +69,7 @@ IPv4 and IPv6 addresses.`,
 	netListenTLSCmd.Flags().String(tlsCAFlagName, "", "client CA certificate bundle PEM path")
 	netListenTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
 	netListenTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
+	registerALPNCompletion(netListenTLSCmd)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
 		if err := netListenTLSCmd.MarkFlagFilename(name); err != nil {
 			panic(err)

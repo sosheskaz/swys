@@ -186,6 +186,14 @@ By default, npc advertises no ALPN protocols. Use `--alpn http/1.1`, `--alpn
 h2`, or another comma-separated protocol list when the endpoint requires
 explicit negotiation. ALPN negotiation never changes the bytes npc sends:
 selecting `h2` requires the input itself to contain valid HTTP/2 frames.
+Completion suggests common TCP/TLS identifiers (`h2`, `http/1.1`, `dot`,
+`mqtt`, `postgresql`, `imap`, `pop3`, and `acme-tls/1`) and continues
+comma-separated lists without reordering or repeating a selected identifier.
+Custom and empty ALPN values remain valid. QUIC-only identifiers and `h2c` are
+not suggested, and a suggestion does not add application protocol framing.
+With Fish, Cobra may display an additional candidate ending in `.` when a
+single ALPN match must leave the argument open for a comma. That dotted entry
+is a completion workaround; select the undotted protocol identifier.
 
 `--timeout` bounds only TCP setup and the TLS handshake (10 seconds by
 default); established streaming is not timed out. After input EOF, `--wait`
@@ -197,6 +205,9 @@ command closes the connection and exits nonzero with a drain-timeout error.
 Bytes already written to stdout or `--output` remain available, but are a
 partial response and must not be treated as complete. The aliases `npc nc` and
 `npc netcat` select the same `net` command tree.
+Completion offers `0`, `1s`, `5s`, `10s`, and `30s` for existing `--timeout`
+and `--wait` flags; other valid Go durations remain accepted. No command gains
+a new timeout or wait control from these suggestions.
 
 UDP preserves datagram boundaries instead of exposing a byte stream. The
 decoded stdin or `--input` payload becomes exactly one datagram, including when

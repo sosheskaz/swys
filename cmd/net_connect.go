@@ -92,6 +92,9 @@ payload: when h2 is selected, input must contain valid HTTP/2 frames.`,
 	netConnectTLSCmd.Flags().String("servername", "", "TLS SNI and verification name (default endpoint host)")
 	netConnectTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
 	netConnectTLSCmd.Flags().Bool("insecure", false, "disable TLS certificate and hostname verification")
+	registerNoFileFlagCompletion(netConnectTLSCmd, "servername")
+	registerALPNCompletion(netConnectTLSCmd)
+	configureTLSConnectFlagCompletion(netConnectTLSCmd)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
 		if err := netConnectTLSCmd.MarkFlagFilename(name); err != nil {
 			panic(err)

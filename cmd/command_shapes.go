@@ -27,6 +27,17 @@ const (
 	streamNetworkShape           = "stream-network"
 )
 
+var durationCompletionValues = []struct {
+	value       string
+	description string
+}{
+	{value: "0"},
+	{value: "1s", description: "One second"},
+	{value: "5s", description: "Five seconds"},
+	{value: "10s", description: "Ten seconds"},
+	{value: "30s", description: "Thirty seconds"},
+}
+
 var errInvalidHostPort = errors.New("invalid host:port")
 
 func binaryOutputCommand(command *cobra.Command, acceptsInput bool) *cobra.Command {
@@ -79,6 +90,7 @@ func structuredOutputCommand(command *cobra.Command, formats func() []string) *c
 func networkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
+	registerDurationCompletion(command, "timeout", "Disable TCP setup and TLS handshake timeout")
 	command.Args = networkAddressArgs(command.Args, false)
 
 	if command.RunE == nil {
@@ -124,8 +136,11 @@ func connectDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
 		defaultNetworkWait,
 		"maximum wait for one response datagram after sending (0 waits indefinitely)",
 	)
+	registerDurationCompletion(command, "timeout", "Disable UDP address resolution and socket setup timeout")
+	registerDurationCompletion(command, "wait", "Wait indefinitely for a response datagram")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args, false)
+	command.ValidArgsFunction = cobra.NoFileCompletions
 	if command.RunE == nil {
 		panic(fmt.Sprintf("connectDatagramNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
 	}
@@ -144,8 +159,10 @@ func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
 func listenDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
 	command.Flags().Duration("timeout", 0, "bind resolution and first datagram timeout (0 disables)")
+	registerDurationCompletion(command, "timeout", "Disable bind resolution and first datagram timeout")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args, true)
+	command.ValidArgsFunction = cobra.NoFileCompletions
 	if command.RunE == nil {
 		panic(fmt.Sprintf("listenDatagramNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
 	}
@@ -175,9 +192,12 @@ func streamNetworkCommandWithTimeout(
 		defaultNetworkWait,
 		"maximum response drain time after input EOF; expiry returns an error with partial output preserved (0 waits indefinitely)",
 	)
+	registerDurationCompletion(command, "timeout", "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"))
+	registerDurationCompletion(command, "wait", "Wait indefinitely while draining the response")
 	command.Flags().Bool("close-write", false, "half-close the connection write side after input EOF")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args, allowEmptyHost)
+	command.ValidArgsFunction = cobra.NoFileCompletions
 	if command.RunE == nil {
 		panic(fmt.Sprintf("streamNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
 	}
@@ -243,6 +263,27 @@ func registerFlagCompletion(command *cobra.Command, name string, values func() [
 		name,
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 			return values(), cobra.ShellCompDirectiveNoFileComp
+		},
+	); err != nil {
+		panic(err)
+	}
+}
+
+func registerDurationCompletion(command *cobra.Command, name, zeroDescription string) {
+	if err := command.RegisterFlagCompletionFunc(
+		name,
+		func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			completions := make([]string, 0, len(durationCompletionValues))
+			for _, candidate := range durationCompletionValues {
+				if strings.HasPrefix(candidate.value, toComplete) {
+					description := candidate.description
+					if candidate.value == "0" {
+						description = zeroDescription
+					}
+					completions = append(completions, candidate.value+"\t"+description)
+				}
+			}
+			return completions, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
 		},
 	); err != nil {
 		panic(err)
