@@ -67,6 +67,42 @@ npc dns example.com
 npc dns @192.0.2.53 example.com MX --short
 ```
 
+## Guides and reference help
+
+Use `npc help` for a curated starting guide or add a command path to focus on a
+task:
+
+```fish
+npc help
+npc help net connect tls
+npc help x509 connect
+```
+
+Guide paths accept command aliases and display canonical command names. Use
+`npc --help` or `npc <command path> --help` for the generated command, argument,
+flag, alias, and default reference. Bare `npc` and non-runnable branches retain
+their compact reference output with a pointer to the corresponding guide;
+runnable leaves still enforce their required arguments.
+
+When stdout is a terminal, a nonempty `PAGER` pages guides. Redirects and
+external pipelines bypass it. `--no-pager` also bypasses it, while `--rich` and
+`--plain` override automatic rendering independently of pager selection:
+
+```fish
+env PAGER='less -R' npc help net --rich
+npc help net --rich | less -R
+npc help net --no-pager
+```
+
+`PAGER` is parsed as an executable plus quoted arguments without shell
+evaluation; use a wrapper script for pipelines, expansions, or redirections.
+Rich guides use clickable link labels; plain guides include visible URLs. Use
+`--plain` if your terminal or pager does not support terminal hyperlinks.
+Prose wraps at the smaller of the terminal width and 80 columns, or 80 columns
+when redirected. Code lines and long tokens remain intact.
+The binary embeds every guide and does not require a checkout or network access.
+Contributors should follow the [help guide authoring standard](docs/help-authoring.md).
+
 ## Commands today
 
 ```
@@ -82,7 +118,8 @@ npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
 ```
 
-Use `npc --help` or `npc <noun> <verb> --help` for available flags. The
+Use `npc help [command path]` for task guidance and `npc --help` or
+`npc <noun> <verb> --help` for available flags. The
 [product direction](#product-direction-and-roadmap) below also discusses commands
 that are not implemented yet.
 
@@ -855,7 +892,8 @@ mise run scan:vuln      # govulncheck scan
 Testing policy lives in [TESTING.md](TESTING.md) — the short version: every
 fix ships with a regression test, coverage is maintained or increased by
 every change, cryptographic code gets adversarial-input tests up front, and
-unbounded-input code proves bounded memory in benchmarks.
+unbounded-input code proves bounded memory in benchmarks. Curated command
+guides follow the [help guide authoring standard](docs/help-authoring.md).
 
 ## Product direction and roadmap
 

@@ -22,12 +22,19 @@ func newRootCmd() *cobra.Command {
 }
 
 func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
+	return newRootCmdWithGuideDependencies(dnsDeps, defaultGuideDependencies())
+}
+
+func newRootCmdWithGuideDependencies(dnsDeps dnsDependencies, guideDeps guideDependencies) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "npc",
 		Version:       version.Get().String(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if commandHasShape(cmd, guideCommandShape) {
+				return nil
+			}
 			prepareHTTPCompletion(cmd, args)
 			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
 			if commandHasShape(cmd, hashGroupShape) || commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
@@ -56,6 +63,7 @@ func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
 	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newHashCmd(), newNetCmd(), httpCmd, newDNSCmd(dnsDeps))
 	registerHTTPBodyCompletionGroups(httpCmd)
 	configureFishCompletionGeneration(rootCmd)
+	configureGuideHelp(rootCmd, guideDeps)
 	return rootCmd
 }
 

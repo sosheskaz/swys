@@ -43,6 +43,43 @@ suite and carried forward:
   real root command (`executeRoot` in `cmd/root_test.go`) so flag parsing,
   I/O hooks, and cleanup lifecycles are exercised, not mocked away.
 
+## Curated help guides
+
+Every public command added to the initialized Cobra tree ships with its
+embedded Markdown guide in the same change. The coverage test compares the
+command tree and embedded mapping in both directions, so a missing guide and a
+stale guide file both fail. Generated public commands, including `help`,
+`completion`, and each completion shell, are covered. Aliases resolve through
+the command tree and share the canonical guide. Hidden and deprecated commands
+are the only standing exclusions; any broader exclusion must be narrow,
+documented, and tested.
+
+When command behavior changes, update every affected guide example and keep at
+least one representative documented workflow executable through the real root
+command. Use temporary artifacts and local servers where setup is required.
+Select those workflows intentionally; tests never discover and execute
+arbitrary Markdown fences.
+
+Rendering tests exercise both plain and rich output. Golden fixtures cover a
+root page, an intermediate branch, a leaf, and every supported Markdown
+construct. Plain output must contain no NPC-generated ANSI controls or leaked
+heading, emphasis, fence, or link presentation syntax; code punctuation and
+visible link destinations remain intact in plain output. Rich links use clickable
+labels without duplicate visible URLs, close before unrelated text and at line
+boundaries, and do not consume layout columns. Phrase styling includes internal
+spaces. Unsupported Markdown is an error and
+must never fall back to dumping source.
+
+Command-lifecycle tests cover canonical and alias navigation, invalid and
+surplus path components, reference `--help`, writer failures, and isolation
+from target command handlers, hooks, stdin, output files, and network work.
+Rendering-policy tests cover every direct-terminal, pager, redirect, explicit
+override, `NO_COLOR`, and `TERM=dumb` branch independently of the test runner's
+terminal. Pager tests use local helper processes and include quoted arguments,
+environment inheritance, startup fallback, successful early exit and broken
+pipe handling, nonzero exit, and process reaping. Run `mise run test:race` for
+changes to pager or subprocess behavior.
+
 ## Cryptographic code: adversarial tests come first
 
 Any cryptographic implementation (cipher modes, padding, key handling,

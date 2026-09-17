@@ -1,0 +1,16 @@
+<ESC>[1;4mRendering example<ESC>[0m
+
+Plain paragraph with <ESC>[3memphasis<ESC>[0m, <ESC>[1mstrong text<ESC>[0m, an escaped *literal asterisk*, and
+<ESC>]8;;https://example.test/reference?a=1&b=2<ESC>\<ESC>[4;34mdocumentation<ESC>]8;;<ESC>\<ESC>[0m.
+
+<ESC>[1mLists<ESC>[0m
+
+• First unordered item.
+• Second unordered item with <ESC>[1mweight<ESC>[0m.
+
+1. First ordered item.
+2. Second ordered item.
+
+<ESC>[1mCode<ESC>[0m
+
+  <ESC>[36mprintf '$HOME * [literal](punctuation) \\ tail\n'<ESC>[0m

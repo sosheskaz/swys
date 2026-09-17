@@ -13,14 +13,15 @@ import (
 var errCobraFishTemplateChanged = errors.New("pinned Cobra Fish completion template changed")
 
 const (
+	fishShellName         = "fish"
 	cobraFishCurrentToken = "set -l lastArg (string escape -- (commandline -ct))"
 	cobraFishPrefixFilter = "set -l prefix (commandline -t | string escape --style=regex)"
 )
 
 func configureFishCompletionGeneration(root *cobra.Command) {
 	root.InitDefaultCompletionCmd()
-	fish, _, err := root.Find([]string{"completion", "fish"})
-	if err != nil || fish.Name() != "fish" {
+	fish, _, err := root.Find([]string{"completion", fishShellName})
+	if err != nil || fish.Name() != fishShellName {
 		panic("locate Cobra Fish completion command")
 	}
 	fish.RunE = func(cmd *cobra.Command, _ []string) error {
