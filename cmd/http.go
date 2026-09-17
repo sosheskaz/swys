@@ -16,7 +16,7 @@ const (
 	httpCommandName   = "http"
 	httpFormatText    = "text"
 	httpFormatJSON    = "json"
-	httpEncodingRaw   = "raw"
+	httpEncodingRaw   = byteEncodingRaw
 	httpStdinAuto     = "auto"
 	httpStdinNever    = "never"
 	httpStdinAlways   = "always"

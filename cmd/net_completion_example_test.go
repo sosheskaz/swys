@@ -175,12 +175,20 @@ func TestNetCompletionSuppressesFilesForNonPathValues(t *testing.T) {
 		t.Fatalf("CA path completion = %q, want filesystem fallback", got)
 	}
 	wantEncodings := []string{"b64", "base32", "base64", "base64url", "hex", "raw", ":4"}
-	gotEncodings := completionLines(completeCommand(t, "net", "connect", "tcp", "-e", "h"))
+	gotEncodings := completionLines(completeCommand(t, "net", "connect", "tcp", "-e", ""))
 	for index, value := range gotEncodings {
 		gotEncodings[index], _, _ = strings.Cut(value, "\t")
 	}
 	if !slices.Equal(gotEncodings, wantEncodings) {
 		t.Fatalf("short encoding completion = %q", gotEncodings)
+	}
+
+	gotPrefix := completionLines(completeCommand(t, "net", "connect", "tcp", "-e", "h"))
+	for index, value := range gotPrefix {
+		gotPrefix[index], _, _ = strings.Cut(value, "\t")
+	}
+	if !slices.Equal(gotPrefix, []string{"hex", ":4"}) {
+		t.Fatalf("prefixed short encoding completion = %q", gotPrefix)
 	}
 }
 

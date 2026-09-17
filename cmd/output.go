@@ -15,6 +15,11 @@ type outputEncoder func(io.Writer) (io.Writer, io.Closer)
 
 type inputDecoder func(io.Reader) io.Reader
 
+const (
+	byteEncodingRaw = "raw"
+	byteEncodingHex = "hex"
+)
+
 type finalizingOutput struct {
 	io.Writer
 	closer     io.Closer
@@ -76,11 +81,11 @@ type byteEncoding struct {
 }
 
 var byteEncodings = map[string]byteEncoding{
-	"raw": {
+	byteEncodingRaw: {
 		encoder: func(output io.Writer) (io.Writer, io.Closer) { return output, nil },
 		decoder: func(input io.Reader) io.Reader { return input },
 	},
-	"hex": {
+	byteEncodingHex: {
 		encoder: func(output io.Writer) (io.Writer, io.Closer) { return hex.NewEncoder(output), nil },
 		decoder: func(input io.Reader) io.Reader { return hex.NewDecoder(stripNewlines(input)) },
 	},

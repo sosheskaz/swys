@@ -71,7 +71,7 @@ func newHashAlgorithmCmd(name, description string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("read encoding flag: %w", err)
 			}
-			if encoding == "raw" {
+			if encoding == byteEncodingRaw {
 				return nil
 			}
 			if _, err := writeUnencoded(output, []byte{'\n'}); err != nil {
@@ -81,8 +81,8 @@ func newHashAlgorithmCmd(name, description string) *cobra.Command {
 		},
 	}, true)
 	flag := command.Flags().Lookup(encodingFlagName)
-	flag.DefValue = "hex"
-	if err := flag.Value.Set("hex"); err != nil {
+	flag.DefValue = byteEncodingHex
+	if err := flag.Value.Set(byteEncodingHex); err != nil {
 		panic(err)
 	}
 	addCommandShape(command, hashOutputShape)

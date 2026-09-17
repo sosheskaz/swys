@@ -65,6 +65,7 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsDependencies, guideDeps guideDep
 	registerHTTPBodyCompletionGroups(httpCmd)
 	configureFishCompletionGeneration(rootCmd)
 	configureGuideHelp(rootCmd, guideDeps)
+	registerSharedCompletions(rootCmd)
 	return rootCmd
 }
 

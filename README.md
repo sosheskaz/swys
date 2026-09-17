@@ -612,6 +612,12 @@ current user must own the file and be the only principal granted access by a
 protected DACL. An insecure destination is rejected before truncation,
 preserving its contents and permissions. On Unix, an explicit `--mode` is a
 deliberate override of that check; Windows continues to reject `--mode`.
+Completion describes the existing encoding and format choices. For `--mode`,
+it suggests `0600` (owner read/write), `0640` (also group-readable), and `0644`
+(also world-readable); selecting a mode explicitly overrides the default,
+preserved, or sensitive-output permissions. Other valid octal modes remain
+accepted. Explicit boolean values such as `--follow=` complete `true` or
+`false`, while bare flags such as `--follow` retain their usual behavior.
 Stdout, FIFOs, and device outputs remain explicit streaming sinks and are not
 permission-checked by npc.
 

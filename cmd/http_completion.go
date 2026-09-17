@@ -61,21 +61,21 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 		if options.include || httpCompletionEncoding(cmd) != httpEncodingRaw {
 			values = []string{httpFormatText}
 		}
-		return prefixMatches(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return prefixMatchesWithDescriptions(values, structuredFormatDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
 	mustRegisterHTTPCompletion(cmd, encodingFlagName, func(completionCmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		values := byteEncodingNames()
 		if options.include || options.format == httpFormatJSON || httpCompletionMethod(completionCmd) == http.MethodHead {
 			values = []string{httpEncodingRaw}
 		}
-		return prefixMatches(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return prefixMatchesWithDescriptions(values, byteEncodingDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
 	mustRegisterHTTPCompletion(cmd, inputEncodingFlagName, func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		values := byteEncodingNames()
 		if len(options.forms) != 0 || len(options.files) != 0 {
 			values = []string{httpEncodingRaw}
 		}
-		return prefixMatches(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return prefixMatchesWithDescriptions(values, byteEncodingDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
 	cmd.ValidArgsFunction = func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -292,6 +292,10 @@ func describeHTTPHeaderValue(completion, name, value string) string {
 
 func prefixMatches(values []string, prefix string) []string {
 	return prefixMatchesWithBase(values, "", prefix)
+}
+
+func prefixMatchesWithDescriptions(values []string, descriptions map[string]string, prefix string) []string {
+	return completionsWithDescriptions(prefixMatches(values, prefix), descriptions)
 }
 
 func prefixMatchesWithBase(values []string, base, prefix string) []string {

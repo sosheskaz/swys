@@ -179,7 +179,7 @@ explicit --transport, or explicit --port selects direct DNS. Direct DNS without
 		}
 		return []string{dnsTransportUDP, dnsTransportTCP}
 	})
-	registerFlagCompletion(command, formatFlagName, func() []string { return []string{dnsFormatText, dnsFormatJSON} })
+	registerDescribedFlagCompletion(command, formatFlagName, func() []string { return []string{dnsFormatText, dnsFormatJSON} }, structuredFormatDescriptions)
 	for _, name := range []string{"port", "timeout"} {
 		if err := command.RegisterFlagCompletionFunc(name, cobra.NoFileCompletions); err != nil {
 			panic(err)

@@ -48,7 +48,7 @@ func binaryOutputCommand(command *cobra.Command, acceptsInput bool) *cobra.Comma
 		"raw",
 		"output encoding ("+strings.Join(byteEncodingNames(), ", ")+")",
 	)
-	registerFlagCompletion(command, encodingFlagName, byteEncodingNames)
+	registerDescribedFlagCompletion(command, encodingFlagName, byteEncodingNames, byteEncodingDescriptions)
 
 	if acceptsInput {
 		addInputEncodingFlag(command)
@@ -72,7 +72,7 @@ func addInputEncodingFlag(command *cobra.Command) {
 		"raw",
 		"input encoding ("+strings.Join(byteEncodingNames(), ", ")+")",
 	)
-	registerFlagCompletion(command, inputEncodingFlagName, byteEncodingNames)
+	registerDescribedFlagCompletion(command, inputEncodingFlagName, byteEncodingNames, byteEncodingDescriptions)
 }
 
 func structuredOutputCommand(command *cobra.Command, formats func() []string) *cobra.Command {
@@ -83,7 +83,7 @@ func structuredOutputCommand(command *cobra.Command, formats func() []string) *c
 		"text",
 		"structured output format ("+strings.Join(formats(), ", ")+")",
 	)
-	registerFlagCompletion(command, formatFlagName, formats)
+	registerDescribedFlagCompletion(command, formatFlagName, formats, structuredFormatDescriptions)
 	return command
 }
 
@@ -284,6 +284,22 @@ func registerDurationCompletion(command *cobra.Command, name, zeroDescription st
 				}
 			}
 			return completions, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
+		},
+	); err != nil {
+		panic(err)
+	}
+}
+
+func registerDescribedFlagCompletion(
+	command *cobra.Command,
+	name string,
+	values func() []string,
+	descriptions map[string]string,
+) {
+	if err := command.RegisterFlagCompletionFunc(
+		name,
+		func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return filterDescribedCompletions(completionsWithDescriptions(values(), descriptions), toComplete), cobra.ShellCompDirectiveNoFileComp
 		},
 	); err != nil {
 		panic(err)
