@@ -665,7 +665,7 @@ func assertFlagCompletionContains(t *testing.T, command *cobra.Command, name, wa
 		t.Fatalf("%s %s has no completion", command.CommandPath(), name)
 	}
 	values, directive := completion(command, nil, "")
-	if !slices.Contains(values, want) {
+	if !completionContains(values, want) {
 		t.Fatalf("%s %s completions = %v, want %q", command.CommandPath(), name, values, want)
 	}
 	if directive != cobra.ShellCompDirectiveNoFileComp {
@@ -676,12 +676,19 @@ func assertFlagCompletionContains(t *testing.T, command *cobra.Command, name, wa
 func assertPositionalCompletionContains(t *testing.T, command *cobra.Command, want string) {
 	t.Helper()
 	values, directive := command.ValidArgsFunction(command, nil, "")
-	if !slices.Contains(values, want) {
+	if !completionContains(values, want) {
 		t.Fatalf("%s completions = %v, want %q", command.CommandPath(), values, want)
 	}
 	if directive != cobra.ShellCompDirectiveNoFileComp {
 		t.Fatalf("%s directive = %v", command.CommandPath(), directive)
 	}
+}
+
+func completionContains(values []string, want string) bool {
+	return slices.ContainsFunc(values, func(value string) bool {
+		name, _, _ := strings.Cut(value, "\t")
+		return name == want
+	})
 }
 
 func mustAESBytes(t *testing.T, bits string) int {

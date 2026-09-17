@@ -660,6 +660,11 @@ npc k c --input private.pem --to pkcs8-der # npc key convert
 
 The longer verb aliases are `gen`, `pub`, `ins`, and `conv`.
 
+Shell completion describes key algorithms and output containers. Selecting
+`--public-out` or `--public-format` limits algorithm suggestions to asymmetric
+keys; selecting an AES algorithm omits the public-output options. Key material
+and output paths are never inspected to infer compatible formats.
+
 ### Certificate creation walkthrough
 
 Create a private key and a self-signed test CA. Certificate commands consume

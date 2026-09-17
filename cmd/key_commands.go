@@ -55,8 +55,9 @@ authorized_keys entry. It defaults to PKIX PEM.`,
 		"pkix-pem",
 		"public-key target ("+strings.Join(keyPublicFormatNames(), ", ")+")",
 	)
-	registerFlagCompletion(keyPublicCmd, "to", keyPublicFormatNames)
+	registerFlagCompletion(keyPublicCmd, "to", keyPublicFormatCompletions)
 	addCommandShape(keyPublicCmd, "key-public")
+	keyPublicCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return keyPublicCmd
 }
 
@@ -82,6 +83,7 @@ func newKeyInspectCmd() *cobra.Command {
 			return formatter.Format(info, cmd.OutOrStdout())
 		},
 	}, keyFormatNames))
+	keyInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return keyInspectCmd
 }
 
@@ -111,8 +113,9 @@ Use key public to derive public material from a private key.`,
 	if err := keyConvertCmd.MarkFlagRequired("to"); err != nil {
 		panic(err)
 	}
-	registerFlagCompletion(keyConvertCmd, "to", keyConversionTargetNames)
+	registerFlagCompletion(keyConvertCmd, "to", keyConversionTargetCompletions)
 	addCommandShape(keyConvertCmd, "key-convert")
+	keyConvertCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return keyConvertCmd
 }
 
@@ -156,6 +159,47 @@ func keyPublicFormatNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func keyPublicFormatCompletions() []string {
+	return keyTargetCompletions(keyPublicFormatNames())
+}
+
+func keyConversionTargetCompletions() []string {
+	return keyTargetCompletions(keyConversionTargetNames())
+}
+
+func keyTargetCompletions(names []string) []string {
+	completions := make([]string, 0, len(names))
+	for _, name := range names {
+		completions = append(completions, cobra.CompletionWithDesc(name, keyTargetDescription(name)))
+	}
+	return completions
+}
+
+func keyTargetDescription(name string) string {
+	switch name {
+	case "openssh":
+		return "OpenSSH public key"
+	case "pkcs1-der":
+		return "PKCS #1 private key in binary DER"
+	case "pkcs1-pem":
+		return "PKCS #1 private key in PEM"
+	case "pkcs8-der":
+		return "PKCS #8 private key in binary DER"
+	case "pkcs8-pem":
+		return "PKCS #8 private key in PEM"
+	case "pkix-der":
+		return "PKIX public key in binary DER"
+	case "pkix-pem":
+		return "PKIX public key in PEM"
+	case "sec1-der":
+		return "SEC 1 EC private key in binary DER"
+	case "sec1-pem":
+		return "SEC 1 EC private key in PEM"
+	default:
+		return ""
+	}
 }
 
 func isPublicKeyFormat(format asym.KeyFormat) bool {

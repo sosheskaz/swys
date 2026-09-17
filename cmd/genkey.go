@@ -64,7 +64,9 @@ func newKeyGenerateCmd() *cobra.Command {
 	if err := keyGenerateCmd.MarkFlagFilename("public-out"); err != nil {
 		panic(err)
 	}
-	registerFlagCompletion(keyGenerateCmd, "public-format", keyPublicFormatNames)
+	if err := keyGenerateCmd.RegisterFlagCompletionFunc("public-format", completeGeneratedPublicFormats); err != nil {
+		panic(err)
+	}
 	addCommandShape(keyGenerateCmd, "key-generate")
 	return keyGenerateCmd
 }
@@ -218,18 +220,68 @@ func validateKeyGenerateArgs(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func completeKeyAlgorithms(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+func completeKeyAlgorithms(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	completions := make([]string, 0, len(keyAlgorithms)*2)
 	for _, name := range keyAlgorithmNames() {
-		completions = append(completions, name)
+		algorithm := keyAlgorithms[name]
+		if keyPublicOutputSelected(cmd) && algorithm.aesBits != 0 {
+			continue
+		}
+		completions = append(completions, cobra.CompletionWithDesc(name, algorithm.description))
 		if longName := keyAlgorithms[name].longName; longName != "" {
-			completions = append(completions, longName)
+			completions = append(completions, cobra.CompletionWithDesc(longName, algorithm.description))
 		}
 	}
 	return completions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func keyPublicOutputSelected(cmd *cobra.Command) bool {
+	return cmd.Flags().Changed("public-out") || cmd.Flags().Changed("public-format")
+}
+
+func completeGeneratedPublicFormats(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 1 {
+		algorithm, err := keyAlgorithmFromName(args[0])
+		if err == nil && algorithm.aesBits != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
+	return keyPublicFormatCompletions(), cobra.ShellCompDirectiveNoFileComp
+}
+
+func prepareKeyCompletion(completionCmd *cobra.Command, args []string) {
+	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
+		return
+	}
+
+	completedArgs := args[:len(args)-1]
+	probeRoot := newRootCmd()
+	probeCommand, probeArgs, err := probeRoot.Find(completedArgs)
+	if err != nil || !commandHasShape(probeCommand, "key-generate") {
+		return
+	}
+	if err := probeCommand.ParseFlags(probeArgs); err != nil {
+		return
+	}
+	positionals := probeCommand.Flags().Args()
+	if len(positionals) != 1 {
+		return
+	}
+	algorithm, err := keyAlgorithmFromName(positionals[0])
+	if err != nil || algorithm.aesBits == 0 {
+		return
+	}
+
+	actualCommand, _, err := completionCmd.Root().Find(completedArgs)
+	if err != nil || !commandHasShape(actualCommand, "key-generate") {
+		return
+	}
+	for _, name := range []string{"public-out", "public-format"} {
+		actualCommand.Flags().Lookup(name).Hidden = true
+	}
 }
 
 func generateAESKey(bits int, output io.Writer) error {

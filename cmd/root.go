@@ -36,6 +36,7 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsDependencies, guideDeps guideDep
 				return nil
 			}
 			prepareHTTPCompletion(cmd, args)
+			prepareContextualCompletion(cmd, args)
 			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
 			if commandHasShape(cmd, hashGroupShape) || commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
 				return nil
@@ -65,6 +66,10 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsDependencies, guideDeps guideDep
 	configureFishCompletionGeneration(rootCmd)
 	configureGuideHelp(rootCmd, guideDeps)
 	return rootCmd
+}
+
+func prepareContextualCompletion(cmd *cobra.Command, args []string) {
+	prepareKeyCompletion(cmd, args)
 }
 
 func configureCommandIO(cmd *cobra.Command) error {
