@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	networkNoValue  = "(none)"
-	tlsCertFlagName = "cert"
-	tlsKeyFlagName  = "key"
-	tlsCAFlagName   = "ca"
+	networkNoValue        = "(none)"
+	tlsCertFlagName       = "cert"
+	tlsKeyFlagName        = "key"
+	tlsCAFlagName         = "ca"
+	tlsServerNameFlagName = "servername"
 )
 
 func newNetCmd() *cobra.Command {
@@ -89,10 +90,10 @@ payload: when h2 is selected, input must contain valid HTTP/2 frames.`,
 	netConnectTLSCmd.Flags().String(tlsKeyFlagName, "", "client private key path")
 	netConnectTLSCmd.Flags().String(tlsCAFlagName, "", "custom CA certificate bundle PEM path")
 	netConnectTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
-	netConnectTLSCmd.Flags().String("servername", "", "TLS SNI and verification name (default endpoint host)")
+	netConnectTLSCmd.Flags().String(tlsServerNameFlagName, "", "TLS SNI and verification name (default endpoint host)")
 	netConnectTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
 	netConnectTLSCmd.Flags().Bool("insecure", false, "disable TLS certificate and hostname verification")
-	registerNoFileFlagCompletion(netConnectTLSCmd, "servername")
+	registerNoFileFlagCompletion(netConnectTLSCmd, tlsServerNameFlagName)
 	registerALPNCompletion(netConnectTLSCmd)
 	configureTLSConnectFlagCompletion(netConnectTLSCmd)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
@@ -274,7 +275,7 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 	if err != nil {
 		return nil, fmt.Errorf("parse TLS address %q: %w", address, err)
 	}
-	serverName, err := cmd.Flags().GetString("servername")
+	serverName, err := cmd.Flags().GetString(tlsServerNameFlagName)
 	if err != nil {
 		return nil, fmt.Errorf("read servername flag: %w", err)
 	}

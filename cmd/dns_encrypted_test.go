@@ -1,0 +1,1476 @@
+package cmd
+
+import (
+	"bufio"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/binary"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
+	"codeberg.org/miekg/dns/rdata"
+
+	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+)
+
+var (
+	errUnexpectedDoHMethod      = errors.New("unexpected DoH method")
+	errUnexpectedDoHContentType = errors.New("unexpected DoH content type")
+	errDoHTestRequestTooLarge   = errors.New("DoH test request is too large")
+	errDNSFixtureTargetTooSmall = errors.New("DNS fixture target is too small")
+	errDNSFixtureLengthMismatch = errors.New("DNS fixture length mismatch")
+)
+
+func TestEncryptedDNSRemovesTransportFlagAndRedirectOptIn(t *testing.T) {
+	t.Parallel()
+
+	root := newRootCmd()
+	command, _, err := root.Find([]string{"dns"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"transport", "follow-redirects", "redirect"} {
+		if flag := command.Flags().Lookup(name); flag != nil {
+			t.Fatalf("dns --%s remains available", name)
+		}
+	}
+	if _, ok := command.GetFlagCompletionFunc("transport"); ok {
+		t.Fatal("dns --transport completion remains registered")
+	}
+	stdout, stderr, err := executeRootStreams(t, "dns", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout+stderr, "--transport") {
+		t.Fatalf("DNS help retains --transport:\n%s%s", stdout, stderr)
+	}
+}
+
+func TestEncryptedDNSEndpointValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		endpoint string
+	}{
+		{name: "missing at prefix", endpoint: "https://resolver.example/dns-query"},
+		{name: "userinfo", endpoint: "@https://user@resolver.example/dns-query"},
+		{name: "fragment", endpoint: "@https://resolver.example/dns-query#fragment"},
+		{name: "HTTP scheme", endpoint: "@http://resolver.example/dns-query"},
+		{name: "TLS path", endpoint: "@tls://resolver.example/dns-query"},
+		{name: "TLS query", endpoint: "@tls://resolver.example?profile=one"},
+		{name: "TCP path", endpoint: "@tcp://resolver.example/dns-query"},
+		{name: "UDP query", endpoint: "@udp://resolver.example?profile=one"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			outputPath := writeExistingDNSOutput(t)
+			_, _, err := executeRootStreams(t, "dns", test.endpoint, "example.test", "--output", outputPath)
+			if err == nil {
+				t.Fatal("invalid endpoint succeeded")
+			}
+			assertExistingDNSOutput(t, outputPath)
+		})
+	}
+}
+
+func TestEncryptedDNSRejectsInvalidBareEndpointsBeforeNetwork(t *testing.T) {
+	t.Parallel()
+
+	for _, endpoint := range []string{
+		"@resolver.example/path",
+		"@resolver.example?profile=one",
+		"@resolver.example#fragment",
+		"@user@resolver.example",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			t.Parallel()
+			exchanged := false
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+					exchanged = true
+					return standardDNSReply(request), nil
+				},
+				ConfiguredServers: func() ([]string, error) { return []string{"127.0.0.1"}, nil },
+			})
+			outputPath := writeExistingDNSOutput(t)
+			_, _, err := executeRootCommandStreams(t, root, "dns", endpoint, "example.test", "--output", outputPath)
+			if err == nil {
+				t.Fatal("invalid bare endpoint succeeded")
+			}
+			if exchanged {
+				t.Fatal("invalid bare endpoint reached DNS exchange")
+			}
+			assertExistingDNSOutput(t, outputPath)
+		})
+	}
+}
+
+func TestEncryptedDNSRejectsEmptyQueryDelimiterBeforeNetwork(t *testing.T) {
+	t.Parallel()
+
+	for _, scheme := range []string{"udp", "tcp"} {
+		t.Run(scheme, func(t *testing.T) {
+			t.Parallel()
+			exchanged := false
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+					exchanged = true
+					return standardDNSReply(request), nil
+				},
+				ConfiguredServers: func() ([]string, error) { return []string{"127.0.0.1"}, nil },
+			})
+			outputPath := writeExistingDNSOutput(t)
+			endpoint := "@" + scheme + "://127.0.0.1:9?"
+			_, _, err := executeRootCommandStreams(t, root, "dns", endpoint, "example.test", "--output", outputPath)
+			if err == nil {
+				t.Fatalf("%s endpoint accepted an empty query delimiter", scheme)
+			}
+			if exchanged {
+				t.Fatalf("%s endpoint reached DNS exchange", scheme)
+			}
+			assertExistingDNSOutput(t, outputPath)
+		})
+	}
+
+	t.Run("tls", func(t *testing.T) {
+		t.Parallel()
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		connected := make(chan bool, 1)
+		go func() {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				connected <- false
+				return
+			}
+			connected <- true
+			_ = connection.Close() //nolint:errcheck // connection is deliberately aborted
+		}()
+		outputPath := writeExistingDNSOutput(t)
+		endpoint := "@tls://" + listener.Addr().String() + "?"
+		_, _, err = executeRootStreams(t, "dns", endpoint, "example.test", "--insecure", "--output", outputPath)
+		_ = listener.Close() //nolint:errcheck // releases the blocked fixture Accept
+		if err == nil {
+			t.Fatal("TLS endpoint accepted an empty query delimiter")
+		}
+		if <-connected {
+			t.Fatal("TLS endpoint opened a connection")
+		}
+		assertExistingDNSOutput(t, outputPath)
+	})
+}
+
+func TestDNSPlaintextEndpointSchemes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("UDP", func(t *testing.T) {
+		t.Parallel()
+		host, port, connection, done := startUDPFixture(t, standardDNSReply)
+		stdout, _, err := executeRootStreams(t, "dns", "@udp://"+net.JoinHostPort(host, port), "example.test", "--short")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stdout != "192.0.2.44\n" {
+			t.Fatalf("stdout = %q", stdout)
+		}
+		finishUDPFixture(t, connection, done)
+	})
+	t.Run("TCP", func(t *testing.T) {
+		t.Parallel()
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = listener.Close() }) //nolint:errcheck // test cleanup is best effort
+		done := serveTCPAnswerFixture(listener)
+		stdout, _, err := executeRootStreams(t, "dns", "@tcp://"+listener.Addr().String(), "fixture.example", "--short")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stdout != "192.0.2.45\n" {
+			t.Fatalf("stdout = %q", stdout)
+		}
+		if serverErr := <-done; serverErr != nil {
+			t.Fatal(serverErr)
+		}
+	})
+}
+
+func TestEncryptedDNSDefaultPorts(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		port     string
+	}{
+		{name: "DoT", endpoint: "@tls://127.0.0.1", port: "853"},
+		{name: "DoH", endpoint: "@https://127.0.0.1", port: "443"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, _, err := executeRootStreams(t, "dns", test.endpoint, "example.test", "--insecure", "--timeout", "100ms")
+			if err == nil || !strings.Contains(err.Error(), test.port) {
+				t.Fatalf("default-port error = %v, want port %s", err, test.port)
+			}
+		})
+	}
+}
+
+func TestEncryptedDNSRejectsTLSFlagsForPlaintextEndpoints(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "CA over UDP", args: []string{"@udp://127.0.0.1:9", "--ca", identity.caCertPath}},
+		{name: "system CA over TCP", args: []string{"@tcp://127.0.0.1:9", "--ca", identity.caCertPath, "--system-ca"}},
+		{name: "server name over bare UDP", args: []string{"@127.0.0.1:9", "--servername", "localhost"}},
+		{name: "client certificate over UDP", args: []string{"@udp://127.0.0.1:9", "--cert", identity.clientCertPath, "--key", identity.clientKeyPath}},
+		{name: "insecure over TCP", args: []string{"@tcp://127.0.0.1:9", "--insecure"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"dns", test.args[0], "example.test"}, test.args[1:]...)
+			exchanged := false
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+					exchanged = true
+					return standardDNSReply(request), nil
+				},
+				ConfiguredServers: func() ([]string, error) { return []string{"127.0.0.1"}, nil },
+			})
+			_, _, err := executeRootCommandStreams(t, root, args...)
+			if err == nil {
+				t.Fatal("plaintext endpoint accepted TLS flags")
+			}
+			if exchanged {
+				t.Fatal("plaintext endpoint reached DNS exchange before rejecting TLS flags")
+			}
+		})
+	}
+}
+
+func TestEncryptedDNSRejectsConflictingTLSOptionsBeforeNetwork(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "system roots without custom CA", args: []string{"--system-ca"}},
+		{name: "insecure and custom CA", args: []string{"--insecure", "--ca", identity.caCertPath}},
+		{name: "insecure and system roots", args: []string{"--insecure", "--ca", identity.caCertPath, "--system-ca"}},
+		{name: "certificate without key", args: []string{"--cert", identity.clientCertPath}},
+		{name: "key without certificate", args: []string{"--key", identity.clientKeyPath}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			connected := make(chan bool, 1)
+			go func() {
+				connection, acceptErr := listener.Accept()
+				if acceptErr != nil {
+					connected <- false
+					return
+				}
+				connected <- true
+				_ = connection.Close() //nolint:errcheck // connection is deliberately aborted
+			}()
+			args := append([]string{"dns", "@tls://" + listener.Addr().String(), "example.test"}, test.args...)
+			_, _, err = executeRootStreams(t, args...)
+			_ = listener.Close() //nolint:errcheck // releases a blocked fixture Accept
+			if err == nil {
+				t.Fatal("conflicting TLS options reached the network")
+			}
+			if <-connected {
+				t.Fatal("conflicting TLS options opened a network connection")
+			}
+		})
+	}
+}
+
+func TestEncryptedDNSExplicitSystemResolverConflictsWithDirectOptions(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	tests := [][]string{
+		{"--port", "853"},
+		{"--ca", identity.caCertPath},
+		{"--servername", "localhost"},
+		{"--insecure"},
+	}
+	for _, extra := range tests {
+		name := strings.Join(extra, " ")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			args := []string{"dns", "example.test", "--resolver", "system"}
+			if strings.HasPrefix(extra[0], "@") {
+				args = []string{"dns", extra[0], "example.test", "--resolver", "system"}
+			} else {
+				args = append(args, extra...)
+			}
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+					return []netip.Addr{netip.MustParseAddr("192.0.2.1")}, nil
+				}},
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+					return standardDNSReply(request), nil
+				},
+				ConfiguredServers: func() ([]string, error) { return []string{"127.0.0.1"}, nil },
+			})
+			_, _, err := executeRootCommandStreams(t, root, args...)
+			if err == nil {
+				t.Fatal("explicit system resolver accepted direct-DNS options")
+			}
+		})
+	}
+}
+
+func TestDNSOverTLSTrustServerNameInsecureAndSystemRoots(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct { //nolint:govet // field order keeps table entries readable
+		name         string
+		identityName string
+		args         func(encryptedDNSTestIdentity) []string
+	}{
+		{name: "custom root", identityName: "localhost", args: func(identity encryptedDNSTestIdentity) []string { return []string{"--ca", identity.caCertPath} }},
+		{name: "custom plus system roots", identityName: "localhost", args: func(identity encryptedDNSTestIdentity) []string {
+			return []string{"--ca", identity.caCertPath, "--system-ca"}
+		}},
+		{name: "server name override", identityName: "resolver.test", args: func(identity encryptedDNSTestIdentity) []string {
+			return []string{"--ca", identity.caCertPath, "--servername", "resolver.test"}
+		}},
+		{name: "insecure", identityName: "untrusted.test", args: func(encryptedDNSTestIdentity) []string { return []string{"--insecure"} }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			identity := newEncryptedDNSTestIdentity(t, []string{test.identityName}, nil)
+			endpoint, requests := startDoTTestServer(t, identity, false, standardDNSReply)
+			args := append([]string{"dns", endpoint, "example.test", "--short"}, test.args(identity)...)
+			stdout, _, err := executeRootStreams(t, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout != "192.0.2.44\n" {
+				t.Fatalf("stdout = %q", stdout)
+			}
+			if got := <-requests; got.err != nil {
+				t.Fatal(got.err)
+			}
+		})
+	}
+}
+
+func TestDNSOverTLSRejectsUntrustedCertificateWithoutDowngrade(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	other := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	endpoint, requests := startDoTTestServer(t, identity, false, standardDNSReply)
+	outputPath := writeExistingDNSOutput(t)
+	_, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", other.caCertPath, "--output", outputPath)
+	if err == nil {
+		t.Fatal("DoT accepted an untrusted server certificate")
+	}
+	assertExistingDNSOutput(t, outputPath)
+	select {
+	case got := <-requests:
+		if got.err == nil {
+			t.Fatalf("server received a plaintext DNS request after TLS verification failed: %+v", got)
+		}
+	default:
+	}
+}
+
+func TestEncryptedDNSNeverDowngradesToPlaintext(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DoT", func(t *testing.T) {
+		t.Parallel()
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		firstBytes := make(chan byte, 2)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				connection, acceptErr := listener.Accept()
+				if acceptErr != nil {
+					return
+				}
+				_ = connection.SetReadDeadline(time.Now().Add(time.Second)) //nolint:errcheck // read outcome is asserted below
+				var first [1]byte
+				if _, readErr := io.ReadFull(connection, first[:]); readErr == nil {
+					firstBytes <- first[0]
+				}
+				_ = connection.Close() //nolint:errcheck // fixture connection is disposable
+			}
+		}()
+		_, _, err = executeRootStreams(t, "dns", "@tls://"+listener.Addr().String(), "example.test", "--insecure", "--timeout", "500ms")
+		_ = listener.Close() //nolint:errcheck // releases the fixture accept loop
+		<-done
+		close(firstBytes)
+		if err == nil {
+			t.Fatal("DoT endpoint succeeded against a plaintext server")
+		}
+		var observed []byte
+		for value := range firstBytes {
+			observed = append(observed, value)
+		}
+		if len(observed) != 1 || observed[0] != 0x16 {
+			t.Fatalf("connection first bytes = %x, want one TLS handshake and no plaintext retry", observed)
+		}
+	})
+	t.Run("DoH", func(t *testing.T) {
+		t.Parallel()
+		var handlerHits atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			handlerHits.Add(1)
+		}))
+		t.Cleanup(server.Close)
+		endpoint := "@https://" + strings.TrimPrefix(server.URL, "http://")
+		_, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--insecure", "--timeout", "500ms")
+		if err == nil || strings.Contains(err.Error(), "unknown flag") {
+			t.Fatalf("DoH plaintext-server error = %v", err)
+		}
+		if got := handlerHits.Load(); got != 0 {
+			t.Fatalf("plaintext HTTP handler hits = %d, want 0", got)
+		}
+	})
+}
+
+func TestDNSOverTLSMutualAuthentication(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	endpoint, requests := startDoTTestServer(t, identity, true, standardDNSReply)
+	stdout, _, err := executeRootStreams(
+		t,
+		"dns", endpoint, "example.test", "--short",
+		"--ca", identity.caCertPath,
+		"--cert", identity.clientCertPath,
+		"--key", identity.clientKeyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "192.0.2.44\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if got := <-requests; got.err != nil || got.peerCertificates == 0 {
+		t.Fatalf("mTLS request = %+v", got)
+	}
+}
+
+func TestDNSOverTLSParentCancellationAfterRequest(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	requestRead := make(chan struct{}, 1)
+	releaseResponse := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseResponse) }) }
+	defer release()
+	endpoint, serverResult := startDoTTestServer(t, identity, false, func(request *dns.Msg) *dns.Msg {
+		requestRead <- struct{}{}
+		<-releaseResponse
+		return standardDNSReply(request)
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	root := newRootCmd()
+	root.SetContext(ctx)
+	outputPath := writeExistingDNSOutput(t)
+	commandResult := make(chan error, 1)
+	go func() {
+		_, _, err := executeRootCommandStreams(
+			t,
+			root,
+			"dns", endpoint, "example.test", "--ca", identity.caCertPath, "--timeout", "0", "--output", outputPath,
+		)
+		commandResult <- err
+	}()
+	select {
+	case <-requestRead:
+	case <-time.After(time.Second):
+		cancel()
+		release()
+		select {
+		case err := <-commandResult:
+			t.Fatalf("DoT fixture did not consume the request; command result = %v", err)
+		case <-time.After(time.Second):
+			t.Fatal("DoT fixture and command did not stop after cancellation")
+		}
+	}
+	cancel()
+	select {
+	case err := <-commandResult:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want parent cancellation", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		release()
+		select {
+		case err := <-commandResult:
+			t.Fatalf("DoT request remained blocked after cancellation; result after response release = %v", err)
+		case <-time.After(time.Second):
+			t.Fatal("DoT request remained blocked after cancellation and response release")
+		}
+	}
+	release()
+	select {
+	case <-serverResult:
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("DoT fixture did not stop after cancellation")
+	}
+	assertExistingDNSOutput(t, outputPath)
+}
+
+func TestDNSOverTLSResponseDeadlineIdentity(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	requestRead := make(chan struct{}, 1)
+	releaseResponse := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseResponse) }) }
+	defer release()
+	endpoint, serverResult := startDoTTestServer(t, identity, false, func(request *dns.Msg) *dns.Msg {
+		requestRead <- struct{}{}
+		<-releaseResponse
+		return standardDNSReply(request)
+	})
+	outputPath := writeExistingDNSOutput(t)
+	commandResult := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		_, _, err := executeRootStreams(
+			t,
+			"dns", endpoint, "example.test", "--ca", identity.caCertPath, "--timeout", "1s", "--output", outputPath,
+		)
+		commandResult <- err
+	}()
+	select {
+	case <-requestRead:
+	case err := <-commandResult:
+		release()
+		t.Fatalf("DoT command returned before the fixture stalled its response: %v", err)
+	case <-time.After(1500 * time.Millisecond):
+		release()
+		t.Fatal("DoT fixture did not consume the request")
+	}
+	select {
+	case err := <-commandResult:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want deadline exceeded", err)
+		}
+		if elapsed := time.Since(started); elapsed > 2*time.Second {
+			t.Fatalf("DoT response deadline took %s", elapsed)
+		}
+	case <-time.After(2 * time.Second):
+		release()
+		t.Fatal("DoT response deadline did not stop the command")
+	}
+	release()
+	select {
+	case <-serverResult:
+	case <-time.After(time.Second):
+		t.Fatal("DoT fixture did not stop after deadline")
+	}
+	assertExistingDNSOutput(t, outputPath)
+}
+
+func TestDNSOverHTTPSRequestDefaultsAndExplicitPath(t *testing.T) { //nolint:tparallel // subtests share an ordered request channel
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	requests := make(chan dohTestRequest, 3)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		requests <- dohTestRequest{method: request.Method, contentType: request.Header.Get("Content-Type"), uri: request.URL.RequestURI(), message: message, err: err}
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, standardDNSReply(message))
+	}))
+	// The subtests must consume the shared request channel in command order.
+	for _, test := range []struct { //nolint:paralleltest // request observations are consumed in order
+		name     string
+		path     string
+		wantPath string
+	}{
+		{name: "default", wantPath: "/dns-query"},
+		{name: "explicit", path: "/custom/dns?profile=blue&padding=yes", wantPath: "/custom/dns?profile=blue&padding=yes"},
+		{name: "explicit empty query", path: "/dns-query?", wantPath: "/dns-query?"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, _, err := executeRootStreams(t, "dns", server.endpoint("localhost", test.path), "example.test", "--ca", identity.caCertPath, "--short")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout != "192.0.2.44\n" {
+				t.Fatalf("stdout = %q", stdout)
+			}
+			got := <-requests
+			if got.err != nil || got.method != http.MethodPost || got.contentType != "application/dns-message" || got.uri != test.wantPath {
+				t.Fatalf("DoH request = %+v", got)
+			}
+		})
+	}
+}
+
+func TestDNSOverHTTPSMutualAuthentication(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	peerCertificates := make(chan int, 1)
+	server := startDoHTestServer(t, identity, true, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		peerCertificates <- len(request.TLS.PeerCertificates)
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, standardDNSReply(message))
+	}))
+	stdout, _, err := executeRootStreams(
+		t,
+		"dns", server.endpoint("localhost", ""), "example.test", "--short",
+		"--ca", identity.caCertPath,
+		"--cert", identity.clientCertPath,
+		"--key", identity.clientKeyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "192.0.2.44\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if got := <-peerCertificates; got == 0 {
+		t.Fatal("DoH server received no client certificate")
+	}
+}
+
+func TestDNSOverHTTPSHonorsEnvironmentProxy(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"resolver.test"}, nil)
+	target := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, standardDNSReply(message))
+	}))
+	var proxyHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodConnect {
+			http.Error(writer, "CONNECT required", http.StatusMethodNotAllowed)
+			return
+		}
+		proxyHits.Add(1)
+		hijacker, ok := writer.(http.Hijacker)
+		if !ok {
+			http.Error(writer, "hijacking unavailable", http.StatusInternalServerError)
+			return
+		}
+		client, _, err := hijacker.Hijack()
+		if err != nil {
+			return
+		}
+		upstream, err := (&net.Dialer{}).DialContext(request.Context(), "tcp", target.server.Listener.Addr().String())
+		if err != nil {
+			_ = client.Close() //nolint:errcheck // original proxy failure is authoritative
+			return
+		}
+		if _, err := io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+			_ = client.Close()   //nolint:errcheck // original write failure is authoritative
+			_ = upstream.Close() //nolint:errcheck // original write failure is authoritative
+			return
+		}
+		go func() {
+			_, _ = io.Copy(upstream, client) //nolint:errcheck // tunnel closure is expected
+			_ = upstream.Close()             //nolint:errcheck // terminates the paired copy
+		}()
+		go func() {
+			_, _ = io.Copy(client, upstream) //nolint:errcheck // tunnel closure is expected
+			_ = client.Close()               //nolint:errcheck // terminates the paired copy
+		}()
+	}))
+	t.Cleanup(proxy.Close)
+
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestEncryptedDNSDoHProxyChild$", "-test.count=1")
+	command.Env = append(os.Environ(),
+		"NPC_DOH_PROXY_CHILD=1",
+		"NPC_DOH_PROXY_ENDPOINT="+target.endpoint("resolver.test", ""),
+		"NPC_DOH_PROXY_CA="+identity.caCertPath,
+		"HTTPS_PROXY="+proxy.URL,
+		"https_proxy="+proxy.URL,
+		"NO_PROXY=",
+		"no_proxy=",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("proxied DoH child: %v\n%s", err, output)
+	}
+	if got := proxyHits.Load(); got != 1 {
+		t.Fatalf("HTTPS proxy CONNECT count = %d, want 1", got)
+	}
+}
+
+func TestEncryptedDNSDoHProxyChild(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv("NPC_DOH_PROXY_CHILD") != "1" {
+		return
+	}
+	stdout, _, err := executeRootStreams(
+		t,
+		"dns", os.Getenv("NPC_DOH_PROXY_ENDPOINT"), "example.test", "--short",
+		"--ca", os.Getenv("NPC_DOH_PROXY_CA"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "192.0.2.44\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestEncryptedDNSPreservesOutputFormatsAndStatus(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		response := standardDNSReply(message)
+		response.Rcode = dns.RcodeNameError
+		writeDoHTestResponse(t, writer, response)
+	}))
+	for _, test := range []struct { //nolint:govet // field order keeps table entries readable
+		name string
+		args []string
+		want string
+	}{
+		{name: "text", want: ";; status: NXDOMAIN"},
+		{name: "JSON", args: []string{"--format", "json"}, want: `"status": "NXDOMAIN"`},
+		{name: "short", args: []string{"--short"}, want: "192.0.2.44\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := []string{"dns", server.endpoint("localhost", ""), "example.test", "--ca", identity.caCertPath}
+			args = append(args, test.args...)
+			stdout, _, err := executeRootStreams(t, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stdout, test.want) {
+				t.Fatalf("stdout = %q, want %q", stdout, test.want)
+			}
+		})
+	}
+}
+
+func TestDNSOverHTTPSRejectsEveryRedirectWithoutFollowing(t *testing.T) {
+	t.Parallel()
+
+	var targetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetHits.Add(1)
+	}))
+	t.Cleanup(target.Close)
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		status, err := strconv.Atoi(request.URL.Query().Get("status"))
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Location", target.URL)
+		writer.WriteHeader(status)
+	}))
+	for status := 300; status <= 308; status++ {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			t.Parallel()
+			outputPath := writeExistingDNSOutput(t)
+			endpoint := server.endpoint("localhost", "/redirect?status="+strconv.Itoa(status))
+			_, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--output", outputPath)
+			if err == nil {
+				t.Fatalf("HTTP %d redirect succeeded", status)
+			}
+			assertExistingDNSOutput(t, outputPath)
+		})
+	}
+	if got := targetHits.Load(); got != 0 {
+		t.Fatalf("redirect target hits = %d, want 0", got)
+	}
+}
+
+func TestDNSOverHTTPSAcceptsSuccessfulStatuses(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		status, err := strconv.Atoi(request.URL.Query().Get("status"))
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponseWithStatus(t, writer, standardDNSReply(message), status)
+	}))
+	for _, status := range []int{http.StatusCreated, http.StatusAccepted, http.StatusIMUsed, 299} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			t.Parallel()
+			endpoint := server.endpoint("localhost", "/dns-query?status="+strconv.Itoa(status))
+			stdout, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--short")
+			if err != nil {
+				t.Fatalf("HTTP %d DoH response: %v", status, err)
+			}
+			if stdout != "192.0.2.44\n" {
+				t.Fatalf("HTTP %d stdout = %q", status, stdout)
+			}
+		})
+	}
+}
+
+func TestDNSOverHTTPSRejectsInvalidHTTPResponsesBeforeOutput(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/wrong-media-type":
+			message, err := readDoHTestRequest(request)
+			if err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+			response := standardDNSReply(message)
+			if err := response.Pack(); err != nil {
+				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writer.Header().Set("Content-Type", "text/plain")
+			_, _ = writer.Write(response.Data) //nolint:errcheck // the client validates the resulting response
+		default:
+			http.Error(writer, "upstream failed", http.StatusInternalServerError)
+		}
+	}))
+	for _, path := range []string{"/wrong-media-type", "/server-error"} {
+		outputPath := writeExistingDNSOutput(t)
+		_, _, err := executeRootStreams(t, "dns", server.endpoint("localhost", path), "example.test", "--ca", identity.caCertPath, "--output", outputPath)
+		if err == nil {
+			t.Fatalf("invalid HTTP response from %s succeeded", path)
+		}
+		assertExistingDNSOutput(t, outputPath)
+	}
+}
+
+func TestDNSOverHTTPSResponseSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		size, err := strconv.Atoi(request.URL.Query().Get("size"))
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		wire, err := packedDNSReplyOfSize(message, min(size, dns.MaxMsgSize))
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if size > len(wire) {
+			wire = append(wire, make([]byte, size-len(wire))...)
+		}
+		writer.Header().Set("Content-Type", "application/dns-message")
+		_, _ = writer.Write(wire) //nolint:errcheck // the client validates the resulting response
+	}))
+	for _, size := range []int{dns.MaxMsgSize - 1, dns.MaxMsgSize, dns.MaxMsgSize + 1} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			t.Parallel()
+			outputPath := writeExistingDNSOutput(t)
+			endpoint := server.endpoint("localhost", "/dns-query?size="+strconv.Itoa(size))
+			stdout, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--short", "--output", outputPath)
+			if size <= dns.MaxMsgSize {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if stdout != "" {
+					t.Fatalf("stdout = %q, want file output", stdout)
+				}
+				data, readErr := os.ReadFile(outputPath)
+				if readErr != nil || string(data) != "192.0.2.44\n" {
+					t.Fatalf("output = %q, err = %v", data, readErr)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("oversized DoH response succeeded")
+			}
+			assertExistingDNSOutput(t, outputPath)
+		})
+	}
+}
+
+func TestPackedDNSReplyBoundaryFixture(t *testing.T) {
+	t.Parallel()
+
+	request := dns.NewMsg("example.test", dns.TypeA)
+	for _, size := range []int{dns.MaxMsgSize - 1, dns.MaxMsgSize} {
+		wire, err := packedDNSReplyOfSize(request, size)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(wire) != size {
+			t.Fatalf("wire length = %d, want %d", len(wire), size)
+		}
+		message := &dns.Msg{Data: wire}
+		if err := message.Unpack(); err != nil {
+			t.Fatalf("unpack %d-byte fixture: %v", size, err)
+		}
+	}
+}
+
+func TestEncryptedDNSReplyValidationPreservesOutput(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	invalidReply := func(request *dns.Msg) *dns.Msg {
+		response := standardDNSReply(request)
+		response.Question = dns.NewMsg("other.test", dns.TypeA).Question
+		return response
+	}
+	dotEndpoint, dotRequests := startDoTTestServer(t, identity, false, invalidReply)
+	dohServer := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, invalidReply(message))
+	}))
+	for _, endpoint := range []string{dotEndpoint, dohServer.endpoint("localhost", "")} {
+		outputPath := writeExistingDNSOutput(t)
+		_, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--output", outputPath)
+		if !errors.Is(err, errDNSResponseMismatch) {
+			t.Fatalf("mismatched reply error from %s = %v, want response mismatch", endpoint, err)
+		}
+		assertExistingDNSOutput(t, outputPath)
+	}
+	select {
+	case got := <-dotRequests:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+	default:
+	}
+}
+
+func TestEncryptedDNSExplicitPortAgreement(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	var hits atomic.Int32
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		hits.Add(1)
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, standardDNSReply(message))
+	}))
+	port := server.port()
+	stdout, _, err := executeRootStreams(t, "dns", server.endpoint("localhost", ""), "example.test", "--port", port, "--ca", identity.caCertPath, "--short")
+	if err != nil || stdout != "192.0.2.44\n" {
+		t.Fatalf("agreeing port: stdout = %q, err = %v", stdout, err)
+	}
+	before := hits.Load()
+	_, _, err = executeRootStreams(t, "dns", server.endpoint("localhost", ""), "example.test", "--port", differentPort(port), "--ca", identity.caCertPath)
+	if err == nil {
+		t.Fatal("conflicting explicit ports succeeded")
+	}
+	if got := hits.Load(); got != before {
+		t.Fatalf("server hits after port conflict = %d, want %d", got, before)
+	}
+}
+
+func TestEncryptedDNSAliases(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, err := readDoHTestRequest(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, standardDNSReply(message))
+	}))
+	for _, command := range []string{"dns", "dig", "nslookup"} {
+		stdout, _, err := executeRootStreams(t, command, server.endpoint("localhost", ""), "example.test", "--ca", identity.caCertPath, "--short")
+		if err != nil || stdout != "192.0.2.44\n" {
+			t.Fatalf("%s: stdout = %q, err = %v", command, stdout, err)
+		}
+	}
+}
+
+func TestEncryptedDNSOverallTimeouts(t *testing.T) {
+	t.Parallel()
+
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	t.Run("TLS handshake", func(t *testing.T) {
+		t.Parallel()
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = listener.Close() }) //nolint:errcheck // test cleanup is best effort
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			defer connection.Close()               //nolint:errcheck // test connection cleanup is best effort
+			_, _ = io.Copy(io.Discard, connection) //nolint:errcheck // closure is the expected result
+		}()
+		started := time.Now()
+		_, _, err = executeRootStreams(t, "dns", "@tls://"+listener.Addr().String(), "example.test", "--insecure", "--timeout", "50ms")
+		if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+			t.Fatalf("TLS timeout: elapsed = %s, err = %v", time.Since(started), err)
+		}
+		_ = listener.Close() //nolint:errcheck // releases the fixture goroutine
+		<-done
+	})
+	t.Run("HTTPS response", func(t *testing.T) {
+		t.Parallel()
+		releaseHandler := make(chan struct{})
+		defer close(releaseHandler)
+		handlerEntered := make(chan error, 1)
+		server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			_, readErr := readDoHTestRequest(request)
+			handlerEntered <- readErr
+			if readErr != nil {
+				http.Error(writer, readErr.Error(), http.StatusBadRequest)
+				return
+			}
+			select {
+			case <-request.Context().Done():
+			case <-releaseHandler:
+			}
+		}))
+		started := time.Now()
+		commandResult := make(chan error, 1)
+		go func() {
+			_, _, err := executeRootStreams(
+				t,
+				"dns", server.endpoint("localhost", ""), "example.test", "--ca", identity.caCertPath, "--timeout", "1s",
+			)
+			commandResult <- err
+		}()
+		select {
+		case readErr := <-handlerEntered:
+			if readErr != nil {
+				t.Fatalf("read timed DoH request: %v", readErr)
+			}
+		case err := <-commandResult:
+			t.Fatalf("DoH command returned before the handler stalled its response: %v", err)
+		case <-time.After(1500 * time.Millisecond):
+			t.Fatal("timed DoH request did not reach the response handler")
+		}
+		select {
+		case err := <-commandResult:
+			if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 2*time.Second {
+				t.Fatalf("DoH timeout: elapsed = %s, err = %v", time.Since(started), err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("DoH response timeout did not stop the command")
+		}
+	})
+}
+
+func TestEncryptedDNSParentCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	root := newRootCmd()
+	root.SetContext(ctx)
+	_, _, err := executeRootCommandStreams(t, root, "dns", "@tls://127.0.0.1:853", "example.test", "--insecure", "--timeout", "0")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
+	}
+}
+
+type encryptedDNSTestIdentity struct { //nolint:govet // named fields match the fixture roles
+	caCertPath     string
+	serverCert     tls.Certificate
+	clientCertPath string
+	clientKeyPath  string
+	clientRoots    *x509.CertPool
+}
+
+//nolint:unparam // IP SAN input keeps the certificate fixture explicit.
+func newEncryptedDNSTestIdentity(
+	tb testing.TB,
+	dnsNames []string,
+	ipAddresses []net.IP,
+) encryptedDNSTestIdentity {
+	tb.Helper()
+	now := time.Now()
+	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	rootTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "encrypted DNS test root"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootPublic, rootPrivate)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	root, err := x509.ParseCertificate(rootDER)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	serverPublic, serverPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	serverTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "encrypted DNS test server"}, DNSNames: dnsNames, IPAddresses: ipAddresses,
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, root, serverPublic, rootPrivate)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	clientPublic, clientPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	clientTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "encrypted DNS test client"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	clientDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, root, clientPublic, rootPrivate)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	directory := tb.TempDir()
+	rootPath := filepath.Join(directory, "ca.pem")
+	clientCertPath := filepath.Join(directory, "client.pem")
+	clientKeyPath := filepath.Join(directory, "client-key.pem")
+	writePEMTestFile(tb, rootPath, "CERTIFICATE", rootDER)
+	writePEMTestFile(tb, clientCertPath, "CERTIFICATE", clientDER)
+	clientKeyDER, err := x509.MarshalPKCS8PrivateKey(clientPrivate)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	writePEMTestFile(tb, clientKeyPath, "PRIVATE KEY", clientKeyDER)
+	clientRoots := x509.NewCertPool()
+	clientRoots.AddCert(root)
+	return encryptedDNSTestIdentity{
+		caCertPath:     rootPath,
+		serverCert:     tls.Certificate{Certificate: [][]byte{serverDER, rootDER}, PrivateKey: serverPrivate},
+		clientCertPath: clientCertPath,
+		clientKeyPath:  clientKeyPath,
+		clientRoots:    clientRoots,
+	}
+}
+
+func writePEMTestFile(tb testing.TB, path, blockType string, data []byte) {
+	tb.Helper()
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: data}), 0o600); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+type dotTestResult struct { //nolint:govet // result fields follow protocol order
+	request          *dns.Msg
+	peerCertificates int
+	err              error
+}
+
+//nolint:gocritic // Identity is immutable fixture state.
+func startDoTTestServer(
+	t *testing.T,
+	identity encryptedDNSTestIdentity,
+	requireClient bool,
+	reply func(*dns.Msg) *dns.Msg,
+) (string, <-chan dotTestResult) {
+	t.Helper()
+	baseListener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := &tls.Config{Certificates: []tls.Certificate{identity.serverCert}, MinVersion: tls.VersionTLS12}
+	if requireClient {
+		config.ClientAuth = tls.RequireAndVerifyClientCert
+		config.ClientCAs = identity.clientRoots
+	}
+	listener := tls.NewListener(baseListener, config)
+	t.Cleanup(func() { _ = listener.Close() }) //nolint:errcheck // test cleanup is best effort
+	results := make(chan dotTestResult, 1)
+	go func() {
+		connection, err := listener.Accept()
+		if err != nil {
+			results <- dotTestResult{err: err}
+			return
+		}
+		defer connection.Close() //nolint:errcheck // test connection cleanup is best effort
+		tlsConnection, ok := connection.(*tls.Conn)
+		if !ok {
+			results <- dotTestResult{err: errNonTLSConnection}
+			return
+		}
+		if err := tlsConnection.HandshakeContext(t.Context()); err != nil {
+			results <- dotTestResult{err: err}
+			return
+		}
+		reader := bufio.NewReader(tlsConnection)
+		lengthBytes := make([]byte, 2)
+		if _, err := io.ReadFull(reader, lengthBytes); err != nil {
+			results <- dotTestResult{err: err}
+			return
+		}
+		wire := make([]byte, int(binary.BigEndian.Uint16(lengthBytes)))
+		if _, err := io.ReadFull(reader, wire); err != nil {
+			results <- dotTestResult{err: err}
+			return
+		}
+		request := &dns.Msg{Data: wire}
+		if err := request.Unpack(); err != nil {
+			results <- dotTestResult{err: err}
+			return
+		}
+		response := reply(request)
+		if err := response.Pack(); err != nil {
+			results <- dotTestResult{request: request, err: err}
+			return
+		}
+		framed := make([]byte, 2+len(response.Data))
+		binary.BigEndian.PutUint16(framed, uint16(len(response.Data)))
+		copy(framed[2:], response.Data)
+		_, err = tlsConnection.Write(framed)
+		results <- dotTestResult{request: request, peerCertificates: len(tlsConnection.ConnectionState().PeerCertificates), err: err}
+	}()
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = host
+	return "@tls://localhost:" + port, results
+}
+
+type dohTestServer struct {
+	server *httptest.Server
+}
+
+//nolint:gocritic // Identity is immutable fixture state.
+func startDoHTestServer(
+	tb testing.TB,
+	identity encryptedDNSTestIdentity,
+	requireClient bool,
+	handler http.Handler,
+) dohTestServer {
+	tb.Helper()
+	server := httptest.NewUnstartedServer(handler)
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{identity.serverCert}, MinVersion: tls.VersionTLS12}
+	if requireClient {
+		server.TLS.ClientAuth = tls.RequireAndVerifyClientCert
+		server.TLS.ClientCAs = identity.clientRoots
+	}
+	server.StartTLS()
+	tb.Cleanup(server.Close)
+	return dohTestServer{server: server}
+}
+
+func (server dohTestServer) endpoint(host, path string) string {
+	_, port, err := net.SplitHostPort(server.server.Listener.Addr().String())
+	if err != nil {
+		panic(err)
+	}
+	return "@https://" + net.JoinHostPort(host, port) + path
+}
+
+func (server dohTestServer) port() string {
+	_, port, err := net.SplitHostPort(server.server.Listener.Addr().String())
+	if err != nil {
+		panic(err)
+	}
+	return port
+}
+
+type dohTestRequest struct { //nolint:govet // request fields follow wire-observation order
+	method      string
+	contentType string
+	uri         string
+	message     *dns.Msg
+	err         error
+}
+
+func readDoHTestRequest(request *http.Request) (*dns.Msg, error) {
+	if request.Method != http.MethodPost {
+		return nil, fmt.Errorf("%w: got %s", errUnexpectedDoHMethod, request.Method)
+	}
+	if request.Header.Get("Content-Type") != "application/dns-message" {
+		return nil, fmt.Errorf("%w: got %q", errUnexpectedDoHContentType, request.Header.Get("Content-Type"))
+	}
+	body, err := io.ReadAll(io.LimitReader(request.Body, dns.MaxMsgSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read DoH test request: %w", err)
+	}
+	if len(body) > dns.MaxMsgSize {
+		return nil, fmt.Errorf("%w: %d bytes", errDoHTestRequestTooLarge, len(body))
+	}
+	message := &dns.Msg{Data: body}
+	if err := message.Unpack(); err != nil {
+		return nil, fmt.Errorf("unpack DoH test request: %w", err)
+	}
+	return message, nil
+}
+
+func writeDoHTestResponse(tb testing.TB, writer http.ResponseWriter, response *dns.Msg) {
+	tb.Helper()
+	writeDoHTestResponseWithStatus(tb, writer, response, http.StatusOK)
+}
+
+func writeDoHTestResponseWithStatus(tb testing.TB, writer http.ResponseWriter, response *dns.Msg, status int) {
+	tb.Helper()
+	if err := response.Pack(); err != nil {
+		tb.Errorf("pack DoH response: %v", err)
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/dns-message")
+	writer.WriteHeader(status)
+	if _, err := writer.Write(response.Data); err != nil {
+		tb.Errorf("write DoH response: %v", err)
+	}
+}
+
+func standardDNSReply(request *dns.Msg) *dns.Msg {
+	response := new(dns.Msg)
+	dnsutil.SetReply(response, request)
+	response.Answer = []dns.RR{&dns.A{
+		Hdr: dns.Header{Name: request.Question[0].Header().Name, Class: dns.ClassINET, TTL: 60},
+		A:   rdata.A{Addr: netip.MustParseAddr("192.0.2.44")},
+	}}
+	return response
+}
+
+func packedDNSReplyOfSize(request *dns.Msg, size int) ([]byte, error) {
+	response := standardDNSReply(request)
+	padding := &dns.NULL{Hdr: dns.Header{Name: ".", Class: dns.ClassINET}, NULL: rdata.NULL{}}
+	response.Extra = []dns.RR{padding}
+	if err := response.Pack(); err != nil {
+		return nil, fmt.Errorf("pack base DNS fixture: %w", err)
+	}
+	remaining := size - len(response.Data)
+	if remaining < 0 {
+		return nil, fmt.Errorf("%w: target %d, base %d", errDNSFixtureTargetTooSmall, size, len(response.Data))
+	}
+	padding.Null = strings.Repeat("p", remaining)
+	if err := response.Pack(); err != nil {
+		return nil, fmt.Errorf("pack padded DNS fixture: %w", err)
+	}
+	if len(response.Data) != size {
+		return nil, fmt.Errorf("%w: got %d, want %d", errDNSFixtureLengthMismatch, len(response.Data), size)
+	}
+	return append([]byte(nil), response.Data...), nil
+}
+
+func writeExistingDNSOutput(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "result.txt")
+	if err := os.WriteFile(path, []byte("keep existing output\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func assertExistingDNSOutput(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep existing output\n" {
+		t.Fatalf("existing output = %q", data)
+	}
+}
+
+func differentPort(port string) string {
+	parsed, err := strconv.Atoi(port)
+	if err != nil {
+		panic(err)
+	}
+	if parsed == 65535 {
+		return "65534"
+	}
+	return strconv.Itoa(parsed + 1)
+}

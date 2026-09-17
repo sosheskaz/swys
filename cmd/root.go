@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 	"github.com/sosheskaz-systems/npc/internal/securefile"
 	"github.com/sosheskaz-systems/npc/internal/version"
 )
@@ -21,11 +22,11 @@ func newRootCmd() *cobra.Command {
 	return newRootCmdWithDNSDependencies(defaultDNSDependencies())
 }
 
-func newRootCmdWithDNSDependencies(dnsDeps dnsDependencies) *cobra.Command {
+func newRootCmdWithDNSDependencies(dnsDeps dnsquery.Dependencies) *cobra.Command {
 	return newRootCmdWithGuideDependencies(dnsDeps, defaultGuideDependencies())
 }
 
-func newRootCmdWithGuideDependencies(dnsDeps dnsDependencies, guideDeps guideDependencies) *cobra.Command {
+func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps guideDependencies) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "npc",
 		Version:       version.Get().String(),

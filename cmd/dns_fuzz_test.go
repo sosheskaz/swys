@@ -12,6 +12,8 @@ import (
 
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/rdata"
+
+	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
 const maxFuzzDNSWireSize = dns.MaxMsgSize
@@ -72,35 +74,38 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 		}
 
 		question := wireResponse.Question[0]
-		matchingRequest := &dns.Msg{
-			MsgHeader: dns.MsgHeader{ID: wireResponse.ID, Opcode: wireResponse.Opcode},
-			Question:  []dns.RR{question.Clone()},
-		}
-		if !wireResponse.Response {
-			if err := validateDNSResponse(matchingRequest, wireResponse); !errors.Is(err, errDNSResponseMismatch) {
-				t.Fatalf("query-shaped message validation error = %v, want errDNSResponseMismatch", err)
-			}
-			return
-		}
-		mutateFuzzDNSRequest(matchingRequest, mismatch%6)
-		validationErr := validateDNSResponse(matchingRequest, wireResponse)
-		if mismatch%6 != 0 {
-			if !errors.Is(validationErr, errDNSResponseMismatch) {
-				t.Fatalf("mismatched request validation error = %v, want errDNSResponseMismatch", validationErr)
-			}
-			return
-		}
-		if validationErr != nil {
-			t.Fatalf("matching request validation error = %v", validationErr)
-		}
-
 		recordType := dns.RRToType(question)
-		recordName := dns.TypeToString[recordType]
-		if recordName == "" {
-			recordName = "TYPE" + strconv.FormatUint(uint64(recordType), 10)
+		endpoint, err := dnsquery.ParseEndpoint("127.0.0.1", nil)
+		if err != nil {
+			t.Fatal(err)
 		}
-		query := dnsQuery{name: question.Header().Name, record: recordName, recordType: recordType}
-		result := directDNSResult(&query, "127.0.0.1:53", dnsTransportUDP, wireResponse)
+		var returned *dns.Msg
+		result, resolveErr := dnsquery.Resolve(t.Context(), dnsquery.Request{
+			Resolver: dnsquery.ResolverDirect,
+			Endpoint: &endpoint,
+			Lookup:   question.Header().Name,
+			Name:     question.Header().Name,
+			Type:     recordType,
+		}, dnsquery.Dependencies{
+			ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
+			PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+				returned = wireResponse.Copy()
+				returned.ID = request.ID
+				returned.Opcode = request.Opcode
+				returned.Question = []dns.RR{request.Question[0].Clone()}
+				mutateFuzzDNSResponse(returned, mismatch%6)
+				return returned, nil
+			},
+		})
+		if !wireResponse.Response || mismatch%6 != 0 {
+			if !errors.Is(resolveErr, dnsquery.ErrResponseMismatch) {
+				t.Fatalf("mismatch=%d validation error = %v, want ErrResponseMismatch", mismatch%6, resolveErr)
+			}
+			return
+		}
+		if resolveErr != nil {
+			t.Fatal(resolveErr)
+		}
 		assertFuzzDNSResultMatchesMessage(t, &result, wireResponse)
 
 		for _, format := range []string{dnsFormatText, dnsFormatJSON} {
@@ -115,29 +120,29 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 	})
 }
 
-func mutateFuzzDNSRequest(request *dns.Msg, mismatch uint8) {
+func mutateFuzzDNSResponse(response *dns.Msg, mismatch uint8) {
 	switch mismatch {
 	case 1:
-		request.ID++
+		response.ID++
 	case 2:
-		request.Opcode = (request.Opcode + 1) & 0xf
+		response.Opcode = (response.Opcode + 1) & 0xf
 	case 3:
 		mismatchName := "mismatch.example."
-		if strings.EqualFold(request.Question[0].Header().Name, mismatchName) {
+		if strings.EqualFold(response.Question[0].Header().Name, mismatchName) {
 			mismatchName = "other-mismatch.example."
 		}
-		request.Question[0].Header().Name = mismatchName
+		response.Question[0].Header().Name = mismatchName
 	case 4:
-		question := request.Question[0]
+		question := response.Question[0]
 		mismatchType := dns.TypeNULL
 		if dns.RRToType(question) == dns.TypeNULL {
 			mismatchType = dns.TypeA
 		}
 		replacement := dns.NewMsg(question.Header().Name, mismatchType).Question[0]
 		replacement.Header().Class = question.Header().Class
-		request.Question[0] = replacement
+		response.Question[0] = replacement
 	case 5:
-		request.Question[0].Header().Class++
+		response.Question[0].Header().Class++
 	}
 }
 
@@ -149,7 +154,7 @@ func packFuzzDNSMessage(f *testing.F, message *dns.Msg) []byte {
 	return append([]byte(nil), message.Data...)
 }
 
-func assertFuzzDNSResultMatchesMessage(t *testing.T, result *dnsResult, response *dns.Msg) {
+func assertFuzzDNSResultMatchesMessage(t *testing.T, result *dnsquery.Result, response *dns.Msg) {
 	t.Helper()
 	if len(result.Answers) != len(response.Answer) {
 		t.Fatalf("result answer count = %d, wire answer count = %d", len(result.Answers), len(response.Answer))
@@ -169,7 +174,7 @@ func assertFuzzDNSResultMatchesMessage(t *testing.T, result *dnsResult, response
 	}
 }
 
-func assertFuzzDNSRendering(t *testing.T, output []byte, result *dnsResult, format string, short bool) {
+func assertFuzzDNSRendering(t *testing.T, output []byte, result *dnsquery.Result, format string, short bool) {
 	t.Helper()
 	if format == dnsFormatJSON {
 		assertFuzzDNSJSONRendering(t, output, result, short)
@@ -183,10 +188,10 @@ func assertFuzzDNSRendering(t *testing.T, output []byte, result *dnsResult, form
 	}
 }
 
-func assertFuzzDNSJSONRendering(t *testing.T, output []byte, result *dnsResult, short bool) {
+func assertFuzzDNSJSONRendering(t *testing.T, output []byte, result *dnsquery.Result, short bool) {
 	t.Helper()
 	if !short {
-		var decoded dnsResult
+		var decoded dnsquery.Result
 		if err := json.Unmarshal(output, &decoded); err != nil {
 			t.Fatalf("decode JSON result: %v", err)
 		}
@@ -262,13 +267,13 @@ func FuzzDNSServerPortParsing(f *testing.F) {
 
 		exchanged := false
 		gotAddress := ""
-		root := newRootCmdWithDNSDependencies(dnsDependencies{
-			exchange: func(_ context.Context, request *dns.Msg, _, address string) (*dns.Msg, error) {
+		root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+			PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, address string) (*dns.Msg, error) {
 				exchanged = true
 				gotAddress = address
 				return replyFor(request), nil
 			},
-			configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
+			ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
 		})
 		args := []string{"dns", "@" + server, "fuzz.example"}
 		if explicit {
@@ -312,12 +317,12 @@ func FuzzDNSMalformedServerSyntax(f *testing.F) {
 		}
 		server := servers[int(kind)%len(servers)]
 		exchanged := false
-		root := newRootCmdWithDNSDependencies(dnsDependencies{
-			exchange: func(_ context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
+		root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+			PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
 				exchanged = true
 				return replyFor(request), nil
 			},
-			configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
+			ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
 		})
 		_, _, err := executeRootCommandStreams(t, root, "dns", "@"+server, "fuzz.example", "--port", "53")
 		if !errors.Is(err, errInvalidDNSOptions) {

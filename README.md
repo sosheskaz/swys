@@ -144,13 +144,14 @@ Darwin still reaches the operating system resolver through its system lookup
 path, while Linux and FreeBSD use Go's built-in resolver and therefore do not
 provide every NSS-style lookup source.
 
-An `@server`, an explicitly supplied `--transport`, or `--port` selects direct
-DNS. `--resolver dns` selects it without those flags. Direct mode accepts the
-single-message record types supported by the bundled DNS library, uses UDP by
-default, and retries a truncated UDP response once over TCP. AXFR and IXFR zone
-transfers are rejected because they require a multi-message transfer protocol.
-Use `--transport tcp` to start with TCP. `--resolver system` conflicts with
-direct-DNS selectors instead of ignoring them.
+An `@server` or `--port` selects direct DNS. `--resolver dns` selects configured
+nameservers over UDP without an explicit endpoint. Direct endpoints use
+`@host[:port]` or a transport scheme: `@udp://`, `@tcp://`, `@tls://`, and
+`@https://`. Their default ports are 53, 53, 853, and 443. UDP retries a
+truncated response once over TCP; encrypted transports never downgrade to
+plaintext. AXFR and IXFR zone transfers are rejected because they require a
+multi-message transfer protocol. `--resolver system` conflicts with direct-DNS
+selectors instead of ignoring them.
 
 Shell completion suggests record types accepted by the selected resolver:
 `A`, `AAAA`, and `PTR` for the system resolver, the supported single-message
@@ -164,9 +165,22 @@ raw reverse-owner queries.
 
 ```fish
 npc dns @192.0.2.53 example.com MX
-npc dig @192.0.2.53 example.com TXT --transport tcp --short
+npc dig @tcp://192.0.2.53 example.com TXT --short
+npc dns @tls://resolver.example example.com AAAA --ca resolver-ca.pem
+npc dns @https://resolver.example/dns-query example.com --ca resolver-ca.pem
 npc nslookup example.com CAA --resolver dns --format json
 ```
+
+DNS over TLS uses verified TLS with DNS-over-TCP framing. DNS over HTTPS sends
+POST requests with `application/dns-message`, honors HTTPS proxy environment
+variables, and limits responses to 65535 bytes. An HTTPS endpoint without a
+path uses `/dns-query`; an explicit path and query are preserved. Redirects are
+always errors and are never followed; any successful 2xx response is accepted.
+
+Encrypted endpoints support `--ca`, `--system-ca`, `--servername`, `--cert`,
+`--key`, and `--insecure`. These TLS options are rejected for plaintext UDP and
+TCP endpoints. `--ca` replaces the system roots unless `--system-ca` is also
+set. `--cert` and `--key` provide a client identity for mutual TLS.
 
 When direct mode has no `@server`, npc uses configured nameservers from
 `/etc/resolv.conf` on Unix and active network adapters on Windows. It does not

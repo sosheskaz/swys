@@ -14,13 +14,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"testing/synctest"
-	"time"
 
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsutil"
 	"codeberg.org/miekg/dns/rdata"
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
 var (
@@ -37,8 +37,8 @@ func TestDNSAliasesUseTheSameSyntax(t *testing.T) {
 	for _, alias := range []string{"dns", "dig", "nslookup"} {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
-			root := newRootCmdWithDNSDependencies(dnsDependencies{
-				system: stubSystemResolver{
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				System: stubSystemResolver{
 					lookupNetIP: func(_ context.Context, network, name string) ([]netip.Addr, error) {
 						if network != "ip4" || name != "example.test" {
 							t.Fatalf("lookup = %s %q", network, name)
@@ -60,6 +60,7 @@ func TestDNSRejectsInvalidOptionsBeforeOpeningOutput(t *testing.T) {
 	tests := [][]string{
 		{"example.test", "MX"},
 		{"@127.0.0.1", "example.test", "--resolver", "system"},
+		{"@dot://127.0.0.1", "example.test"},
 		{"example.test", "--transport", "dot"},
 		{"example.test", "--resolver", "native"},
 		{"example.test", "--format", "yaml"},
@@ -92,7 +93,7 @@ func TestDNSRejectsInvalidOptionsBeforeOpeningOutput(t *testing.T) {
 
 func TestDNSSystemPTRAndMetadata(t *testing.T) {
 	t.Parallel()
-	root := newRootCmdWithDNSDependencies(dnsDependencies{system: stubSystemResolver{lookupAddr: func(_ context.Context, address string) ([]string, error) {
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{System: stubSystemResolver{lookupAddr: func(_ context.Context, address string) ([]string, error) {
 		if address != "192.0.2.8" {
 			t.Fatalf("address = %q", address)
 		}
@@ -102,7 +103,7 @@ func TestDNSSystemPTRAndMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result dnsResult
+	var result dnsquery.Result
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -116,9 +117,11 @@ func TestDNSSystemResolverIsInjectedPerCommand(t *testing.T) {
 	for _, address := range []string{"192.0.2.11", "192.0.2.12"} {
 		t.Run(address, func(t *testing.T) {
 			t.Parallel()
-			root := newRootCmdWithDNSDependencies(dnsDependencies{system: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
-				return []netip.Addr{netip.MustParseAddr(address)}, nil
-			}}})
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+					return []netip.Addr{netip.MustParseAddr(address)}, nil
+				}},
+			})
 			stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--short")
 			if err != nil || stdout != address+"\n" {
 				t.Fatalf("output = %q, error = %v", stdout, err)
@@ -129,15 +132,15 @@ func TestDNSSystemResolverIsInjectedPerCommand(t *testing.T) {
 
 func TestDNSDirectRetriesTruncatedUDPOverTCP(t *testing.T) {
 	t.Parallel()
-	var transports []string
-	deps := dnsDependencies{
-		exchange: func(_ context.Context, request *dns.Msg, transport, address string) (*dns.Msg, error) {
+	var transports []dnsquery.Transport
+	deps := dnsquery.Dependencies{
+		PlaintextExchange: func(_ context.Context, request *dns.Msg, transport dnsquery.Transport, address string) (*dns.Msg, error) {
 			transports = append(transports, transport)
 			if address != "127.0.0.1:5353" {
 				t.Fatalf("address = %q", address)
 			}
 			response := replyFor(request)
-			if transport == dnsTransportUDP {
+			if transport == dnsquery.TransportUDP {
 				response.Truncated = true
 				return response, nil
 			}
@@ -147,14 +150,17 @@ func TestDNSDirectRetriesTruncatedUDPOverTCP(t *testing.T) {
 			}}
 			return response, nil
 		},
-		configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
+		ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
 	}
 	root := newRootCmdWithDNSDependencies(deps)
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "@127.0.0.1", "example.test", "--port", "5353", "--format", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(transports, []string{"udp", "tcp"}) || !strings.Contains(stdout, `"transport": "tcp"`) || !strings.Contains(stdout, `"ttl": 60`) {
+	wantTransports := []dnsquery.Transport{dnsquery.TransportUDP, dnsquery.TransportTCP}
+	hasTCPTransport := strings.Contains(stdout, `"transport": "tcp"`)
+	hasTTL := strings.Contains(stdout, `"ttl": 60`)
+	if !slices.Equal(transports, wantTransports) || !hasTCPTransport || !hasTTL {
 		t.Fatalf("transports = %q, output = %s", transports, stdout)
 	}
 }
@@ -227,7 +233,7 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			args: []string{"--format", "json"},
 			check: func(t *testing.T, output string) {
 				t.Helper()
-				var result dnsResult
+				var result dnsquery.Result
 				if err := json.Unmarshal([]byte(output), &result); err != nil {
 					t.Fatalf("decode JSON output: %v", err)
 				}
@@ -281,7 +287,7 @@ func emptyRDATAAnswers() []dns.RR {
 	}
 }
 
-func assertEmptyDNSAnswerValues(t *testing.T, answers []dnsAnswer) {
+func assertEmptyDNSAnswerValues(t *testing.T, answers []dnsquery.Answer) {
 	t.Helper()
 	wantTypes := []string{"OPT", "NXNAME", "IXFR", "AXFR", "ANY"}
 	if len(answers) != len(wantTypes) {
@@ -342,12 +348,12 @@ func TestDNSDirectServerPortNormalization(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			var gotAddress string
-			root := newRootCmdWithDNSDependencies(dnsDependencies{
-				exchange: func(_ context.Context, request *dns.Msg, _, address string) (*dns.Msg, error) {
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, address string) (*dns.Msg, error) {
 					gotAddress = address
 					return replyFor(request), nil
 				},
-				configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
+				ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
 			})
 			args := []string{"dns", "@" + test.server, "example.test"}
 			if test.portFlag != "" {
@@ -395,12 +401,12 @@ func TestDNSDirectRejectsServerPortConflictsBeforeExchangeOrOutput(t *testing.T)
 				t.Fatal(err)
 			}
 			exchanged := false
-			root := newRootCmdWithDNSDependencies(dnsDependencies{
-				exchange: func(_ context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
 					exchanged = true
 					return replyFor(request), nil
 				},
-				configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
+				ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
 			})
 			args := []string{"dns", "@" + test.server, "example.test", "--output", outputPath}
 			if test.portFlag != "" {
@@ -421,161 +427,6 @@ func TestDNSDirectRejectsServerPortConflictsBeforeExchangeOrOutput(t *testing.T)
 				t.Fatalf("output = %q, want preserved contents", contents)
 			}
 		})
-	}
-}
-
-func TestDNSConfiguredServerFailoverDividesRemainingDeadline(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		parent, cancel := context.WithTimeout(t.Context(), 12*time.Second)
-		defer cancel()
-		query := directDNSQueryForTest()
-		var contexts []context.Context
-		var remaining []time.Duration
-		attempt := 0
-		result, err := resolveDirectDNS(parent, &query, dnsDependencies{
-			configuredServers: func() ([]string, error) {
-				return []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"}, nil
-			},
-			exchange: func(ctx context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
-				contexts = append(contexts, ctx)
-				deadline, ok := ctx.Deadline()
-				if !ok {
-					t.Fatal("configured-server attempt has no deadline")
-				}
-				remaining = append(remaining, time.Until(deadline))
-				attempt++
-				switch attempt {
-				case 1:
-					time.Sleep(time.Second)
-					return nil, errTestDNSExchangeFailed
-				case 2:
-					time.Sleep(2 * time.Second)
-					return nil, errTestDNSExchangeFailed
-				default:
-					return replyFor(request), nil
-				}
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Server == nil || *result.Server != "192.0.2.3:53" {
-			t.Fatalf("result server = %v, want final configured server", result.Server)
-		}
-		wantRemaining := []time.Duration{4 * time.Second, 11 * time.Second / 2, 9 * time.Second}
-		if !slices.Equal(remaining, wantRemaining) {
-			t.Fatalf("attempt deadlines = %v, want %v", remaining, wantRemaining)
-		}
-		assertDNSAttemptContextsCanceled(t, contexts)
-	})
-}
-
-func TestDNSConfiguredServerUDPAndTCPShareAttemptDeadline(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		parent, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-		defer cancel()
-		query := directDNSQueryForTest()
-		var contexts []context.Context
-		var deadlines []time.Time
-		result, err := resolveDirectDNS(parent, &query, dnsDependencies{
-			configuredServers: func() ([]string, error) { return []string{"192.0.2.1", "192.0.2.2"}, nil },
-			exchange: func(ctx context.Context, request *dns.Msg, transport, _ string) (*dns.Msg, error) {
-				contexts = append(contexts, ctx)
-				deadline, ok := ctx.Deadline()
-				if !ok {
-					t.Fatal("configured-server attempt has no deadline")
-				}
-				deadlines = append(deadlines, deadline)
-				response := replyFor(request)
-				response.Truncated = transport == dnsTransportUDP
-				return response, nil
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Transport == nil || *result.Transport != dnsTransportTCP {
-			t.Fatalf("transport = %v, want TCP fallback", result.Transport)
-		}
-		if len(deadlines) != 2 || deadlines[0] != deadlines[1] || time.Until(deadlines[0]) != 5*time.Second {
-			t.Fatalf("UDP/TCP deadlines = %v, want shared deadline 5s from now", deadlines)
-		}
-		assertDNSAttemptContextsCanceled(t, contexts)
-	})
-}
-
-func TestDNSExplicitServerAndUnlimitedTimeoutBudgets(t *testing.T) {
-	t.Parallel()
-	t.Run("explicit server gets full budget", func(t *testing.T) {
-		t.Parallel()
-		synctest.Test(t, func(t *testing.T) {
-			parent, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			query := directDNSQueryForTest()
-			query.server = "192.0.2.1"
-			var exchangeContext context.Context
-			_, err := resolveDirectDNS(parent, &query, dnsDependencies{
-				configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
-				exchange: func(ctx context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
-					exchangeContext = ctx
-					deadline, ok := ctx.Deadline()
-					if !ok || time.Until(deadline) != 10*time.Second {
-						t.Fatalf("explicit-server deadline = %v, present %t", deadline, ok)
-					}
-					return replyFor(request), nil
-				},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertDNSAttemptContextsCanceled(t, []context.Context{exchangeContext})
-		})
-	})
-	t.Run("zero timeout has no deadline", func(t *testing.T) {
-		t.Parallel()
-		query := directDNSQueryForTest()
-		query.server = "192.0.2.1"
-		var exchangeContext context.Context
-		_, err := resolveDirectDNS(t.Context(), &query, dnsDependencies{
-			configuredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
-			exchange: func(ctx context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
-				exchangeContext = ctx
-				if deadline, ok := ctx.Deadline(); ok {
-					t.Fatalf("zero-timeout exchange deadline = %v, want none", deadline)
-				}
-				return replyFor(request), nil
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertDNSAttemptContextsCanceled(t, []context.Context{exchangeContext})
-	})
-}
-
-func directDNSQueryForTest() dnsQuery {
-	return dnsQuery{
-		resolver: dnsResolverDirect, name: "example.test", record: dnsTypeA,
-		transport: dnsTransportUDP, format: dnsFormatText, port: 53, recordType: dns.TypeA,
-	}
-}
-
-func assertDNSAttemptContextsCanceled(t *testing.T, contexts []context.Context) {
-	t.Helper()
-	for index, ctx := range contexts {
-		if ctx == nil {
-			t.Fatalf("attempt %d did not receive a context", index)
-		}
-		select {
-		case <-ctx.Done():
-			if !errors.Is(ctx.Err(), context.Canceled) {
-				t.Errorf("attempt %d context error = %v, want context.Canceled", index, ctx.Err())
-			}
-		default:
-			t.Errorf("attempt %d context remains active after exchange", index)
-		}
 	}
 }
 
@@ -726,18 +577,93 @@ func serveTCPAnswer(connection net.Conn) error {
 func TestDNSDirectUsesConfiguredServersWithoutPublicFallback(t *testing.T) {
 	t.Parallel()
 	var gotAddress string
-	root := newRootCmdWithDNSDependencies(dnsDependencies{
-		exchange: func(_ context.Context, request *dns.Msg, _, address string) (*dns.Msg, error) {
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, address string) (*dns.Msg, error) {
 			gotAddress = address
 			return replyFor(request), nil
 		},
-		configuredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
+		ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 	})
 	if _, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns"); err != nil {
 		t.Fatal(err)
 	}
 	if gotAddress != "192.0.2.53:53" {
 		t.Fatalf("address = %q", gotAddress)
+	}
+}
+
+func TestDNSConfiguredServersRejectNonUDPSchemesAndUseBareFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, configured := range []string{
+		"tcp://192.0.2.1:53",
+		"tls://192.0.2.1:853",
+		"https://192.0.2.1/dns-query",
+	} {
+		t.Run(configured, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			var transports []dnsquery.Transport
+			var addresses []string
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				ConfiguredServers: func() ([]string, error) {
+					return []string{configured, "192.0.2.53"}, nil
+				},
+				PlaintextExchange: func(
+					_ context.Context,
+					request *dns.Msg,
+					transport dnsquery.Transport,
+					address string,
+				) (*dns.Msg, error) {
+					transports = append(transports, transport)
+					addresses = append(addresses, address)
+					if transport != dnsquery.TransportUDP || address != "192.0.2.53:53" {
+						return nil, errTestDNSExchangeFailed
+					}
+					return replyFor(request), nil
+				},
+			})
+			root.SetContext(ctx)
+			if _, _, err := executeRootCommandStreams(
+				t,
+				root,
+				"dns", "example.test", "--resolver", "dns", "--short",
+			); err != nil {
+				t.Fatal(err)
+			}
+			validFallback := slices.Equal(transports, []dnsquery.Transport{dnsquery.TransportUDP}) &&
+				slices.Equal(addresses, []string{"192.0.2.53:53"})
+			if !validFallback {
+				t.Fatalf("transports=%v addresses=%v", transports, addresses)
+			}
+		})
+	}
+}
+
+func TestDNSExplicitPort53WithoutEndpointUsesConfiguredUDP(t *testing.T) {
+	t.Parallel()
+
+	configured := 0
+	exchanged := 0
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		ConfiguredServers: func() ([]string, error) {
+			configured++
+			return []string{"192.0.2.53:53"}, nil
+		},
+		PlaintextExchange: func(_ context.Context, request *dns.Msg, transport dnsquery.Transport, address string) (*dns.Msg, error) {
+			exchanged++
+			if transport != dnsquery.TransportUDP || address != "192.0.2.53:53" {
+				t.Fatalf("transport=%q address=%q", transport, address)
+			}
+			return replyFor(request), nil
+		},
+	})
+	if _, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--port", "53", "--short"); err != nil {
+		t.Fatal(err)
+	}
+	if configured != 1 || exchanged != 1 {
+		t.Fatalf("configured calls=%d exchange calls=%d", configured, exchanged)
 	}
 }
 
@@ -774,8 +700,8 @@ func TestDNSDirectAcceptsPTROwnerName(t *testing.T) {
 func TestDNSDirectPreservesRcodeAndTXTEscaping(t *testing.T) {
 	t.Parallel()
 	newRoot := func() *cobra.Command {
-		return newRootCmdWithDNSDependencies(dnsDependencies{
-			exchange: func(_ context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
+		return newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+			PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
 				response := replyFor(request)
 				response.Rcode = dns.RcodeNameError
 				response.Answer = []dns.RR{&dns.TXT{
@@ -784,7 +710,7 @@ func TestDNSDirectPreservesRcodeAndTXTEscaping(t *testing.T) {
 				}}
 				return response, nil
 			},
-			configuredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
+			ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 		})
 	}
 	jsonOutput, _, err := executeRootCommandStreams(
@@ -810,13 +736,13 @@ func TestDNSDirectShortAllowsEmptyAnswers(t *testing.T) {
 	for _, rcode := range []uint16{dns.RcodeSuccess, dns.RcodeNameError} {
 		t.Run(dns.RcodeToString[rcode], func(t *testing.T) {
 			t.Parallel()
-			root := newRootCmdWithDNSDependencies(dnsDependencies{
-				exchange: func(_ context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
 					response := replyFor(request)
 					response.Rcode = rcode
 					return response, nil
 				},
-				configuredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
+				ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 			})
 			stdout, _, err := executeRootCommandStreams(
 				t,
@@ -832,13 +758,13 @@ func TestDNSDirectShortAllowsEmptyAnswers(t *testing.T) {
 
 func TestDNSDirectRejectsMismatchedResponse(t *testing.T) {
 	t.Parallel()
-	root := newRootCmdWithDNSDependencies(dnsDependencies{
-		exchange: func(_ context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
 			response := replyFor(request)
 			response.Question = dns.NewMsg("other.test", dns.TypeA).Question
 			return response, nil
 		},
-		configuredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
+		ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 	})
 	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns")
 	if !errors.Is(err, errDNSResponseMismatch) {
@@ -850,10 +776,12 @@ func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
 	t.Parallel()
 	t.Run("system timeout", func(t *testing.T) {
 		t.Parallel()
-		root := newRootCmdWithDNSDependencies(dnsDependencies{system: stubSystemResolver{lookupNetIP: func(ctx context.Context, _, _ string) ([]netip.Addr, error) {
-			<-ctx.Done()
-			return nil, fmt.Errorf("silent DNS server: %w", ctx.Err())
-		}}})
+		root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+			System: stubSystemResolver{lookupNetIP: func(ctx context.Context, _, _ string) ([]netip.Addr, error) {
+				<-ctx.Done()
+				return nil, fmt.Errorf("silent DNS server: %w", ctx.Err())
+			}},
+		})
 		_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--timeout", "10ms")
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("error = %v", err)
@@ -862,9 +790,9 @@ func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
 	t.Run("direct exchange", func(t *testing.T) {
 		t.Parallel()
 		target := errTestDNSExchangeFailed
-		root := newRootCmdWithDNSDependencies(dnsDependencies{
-			exchange:          func(context.Context, *dns.Msg, string, string) (*dns.Msg, error) { return nil, target },
-			configuredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
+		root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+			PlaintextExchange: func(context.Context, *dns.Msg, dnsquery.Transport, string) (*dns.Msg, error) { return nil, target },
+			ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 		})
 		_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns")
 		if !errors.Is(err, target) {
@@ -873,52 +801,17 @@ func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
 	})
 }
 
-func TestDNSExchangeHonorsCancellation(t *testing.T) {
-	t.Parallel()
-	listenConfig := net.ListenConfig{}
-	server, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if closeErr := server.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
-			t.Errorf("close UDP fixture: %v", closeErr)
-		}
-	})
-	ctx, cancel := context.WithCancel(t.Context())
-	go func() {
-		buffer := make([]byte, 512)
-		if _, _, readErr := server.ReadFrom(buffer); readErr != nil {
-			t.Errorf("read DNS request: %v", readErr)
-		}
-		cancel()
-	}()
-	_, err = exchangeDNS(ctx, dns.NewMsg("example.test", dns.TypeA), dnsTransportUDP, server.LocalAddr().String())
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestParseConfiguredDNSServers(t *testing.T) {
-	t.Parallel()
-	servers, err := parseConfiguredDNSServers(strings.NewReader("search example.test\n# comment\nnameserver 192.0.2.53\nnameserver 2001:db8::53 # local\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(servers, []string{"192.0.2.53", "2001:db8::53"}) {
-		t.Fatalf("servers = %q", servers)
-	}
-}
-
 func TestDNSPreparedFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "output")
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	root := newRootCmdWithDNSDependencies(dnsDependencies{system: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
-		return nil, errTestDNSLookupFailed
-	}}})
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+			return nil, errTestDNSLookupFailed
+		}},
+	})
 	if _, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--output", path); err == nil {
 		t.Fatal("expected error")
 	}
@@ -940,8 +833,8 @@ func TestDNSRestoresCommandContext(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			root := newRootCmdWithDNSDependencies(dnsDependencies{
-				system: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
 					return []netip.Addr{netip.MustParseAddr("192.0.2.30")}, nil
 				}},
 			})
@@ -972,37 +865,4 @@ func replyFor(request *dns.Msg) *dns.Msg {
 	dnsutil.SetReply(response, request)
 	response.RecursionAvailable = true
 	return response
-}
-
-func TestDNSConfiguredServerTimeoutLeavesBudgetForNext(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		parent, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-		defer cancel()
-		query := directDNSQueryForTest()
-		attempts := 0
-		result, err := resolveDirectDNS(parent, &query, dnsDependencies{
-			configuredServers: func() ([]string, error) { return []string{"192.0.2.1", "192.0.2.2"}, nil },
-			exchange: func(ctx context.Context, request *dns.Msg, _, _ string) (*dns.Msg, error) {
-				attempts++
-				if attempts == 1 {
-					<-ctx.Done()
-					return nil, fmt.Errorf("silent DNS server: %w", ctx.Err())
-				}
-				if err := ctx.Err(); err != nil {
-					return nil, fmt.Errorf("second DNS server: %w", err)
-				}
-				return replyFor(request), nil
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if attempts != 2 || result.Server == nil || *result.Server != "192.0.2.2:53" {
-			t.Fatalf("attempts=%d server=%v, want second configured server", attempts, result.Server)
-		}
-		if err := parent.Err(); err != nil {
-			t.Fatalf("parent expired before successful failover: %v", err)
-		}
-	})
 }

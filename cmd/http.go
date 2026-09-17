@@ -143,7 +143,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.StringVar(&options.key, tlsKeyFlagName, "", "client private key path")
 	flags.StringVar(&options.ca, tlsCAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
-	flags.StringVar(&options.serverName, "servername", "", "override TLS SNI and verification name")
+	flags.StringVar(&options.serverName, tlsServerNameFlagName, "", "override TLS SNI and verification name")
 	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
 	registerHTTPCompletions(cmd, options)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {

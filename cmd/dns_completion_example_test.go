@@ -10,6 +10,8 @@ import (
 
 	"codeberg.org/miekg/dns"
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
 func TestExampleDNSRecordTypeCompletion(t *testing.T) {
@@ -26,8 +28,8 @@ func TestExampleDNSRecordTypeCompletion(t *testing.T) {
 
 func executeDNSCompletion(t *testing.T, args ...string) ([]string, cobra.ShellCompDirective) {
 	t.Helper()
-	root := newRootCmdWithDNSDependencies(dnsDependencies{
-		system: stubSystemResolver{
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{
 			lookupNetIP: func(_ context.Context, _, _ string) ([]netip.Addr, error) {
 				t.Fatal("completion performed a system lookup")
 				return nil, nil
@@ -37,11 +39,11 @@ func executeDNSCompletion(t *testing.T, args ...string) ([]string, cobra.ShellCo
 				return nil, nil
 			},
 		},
-		exchange: func(context.Context, *dns.Msg, string, string) (*dns.Msg, error) {
+		PlaintextExchange: func(context.Context, *dns.Msg, dnsquery.Transport, string) (*dns.Msg, error) {
 			t.Fatal("completion performed a direct DNS exchange")
 			return nil, errUnexpectedSystemLookup
 		},
-		configuredServers: func() ([]string, error) {
+		ConfiguredServers: func() ([]string, error) {
 			t.Fatal("completion read configured DNS servers")
 			return nil, errUnexpectedSystemLookup
 		},

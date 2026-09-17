@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/netip"
 	"testing"
+
+	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
 var errUnexpectedSystemLookup = errors.New("unexpected system resolver call")
@@ -13,8 +15,8 @@ var errUnexpectedSystemLookup = errors.New("unexpected system resolver call")
 func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 	t.Parallel()
 
-	root := newRootCmdWithDNSDependencies(dnsDependencies{
-		system: stubSystemResolver{
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{
 			lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
 				return []netip.Addr{netip.MustParseAddr("192.0.2.10")}, nil
 			},
@@ -38,8 +40,8 @@ func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 func TestExampleDNSShortJSON(t *testing.T) {
 	t.Parallel()
 
-	root := newRootCmdWithDNSDependencies(dnsDependencies{
-		system: stubSystemResolver{
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{
 			lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
 				return []netip.Addr{
 					netip.MustParseAddr("2001:db8::10"),
@@ -54,6 +56,46 @@ func TestExampleDNSShortJSON(t *testing.T) {
 	}
 	if stdout != "[\n  \"2001:db8::10\",\n  \"2001:db8::20\"\n]\n" {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestDNSJSONSchemaIsByteStableAcrossCoreBoundary(t *testing.T) {
+	t.Parallel()
+
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{
+			lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+				return []netip.Addr{netip.MustParseAddr("192.0.2.10")}, nil
+			},
+		},
+	})
+	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n" +
+		"  \"resolver\": \"system\",\n" +
+		"  \"server\": null,\n" +
+		"  \"transport\": null,\n" +
+		"  \"query_name\": \"example.test.\",\n" +
+		"  \"query_type\": \"A\",\n" +
+		"  \"status\": null,\n" +
+		"  \"id\": null,\n" +
+		"  \"authoritative\": null,\n" +
+		"  \"truncated\": null,\n" +
+		"  \"recursion_available\": null,\n" +
+		"  \"answers\": [\n" +
+		"    {\n" +
+		"      \"name\": \"example.test.\",\n" +
+		"      \"type\": \"A\",\n" +
+		"      \"class\": \"IN\",\n" +
+		"      \"ttl\": null,\n" +
+		"      \"value\": \"192.0.2.10\"\n" +
+		"    }\n" +
+		"  ]\n" +
+		"}\n"
+	if stdout != want {
+		t.Fatalf("stdout = %q\nwant = %q", stdout, want)
 	}
 }
 

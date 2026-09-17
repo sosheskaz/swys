@@ -33,7 +33,7 @@ func TestDNSCompletionRecordTypesFollowResolverContext(t *testing.T) {
 		{name: "system", args: []string{"dns", "example.test", ""}, want: []string{"A", "AAAA", "PTR"}},
 		{name: "lowercase prefix", args: []string{"dns", "example.test", "a"}, want: []string{"A", "AAAA"}},
 		{name: "direct resolver", args: []string{"dns", "--resolver", "dns", "example.test", ""}, want: directTypes},
-		{name: "explicit default transport", args: []string{"dns", "example.test", "--transport", "udp", ""}, want: directTypes},
+		{name: "explicit UDP endpoint", args: []string{"dns", "@udp://192.0.2.53", "example.test", ""}, want: directTypes},
 		{name: "explicit default port long", args: []string{"dns", "--port", "53", "example.test", ""}, want: directTypes},
 		{name: "explicit default port short", args: []string{"dns", "-p", "53", "example.test", ""}, want: directTypes},
 		{name: "server", args: []string{"dns", "@192.0.2.53", "example.test", ""}, want: directTypes},
@@ -93,7 +93,7 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"dns", "@192.0.2.53", "--resolver", ""},
-		{"dns", "--transport", "udp", "--resolver", ""},
+		{"dns", "@tcp://192.0.2.53", "--resolver", ""},
 		{"dns", "-p", "53", "--resolver", ""},
 	} {
 		values, directive := executeDNSCompletion(t, args...)
@@ -107,7 +107,7 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 		t.Fatalf("flag directive = %v, want no file completion", directive)
 	}
 	joined := strings.Join(values, "\n")
-	for _, conflict := range []string{"--transport", "--port", "-p"} {
+	for _, conflict := range []string{"--port", "-p"} {
 		if strings.Contains(joined, conflict) {
 			t.Errorf("flags after --resolver system contain %s: %q", conflict, values)
 		}
@@ -121,30 +121,38 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 
 func TestDNSCompletionConflictHasNoRecordCandidates(t *testing.T) {
 	t.Parallel()
-	values, directive := executeDNSCompletion(t, "dns", "--resolver", "system", "--transport", "udp", "example.test", "")
+	values, directive := executeDNSCompletion(t, "dns", "--resolver", "system", "--port", "53", "example.test", "")
 	if len(values) != 0 || directive != cobra.ShellCompDirectiveNoFileComp {
 		t.Fatalf("conflicting completion = %q, %v; want no candidates and no files", values, directive)
 	}
 }
 
-func TestDNSCompletionTransportValuesFollowFinalResolver(t *testing.T) {
+func TestDNSCompletionEndpointSelectionFollowsFinalResolver(t *testing.T) {
 	t.Parallel()
+	directTypes := directDNSRecordTypes()
 	for _, test := range []struct {
 		resolverArgs []string
 		want         []string
 	}{
 		{resolverArgs: []string{"--resolver", "system"}},
 		{resolverArgs: []string{"--resolver", "dns", "--resolver", "system"}},
-		{resolverArgs: []string{"--resolver", "system", "--resolver", "dns"}, want: []string{"udp", "tcp"}},
+		{resolverArgs: []string{"--resolver", "system", "--resolver", "dns"}, want: directTypes},
 	} {
-		for _, suffix := range [][]string{{"--transport", ""}, {"--transport="}} {
-			args := append([]string{"dns"}, test.resolverArgs...)
-			args = append(args, suffix...)
-			values, directive := executeDNSCompletion(t, args...)
-			if !slices.Equal(values, test.want) || directive != cobra.ShellCompDirectiveNoFileComp {
-				t.Errorf("complete %q = %q, %v; want %q and no files", args, values, directive, test.want)
-			}
+		args := append([]string{"dns"}, test.resolverArgs...)
+		args = append(args, "@udp://192.0.2.53", "example.test", "")
+		values, directive := executeDNSCompletion(t, args...)
+		if !slices.Equal(values, test.want) || directive != cobra.ShellCompDirectiveNoFileComp {
+			t.Errorf("complete %q = %q, %v; want %q and no files", args, values, directive, test.want)
 		}
+	}
+}
+
+func TestDNSRejectsRemovedTransportFlag(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := executeRootStreams(t, "dns", "example.test", "--transport", "udp")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --transport") {
+		t.Fatalf("error = %v, want removed --transport rejection", err)
 	}
 }
 
@@ -153,10 +161,11 @@ func TestDNSCompletionFlagsFollowFinalResolver(t *testing.T) {
 	for _, resolvers := range [][]string{{"system", "dns"}, {"dns", "system"}} {
 		values, _ := executeDNSCompletion(t, "dns", "--resolver", resolvers[0], "--resolver", resolvers[1], "--")
 		joined := strings.Join(values, "\n")
-		for _, flag := range []string{"--transport", "--port"} {
-			if strings.Contains(joined, flag) != (resolvers[1] == "dns") {
-				t.Errorf("flags after resolvers %q = %q; incorrect visibility for %s", resolvers, values, flag)
-			}
+		if strings.Contains(joined, "--port") != (resolvers[1] == "dns") {
+			t.Errorf("flags after resolvers %q = %q; incorrect visibility for --port", resolvers, values)
+		}
+		if strings.Contains(joined, "--transport") {
+			t.Errorf("flags after resolvers %q contain removed --transport: %q", resolvers, values)
 		}
 	}
 }
