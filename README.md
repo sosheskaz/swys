@@ -114,6 +114,11 @@ transfers are rejected because they require a multi-message transfer protocol.
 Use `--transport tcp` to start with TCP. `--resolver system` conflicts with
 direct-DNS selectors instead of ignoring them.
 
+Shell completion suggests record types accepted by the selected resolver:
+`A`, `AAAA`, and `PTR` for the system resolver, the supported single-message
+registry for direct DNS, and only `PTR` with `--reverse`. Names and server
+addresses remain free-form and completion does not perform DNS discovery.
+
 For PTR records, `--reverse` converts an IP address to its reverse owner name.
 Without `--reverse`, direct mode sends the supplied owner name unchanged;
 system mode accepts a literal IP address because `net.Resolver` does not expose

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
@@ -92,7 +94,13 @@ type dnsQuery struct {
 type dnsPreparedOutputKey struct{}
 
 func newDNSCmd(deps dnsDependencies) *cobra.Command {
-	options := &dnsOptions{}
+	options := &dnsOptions{
+		resolver:  dnsResolverSystem,
+		transport: dnsTransportUDP,
+		format:    dnsFormatText,
+		port:      53,
+		timeout:   defaultNetworkTimeout,
+	}
 	command := &cobra.Command{
 		Use:     "dns [@server] name [type]",
 		Aliases: []string{"dig", "nslookup"},
@@ -104,6 +112,9 @@ the exact lookup path depends on the operating system and build. An @server,
 explicit --transport, or explicit --port selects direct DNS. Direct DNS without
 @server uses configured nameservers and retries truncated UDP responses over TCP.`,
 		Args: cobra.RangeArgs(1, 3),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return completeDNSArguments(cmd, args, toComplete, options)
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			prepared, output, err := takePreparedOutput(cmd)
 			if err != nil {
@@ -146,18 +157,130 @@ explicit --transport, or explicit --port selects direct DNS. Direct DNS without
 	addCommandShape(command, structuredOutputShape)
 	addCommandShape(command, networkShape)
 	flags := command.Flags()
-	flags.StringVar(&options.resolver, "resolver", dnsResolverSystem, "resolver mode (system, dns)")
+	flags.Var(&dnsResolverFlagValue{command: command, target: &options.resolver}, "resolver", "resolver mode (system, dns)")
 	flags.StringVar(&options.transport, "transport", dnsTransportUDP, "direct DNS transport (udp, tcp)")
 	flags.IntVarP(&options.port, "port", "p", 53, "direct DNS server port")
 	flags.BoolVarP(&options.reverse, "reverse", "x", false, "perform a PTR lookup for an IP address")
 	flags.DurationVar(&options.timeout, "timeout", defaultNetworkTimeout, "whole lookup timeout (0 disables)")
 	flags.BoolVar(&options.short, "short", false, "print only answer values")
 	flags.StringVarP(&options.format, formatFlagName, "f", dnsFormatText, "result format (text, json)")
-	registerFlagCompletion(command, "resolver", func() []string { return []string{dnsResolverSystem, dnsResolverDirect} })
-	registerFlagCompletion(command, "transport", func() []string { return []string{dnsTransportUDP, dnsTransportTCP} })
+	if err := command.RegisterFlagCompletionFunc("resolver", func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		values := []string{dnsResolverSystem, dnsResolverDirect}
+		if dnsDirectSelectorSupplied(cmd, args) {
+			values = []string{dnsResolverDirect}
+		}
+		return values, cobra.ShellCompDirectiveNoFileComp
+	}); err != nil {
+		panic(err)
+	}
+	registerFlagCompletion(command, "transport", func() []string {
+		if command.Flags().Changed("resolver") && options.resolver == dnsResolverSystem {
+			return nil
+		}
+		return []string{dnsTransportUDP, dnsTransportTCP}
+	})
 	registerFlagCompletion(command, formatFlagName, func() []string { return []string{dnsFormatText, dnsFormatJSON} })
+	for _, name := range []string{"port", "timeout"} {
+		if err := command.RegisterFlagCompletionFunc(name, cobra.NoFileCompletions); err != nil {
+			panic(err)
+		}
+	}
 	return command
 }
+
+type dnsResolverFlagValue struct {
+	command *cobra.Command
+	target  *string
+}
+
+// Set records the resolver value and adjusts only completion-time flag visibility.
+func (value *dnsResolverFlagValue) Set(resolver string) error {
+	*value.target = resolver
+	if dnsCompletionRequested(value.command) {
+		value.command.Flags().Lookup("transport").Hidden = resolver == dnsResolverSystem
+		value.command.Flags().Lookup("port").Hidden = resolver == dnsResolverSystem
+	}
+	return nil
+}
+
+func (value *dnsResolverFlagValue) String() string {
+	return *value.target
+}
+
+// Type reports the flag value type shown in command metadata.
+func (*dnsResolverFlagValue) Type() string {
+	return "string"
+}
+
+func dnsCompletionRequested(command *cobra.Command) bool {
+	for _, child := range command.Root().Commands() {
+		if child.Name() == cobra.ShellCompRequestCmd || child.Name() == cobra.ShellCompNoDescRequestCmd {
+			return true
+		}
+	}
+	return false
+}
+
+func completeDNSArguments(command *cobra.Command, args []string, toComplete string, options *dnsOptions) ([]string, cobra.ShellCompDirective) {
+	position := len(args)
+	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
+		position--
+	}
+	if position != 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	resolver, conflict := dnsCompletionResolver(command, args, options)
+	if conflict {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	candidates := []string{dnsTypeA, dnsTypeAAAA, dnsTypePTR}
+	if resolver == dnsResolverDirect {
+		candidates = directDNSRecordTypes()
+	}
+	if options.reverse {
+		candidates = []string{dnsTypePTR}
+	}
+
+	prefix := strings.ToUpper(toComplete)
+	completed := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.HasPrefix(candidate, prefix) {
+			completed = append(completed, candidate)
+		}
+	}
+	return completed, cobra.ShellCompDirectiveNoFileComp
+}
+
+func dnsCompletionResolver(command *cobra.Command, args []string, options *dnsOptions) (string, bool) {
+	directSelected := dnsDirectSelectorSupplied(command, args)
+	if options.resolver == dnsResolverSystem && command.Flags().Changed("resolver") && directSelected {
+		return "", true
+	}
+	if options.resolver == dnsResolverDirect || directSelected {
+		return dnsResolverDirect, false
+	}
+	return dnsResolverSystem, false
+}
+
+func dnsDirectSelectorSupplied(command *cobra.Command, args []string) bool {
+	return len(args) > 0 && strings.HasPrefix(args[0], "@") ||
+		command.Flags().Changed("transport") || command.Flags().Changed("port")
+}
+
+func directDNSRecordTypes() []string {
+	types := make([]string, 0, len(dns.StringToType)-2)
+	for record, recordType := range dns.StringToType {
+		if recordType == dns.TypeAXFR || recordType == dns.TypeIXFR {
+			continue
+		}
+		types = append(types, record)
+	}
+	sort.Strings(types)
+	return types
+}
+
+var _ pflag.Value = (*dnsResolverFlagValue)(nil)
 
 func parseDNSQuery(cmd *cobra.Command, args []string, options *dnsOptions) (dnsQuery, error) {
 	query := dnsQuery{
