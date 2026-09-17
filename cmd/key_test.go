@@ -395,33 +395,21 @@ func TestKeyCommandAliasesCompose(t *testing.T) {
 	}
 }
 
-func TestKeyGenerateRemovesBitsAndPreservesLegacyAESAlias(t *testing.T) {
+func TestKeyGenerateRemovesBits(t *testing.T) {
 	t.Parallel()
 	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--bits", "256"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("canonical --bits error = %v, want unknown flag", err)
 	}
+}
 
-	for _, bits := range []string{"128", "192", "256"} {
-		stdout, stderr, err := executeRootStreams(t, "aes", "genkey", "--bits", bits)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(stdout) != mustAESBytes(t, bits) {
-			t.Fatalf("legacy AES-%s length = %d", bits, len(stdout))
-		}
-		if !strings.Contains(stderr, "deprecated") || !strings.Contains(stderr, "npc key generate aes"+bits) {
-			t.Fatalf("legacy warning = %q", stderr)
-		}
+func TestGenerateAESKeyRejectsInvalidSizeBeforeWriting(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	if err := generateAESKey(64, &output); !errors.Is(err, errInvalidAESKeySize) {
+		t.Fatalf("generateAESKey error = %v, want errInvalidAESKeySize", err)
 	}
-	_, stderr, err := executeRootStreams(t, "aes", "genkey", "--bits", "64")
-	if !errors.Is(err, errInvalidAESKeySize) {
-		t.Fatalf("invalid legacy bits error = %v, want ErrInvalidAESKeySize", err)
-	}
-	if stderr != "" {
-		t.Fatalf("invalid legacy bits warning = %q, want empty", stderr)
-	}
-	if !newGenkeyCmd().Hidden {
-		t.Fatal("aes genkey must remain hidden")
+	if output.Len() != 0 {
+		t.Fatalf("generateAESKey wrote %d bytes before validation", output.Len())
 	}
 }
 
@@ -603,7 +591,7 @@ func TestKeyGenerateOutputUsesPrivatePermissions(t *testing.T) {
 
 func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
 	t.Parallel()
-	for _, command := range []*cobra.Command{newKeyGenerateCmd(), newGenkeyCmd()} {
+	for _, command := range []*cobra.Command{newKeyGenerateCmd()} {
 		if !commandHasShape(command, sensitiveOutputShape) {
 			t.Fatalf("%s is not marked as sensitive output", command.CommandPath())
 		}
@@ -689,21 +677,6 @@ func completionContains(values []string, want string) bool {
 		name, _, _ := strings.Cut(value, "\t")
 		return name == want
 	})
-}
-
-func mustAESBytes(t *testing.T, bits string) int {
-	t.Helper()
-	switch bits {
-	case "128":
-		return 16
-	case "192":
-		return 24
-	case "256":
-		return 32
-	default:
-		t.Fatalf("unexpected AES bits %q", bits)
-		return 0
-	}
 }
 
 type keyFailingReader struct {

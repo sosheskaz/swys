@@ -56,14 +56,6 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 	}
 }
 
-func TestGenkeyRejectsInvalidSize(t *testing.T) {
-	t.Parallel()
-	_, err := executeRoot(t, "aes", "genkey", "--bits", "64")
-	if !errors.Is(err, errInvalidAESKeySize) {
-		t.Fatalf("error = %v, want errInvalidAESKeySize", err)
-	}
-}
-
 func TestEncryptPreservesInvalidIVErrorIdentity(t *testing.T) {
 	t.Parallel()
 	key := base64.StdEncoding.EncodeToString(make([]byte, 16))
@@ -111,24 +103,6 @@ func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
 	}
 	if string(data) != "preserve" {
 		t.Fatalf("failed command replaced output with %q", data)
-	}
-}
-
-func TestCommandErrorBeforeWriteLeavesEmptyOutputFile(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "existing")
-	writeOwnerOnlyFixture(t, path, "old contents")
-
-	_, err := executeRoot(t, "aes", "genkey", "--bits", "64", "--output", path)
-	if !errors.Is(err, errInvalidAESKeySize) {
-		t.Fatalf("error = %v, want invalid key size", err)
-	}
-	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if len(data) != 0 {
-		t.Fatalf("output length = %d, want empty file", len(data))
 	}
 }
 
@@ -230,10 +204,7 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 	t.Parallel()
-	commands := [][]string{
-		{"key", "generate", "aes256"},
-		{"aes", "genkey", "--bits", "256"},
-	}
+	commands := [][]string{{"key", "generate", "aes256"}}
 	for _, command := range commands {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Parallel()
@@ -256,10 +227,7 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 
 func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 	t.Parallel()
-	commands := [][]string{
-		{"key", "generate", "aes256"},
-		{"aes", "genkey", "--bits", "256"},
-	}
+	commands := [][]string{{"key", "generate", "aes256"}}
 	for _, command := range commands {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Parallel()

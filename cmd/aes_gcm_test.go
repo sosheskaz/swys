@@ -49,8 +49,9 @@ func TestAESCipherModeFlagRegistryHelpAndCompletion(t *testing.T) {
 			t.Fatalf("%s --cipher-mode has no completion", command.CommandPath())
 		}
 		values, directive := completion(command, nil, "")
-		if !slices.Equal(values, []string{"cbc", "gcm"}) {
-			t.Fatalf("%s --cipher-mode completions = %q, want [cbc gcm]", command.CommandPath(), values)
+		want := []string{"cbc\tcompatibility mode", "gcm\tauthenticated default"}
+		if !slices.Equal(values, want) {
+			t.Fatalf("%s --cipher-mode completions = %q, want %q", command.CommandPath(), values, want)
 		}
 		if directive != cobra.ShellCompDirectiveNoFileComp {
 			t.Fatalf("%s --cipher-mode completion directive = %v, want no-file", command.CommandPath(), directive)

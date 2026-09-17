@@ -137,8 +137,6 @@ func commandTreeViolations(root *cobra.Command) []string {
 		"convert":  true,
 		"create":   true,
 		"csr":      true,
-		// genkey is the documented one-release compatibility exception.
-		"genkey": true,
 	}
 	transportLeaves := map[string]bool{"tcp": true, "tls": true, "udp": true}
 	hashAlgorithmLeaves := map[string]bool{"md5": true, "sha1": true, "sha256": true, "sha512": true}
@@ -153,7 +151,10 @@ func commandTreeViolations(root *cobra.Command) []string {
 
 			if child.HasSubCommands() {
 				isRunnableRootHash := command == root && child.Name() == "hash"
-				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash {
+				// AES is technically runnable so Cobra validates removed nested commands;
+				// its argument contract returns help before I/O for the bare noun.
+				isHelpOnlyAES := command == root && child.Name() == "aes"
+				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash && !isHelpOnlyAES {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}
 			} else {

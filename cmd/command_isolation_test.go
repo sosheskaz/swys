@@ -57,7 +57,7 @@ func TestIndependentCommandCompletion(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if stdout != "cbc\ngcm\n:4\n" {
+			if stdout != "cbc\tcompatibility mode\ngcm\tauthenticated default\n:4\n" {
 				t.Fatalf("completion = %q, want values and no-file directive", stdout)
 			}
 			stdout, _, err = executeRootStreams(t, "__complete", "key", "generate", "ed25519", "")

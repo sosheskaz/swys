@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type aesCipherMode string
@@ -26,15 +27,31 @@ var (
 	}
 )
 
+var aesCipherModeDescriptions = map[aesCipherMode]string{
+	aesCipherModeCBC: "compatibility mode",
+	aesCipherModeGCM: "authenticated default",
+}
+
 func newAesCmd() *cobra.Command {
 	aesCmd := &cobra.Command{
 		Use:   "aes",
 		Short: "AES encryption and decryption",
+		// Cobra only validates Args for runnable commands. ErrHelp preserves the
+		// bare noun's help-before-I/O behavior while rejecting removed children.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return pflag.ErrHelp
+			}
+			return cobra.NoArgs(cmd, args)
+		},
+		RunE: func(*cobra.Command, []string) error {
+			return nil
+		},
 		Long: `Perform AES encryption and decryption using a specified key.
 AES-GCM is the authenticated default; select AES-CBC explicitly for compatibility.
 The length of the key implicitly determines the AES variant used (128, 192, or 256 bits).`,
 	}
-	aesCmd.AddCommand(newEncryptCmd(), newDecryptCmd(), newGenkeyCmd())
+	aesCmd.AddCommand(newEncryptCmd(), newDecryptCmd())
 	return aesCmd
 }
 
@@ -54,8 +71,12 @@ func addAESCipherFlags(cmd *cobra.Command) {
 		string(aesCipherModeGCM),
 		"AES cipher mode ("+strings.Join(aesCipherModeNames(), ", ")+")",
 	)
-	registerFlagCompletion(cmd, "cipher-mode", aesCipherModeNames)
+	if err := cmd.RegisterFlagCompletionFunc("cipher-mode", completeAESCipherModes); err != nil {
+		panic(err)
+	}
 	cmd.Flags().String("aad", "", "additional authenticated data for GCM")
+	registerAESNoFileFlagCompletion(cmd, "key")
+	registerAESNoFileFlagCompletion(cmd, "aad")
 }
 
 func aesCipherModeNames() []string {

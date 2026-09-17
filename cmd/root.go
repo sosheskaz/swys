@@ -37,6 +37,7 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsDependencies, guideDeps guideDep
 			}
 			prepareHTTPCompletion(cmd, args)
 			prepareContextualCompletion(cmd, args)
+			prepareAESCompletion(cmd, args)
 			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
 			if commandHasShape(cmd, hashGroupShape) || commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
 				return nil

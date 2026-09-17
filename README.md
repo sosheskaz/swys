@@ -603,8 +603,8 @@ Asymmetric private keys use PKCS#8 PEM; AES keys are raw bytes. PKCS#1 output is
 limited to RSA private keys, SEC1 to ECDSA private keys, and PKCS#8 to supported
 private-key algorithms. PKIX and OpenSSH targets contain only public material.
 
-`key generate` and the deprecated `aes genkey` treat regular output files as
-sensitive. A new destination is created owner-only. Without an explicit Unix
+`key generate` treats regular output files as sensitive. A new destination is
+created owner-only. Without an explicit Unix
 `--mode`, an existing destination must be owned by the effective user and grant
 no group or other permissions. macOS additionally suppresses inherited ACLs on
 creation and rejects any extended ACL on an existing file. On Windows, the
@@ -838,10 +838,9 @@ old binary `--format/-f` axis and structured `--output-format/-F` axis; for
 example, `cert connect -f hex` must be replaced with an applicable structured
 format rather than a byte encoding.
 
-The former `aes genkey` command remains available as a hidden compatibility
-command for one release and prints a migration warning. The former canonical
-`key generate --bits 256` form is replaced by
-`key generate aes256`; bare `key generate` now reports the required algorithm
+Generate AES keys through `key generate aes128|aes192|aes256`; bare `key
+generate` reports the required algorithm.
+
 `x509`, `certificate`, and `x.509` are ordinary aliases for `cert`:
 `npc x509 inspect` is equivalent to `npc cert inspect`. Bare aliases show help
 immediately without reading stdin or emitting warnings. Existing invocations

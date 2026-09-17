@@ -51,5 +51,6 @@ func newDecryptCmd() *cobra.Command {
 	}, true)
 	addKeyFlags(decryptCmd)
 	addAESCipherFlags(decryptCmd)
+	decryptCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return decryptCmd
 }

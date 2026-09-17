@@ -144,37 +144,6 @@ func writeGeneratedPublicKey(path string, encoded []byte) (err error) {
 	return nil
 }
 
-// newGenkeyCmd builds the one-release compatibility command for the former grammar.
-func newGenkeyCmd() *cobra.Command {
-	genkeyCmd := sensitiveBinaryOutputCommand(&cobra.Command{
-		Use:    "genkey",
-		Short:  "Generate a new AES key",
-		Long:   "Deprecated: use npc key generate aesN instead. This compatibility command will be removed in a future release.",
-		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			bits, err := cmd.Flags().GetInt("bits")
-			if err != nil {
-				return fmt.Errorf("read bits flag: %w", err)
-			}
-			if err := validateAESKeySize(bits); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(
-				cmd.ErrOrStderr(),
-				"warning: %s is deprecated; use npc key generate aes%d\n",
-				cmd.CommandPath(),
-				bits,
-			); err != nil {
-				return fmt.Errorf("write genkey deprecation warning: %w", err)
-			}
-			return writeAESKey(bits, cmd.OutOrStdout())
-		},
-	}, false)
-	genkeyCmd.Flags().IntP("bits", "b", 128, "AES key size in bits (128, 192, or 256)")
-	return genkeyCmd
-}
-
 func keyAlgorithmNames() []string {
 	return sortedKeys(keyAlgorithms)
 }

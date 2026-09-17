@@ -111,7 +111,7 @@ func (panicCertificateReader) Read([]byte) (int, error) {
 	panic("certificate alias help read stdin")
 }
 
-func TestKeyGenerateRequiresAlgorithmAndPreservesLegacyCompatibility(t *testing.T) {
+func TestKeyGenerateRequiresAlgorithm(t *testing.T) {
 	t.Parallel()
 	if _, err := executeRoot(t, "key", "generate"); err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s), received 0") {
 		t.Fatalf("missing algorithm error = %v, want exact-args error", err)
@@ -134,28 +134,6 @@ func TestKeyGenerateRequiresAlgorithmAndPreservesLegacyCompatibility(t *testing.
 	}
 	if !key.IsPrivate() || info.Algorithm != "ed25519" {
 		t.Fatalf("default key info = %+v, want private Ed25519", info)
-	}
-
-	legacyPath := filepath.Join(t.TempDir(), "legacy-key")
-	stdout, stderr, err := executeRootStreams(t, "aes", "genkey", "--output", legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stdout != "" {
-		t.Fatalf("aes genkey stdout = %q, want key redirected to file", stdout)
-	}
-	if !strings.Contains(stderr, "deprecated") || !strings.Contains(stderr, "key generate") {
-		t.Fatalf("aes genkey stderr = %q, want migration warning", stderr)
-	}
-	legacy, err := os.ReadFile(legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(legacy) != 16 {
-		t.Fatalf("aes genkey length = %d, want 16", len(legacy))
-	}
-	if !newGenkeyCmd().Hidden || !strings.Contains(newGenkeyCmd().Long, "Deprecated:") {
-		t.Fatal("aes genkey must be hidden and described as deprecated")
 	}
 }
 

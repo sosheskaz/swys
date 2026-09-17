@@ -57,6 +57,8 @@ func newEncryptCmd() *cobra.Command {
 	addKeyFlags(encryptCmd)
 	addAESCipherFlags(encryptCmd)
 	encryptCmd.Flags().BytesBase64("iv", nil, "CBC initialization vector as base64; random when omitted")
+	registerAESNoFileFlagCompletion(encryptCmd, "iv")
+	encryptCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return encryptCmd
 }
 
