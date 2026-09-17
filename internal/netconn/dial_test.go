@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -171,5 +172,22 @@ func TestDialTLSCancellationClosesConnection(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("canceled TLS handshake did not close the TCP connection")
+	}
+}
+
+func TestDialTLSRejectsCanceledContextBeforeDial(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	connection, err := DialTLS(ctx, "127.0.0.1:1", &tls.Config{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context canceled", err)
+	}
+	if connection != nil {
+		t.Fatal("DialTLS returned a connection for a canceled context")
+	}
+	if !strings.Contains(err.Error(), "dial TCP endpoint") {
+		t.Fatalf("error = %v, want TCP setup context", err)
 	}
 }

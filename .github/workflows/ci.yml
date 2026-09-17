@@ -111,26 +111,33 @@ jobs:
           path: coverage.out
           retention-days: 90
 
-      - name: Fetch coverage baseline from main
+      - name: Fetch coverage baseline for recorded base
+        id: coverage-base
         if: github.event_name == 'pull_request'
         env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CHECKOUT_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          run_id="$(gh run list --workflow ci.yml --branch main --status success --limit 1 \
-            --json databaseId --jq '.[0].databaseId // empty')"
-          if [ -n "$run_id" ]; then
-            gh run download "$run_id" --name coverage-main --dir .coverage-base \
-              || echo "::notice::no coverage-main artifact on run ${run_id}; reporting without delta"
-          else
-            echo "::notice::no successful main CI run found; reporting without delta"
+          measured_checkout_sha="$(git rev-parse HEAD)"
+          if [ "$measured_checkout_sha" != "$CHECKOUT_SHA" ]; then
+            echo "checked out ${measured_checkout_sha}, expected event revision ${CHECKOUT_SHA}" >&2
+            exit 1
           fi
-          if [ -f .coverage-base/coverage.out ]; then
-            mv .coverage-base/coverage.out coverage-base.out
-          fi
+          echo "checkout_sha=${measured_checkout_sha}" >> "$GITHUB_OUTPUT"
+          mise run report:coverage-baseline "$BASE_SHA" coverage-base.out
 
       - name: Coverage report
         if: github.event_name == 'pull_request'
         env:
+          COVERAGE_BASE_ARTIFACT_ID: ${{ steps.coverage-base.outputs.artifact_id }}
+          COVERAGE_BASE_RUN_ID: ${{ steps.coverage-base.outputs.run_id }}
+          COVERAGE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          COVERAGE_CHECKOUT_SHA: ${{ steps.coverage-base.outputs.checkout_sha }}
+          COVERAGE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COVERAGE_RUN_ID: ${{ github.run_id }}
+          COVERAGE_RUN_ATTEMPT: ${{ github.run_attempt }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: mise run report:coverage coverage.out coverage-base.out

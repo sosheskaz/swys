@@ -337,6 +337,55 @@ func TestAcceptTLSHandshakeCancellationClosesConnection(t *testing.T) {
 	closeTestTCPConnection(t, client)
 }
 
+func TestAcceptTLSRejectsCanceledContextBeforeAccept(t *testing.T) {
+	t.Parallel()
+
+	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	connection, err := AcceptTLS(ctx, listener, &tls.Config{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context canceled", err)
+	}
+	if connection != nil {
+		t.Fatal("AcceptTLS returned a connection for a canceled context")
+	}
+	client, dialErr := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", address)
+	if dialErr == nil {
+		closeTestTCPConnection(t, client)
+		t.Fatal("TLS listener remained reachable after canceled accept")
+	}
+}
+
+func TestCloseTCPConnectionReportsInvalidConnection(t *testing.T) {
+	t.Parallel()
+
+	err := closeTCPConnection(&net.TCPConn{})
+	if err == nil || !strings.Contains(err.Error(), "close accepted TCP connection") {
+		t.Fatalf("error = %v, want accepted TCP close context", err)
+	}
+}
+
+func TestCloseTCPConnectionClosesEstablishedConnection(t *testing.T) {
+	t.Parallel()
+
+	connection, peer := newTCPStreamPair(t)
+	if err := closeTCPConnection(connection); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 1)
+	if read, err := peer.Read(buffer); read != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("peer read = (%d, %v), want closed connection EOF", read, err)
+	}
+}
+
 func newAcceptTLSTestConfigs(t *testing.T) (*tls.Config, *tls.Config) {
 	t.Helper()
 	source := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))

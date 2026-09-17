@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#MISE description="Fetch the coverage baseline for an exact main commit"
+set -euo pipefail
+
+base_sha="${1:?usage: coverage-baseline <base-sha> <output-profile>}"
+output_profile="${2:?usage: coverage-baseline <base-sha> <output-profile>}"
+
+if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "invalid coverage baseline SHA: ${base_sha}" >&2
+  exit 2
+fi
+
+emit_output() {
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf '%s=%s\n' "$1" "$2" >>"$GITHUB_OUTPUT"
+  else
+    printf '%s=%s\n' "$1" "$2"
+  fi
+}
+
+rm -f -- "$output_profile"
+
+run="$(gh run list \
+  --workflow ci.yml \
+  --branch main \
+  --commit "$base_sha" \
+  --status success \
+  --limit 1 \
+  --json databaseId,headSha \
+  --jq '.[0] // empty | [.databaseId, .headSha] | @tsv')"
+
+if [[ -z "$run" ]]; then
+  echo "::notice::no successful main CI run found for recorded base ${base_sha}; reporting without comparison"
+  emit_output available false
+  exit 0
+fi
+
+IFS=$'\t' read -r run_id run_sha <<<"$run"
+if [[ "$run_sha" != "$base_sha" ]]; then
+  echo "::error::coverage baseline run ${run_id} has SHA ${run_sha}, expected ${base_sha}" >&2
+  exit 1
+fi
+
+emit_output run_id "$run_id"
+emit_output sha "$run_sha"
+
+artifact_id="$(gh api \
+  "repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/actions/runs/${run_id}/artifacts" \
+  --jq '[.artifacts[] | select(.name == "coverage-main" and .expired == false) | .id] | first // empty')"
+if [[ -z "$artifact_id" ]]; then
+  echo "::notice::successful main CI run ${run_id} has no live coverage-main artifact; reporting without comparison"
+  emit_output available false
+  exit 0
+fi
+emit_output artifact_id "$artifact_id"
+
+output_dir="$(dirname -- "$output_profile")"
+temp_dir="$(mktemp -d "${output_dir}/.npc-coverage-baseline.XXXXXX")"
+trap 'rm -rf -- "$temp_dir"' EXIT
+gh run download "$run_id" --name coverage-main --dir "$temp_dir"
+if [[ ! -f "$temp_dir/coverage.out" ]]; then
+  echo "coverage-main artifact from run ${run_id} did not contain coverage.out" >&2
+  exit 1
+fi
+mv -- "$temp_dir/coverage.out" "$output_profile"
+emit_output available true

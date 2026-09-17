@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -226,6 +227,75 @@ func TestReceiveUDPRejectsCanceledContextBeforeIO(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context canceled", err)
 	}
+}
+
+func TestUDPOperationRecognizesDeadlineWhileCancellationPropagates(t *testing.T) {
+	t.Parallel()
+
+	connection, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeTestUDPConnection(t, connection) })
+	ctx := newLaggedDeadlineContext(t.Context(), time.Now().Add(-time.Second))
+	processed, err := udpOperation(ctx, connection, func() (int, error) {
+		return connection.Read(make([]byte, 1))
+	})
+	if processed != 0 {
+		t.Fatalf("processed = %d, want no datagram bytes", processed)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want propagated context deadline", err)
+	}
+}
+
+type laggedDeadlineContext struct {
+	deadline   time.Time
+	done       chan struct{}
+	propagate  chan struct{}
+	value      func(any) any
+	errChecks  atomic.Int32
+	propagated atomic.Bool
+}
+
+func newLaggedDeadlineContext(parent context.Context, deadline time.Time) *laggedDeadlineContext {
+	ctx := &laggedDeadlineContext{
+		deadline:  deadline,
+		done:      make(chan struct{}),
+		propagate: make(chan struct{}),
+		value:     parent.Value,
+	}
+	go func() {
+		select {
+		case <-ctx.propagate:
+			ctx.propagated.Store(true)
+			close(ctx.done)
+		case <-parent.Done():
+		}
+	}()
+	return ctx
+}
+
+func (ctx *laggedDeadlineContext) Deadline() (time.Time, bool) {
+	return ctx.deadline, true
+}
+
+func (ctx *laggedDeadlineContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *laggedDeadlineContext) Err() error {
+	if ctx.propagated.Load() {
+		return context.DeadlineExceeded
+	}
+	if ctx.errChecks.Add(1) == 2 {
+		close(ctx.propagate)
+	}
+	return nil
+}
+
+func (ctx *laggedDeadlineContext) Value(key any) any {
+	return ctx.value(key)
 }
 
 func closeTestUDPConnection(t *testing.T, connection io.Closer) {
