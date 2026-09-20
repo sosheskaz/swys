@@ -21,6 +21,7 @@ var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 // CertificateOptions describes one minimum-viable test certificate.
 type CertificateOptions struct {
 	Subject      pkix.Name
+	RawSubject   []byte
 	DNSNames     []string
 	IPAddresses  []net.IP
 	ExtKeyUsages []x509.ExtKeyUsage
@@ -42,7 +43,20 @@ func CreateCertificate(
 	issuer *x509.Certificate,
 	issuerKey *Key,
 ) ([]byte, error) {
+	if options == nil || options.Subject.CommonName == "" {
+		return nil, fmt.Errorf("%w: subject common name is empty", ErrInvalidCertificateOptions)
+	}
 	return createCertificateAt(options, subjectKey, issuer, issuerKey, time.Now().UTC(), rand.Reader)
+}
+
+// CreateCertificateForPublicKey creates an issuer-signed leaf for an existing public key.
+func CreateCertificateForPublicKey(
+	options *CertificateOptions,
+	publicKey any,
+	issuer *x509.Certificate,
+	issuerKey *Key,
+) ([]byte, error) {
+	return createCertificateForPublicKeyAt(options, publicKey, issuer, issuerKey, time.Now().UTC(), rand.Reader)
 }
 
 func createCertificateAt(
@@ -53,6 +67,9 @@ func createCertificateAt(
 	now time.Time,
 	random io.Reader,
 ) ([]byte, error) {
+	if options == nil || options.Subject.CommonName == "" {
+		return nil, fmt.Errorf("%w: subject common name is empty", ErrInvalidCertificateOptions)
+	}
 	if err := validateCertificateOptions(options, issuer, issuerKey); err != nil {
 		return nil, err
 	}
@@ -65,11 +82,39 @@ func createCertificateAt(
 	if err != nil {
 		return nil, fmt.Errorf("derive subject public key: %w", err)
 	}
+	return createCertificateWithPublicKeyAt(options, subjectPublic, subjectSigner, issuer, issuerKey, now, random)
+}
+
+func createCertificateForPublicKeyAt(
+	options *CertificateOptions,
+	publicKey any,
+	issuer *x509.Certificate,
+	issuerKey *Key,
+	now time.Time,
+	random io.Reader,
+) ([]byte, error) {
+	if issuer == nil || issuerKey == nil {
+		return nil, fmt.Errorf("%w: issuer certificate and key are required", ErrInvalidCertificateOptions)
+	}
+	if err := validateCertificateOptions(options, issuer, issuerKey); err != nil {
+		return nil, err
+	}
+	return createCertificateWithPublicKeyAt(options, publicKey, nil, issuer, issuerKey, now, random)
+}
+
+func createCertificateWithPublicKeyAt(
+	options *CertificateOptions,
+	subjectPublic any,
+	subjectSigner crypto.Signer,
+	issuer *x509.Certificate,
+	issuerKey *Key,
+	now time.Time,
+	random io.Reader,
+) ([]byte, error) {
 	serial, err := randomSerialNumber(random)
 	if err != nil {
 		return nil, err
 	}
-
 	now = now.UTC().Truncate(time.Second)
 	template := certificateTemplate(options, subjectPublic, serial, now)
 	parent, signer, err := certificateParentAndSigner(template, subjectSigner, issuer, issuerKey, now)
@@ -92,8 +137,8 @@ func validateCertificateOptions(
 	if options == nil {
 		return fmt.Errorf("%w: options are nil", ErrInvalidCertificateOptions)
 	}
-	if options.Subject.CommonName == "" {
-		return fmt.Errorf("%w: subject common name is empty", ErrInvalidCertificateOptions)
+	if certificateIdentityEmpty(options) {
+		return fmt.Errorf("%w: certificate identity is empty", ErrInvalidCertificateOptions)
 	}
 	if options.ValidFor <= 0 {
 		return fmt.Errorf("%w: validity must be positive", ErrInvalidCertificateOptions)
@@ -110,6 +155,14 @@ func validateCertificateOptions(
 	return nil
 }
 
+func certificateIdentityEmpty(options *CertificateOptions) bool {
+	subject := &options.Subject
+	return len(subject.Names) == 0 && len(subject.ExtraNames) == 0 && subject.CommonName == "" &&
+		len(subject.Organization) == 0 && len(subject.OrganizationalUnit) == 0 && len(subject.Country) == 0 &&
+		len(subject.Province) == 0 && len(subject.Locality) == 0 && len(subject.StreetAddress) == 0 &&
+		len(subject.PostalCode) == 0 && len(options.DNSNames) == 0 && len(options.IPAddresses) == 0
+}
+
 func certificateTemplate(
 	options *CertificateOptions,
 	subjectPublic any,
@@ -119,6 +172,7 @@ func certificateTemplate(
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               options.Subject,
+		RawSubject:            options.RawSubject,
 		NotBefore:             now.Add(-certificateClockSkew),
 		NotAfter:              now.Add(options.ValidFor),
 		BasicConstraintsValid: true,

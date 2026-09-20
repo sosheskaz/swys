@@ -25,6 +25,7 @@ const (
 	maxCertificateDays      = int(time.Duration(1<<63-1) / (24 * time.Hour))
 	issuerCertFlagName      = "issuer-cert"
 	issuerKeyFlagName       = "issuer-key"
+	csrFlagName             = "csr"
 )
 
 func newCertCreateCmd() *cobra.Command {
@@ -52,15 +53,13 @@ CA only in an explicitly selected test store, never system-wide.`,
 	certCreateCmd.Flags().Int("days", 0, "validity in days (default 30 for leaves, 365 for CAs)")
 	certCreateCmd.Flags().String(issuerCertFlagName, "", "issuer certificate path, or - for stdin")
 	certCreateCmd.Flags().String(issuerKeyFlagName, "", "issuer private key path, or - for stdin")
+	certCreateCmd.Flags().String(csrFlagName, "", "certificate signing request path, or - for stdin")
 	certCreateCmd.Flags().Bool("server-only", false, "include only the TLS server-authentication usage")
 	certCreateCmd.Flags().Bool("client-only", false, "include only the TLS client-authentication usage")
-	for _, name := range []string{issuerCertFlagName, issuerKeyFlagName} {
+	for _, name := range []string{issuerCertFlagName, issuerKeyFlagName, csrFlagName} {
 		if err := certCreateCmd.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
-	}
-	if err := certCreateCmd.MarkFlagRequired("key"); err != nil {
-		panic(err)
 	}
 	certCreateCmd.MarkFlagsRequiredTogether(issuerCertFlagName, issuerKeyFlagName)
 	certCreateCmd.MarkFlagsMutuallyExclusive("server-only", "client-only")
@@ -93,6 +92,18 @@ submit the emitted request to the intended CA.`,
 }
 
 func runCertCreate(cmd *cobra.Command, _ []string) error {
+	if csr, err := cmd.Flags().GetString(csrFlagName); err != nil {
+		return fmt.Errorf("read csr flag: %w", err)
+	} else if csr != "" {
+		prepared, output, err := takePreparedOutput(cmd)
+		if err != nil {
+			return err
+		}
+		if _, err := output.Write(prepared); err != nil {
+			return fmt.Errorf("write certificate: %w", err)
+		}
+		return nil
+	}
 	options, err := certificateOptionsFromCommand(cmd)
 	if err != nil {
 		return err
@@ -196,6 +207,22 @@ func runCertCSR(cmd *cobra.Command, _ []string) error {
 func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 	switch {
 	case commandHasShape(cmd, "cert-create"):
+		csr, err := cmd.Flags().GetString(csrFlagName)
+		if err != nil {
+			return fmt.Errorf("read csr flag: %w", err)
+		}
+		if csr != "" {
+			if err := validateCertificateCSRSelection(cmd); err != nil {
+				return err
+			}
+			if err := validateCertificateIssuerSelection(cmd); err != nil {
+				return err
+			}
+			if err := validateCertificateInputSelection(cmd, csrFlagName, issuerCertFlagName, issuerKeyFlagName); err != nil {
+				return err
+			}
+			return validateCertificatePaths(cmd, csrFlagName, issuerCertFlagName, issuerKeyFlagName)
+		}
 		if _, err := certificateOptionsFromCommand(cmd); err != nil {
 			return err
 		}
@@ -232,6 +259,35 @@ func validateCertificateKeySelection(cmd *cobra.Command) error {
 	}
 	if key == "" {
 		return fmt.Errorf("%w: --key must name a private key or -", errInvalidCertificateFlags)
+	}
+	return nil
+}
+
+func validateCertificateCSRSelection(cmd *cobra.Command) error {
+	key, err := cmd.Flags().GetString("key")
+	if err != nil {
+		return fmt.Errorf("read key flag: %w", err)
+	}
+	if key != "" {
+		return fmt.Errorf("%w: --csr cannot be combined with --key", errInvalidCertificateFlags)
+	}
+	ca, err := cmd.Flags().GetBool("ca")
+	if err != nil {
+		return fmt.Errorf("read ca flag: %w", err)
+	}
+	if ca {
+		return fmt.Errorf("%w: --csr cannot be combined with --ca", errInvalidCertificateFlags)
+	}
+	issuerCert, err := cmd.Flags().GetString(issuerCertFlagName)
+	if err != nil {
+		return fmt.Errorf("read issuer-cert flag: %w", err)
+	}
+	issuerKey, err := cmd.Flags().GetString(issuerKeyFlagName)
+	if err != nil {
+		return fmt.Errorf("read issuer-key flag: %w", err)
+	}
+	if issuerCert == "" || issuerKey == "" {
+		return fmt.Errorf("%w: --csr requires --issuer-cert and --issuer-key", errInvalidCertificateFlags)
 	}
 	return nil
 }

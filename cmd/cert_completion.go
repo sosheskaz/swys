@@ -30,7 +30,7 @@ func registerCertificateIdentityCompletions(command *cobra.Command) {
 	for _, name := range []string{dnsCommandName, "ip"} {
 		mustRegisterCertificateCompletion(command, name, cobra.NoFileCompletions)
 	}
-	mustRegisterCertificateCompletion(command, "key", completeCertificateArtifact("key"))
+	mustRegisterCertificateCompletion(command, tlsKeyFlagName, completeCertificateArtifact(tlsKeyFlagName))
 	command.ValidArgsFunction = cobra.NoFileCompletions
 }
 
@@ -38,7 +38,7 @@ func registerCertificateCreateCompletions(command *cobra.Command) {
 	mustRegisterCertificateCompletion(command, "days", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completionPrefixMatches(certificateDayCompletions, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
 	})
-	for _, name := range []string{issuerCertFlagName, issuerKeyFlagName} {
+	for _, name := range []string{issuerCertFlagName, issuerKeyFlagName, csrFlagName} {
 		mustRegisterCertificateCompletion(command, name, completeCertificateArtifact(name))
 	}
 	for _, name := range []string{"ca", certServerOnlyFlagName, certClientOnlyFlagName} {
@@ -63,7 +63,7 @@ func completeCertificateSubject(_ *cobra.Command, _ []string, toComplete string)
 
 func completeCertificateArtifact(name string) cobra.CompletionFunc {
 	return func(command *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if name == issuerCertFlagName || name == issuerKeyFlagName {
+		if name == issuerCertFlagName || name == issuerKeyFlagName || name == csrFlagName {
 			if mode, ok := certificateCompletionMode(command); ok && mode.isCA {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
@@ -116,7 +116,7 @@ func completeCertificatePaths(prefix string) ([]string, bool) {
 }
 
 func certificateStdinOwnedByOtherFlag(command *cobra.Command, completing string) bool {
-	for _, name := range []string{"key", issuerCertFlagName, issuerKeyFlagName} {
+	for _, name := range []string{tlsKeyFlagName, csrFlagName, issuerCertFlagName, issuerKeyFlagName} {
 		if name == completing || command.Flags().Lookup(name) == nil {
 			continue
 		}
@@ -192,12 +192,14 @@ func configureCertificateModeFlagCompletion(command *cobra.Command) {
 		if !ok {
 			return
 		}
-		command.Flags().Lookup("ca").Hidden = mode.hasLeafOptions()
+		command.Flags().Lookup(tlsKeyFlagName).Hidden = mode.csr != ""
+		command.Flags().Lookup(csrFlagName).Hidden = mode.key != "" || mode.isCA
+		command.Flags().Lookup("ca").Hidden = mode.hasLeafOptions() || mode.csr != ""
 		for _, name := range []string{dnsCommandName, "ip", issuerCertFlagName, issuerKeyFlagName, certServerOnlyFlagName, certClientOnlyFlagName} {
 			command.Flags().Lookup(name).Hidden = mode.isCA
 		}
 	}
-	for _, name := range []string{issuerCertFlagName, issuerKeyFlagName} {
+	for _, name := range []string{tlsKeyFlagName, csrFlagName, issuerCertFlagName, issuerKeyFlagName} {
 		flag := command.Flags().Lookup(name)
 		flag.Value = certificateCompletionValue{Value: flag.Value, afterSet: update}
 	}
@@ -254,6 +256,8 @@ func completeCertificateBoolean(name string) cobra.CompletionFunc {
 }
 
 type certificateCompletionModeState struct {
+	key         string
+	csr         string
 	issuerCert  string
 	issuerKey   string
 	dnsNames    []string
@@ -271,6 +275,14 @@ func certificateCompletionMode(command *cobra.Command) (certificateCompletionMod
 	mode := certificateCompletionModeState{}
 	var err error
 	mode.isCA, err = command.Flags().GetBool("ca")
+	if err != nil {
+		return certificateCompletionModeState{}, false
+	}
+	mode.key, err = command.Flags().GetString(tlsKeyFlagName)
+	if err != nil {
+		return certificateCompletionModeState{}, false
+	}
+	mode.csr, err = command.Flags().GetString(csrFlagName)
 	if err != nil {
 		return certificateCompletionModeState{}, false
 	}

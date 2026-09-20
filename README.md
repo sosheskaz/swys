@@ -760,22 +760,41 @@ npc cert csr \
     --output service.csr
 ```
 
+Issue a leaf directly from that request without access to its private key:
+
+```fish
+npc cert create \
+    --csr service.csr \
+    --issuer-cert ca.crt \
+    --issuer-key ca.key \
+    --output service.crt
+```
+
+CSR issuance verifies the request signature and preserves its complete subject
+and DNS/IP SANs by default. `--subject`, `--dns`, and `--ip` replace only the
+specified identity category. It accepts one strict PEM or DER request and
+rejects unsupported requested extensions and SAN forms.
+
 `--subject` currently accepts one `CN=<value>` component. DNS and IP values are
 written as SAN extensions, not only into the common name. An issuer certificate
 must be one PEM `CERTIFICATE`, its private key must match, and the requested
 leaf validity must fit entirely within the issuer's validity window.
 Shell completion offers the `CN=` subject prefix, common validity periods, and
 stdin or filesystem choices for certificate key and issuer artifacts.
-Server-capable leaves with no SAN flags classify their common name as a matching
-DNS or IP SAN.
-With no subject or SAN flags, server-capable leaves and CSRs default to both
-`CN=localhost` and a `localhost` DNS SAN; client-only leaves default to the same
-common name without a SAN.
+For direct certificate creation, server-capable leaves with no SAN flags
+classify their common name as a matching DNS or IP SAN. With no subject or SAN
+flags, directly created server-capable leaves and generated CSRs default to both
+`CN=localhost` and a `localhost` DNS SAN; directly created client-only leaves
+default to the same common name without a SAN. CSR issuance preserves the
+request's identity without adding these defaults unless an identity category is
+explicitly overridden.
 
 These certificates and CAs are for test and development loops. npc never
 installs trust roots; trust `ca.crt` only in an explicitly selected test store,
-never system-wide. `cert create` and `cert csr` require an existing private key
-via `--key`; generate it separately with `key generate`.
+never system-wide. Direct `cert create` and `cert csr` generation require an
+existing private key via `--key`; generate it separately with `key generate`.
+`cert create --csr` instead uses the requester's public key from the CSR and the
+issuer private key supplied by `--issuer-key`.
 
 ### AES quick start
 
