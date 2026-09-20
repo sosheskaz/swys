@@ -67,7 +67,8 @@
         "Go modules link into the npc binary, so scope them deps(go)."
       ],
       "matchManagers": ["gomod"],
-      "semanticCommitScope": "go"
+      "semanticCommitScope": "go",
+      "postUpdateOptions": ["gomodTidy"]
     },
     {
       "description": [
