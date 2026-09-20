@@ -1,10 +1,10 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>sosheskaz-systems/reno#v1.2.0",
-    "github>sosheskaz-systems/reno:github-actions#v1.2.0",
-    "github>sosheskaz-systems/reno:mise#v1.2.0",
-    "github>sosheskaz-systems/reno:go#v1.2.0"
+    "github>sosheskaz-systems/reno#v1.2.1",
+    "github>sosheskaz-systems/reno:github-actions#v1.2.1",
+    "github>sosheskaz-systems/reno:mise#v1.2.1",
+    "github>sosheskaz-systems/reno:go#v1.2.1"
   ],
   "semanticCommits": "enabled",
   "semanticCommitType": "deps",

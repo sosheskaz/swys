@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   renovate:
-    uses: sosheskaz-systems/reno/.github/workflows/renovate.yml@161661f9db29ca0fd17c48cbde98c38c3afaaa0b # v1.2.0
+    uses: sosheskaz-systems/reno/.github/workflows/renovate.yml@d2fa3e8bdb084a57d0c79b77f7d269dd226204e1 # v1.2.1
     with:
       install-go: true
       log-level: ${{ inputs.log_level != 'repository' && inputs.log_level || vars.RENOVATE_LOG_LEVEL || 'info' }}
