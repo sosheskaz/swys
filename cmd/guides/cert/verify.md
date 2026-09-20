@@ -1,0 +1,35 @@
+# Verify a certificate chain
+
+Validate a leaf-first certificate chain for trust, time, purpose, and an optional DNS name or IP address. Extra certificates in the input and **--intermediates** are untrusted chain material; they do not become trust anchors.
+
+## Verify with a private trust root
+
+```sh
+npc cert verify --input chain.pem --ca root.pem --hostname api.example.com
+```
+
+The main input is a contiguous leaf-first chain: each certificate after the leaf must be the valid issuer of the certificate before it. NPC does not reorder this chain or accept unrelated certificates or gaps in it. Invalid order produces a **verified: false** report and a nonzero exit status. NPC reports that all pieces are correct but ordered incorrectly only when cryptographic verification proves that diagnosis.
+
+Use **--intermediates intermediates.pem** as an untrusted issuer pool to supply additional issuers, for example when the main input contains only the leaf. This pool can extend a contiguous partial chain, but it does not repair invalid order or gaps between certificates already included in the main input. **--ca** replaces the system roots unless **--system-ca** is also set.
+
+To read trust anchors from standard input while the chain comes from a file:
+
+```sh
+cat root.pem | npc cert verify --input chain.pem --ca - --hostname api.example.com
+```
+
+Standard input has one owner. When **--ca -** is used, the certificate chain must come from a file through **--input**; the default chain input and **--input -** are rejected.
+
+Use **--purpose client** for a client certificate or **--purpose any** to accept any extended key usage. Use **--at** with an RFC 3339 timestamp for reproducible checks.
+
+```sh
+npc cert verify --input client.pem --intermediates issuer.pem --ca root.pem --purpose client --at 2026-01-01T00:00:00Z --format json
+```
+
+A readable certificate that fails verification produces a report with **verified: false** and a nonzero exit status. NPC does not fetch missing certificates, OCSP responses, or CRLs.
+
+## Reference
+
+```sh
+npc cert verify --help
+```

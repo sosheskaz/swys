@@ -292,7 +292,8 @@ func validateKeyFlagsBeforeIO(cmd *cobra.Command) error {
 
 func commandPreparesOutput(cmd *cobra.Command) bool {
 	return commandHasShape(cmd, "key-public") || commandHasShape(cmd, "key-convert") ||
-		commandHasShape(cmd, dnsQueryShape) || commandHasShape(cmd, hashOutputShape) || certificateCreateUsesCSR(cmd)
+		commandHasShape(cmd, dnsQueryShape) || commandHasShape(cmd, hashOutputShape) ||
+		certificateCreateUsesCSR(cmd) || commandHasShape(cmd, certReportShape)
 }
 
 func certificateCreateUsesCSR(cmd *cobra.Command) bool {
@@ -319,6 +320,8 @@ func prepareCommandOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
 		return prepareHashOutput(cmd, input)
 	case certificateCreateUsesCSR(cmd):
 		return prepareCertificateFromCSR(cmd, input)
+	case commandHasShape(cmd, certReportShape):
+		return prepareCertificateReport(cmd, input)
 	default:
 		return nil, nil
 	}

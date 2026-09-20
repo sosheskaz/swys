@@ -44,6 +44,8 @@ Create and inspect a self-signed development certificate using that key:
 ```fish
 npc cert create --dns localhost --key private.pem --output certificate.pem
 npc cert inspect --input certificate.pem --format long
+npc cert verify --input certificate.pem --ca certificate.pem --hostname localhost
+npc cert match --cert certificate.pem --key private.pem
 ```
 
 Encrypt and decrypt a small message with the default authenticated AES-GCM
@@ -111,6 +113,7 @@ npc key generate <algorithm>       # generate a key with an explicit algorithm
 npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
+npc cert verify|match              # offline trust and public-key checks
 npc dns [@server] name [type]      # system resolution or a direct DNS query
 npc hash sha256|sha512|sha1|md5   # stream one input into an explicit digest
 npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
@@ -572,7 +575,21 @@ possible to confirm that a certificate contains the expected public key:
 
 ```fish
 npc cert inspect --input certificate.pem --format json
+npc cert match --cert certificate.pem --key private.pem --format json
 ```
+
+`cert verify` validates a leaf-first chain using system roots by default.
+`--ca` replaces system roots, while `--ca ... --system-ca` combines them;
+additional chain certificates and `--intermediates` remain untrusted chain
+material. Use `--purpose`, `--hostname`, and `--at` to select the verification
+policy. NPC does not fetch issuers, OCSP responses, or CRLs, although native
+platform verification may have platform-dependent network behavior.
+
+`cert match` compares the canonical public keys in any two or all three of a
+certificate, key, and signed CSR. It does not check certificate trust, dates,
+names, subjects, or CSR subject equality. Both commands emit text or JSON
+reports; a failed verification or mismatch writes a completed report and exits
+nonzero, while malformed input is rejected before an existing output is opened.
 
 Derive the public key in the container needed by its consumer. `key public`
 defaults to PKIX PEM and also supports PKIX DER and one canonical OpenSSH
@@ -1078,12 +1095,15 @@ Recorded here so they are decided deliberately, not by accident:
 
 ### Artifact input limits
 
-Key inspection, conversion, public-key extraction, certificate creation, and TLS
+Key inspection, conversion, public-key extraction, certificate creation, certificate
+matching keys and CSRs, and TLS
 identity loading accept asymmetric key artifacts up to 1 MiB. Certificate
-inspection, issuer certificates, and TLS certificate/CA bundles accept up to
+inspection, verification, matching, issuer certificates, and TLS certificate/CA bundles accept up to
 16 MiB per input. For commands that support `--input-encoding`, these limits apply after decoding,
 including stdin; oversized artifacts fail without parsing truncated data.
 AES `--keyfile` accepts at most 32 raw bytes; keys must still be exactly 16, 24,
 or 32 bytes. Raw network payload streams are not subject to artifact limits. Existing
-output files are still opened before artifact reads, so a read failure can leave
-them truncated under the normal streaming-output contract.
+output files are still opened before artifact reads for streaming commands, so a
+read failure can leave them truncated under the normal streaming-output contract.
+Certificate verification and matching instead prepare their bounded reports
+before opening output.

@@ -20,12 +20,13 @@ import (
 )
 
 const (
-	defaultLeafValidityDays = 30
-	defaultCAValidityDays   = 365
-	maxCertificateDays      = int(time.Duration(1<<63-1) / (24 * time.Hour))
-	issuerCertFlagName      = "issuer-cert"
-	issuerKeyFlagName       = "issuer-key"
-	csrFlagName             = "csr"
+	defaultLeafValidityDays   = 30
+	defaultCAValidityDays     = 365
+	maxCertificateDays        = int(time.Duration(1<<63-1) / (24 * time.Hour))
+	certificateRequestPEMType = "CERTIFICATE REQUEST"
+	issuerCertFlagName        = "issuer-cert"
+	issuerKeyFlagName         = "issuer-key"
+	csrFlagName               = "csr"
 )
 
 func newCertCreateCmd() *cobra.Command {
@@ -197,7 +198,7 @@ func runCertCSR(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("create certificate request from --key: %w", err)
 	}
-	requestPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+	requestPEM := pem.EncodeToMemory(&pem.Block{Type: certificateRequestPEMType, Bytes: der})
 	if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(requestPEM)); err != nil {
 		return fmt.Errorf("write certificate request: %w", err)
 	}
@@ -207,35 +208,7 @@ func runCertCSR(cmd *cobra.Command, _ []string) error {
 func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 	switch {
 	case commandHasShape(cmd, "cert-create"):
-		csr, err := cmd.Flags().GetString(csrFlagName)
-		if err != nil {
-			return fmt.Errorf("read csr flag: %w", err)
-		}
-		if csr != "" {
-			if err := validateCertificateCSRSelection(cmd); err != nil {
-				return err
-			}
-			if err := validateCertificateIssuerSelection(cmd); err != nil {
-				return err
-			}
-			if err := validateCertificateInputSelection(cmd, csrFlagName, issuerCertFlagName, issuerKeyFlagName); err != nil {
-				return err
-			}
-			return validateCertificatePaths(cmd, csrFlagName, issuerCertFlagName, issuerKeyFlagName)
-		}
-		if _, err := certificateOptionsFromCommand(cmd); err != nil {
-			return err
-		}
-		if err := validateCertificateKeySelection(cmd); err != nil {
-			return err
-		}
-		if err := validateCertificateIssuerSelection(cmd); err != nil {
-			return err
-		}
-		if err := validateCertificateInputSelection(cmd, "key", issuerCertFlagName, issuerKeyFlagName); err != nil {
-			return err
-		}
-		return validateCertificatePaths(cmd, "key", issuerCertFlagName, issuerKeyFlagName)
+		return validateCertificateCreateFlags(cmd)
 	case commandHasShape(cmd, "cert-csr"):
 		if _, err := certificateRequestOptionsFromCommand(cmd); err != nil {
 			return err
@@ -247,9 +220,50 @@ func validateCertFlagsBeforeIO(cmd *cobra.Command) error {
 			return err
 		}
 		return validateCertificatePaths(cmd, "key")
+	case commandHasShape(cmd, certVerifyShape), commandHasShape(cmd, certMatchShape):
+		return validateCertificateReportFlags(cmd)
 	default:
 		return nil
 	}
+}
+
+func validateCertificateCreateFlags(cmd *cobra.Command) error {
+	csr, err := cmd.Flags().GetString(csrFlagName)
+	if err != nil {
+		return fmt.Errorf("read csr flag: %w", err)
+	}
+	if csr != "" {
+		if err := validateCertificateCSRSelection(cmd); err != nil {
+			return err
+		}
+		if err := validateCertificateIssuerSelection(cmd); err != nil {
+			return err
+		}
+		if err := validateCertificateInputSelection(cmd, csrFlagName, issuerCertFlagName, issuerKeyFlagName); err != nil {
+			return err
+		}
+		return validateCertificatePaths(cmd, csrFlagName, issuerCertFlagName, issuerKeyFlagName)
+	}
+	if _, err := certificateOptionsFromCommand(cmd); err != nil {
+		return err
+	}
+	if err := validateCertificateKeySelection(cmd); err != nil {
+		return err
+	}
+	if err := validateCertificateIssuerSelection(cmd); err != nil {
+		return err
+	}
+	if err := validateCertificateInputSelection(cmd, "key", issuerCertFlagName, issuerKeyFlagName); err != nil {
+		return err
+	}
+	return validateCertificatePaths(cmd, "key", issuerCertFlagName, issuerKeyFlagName)
+}
+
+func validateCertificateReportFlags(cmd *cobra.Command) error {
+	if commandHasShape(cmd, certVerifyShape) {
+		return validateCertVerifyFlags(cmd)
+	}
+	return validateCertMatchFlags(cmd)
 }
 
 func validateCertificateKeySelection(cmd *cobra.Command) error {

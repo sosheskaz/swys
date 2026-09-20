@@ -20,7 +20,7 @@ func newCertCmd() *cobra.Command {
 		Short:   "Create, inspect, and retrieve X.509 certificates",
 		Args:    cobra.NoArgs,
 	}
-	certCmd.AddCommand(newCertInspectCmd(), newConnectCmd(), newCertCreateCmd(), newCertCSRCmd())
+	certCmd.AddCommand(newCertInspectCmd(), newConnectCmd(), newCertCreateCmd(), newCertCSRCmd(), newCertVerifyCmd(), newCertMatchCmd())
 	return certCmd
 }
 

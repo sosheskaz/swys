@@ -8,6 +8,8 @@ Use the certificate family to inspect existing certificates, retrieve a server c
 - **connect** retrieves certificates presented by a TLS endpoint.
 - **create** makes a self-signed test certificate, a test CA, or a leaf signed by that CA.
 - **csr** creates a PKCS #10 signing request for an existing private key.
+- **verify** validates a leaf-first certificate chain against explicit or system trust roots.
+- **match** compares the public keys in certificates, keys, and signing requests.
 
 For the certificate and path-validation model, see [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280).
 
@@ -28,5 +30,7 @@ The key stays private; the certificate can be shared with peers. Self-signing do
 ```sh
 npc help cert connect
 npc help cert create
+npc help cert verify
+npc help cert match
 npc cert --help
 ```

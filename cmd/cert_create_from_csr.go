@@ -81,7 +81,7 @@ func parseCertificateRequest(data []byte) (*x509.CertificateRequest, error) {
 	der := data
 	if bytes.HasPrefix(trimmed, []byte("-----BEGIN")) {
 		block, rest := pemstrict.Decode(maskPEMHeaderBeginMarkers(trimmed))
-		if block == nil || (block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST") {
+		if block == nil || (block.Type != certificateRequestPEMType && block.Type != "NEW CERTIFICATE REQUEST") {
 			return nil, errCSRPEMType
 		}
 		if len(bytes.TrimSpace(rest)) != 0 {
