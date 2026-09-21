@@ -52,6 +52,23 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 	f.Add(packFuzzDNSMessage(f, typeCollision), uint8(4))
 	nonResponse := dns.NewMsg("query.fuzz.example", dns.TypeA)
 	f.Add(packFuzzDNSMessage(f, nonResponse), uint8(0))
+	for _, invalidQuestion := range []struct {
+		name       string
+		recordType uint16
+		mismatch   uint8
+	}{
+		{name: "type-zero.fuzz.example.", recordType: 0, mismatch: 4},
+		{name: "unknown-type.fuzz.example.", recordType: 65000, mismatch: 0},
+	} {
+		response := &dns.Msg{
+			MsgHeader: dns.MsgHeader{Response: true},
+			Question: []dns.RR{&dns.RFC3597{
+				Hdr:     dns.Header{Name: invalidQuestion.name, Class: dns.ClassINET},
+				RFC3597: rdata.RFC3597{RRType: invalidQuestion.recordType},
+			}},
+		}
+		f.Add(packFuzzDNSMessage(f, response), invalidQuestion.mismatch)
+	}
 
 	truncatedFlag := replyFor(dns.NewMsg("truncated.fuzz.example", dns.TypeA))
 	truncatedFlag.Truncated = true
@@ -80,6 +97,7 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 			t.Fatal(err)
 		}
 		var returned *dns.Msg
+		exchangeCalls := 0
 		result, resolveErr := dnsquery.Resolve(t.Context(), dnsquery.Request{
 			Resolver: dnsquery.ResolverDirect,
 			Endpoint: &endpoint,
@@ -89,6 +107,7 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 		}, dnsquery.Dependencies{
 			ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServerLookup },
 			PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+				exchangeCalls++
 				returned = wireResponse.Copy()
 				returned.ID = request.ID
 				returned.Opcode = request.Opcode
@@ -97,6 +116,12 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 				return returned, nil
 			},
 		})
+		if recordType == 0 || dns.NewMsg(question.Header().Name, recordType) == nil {
+			if !errors.Is(resolveErr, dnsquery.ErrInvalidRequest) || exchangeCalls != 0 {
+				t.Fatalf("invalid request error=%v exchange calls=%d, want ErrInvalidRequest before exchange", resolveErr, exchangeCalls)
+			}
+			return
+		}
 		if !wireResponse.Response || mismatch%6 != 0 {
 			if !errors.Is(resolveErr, dnsquery.ErrResponseMismatch) {
 				t.Fatalf("mismatch=%d validation error = %v, want ErrResponseMismatch", mismatch%6, resolveErr)
