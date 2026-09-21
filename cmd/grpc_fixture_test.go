@@ -84,7 +84,7 @@ func TestGRPCFixtureOracle(t *testing.T) {
 	if got := reply.Get(descriptor.Fields().ByName("text")).String(); got != "oracle" {
 		t.Fatalf("fixture echo = %q, want oracle", got)
 	}
-	calls, _ := record.snapshot()
+	calls, _, _ := record.snapshot()
 	if calls != 1 {
 		t.Fatalf("fixture calls = %d, want one", calls)
 	}
@@ -129,7 +129,7 @@ func TestGRPCMTLSFixtureOracle(t *testing.T) {
 	if err := connection.Invoke(t.Context(), "/"+grpcFixtureMethodName, request, reply); err != nil {
 		t.Fatalf("invoke mTLS fixture oracle: %v", err)
 	}
-	calls, _ := record.snapshot()
+	calls, _, _ := record.snapshot()
 	if calls != 1 {
 		t.Fatalf("mTLS fixture calls = %d, want one", calls)
 	}
@@ -162,6 +162,7 @@ type grpcFixtureRecorder struct {
 	reflectionStarted      chan struct{}
 	callStarted            chan struct{}
 	callFinished           chan struct{}
+	callMetadata           metadata.MD
 	reflectionMetadata     metadata.MD
 	mu                     sync.Mutex
 	connections            int
@@ -182,9 +183,10 @@ func (recorder *grpcFixtureRecorder) connectionCount() int {
 	return recorder.connections
 }
 
-func (recorder *grpcFixtureRecorder) recordCall(metadata.MD) {
+func (recorder *grpcFixtureRecorder) recordCall(md metadata.MD) {
 	recorder.mu.Lock()
 	recorder.calls++
+	recorder.callMetadata = copyGRPCFixtureMetadata(md)
 	recorder.mu.Unlock()
 	select {
 	case recorder.callStarted <- struct{}{}:
@@ -234,10 +236,10 @@ func (recorder *grpcFixtureRecorder) reflectionCounts() (int, int) {
 	return recorder.v1ReflectionCalls, recorder.alphaReflectionCalls
 }
 
-func (recorder *grpcFixtureRecorder) snapshot() (int, metadata.MD) {
+func (recorder *grpcFixtureRecorder) snapshot() (int, metadata.MD, metadata.MD) {
 	recorder.mu.Lock()
 	defer recorder.mu.Unlock()
-	return recorder.calls, copyGRPCFixtureMetadata(recorder.reflectionMetadata)
+	return recorder.calls, copyGRPCFixtureMetadata(recorder.callMetadata), copyGRPCFixtureMetadata(recorder.reflectionMetadata)
 }
 
 func copyGRPCFixtureMetadata(md metadata.MD) metadata.MD {
@@ -292,6 +294,27 @@ func startGRPCFixtureWithSchema(
 ) (string, *grpcFixtureRecorder) {
 	t.Helper()
 	return startGRPCFixtureWithSchemaMode(t, reflectionMode, tlsConfig, files, set, request, false)
+}
+
+func startGRPCPlainEchoFixture(t *testing.T) (string, *grpcFixtureRecorder) {
+	t.Helper()
+	files, set, request := grpcFixtureSchema(t)
+	return startGRPCFixtureWithSchemaMode(t, grpcFixtureReflectionBoth, nil, files, set, request, true)
+}
+
+func startGRPCIPv6Fixture(t *testing.T) (string, *grpcFixtureRecorder) {
+	t.Helper()
+	files, set, request := grpcFixtureSchema(t)
+	return startGRPCFixtureWithSchemaModeAt(
+		t,
+		grpcFixtureReflectionBoth,
+		nil,
+		files,
+		set,
+		request,
+		false,
+		"[::1]:0",
+	)
 }
 
 func startGRPCFixtureWithSchemaMode(

@@ -5,7 +5,7 @@ Use NPC to inspect network services, exchange bytes, and work with keys and cert
 ## Start with the task
 
 - **dns** resolves names or asks a particular DNS server.
-- **grpc** discovers services and protobuf schemas.
+- **grpc** discovers services and invokes unary RPC methods.
 - **http** makes an HTTP request and writes its response body.
 - **net** sends or receives raw bytes over TCP, TLS, or UDP.
 - **cert** inspects certificates or creates test identities.

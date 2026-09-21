@@ -116,7 +116,7 @@ npc cert inspect|connect           # certificate inspection and TLS probing
 npc cert verify|match              # offline trust and public-key checks
 npc dns [@server] name [type]      # system resolution or a direct DNS query
 npc hash sha256|sha512|sha1|md5   # stream one input into an explicit digest
-npc grpc HOST:PORT                 # discover services and protobuf schemas
+npc grpc HOST:PORT [SERVICE/METHOD] # discover schemas or invoke a unary RPC
 npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
 npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
@@ -541,42 +541,62 @@ output remains writable; a completed 4xx/5xx response has `complete: true` and
 still returns nonzero by default. An output-write failure can leave incomplete
 JSON. The JSON envelope already includes headers, so `--include` is rejected.
 
-### gRPC discovery
+### gRPC discovery and unary calls
 
 `npc grpc HOST:PORT` lists services through server reflection. Select a service
-or symbol for more focused discovery:
+or symbol for discovery, or provide one `SERVICE/METHOD` selector to invoke a
+unary method:
 
 ```fish
 npc grpc api.example.com:443
 npc grpc api.example.com:443 --list example.v1.EchoService
 npc grpc api.example.com:443 --describe example.v1.EchoRequest
+npc grpc api.example.com:443 example.v1.EchoService/Echo \
+    -d '{"text":"hello"}'
 ```
 
 TLS certificate and hostname verification are enabled by default. The existing
 `--ca`, `--system-ca`, `--servername`, `--cert`, `--key`, and `--insecure`
 controls apply. Use `--plaintext` only for a cleartext HTTP/2 endpoint; it
 conflicts with TLS controls. `--header/-H 'name: value'` is repeatable and is
-sent to reflection. Metadata names ending in `-bin` accept standard Base64
-values.
+sent to both reflection and invocation. Metadata names ending in `-bin` accept
+standard Base64 values.
 
 Reflection v1 is preferred. NPC falls back to the deprecated v1alpha protocol
 only when v1 returns `Unimplemented`. `--protoset FILE` replaces reflection
 with a protobuf `FileDescriptorSet`; service listing and schema description are
 then offline and do not connect to `HOST:PORT`. Runtime `.proto` compilation is
-not supported. Discovery output is text by default; `--format json` emits JSON
-lists or a JSON descriptor. The official grpc-go transport and protobuf
+not supported. Streaming methods appear in discovery but cannot be invoked.
+Discovery output is text by default; `--format json` emits JSON lists or a JSON
+descriptor. Unary responses are protobuf JSON followed by a newline.
+
+Requests come from stdin, `--input`, or literal `--data/-d`. An empty request is
+`{}`. NPC accepts exactly one strict protobuf JSON value, including official
+protobuf handling for bytes, enums, 64-bit integers, oneofs, maps, and `Any`;
+unknown fields and trailing values fail before invocation. The official
+grpc-go transport and protobuf `dynamicpb`, `protojson`, and `protodesc`
 packages are direct dependencies so wire behavior, reflection, dynamic schema
-resolution, and descriptor formatting follow the maintained implementations.
+resolution, and protobuf JSON semantics follow the maintained protocol
+implementations instead of local codecs.
 
-One `--timeout` covers connection setup and reflection and defaults to 10
-seconds; `0` disables the deadline. Descriptor data is limited to 16 MiB, 1,024
-files, and 100 nested message levels. `--verbose/-v` writes status, response
-metadata, and TLS details to stderr.
+One `--timeout` covers connection setup, reflection, and invocation and defaults
+to 10 seconds; `0` disables the deadline. `--max-message-size` defaults to 16
+MiB and limits invoked request and response protobuf messages. Request JSON is
+limited to four times that value with overflow-safe validation. Descriptor data
+is separately limited to 16 MiB, 1,024 files, and 100 nested message levels.
 
-All local validation, descriptor resolution, and result serialization finish
-before NPC opens `--output`. Opening an existing file is the truncation commit
-point. A later write or close failure may leave partial output; NPC does not
-provide atomic replacement, rollback, `fsync`, or durability guarantees.
+NPC disables service-config retries and adds no application retry loop. grpc-go
+may perform transparent retries when it can prove the RPC was not processed.
+Once invocation starts, a timeout, lost response, cancellation, or local output
+failure does not prove the server did not execute the method; NPC provides no
+exactly-once guarantee. `--verbose/-v` writes status, response metadata, and TLS
+details to stderr.
+
+All local validation, descriptor resolution, request parsing, invocation, and
+response serialization finish before NPC opens `--output`. Opening an existing
+file is the truncation commit point. A later write or close failure may leave
+partial output; NPC does not provide atomic replacement, rollback, `fsync`, or
+durability guarantees.
 
 ### Key lifecycle walkthrough
 

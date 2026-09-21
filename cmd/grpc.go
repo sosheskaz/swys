@@ -35,12 +35,15 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
 
 	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz-systems/npc/internal/contextio"
 )
 
 const (
 	grpcRequestShape       = "grpc-request"
+	grpcDefaultMessageSize = 16 << 20
 	grpcDescriptorBytes    = 16 << 20
 	grpcDescriptorFiles    = 1024
 	grpcDescriptorDepth    = 100
@@ -51,26 +54,29 @@ var (
 	errInvalidGRPCOptions  = errors.New("invalid gRPC options")
 	errInvalidGRPCMetadata = errors.New("invalid gRPC metadata")
 	errGRPCDescriptorLimit = errors.New("gRPC descriptor limit exceeded")
+	errGRPCMessageLimit    = errors.New("gRPC message limit exceeded")
 	errUnsupportedGRPC     = errors.New("unsupported gRPC operation")
 )
 
 type grpcPreparedOutputKey struct{}
 
 type grpcOptions struct { //nolint:govet // flag registration is clearer when related values stay grouped
-	list       string
-	describe   string
-	protoset   string
-	headers    []string
-	format     string
-	ca         string
-	cert       string
-	key        string
-	serverName string
-	timeout    time.Duration
-	plaintext  bool
-	systemCA   bool
-	insecure   bool
-	verbose    bool
+	list           string
+	describe       string
+	protoset       string
+	data           string
+	headers        []string
+	format         string
+	ca             string
+	cert           string
+	key            string
+	serverName     string
+	timeout        time.Duration
+	maxMessageSize int
+	plaintext      bool
+	systemCA       bool
+	insecure       bool
+	verbose        bool
 }
 
 type grpcPreparation struct {
@@ -153,9 +159,9 @@ func newGRPCCmd() *cobra.Command {
 	options := &grpcOptions{}
 	var prepared *grpcPreparation
 	command := &cobra.Command{
-		Use:   "grpc HOST:PORT",
-		Short: "Discover gRPC schemas",
-		Args:  cobra.ExactArgs(1),
+		Use:   "grpc HOST:PORT [SERVICE/METHOD]",
+		Short: "Discover gRPC schemas and invoke unary methods",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if prepared == nil {
 				return errPreparedOutputUnavailable
@@ -196,9 +202,11 @@ func newGRPCCmd() *cobra.Command {
 	flags.StringVar(&options.list, "list", "", "list methods in a service")
 	flags.StringVar(&options.describe, "describe", "", "describe a protobuf symbol")
 	flags.StringVar(&options.protoset, "protoset", "", "read descriptors from a FileDescriptorSet instead of reflection")
+	flags.StringVarP(&options.data, "data", "d", "", "literal protobuf JSON request")
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request metadata (name: value); repeatable")
 	flags.StringVarP(&options.format, formatFlagName, "f", formatText, "discovery output format (text, json)")
-	flags.DurationVar(&options.timeout, "timeout", defaultNetworkTimeout, "overall connection and reflection timeout (0 disables)")
+	flags.DurationVar(&options.timeout, "timeout", defaultNetworkTimeout, "overall connection, reflection, and invocation timeout (0 disables)")
+	flags.IntVar(&options.maxMessageSize, "max-message-size", grpcDefaultMessageSize, "maximum sent and received protobuf message size in bytes")
 	flags.BoolVar(&options.plaintext, "plaintext", false, "use plaintext HTTP/2 instead of TLS")
 	flags.StringVar(&options.ca, tlsCAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
@@ -216,16 +224,29 @@ func newGRPCCmd() *cobra.Command {
 	return command
 }
 
-//nolint:nestif // ordered state contract remains visible
+//nolint:gocognit,gocyclo,nestif // ordered state contract remains visible
 func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpcPreparation, error) {
-	if err := validateGRPCOptions(cmd, args[0], options); err != nil {
+	selector := ""
+	selectorPresent := len(args) == 2
+	if len(args) == 2 {
+		selector = args[1]
+	}
+	if err := validateGRPCOptions(cmd, args[0], selector, selectorPresent, options); err != nil {
 		return nil, err
 	}
 	md, err := parseGRPCMetadata(options.headers)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := grpcOverallContext(cmd.Context(), options.timeout)
+	commandCtx := cmd.Context()
+	var requestData []byte
+	if selector != "" {
+		requestData, err = readGRPCRequest(commandCtx, cmd, options)
+		if err != nil {
+			return nil, err
+		}
+	}
+	ctx, cancel := grpcOverallContext(commandCtx, options.timeout)
 	defer cancel()
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
@@ -239,7 +260,7 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		conn, tlsCapture, err = dialGRPC(cmd, args[0], options)
 		if err == nil {
 			defer conn.Close() //nolint:errcheck // command is complete and the response is already prepared
-			schema, reflectionDetails, err = reflectGRPCSchema(ctx, conn, options.list, options.describe)
+			schema, reflectionDetails, err = reflectGRPCSchema(ctx, conn, selector, options.list, options.describe)
 			if options.verbose && err != nil {
 				applyGRPCTLSCapture(&reflectionDetails, tlsCapture)
 				if diagnosticErr := writeGRPCDiagnostics(cmd.ErrOrStderr(), options, reflectionDetails); diagnosticErr != nil {
@@ -252,23 +273,89 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		return nil, grpcStatusError("discover gRPC schema", err)
 	}
 
-	output, err := schema.renderDiscovery(options.list, options.describe, options.format)
+	if selector == "" {
+		output, renderErr := schema.renderDiscovery(options.list, options.describe, options.format)
+		if renderErr != nil {
+			return nil, renderErr
+		}
+		result := &grpcPreparation{output: output}
+		if options.verbose {
+			applyGRPCTLSCapture(&reflectionDetails, tlsCapture)
+			if reflectionDetails.status == nil {
+				reflectionDetails.status = status.New(codes.OK, "")
+			}
+			result.diagnostics = grpcDiagnostics(options, reflectionDetails)
+		}
+		return result, nil
+	}
+	if conn == nil {
+		conn, tlsCapture, err = dialGRPC(cmd, args[0], options)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close() //nolint:errcheck // command is complete and the response is already prepared
+	}
+	method, err := schema.findMethod(selector)
 	if err != nil {
 		return nil, err
 	}
+	if method.IsStreamingClient() || method.IsStreamingServer() {
+		return nil, fmt.Errorf("%w: method %q is streaming; only unary invocation is supported", errUnsupportedGRPC, selector)
+	}
+	types := dynamicpb.NewTypes(schema.files)
+	request := dynamicpb.NewMessage(method.Input())
+	if len(requestData) == 0 {
+		requestData = []byte("{}")
+	}
+	if err := (protojson.UnmarshalOptions{Resolver: types, DiscardUnknown: false}).Unmarshal(requestData, request); err != nil {
+		return nil, fmt.Errorf("parse protobuf JSON request: %w", err)
+	}
+	if proto.Size(request) > options.maxMessageSize {
+		return nil, fmt.Errorf(
+			"%w: request is %d bytes, maximum is %d",
+			errGRPCMessageLimit,
+			proto.Size(request),
+			options.maxMessageSize,
+		)
+	}
+	response := dynamicpb.NewMessage(method.Output())
+	var header, trailer metadata.MD
+	var remotePeer peer.Peer
+	err = conn.Invoke(
+		ctx,
+		"/"+selector,
+		request,
+		response,
+		grpc.Header(&header),
+		grpc.Trailer(&trailer),
+		grpc.Peer(&remotePeer),
+		grpc.MaxCallSendMsgSize(options.maxMessageSize),
+		grpc.MaxCallRecvMsgSize(options.maxMessageSize),
+	)
+	details := grpcCallDetails{header: header, trailer: trailer, peer: remotePeer, status: status.Convert(err)}
+	applyGRPCTLSCapture(&details, tlsCapture)
+	if err != nil {
+		if options.verbose {
+			if diagnosticErr := writeGRPCDiagnostics(cmd.ErrOrStderr(), options, details); diagnosticErr != nil {
+				return nil, errors.Join(grpcStatusError("invoke gRPC method", err), diagnosticErr)
+			}
+		}
+		return nil, grpcStatusError("invoke gRPC method", err)
+	}
+	output, err := (protojson.MarshalOptions{Resolver: types}).Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("serialize protobuf JSON response: %w", err)
+	}
+	output = append(output, '\n')
 	result := &grpcPreparation{output: output}
 	if options.verbose {
-		applyGRPCTLSCapture(&reflectionDetails, tlsCapture)
-		if reflectionDetails.status == nil {
-			reflectionDetails.status = status.New(codes.OK, "")
-		}
-		result.diagnostics = grpcDiagnostics(options, reflectionDetails)
+		result.diagnostics = grpcDiagnostics(options, details)
 	}
 	return result, nil
 }
 
-//nolint:gocyclo // ordered local validation must complete before any side effect
-func validateGRPCOptions(cmd *cobra.Command, endpoint string, options *grpcOptions) error {
+//nolint:gocognit,gocyclo // ordered local validation must complete before any side effect
+func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selectorPresent bool, options *grpcOptions) error {
 	host, portText, err := net.SplitHostPort(endpoint)
 	invalidHostCharacter := func(char rune) bool {
 		return unicode.IsSpace(char) || char < ' ' || char == 127
@@ -288,20 +375,38 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint string, options *grpcOptio
 	if describeChanged && options.describe == "" {
 		return fmt.Errorf("%w: --describe must not be empty", errInvalidGRPCOptions)
 	}
+	if selectorPresent && selector == "" {
+		return fmt.Errorf("%w: method selector must not be empty", errInvalidGRPCOptions)
+	}
 	if cmd.Flags().Changed("protoset") && options.protoset == "" {
 		return fmt.Errorf("%w: --protoset must not be empty", errInvalidGRPCOptions)
 	}
-	if cmd.Flags().Changed("input") {
-		return fmt.Errorf("%w: --input is not supported for discovery", errInvalidGRPCOptions)
+	if !selectorPresent && (cmd.Flags().Changed("data") || cmd.Flags().Changed("input")) {
+		return fmt.Errorf("%w: --data and --input require a method selector", errInvalidGRPCOptions)
 	}
-	if listChanged && describeChanged {
-		return fmt.Errorf("%w: --list and --describe are mutually exclusive", errInvalidGRPCOptions)
+	selectors := 0
+	for _, selected := range []bool{selectorPresent, listChanged, describeChanged} {
+		if selected {
+			selectors++
+		}
+	}
+	if selectors > 1 {
+		return fmt.Errorf("%w: method, --list, and --describe are mutually exclusive", errInvalidGRPCOptions)
+	}
+	if selector != "" && !validGRPCMethodSelector(selector) {
+		return fmt.Errorf("%w: method selector %q must be SERVICE/METHOD", errInvalidGRPCOptions, selector)
 	}
 	if options.timeout < 0 {
 		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidGRPCOptions)
 	}
+	if options.maxMessageSize <= 0 || options.maxMessageSize > int(^uint(0)>>1)/4 {
+		return fmt.Errorf("%w: --max-message-size must be positive and allow a safe JSON limit", errInvalidGRPCOptions)
+	}
 	if options.format != formatText && options.format != formatJSON {
 		return fmt.Errorf("%w: --format must be text or json", errInvalidGRPCOptions)
+	}
+	if cmd.Flags().Changed("data") && cmd.Flags().Changed("input") {
+		return fmt.Errorf("%w: --data and --input are mutually exclusive", errInvalidGRPCOptions)
 	}
 	if options.plaintext && (options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "" || options.insecure) {
 		return fmt.Errorf("%w: --plaintext conflicts with TLS flags", errInvalidGRPCOptions)
@@ -318,11 +423,29 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint string, options *grpcOptio
 	if err := validateCertificatePaths(cmd, tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName); err != nil {
 		return err
 	}
+	identityInput := ""
+	if cmd.Flags().Changed("input") {
+		input, err := cmd.Flags().GetString("input")
+		if err != nil || input == "" {
+			return fmt.Errorf("%w: --input requires a path or -", errInvalidGRPCOptions)
+		}
+		if input != "-" {
+			identityInput = input
+		}
+	}
 	output, err := cmd.Flags().GetString("output")
 	if err != nil {
 		return fmt.Errorf("read output flag: %w", err)
 	}
+	if err := rejectSameFile(identityInput, output); err != nil {
+		return err
+	}
 	return rejectSameFile(options.protoset, output)
+}
+
+func validGRPCMethodSelector(selector string) bool {
+	service, method, ok := strings.Cut(selector, "/")
+	return ok && service != "" && method != "" && !strings.Contains(method, "/") && strings.IndexFunc(selector, unicode.IsSpace) < 0
 }
 
 func grpcOverallContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -433,6 +556,76 @@ func grpcTransportCredentials(cmd *cobra.Command, endpoint string, options *grpc
 	return credentials.NewTLS(config), nil
 }
 
+func readGRPCRequest(ctx context.Context, cmd *cobra.Command, options *grpcOptions) ([]byte, error) {
+	limit := int64(options.maxMessageSize) * 4
+	if cmd.Flags().Changed("data") {
+		if int64(len(options.data)) > limit {
+			return nil, fmt.Errorf("%w: request JSON exceeds %d bytes", errGRPCMessageLimit, limit)
+		}
+		return []byte(options.data), nil
+	}
+	reader := cmd.InOrStdin()
+	if cmd.Flags().Changed("input") {
+		path, err := cmd.Flags().GetString("input")
+		if err != nil {
+			return nil, fmt.Errorf("read input flag: %w", err)
+		}
+		if path != "-" {
+			return readGRPCRequestFile(ctx, path, limit)
+		}
+	} else if httpInputIsTerminal(reader) {
+		return []byte("{}"), nil
+	}
+	return readGRPCRequestReader(ctx, reader, limit)
+}
+
+func readGRPCRequestReader(ctx context.Context, reader io.Reader, limit int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("read gRPC request JSON: %w", context.Cause(ctx))
+	}
+	readCtx, cancelRead := context.WithCancelCause(ctx)
+	defer cancelRead(nil)
+	data, err := io.ReadAll(io.LimitReader(contextio.NewReader(readCtx, reader), limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read gRPC request JSON: %w", err)
+	}
+	return validateGRPCRequestSize(data, limit)
+}
+
+func readGRPCRequestFile(ctx context.Context, path string, limit int64) ([]byte, error) {
+	file, err := openCommandInput(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("read gRPC request JSON: %w", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = file.Close() //nolint:errcheck // cancellation is the authoritative error
+		case <-done:
+		}
+	}()
+	data, readErr := readGRPCOwnedInput(ctx, file, limit+1)
+	close(done)
+	closeErr := file.Close()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		readErr = context.Cause(ctx)
+	} else if readErr == nil && closeErr != nil {
+		readErr = fmt.Errorf("close gRPC input %q: %w", path, closeErr)
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("read gRPC request JSON: %w", readErr)
+	}
+	return validateGRPCRequestSize(data, limit)
+}
+
+func validateGRPCRequestSize(data []byte, limit int64) ([]byte, error) {
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%w: request JSON exceeds %d bytes", errGRPCMessageLimit, limit)
+	}
+	return data, nil
+}
+
 type grpcSchema struct {
 	files    *protoregistry.Files
 	fileSet  *descriptorpb.FileDescriptorSet
@@ -508,6 +701,23 @@ func loadGRPCProtoset(path string) (*grpcSchema, error) {
 		return nil, fmt.Errorf("parse gRPC protoset: %w", err)
 	}
 	return newGRPCSchema(set)
+}
+
+func (schema *grpcSchema) findMethod(selector string) (protoreflect.MethodDescriptor, error) {
+	serviceName, methodName, _ := strings.Cut(selector, "/")
+	descriptor, err := schema.files.FindDescriptorByName(protoreflect.FullName(serviceName))
+	if err != nil {
+		return nil, fmt.Errorf("find gRPC service %q: %w", serviceName, err)
+	}
+	service, ok := descriptor.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("%w: gRPC symbol %q is not a service", errUnsupportedGRPC, serviceName)
+	}
+	method := service.Methods().ByName(protoreflect.Name(methodName))
+	if method == nil {
+		return nil, fmt.Errorf("%w: gRPC service %q has no method %q", errUnsupportedGRPC, serviceName, methodName)
+	}
+	return method, nil
 }
 
 //nolint:nestif // selector-specific rendering is intentionally kept at the consumer boundary
@@ -670,12 +880,16 @@ func grpcStatusError(operation string, err error) error {
 func reflectGRPCSchema(
 	ctx context.Context,
 	conn *grpc.ClientConn,
+	selector string,
 	list string,
 	describe string,
 ) (*grpcSchema, grpcCallDetails, error) {
 	symbol := describe
 	if list != "" {
 		symbol = list
+	}
+	if selector != "" {
+		symbol, _, _ = strings.Cut(selector, "/")
 	}
 	set, services, details, err := reflectGRPCV1(ctx, conn, symbol)
 	if status.Code(err) == codes.Unimplemented {

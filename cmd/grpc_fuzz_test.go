@@ -12,9 +12,11 @@ import (
 	"time"
 	"unicode"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 const maxGRPCFuzzInput = 4 << 10
@@ -22,6 +24,54 @@ const maxGRPCFuzzInput = 4 << 10
 const grpcFuzzNetworkDelay = 25 * time.Millisecond
 
 var errGRPCFuzzDescriptorLimits = errors.New("descriptor limits exceeded")
+
+func FuzzGRPCProtobufJSONRequest(f *testing.F) {
+	for _, seed := range []string{
+		`{}`,
+		`{"text":"hello","payload":"AAEC","count":"9223372036854775807","mode":"MODE_ACTIVE"}`,
+		`{"name":"one","id":2}`,
+		`{"unknown":true}`,
+		`{} {}`,
+		`{"text":`,
+		`{"text":"rpc-error"}`,
+		`{"text":"diagnostic-controls"}`,
+		`{"text":"unavailable"}`,
+		`{"replyBytes":2147483647,"delayMillis":2147483647}`,
+		`{"extra":{"@type":"type.googleapis.com/fixture.v1.EchoRequest","text":"nested"}}`,
+		`{"extra":{"@type":"type.googleapis.com/fixture.v1.Missing","text":"nested"}}`,
+		"",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		if len(input) > maxGRPCFuzzInput {
+			t.Skip()
+		}
+		files, _, descriptor := grpcFixtureSchema(t)
+		oracleInput := input
+		if oracleInput == "" {
+			oracleInput = `{}`
+		}
+		message := dynamicpb.NewMessage(descriptor)
+		oracleErr := (protojson.UnmarshalOptions{
+			Resolver:       dynamicpb.NewTypes(files),
+			DiscardUnknown: false,
+		}).Unmarshal([]byte(oracleInput), message)
+		time.Sleep(grpcFuzzNetworkDelay)
+		address, record := startGRPCPlainEchoFixture(t)
+		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--max-message-size", "4096", "-d", input)
+		calls, _, _ := record.snapshot()
+		if oracleErr == nil {
+			if err != nil || calls != 1 {
+				t.Fatalf("valid protobuf JSON rejected: error=%v calls=%d input=%q", err, calls, input)
+			}
+			return
+		}
+		if err == nil || calls != 0 {
+			t.Fatalf("invalid protobuf JSON accepted: oracle=%v calls=%d input=%q", oracleErr, calls, input)
+		}
+	})
+}
 
 func FuzzGRPCMetadata(f *testing.F) {
 	for _, seed := range []string{
@@ -48,12 +98,12 @@ func FuzzGRPCMetadata(f *testing.F) {
 		time.Sleep(grpcFuzzNetworkDelay)
 		valid := referenceGRPCMetadata(header)
 		address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
-		_, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--describe", grpcFixtureServiceName, "-H", header)
+		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "-d", `{}`, "-H", header)
 		connections := record.connectionCount()
-		calls, _ := record.snapshot()
+		calls, _, _ := record.snapshot()
 		v1Calls, alphaCalls := record.reflectionCounts()
 		if valid {
-			if err != nil || calls != 0 || v1Calls+alphaCalls == 0 {
+			if err != nil || calls != 1 || v1Calls+alphaCalls == 0 {
 				t.Fatalf("valid metadata rejected: error=%v calls=%d reflection v1=%d v1alpha=%d header=%q", err, calls, v1Calls, alphaCalls, header)
 			}
 			return
@@ -142,6 +192,38 @@ func referenceGRPCEndpoint(endpoint string) bool {
 	}
 	port, err := strconv.Atoi(portText)
 	return err == nil && port >= 1 && port <= 65535
+}
+
+func FuzzGRPCMethodSelector(f *testing.F) {
+	for _, seed := range []string{
+		grpcFixtureMethodName,
+		grpcFixtureServiceName + "/Watch",
+		"fixture.v1.EchoService",
+		"/Echo",
+		"fixture.v1.EchoService/",
+		"fixture.v1.EchoService/Echo/extra",
+		"bad\nservice/Echo",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, selector string) {
+		if len(selector) > 1<<10 {
+			t.Skip()
+		}
+		time.Sleep(grpcFuzzNetworkDelay)
+		address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+		_, _, err := executeRootStreams(t, "grpc", address, selector, "--plaintext", "-d", `{}`)
+		calls, _, _ := record.snapshot()
+		if selector == grpcFixtureMethodName {
+			if err != nil || calls != 1 {
+				t.Fatalf("valid unary selector rejected: error=%v calls=%d", err, calls)
+			}
+			return
+		}
+		if err == nil || calls != 0 {
+			t.Fatalf("unsupported selector accepted: %q calls=%d", selector, calls)
+		}
+	})
 }
 
 func FuzzGRPCProtosetTruncation(f *testing.F) {

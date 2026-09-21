@@ -86,7 +86,7 @@ func TestGRPCProtosetOutputAliasPreservesSourceWithoutNetwork(t *testing.T) {
 			if readErr != nil {
 				t.Fatal(readErr)
 			}
-			calls, _ := record.snapshot()
+			calls, _, _ := record.snapshot()
 			v1Calls, alphaCalls := record.reflectionCounts()
 			if !errors.Is(commandErr, errSameInputOutput) || !bytes.Equal(after, before) ||
 				calls != 0 || v1Calls != 0 || alphaCalls != 0 {
