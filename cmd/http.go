@@ -124,7 +124,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	mustRegisterHTTPCompletion(cmd, "method", completeHTTPMethod)
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request header (Name: value); repeatable")
 	flags.StringArrayVar(&options.resolves, "resolve", nil, "resolve host:port to numeric address(es); repeatable")
-	flags.StringVar(&options.data, "data", "", "literal raw request body")
+	flags.StringVarP(&options.data, "data", "d", "", "literal raw request body")
 	flags.StringVar(&options.jsonData, httpFormatJSON, "", "JSON body: literal JSON, @file, or @- for stdin")
 	flags.StringArrayVar(&options.forms, "form", nil, "URL-encoded form field (name=value); repeatable")
 	flags.StringArrayVar(&options.files, "file", nil, "multipart file field (name=path); repeatable")

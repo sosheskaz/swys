@@ -428,7 +428,7 @@ A bare `npc http` shows help. URLs without a scheme default to HTTPS:
 `http://` URL for plain HTTP; failed HTTPS requests never retry as HTTP.
 
 Choose one body source: `--input FILE` for raw file bytes, `--input -` for
-stdin, `--data STRING` for literal bytes, or `--json JSON|@FILE|@-` for a JSON
+stdin, `--data/-d STRING` for literal bytes, or `--json JSON|@FILE|@-` for a JSON
 body with `Content-Type: application/json`. JSON convenience sets the content
 type without parsing or rewriting the payload. `--input-encoding` decodes raw
 and JSON body sources using the same encodings as other npc commands.
