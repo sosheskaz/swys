@@ -41,6 +41,45 @@ func TestWatchDNSConnectionContextCancellationWinsDeadlineSetup(t *testing.T) {
 	})
 }
 
+func TestContextErrorAddsElapsedDeadline(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		// Model a socket deadline firing before context cancellation publishes ctx.Err().
+		ctx := elapsedDeadlineContext{deadline: time.Now().Add(time.Hour)}
+		timeoutErr := &net.DNSError{Err: "fixture timeout", IsTimeout: true}
+		time.Sleep(time.Hour)
+
+		err := contextError(ctx, timeoutErr)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+		}
+		if !errors.Is(err, timeoutErr) {
+			t.Fatalf("error = %v, want timeout error identity", err)
+		}
+	})
+}
+
+type elapsedDeadlineContext struct {
+	deadline time.Time
+}
+
+func (ctx elapsedDeadlineContext) Deadline() (time.Time, bool) {
+	return ctx.deadline, true
+}
+
+func (elapsedDeadlineContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (elapsedDeadlineContext) Err() error {
+	return nil
+}
+
+func (elapsedDeadlineContext) Value(any) any {
+	return nil
+}
+
 type cancelDuringDeadlineContext struct {
 	done     chan struct{}
 	deadline time.Time
