@@ -78,7 +78,7 @@ NPC honors a nonempty PAGER only when its original stdout is a terminal. It pars
 
 A pager receives plain rendering unless rich is explicit. Pager startup failure warns on stderr and writes the rendered guide directly. After a pager starts, a successful early exit and its broken pipe are normal; other write failures and nonzero exits are errors and do not trigger duplicate direct output.
 
-While paging, the pager handles terminal interrupts such as Ctrl-C. NPC stays alive to wait for and reap it, then restores its prior interrupt handling.
+While paging, the pager handles terminal interrupts such as Ctrl-C. NPC stays alive to wait for and reap it, then restores its prior interrupt handling. Ctrl-C does not cancel the pager's process, and repeating it does not end NPC or trigger the 5-second forced exit while the pager runs; SIGTERM or SIGHUP sent to NPC alone does cancel it, so the pager does not outlive it.
 
 ## Add or update a guide
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/sosheskaz-systems/npc/internal/contextio"
 )
 
 type httpBody struct {
@@ -47,13 +50,13 @@ func prepareHTTPBody(cmd *cobra.Command, options *httpOptions, method string) (*
 	}
 	input := cmd.Flag("input").Value.String()
 	if cmd.Flags().Changed("input") {
-		return httpSourceBody(input, cmd.InOrStdin(), decoder, options.inputEncoding == httpEncodingRaw)
+		return httpSourceBody(cmd.Context(), input, cmd.InOrStdin(), decoder, options.inputEncoding == httpEncodingRaw)
 	}
 	if cmd.Flags().Changed("data") {
 		return httpLiteralBody(options.data, decoder, options.inputEncoding == httpEncodingRaw), nil
 	}
 	if cmd.Flags().Changed(httpFormatJSON) {
-		return httpJSONBody(options, cmd.InOrStdin(), decoder)
+		return httpJSONBody(cmd.Context(), options, cmd.InOrStdin(), decoder)
 	}
 	if len(options.files) != 0 {
 		return httpMultipartBody(options)
@@ -63,7 +66,7 @@ func prepareHTTPBody(cmd *cobra.Command, options *httpOptions, method string) (*
 	}
 	autoInput := options.stdin == httpStdinAuto && method != http.MethodGet && method != http.MethodHead && !httpInputIsTerminal(cmd.InOrStdin())
 	if options.stdin == httpStdinAlways || autoInput {
-		return httpSourceBody("-", cmd.InOrStdin(), decoder, options.inputEncoding == httpEncodingRaw)
+		return httpSourceBody(cmd.Context(), "-", cmd.InOrStdin(), decoder, options.inputEncoding == httpEncodingRaw)
 	}
 	return &httpBody{reader: http.NoBody}, nil
 }
@@ -84,11 +87,13 @@ func httpLiteralBody(value string, decoder inputDecoder, raw bool) *httpBody {
 	return body
 }
 
-func httpSourceBody(path string, stdin io.Reader, decoder inputDecoder, raw bool) (*httpBody, error) {
+func httpSourceBody(ctx context.Context, path string, stdin io.Reader, decoder inputDecoder, raw bool) (*httpBody, error) {
 	if path != "-" {
-		return httpFileBody(path, decoder, raw)
+		return httpFileBody(ctx, path, decoder, raw)
 	}
-	body := &httpBody{reader: decoder(stdin), length: -1}
+	// Closing a blocking stdin does not wake a pending read, so the body reads
+	// through a reader that also stops on cancellation.
+	body := &httpBody{reader: decoder(contextio.NewReader(ctx, stdin)), length: -1}
 	if closer, ok := stdin.(io.Closer); ok {
 		// The HTTP transport must be able to interrupt a blocked stdin read
 		// when the peer responds early or the request is canceled.
@@ -97,10 +102,22 @@ func httpSourceBody(path string, stdin io.Reader, decoder inputDecoder, raw bool
 	return body, nil
 }
 
-func httpFileBody(path string, decoder inputDecoder, raw bool) (*httpBody, error) {
-	file, err := os.Open(path) //nolint:gosec // opening an explicitly selected HTTP body is intended
+// openHTTPBodyFile opens the body path without blocking a signal, since a FIFO
+// with no peer blocks the open itself.
+func openHTTPBodyFile(ctx context.Context, path string) (*os.File, error) {
+	return contextio.OpenFile(ctx, func() (*os.File, error) {
+		file, err := os.Open(path) //nolint:gosec // opening an explicitly selected HTTP body is intended
+		if err != nil {
+			return nil, fmt.Errorf("open HTTP body: %w", err)
+		}
+		return file, nil
+	})
+}
+
+func httpFileBody(ctx context.Context, path string, decoder inputDecoder, raw bool) (*httpBody, error) {
+	file, err := openHTTPBodyFile(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("open HTTP body: %w", err)
+		return nil, err
 	}
 	info, err := file.Stat()
 	if err != nil {
@@ -115,17 +132,17 @@ func httpFileBody(path string, decoder inputDecoder, raw bool) (*httpBody, error
 			body.length = info.Size()
 		}
 		body.getBody = func() (io.ReadCloser, error) {
-			return httpFileBody(path, decoder, raw)
+			return httpFileBody(ctx, path, decoder, raw)
 		}
 	}
 	return body, nil
 }
 
-func httpJSONBody(options *httpOptions, stdin io.Reader, decoder inputDecoder) (*httpBody, error) {
+func httpJSONBody(ctx context.Context, options *httpOptions, stdin io.Reader, decoder inputDecoder) (*httpBody, error) {
 	var body *httpBody
 	if path, exists := strings.CutPrefix(options.jsonData, "@"); exists {
 		var err error
-		body, err = httpSourceBody(path, stdin, decoder, options.inputEncoding == httpEncodingRaw)
+		body, err = httpSourceBody(ctx, path, stdin, decoder, options.inputEncoding == httpEncodingRaw)
 		if err != nil {
 			return nil, err
 		}

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -9,8 +10,17 @@ import (
 )
 
 func main() {
-	if err := cmd.Execute(); err != nil {
+	os.Exit(run())
+}
+
+// run owns the signal context because os.Exit skips deferred calls.
+func run() int {
+	ctx, stop := cmd.WithInterrupt(context.Background())
+	defer stop()
+
+	err := cmd.ExecuteContext(ctx)
+	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "npc: %v\n", err)
-		os.Exit(1)
 	}
+	return cmd.ExitCode(err)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz-systems/npc/internal/contextio"
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 	"github.com/sosheskaz-systems/npc/internal/securefile"
 	"github.com/sosheskaz-systems/npc/internal/version"
@@ -139,6 +140,17 @@ func Execute() error {
 	return executeCommand(newRootCmd())
 }
 
+// ExecuteContext runs the root command with ctx. A run that a signal from
+// WithInterrupt cuts short returns an error that ExitCode maps to 128+signal.
+func ExecuteContext(ctx context.Context) error {
+	return executeContext(ctx, newRootCmd()) //nolint:contextcheck // cobra hands ctx to commands through the root
+}
+
+func executeContext(ctx context.Context, root *cobra.Command) error {
+	root.SetContext(ctx)
+	return attributeInterrupt(ctx, executeCommand(root))
+}
+
 func executeCommand(root *cobra.Command) error {
 	command, runErr := root.ExecuteC()
 	if err := errors.Join(runErr, closeCommandIO(command)); err != nil {
@@ -210,15 +222,14 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 
 	input := originalIn
 	if inputPath != "" {
-		// The path is intentionally supplied by the CLI user.
-		openedInput, openErr := os.Open(inputPath) //nolint:gosec // opening an explicitly user-selected CLI path is intended
+		openedInput, openErr := openCommandInput(cmd.Context(), inputPath)
 		if openErr != nil {
-			return fail(fmt.Errorf("open %q for reading: %w", inputPath, openErr))
+			return fail(openErr)
 		}
 		closers = append(closers, openedInput)
 		input = openedInput
 	}
-	input = decoder(input)
+	input = decoder(contextio.NewReader(cmd.Context(), input))
 	setConfiguredInput(cmd, input, preparesOutput)
 
 	preparedOutput, err := prepareCommandOutput(cmd, input)
@@ -229,7 +240,9 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 	output := originalOut
 	if outputPath != "" {
 		// The path is intentionally supplied by the CLI user.
-		openedOutput, openErr := openCommandOutput(outputPath, outputOptions)
+		openedOutput, openErr := contextio.OpenFile(cmd.Context(), func() (*os.File, error) {
+			return openCommandOutput(outputPath, outputOptions)
+		})
 		if openErr != nil {
 			return fail(openErr)
 		}
@@ -247,6 +260,17 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 	setConfiguredOutput(cmd, output, preparesOutput)
 
 	return cleanup, preparedOutput, output, nil
+}
+
+// openCommandInput opens the path the CLI user chose without blocking a signal.
+func openCommandInput(ctx context.Context, path string) (*os.File, error) {
+	return contextio.OpenFile(ctx, func() (*os.File, error) {
+		file, err := os.Open(path) //nolint:gosec // opening an explicitly user-selected CLI path is intended
+		if err != nil {
+			return nil, fmt.Errorf("open %q for reading: %w", path, err)
+		}
+		return file, nil
+	})
 }
 
 func commandInputPath(cmd *cobra.Command) (string, error) {

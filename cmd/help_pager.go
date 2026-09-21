@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/spf13/cobra"
@@ -27,7 +28,9 @@ func presentGuideThroughPager(
 	if commandContext == nil {
 		commandContext = context.Background()
 	}
-	process := dependencies.command(commandContext, arguments[0], arguments[1:]...)
+	pagerContext, releasePager := pagerProcessContext(commandContext)
+	defer releasePager()
+	process := dependencies.command(pagerContext, arguments[0], arguments[1:]...)
 	process.Stdout = command.OutOrStdout()
 	process.Stderr = command.ErrOrStderr()
 	input, err := process.StdinPipe()
@@ -39,6 +42,8 @@ func presentGuideThroughPager(
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, guidePagerInterruptSignals()...)
 	defer signal.Stop(interrupts)
+	stopTerminations := terminatePagerOnSignal(releasePager)
+	defer stopTerminations()
 	if err := process.Start(); err != nil {
 		return warnAndWriteGuide(command, rendered, arguments[0], errors.Join(err, input.Close()))
 	}
@@ -57,6 +62,80 @@ func presentGuideThroughPager(
 		return fmt.Errorf("write guide to pager %q: %w", arguments[0], err)
 	}
 	return nil
+}
+
+// pagerProcessContext keeps Ctrl-C from killing the pager: the terminal sends
+// SIGINT to the pager too, and exec.CommandContext would kill it while npc
+// waits to reap it. Any other cancellation still terminates the pager.
+//
+// While the pager owns Ctrl-C the backstop is paused; releasing the returned
+// func, when the pager ends or a termination signal ends it, starts a fresh grace period.
+func pagerProcessContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	var (
+		mu       sync.Mutex
+		letGo    func()
+		finished bool
+	)
+	stop := context.AfterFunc(parent, func() {
+		interrupt := interruptOf(parent)
+		if interrupt == nil || interrupt.signal != os.Interrupt {
+			cancel()
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !finished {
+			letGo = interrupt.hold()
+		}
+	})
+	return ctx, func() {
+		stop()
+		cancel()
+		mu.Lock()
+		defer mu.Unlock()
+		finished = true
+		if letGo != nil {
+			letGo()
+			letGo = nil
+		}
+	}
+}
+
+// terminatePagerOnSignal ends the pager on SIGTERM or SIGHUP. The root handler
+// stops intercepting after its first signal, so without this a SIGTERM after a
+// Ctrl-C the pager owned would kill npc and leave the pager running.
+func terminatePagerOnSignal(terminate func()) func() {
+	signals := guidePagerTerminationSignals()
+	if len(signals) == 0 {
+		return func() {}
+	}
+	received := make(chan os.Signal, 1)
+	signal.Notify(received, signals...)
+	stop := terminateOnReceive(received, terminate)
+	return func() {
+		signal.Stop(received)
+		stop()
+	}
+}
+
+// terminateOnReceive is terminatePagerOnSignal with the signal source injected
+// for tests. Once the returned stop func returns, terminate can no longer run.
+func terminateOnReceive(received <-chan os.Signal, terminate func()) func() {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		select {
+		case <-received:
+			terminate()
+		case <-done:
+		}
+	}()
+	return func() {
+		close(done)
+		<-exited
+	}
 }
 
 func warnAndWriteGuide(command *cobra.Command, rendered []byte, pager string, startErr error) error {

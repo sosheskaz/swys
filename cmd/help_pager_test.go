@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -349,6 +351,19 @@ func TestGuidePagerHelperProcess(t *testing.T) { //nolint:paralleltest // subpro
 		os.Exit(0)
 	case "early-exit":
 		os.Exit(0)
+	case "hold":
+		if len(arguments) != 3 {
+			os.Exit(99)
+		}
+		if err := os.WriteFile(arguments[1], []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			os.Exit(94)
+		}
+		for {
+			if _, err := os.Stat(arguments[2]); err == nil {
+				os.Exit(0)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	case "fail":
 		if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
 			os.Exit(98)

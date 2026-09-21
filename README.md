@@ -923,6 +923,31 @@ nothing there to chmod, and on Windows, where POSIX permission bits cannot be
 applied exactly. Non-regular destinations such as `/dev/stdout`, `/dev/fd/N`,
 and FIFOs stream directly as well.
 
+## Signals and exit status
+
+Ctrl-C (SIGINT), SIGTERM, and SIGHUP end a run gracefully; on Windows only
+Ctrl-C is handled. Commands stop waiting on the network or on input, close what
+they opened, and flush `--output`. npc then prints `npc: interrupted` or
+`npc: terminated` and exits with 128 plus the signal number: 130 for Ctrl-C,
+143 for SIGTERM, and 129 for SIGHUP. Opening a FIFO for `--input` or `--output`
+stops on the signal too. A run that has not finished 5 seconds after the first
+signal, such as one blocked reading a key file from a FIFO, is ended anyway with
+the same status and, when stderr accepts it, a `forced exit` note. Sending a
+signal again ends a stuck run at once, unless npc inherited that signal as
+ignored (SIGINT in a background job of a non-interactive shell, for example).
+
+While a pager is showing a guide, Ctrl-C belongs to the pager: repeating it does
+not end npc, and the 5-second limit is paused until the pager ends, then starts
+over. SIGTERM and SIGHUP still end npc and its pager, even after a Ctrl-C.
+
+Reading stdin or `--input` stops as soon as the signal arrives, even when no
+more input is coming. SIGPIPE keeps its default behavior, so `npc ... | head`
+ends when the reader closes, and SIGQUIT still dumps goroutines.
+
+`--output` is opened and truncated before the command runs, so an interrupted
+run can leave a partial file. Write to a temporary path and move it into place
+when a partial result would be a problem.
+
 ## Development
 
 Work is organized in two tiers:
