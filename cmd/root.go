@@ -40,8 +40,12 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps gu
 			prepareHTTPCompletion(cmd, args)
 			prepareContextualCompletion(cmd, args)
 			prepareAESCompletion(cmd, args)
-			// HTTP prepares its body and DNS prepares its complete result before shared I/O setup.
-			if commandHasShape(cmd, hashGroupShape) || commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, dnsQueryShape) {
+			// These commands prepare their input or complete result before shared I/O setup.
+			preparesRequest := commandHasShape(cmd, hashGroupShape) ||
+				commandHasShape(cmd, httpRequestShape) ||
+				commandHasShape(cmd, dnsQueryShape) ||
+				commandHasShape(cmd, grpcRequestShape)
+			if preparesRequest {
 				return nil
 			}
 			return configureCommandIO(cmd)
@@ -64,7 +68,7 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps gu
 		"POSIX octal permissions for the --output file (e.g. 0640); explicitly overrides default, preserved, and sensitive-output permissions",
 	)
 	httpCmd := newHTTPCmd()
-	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newHashCmd(), newNetCmd(), httpCmd, newDNSCmd(dnsDeps))
+	rootCmd.AddCommand(newAesCmd(), newKeyCmd(), newCertCmd(), newHashCmd(), newNetCmd(), httpCmd, newDNSCmd(dnsDeps), newGRPCCmd())
 	registerHTTPBodyCompletionGroups(httpCmd)
 	configureFishCompletionGeneration(rootCmd)
 	configureGuideHelp(rootCmd, guideDeps)
@@ -274,7 +278,7 @@ func openCommandInput(ctx context.Context, path string) (*os.File, error) {
 }
 
 func commandInputPath(cmd *cobra.Command) (string, error) {
-	if commandHasShape(cmd, httpRequestShape) {
+	if commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, grpcRequestShape) {
 		// HTTP already opened its selected body before output setup.
 		return "", nil
 	}
@@ -322,7 +326,7 @@ func takePreparedOutput(cmd *cobra.Command) ([]byte, io.Writer, error) {
 }
 
 func restoreCommandStreams(cmd *cobra.Command, input io.Reader, output io.Writer) {
-	if commandHasShape(cmd, httpRequestShape) {
+	if commandHasShape(cmd, httpRequestShape) || commandHasShape(cmd, grpcRequestShape) {
 		// HTTP commands inherit streams from the root. Clear temporary
 		// bindings so a reused command tree sees its newly supplied streams.
 		cmd.SetIn(nil)

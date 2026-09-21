@@ -116,6 +116,7 @@ npc cert inspect|connect           # certificate inspection and TLS probing
 npc cert verify|match              # offline trust and public-key checks
 npc dns [@server] name [type]      # system resolution or a direct DNS query
 npc hash sha256|sha512|sha1|md5   # stream one input into an explicit digest
+npc grpc HOST:PORT                 # discover services and protobuf schemas
 npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
 npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
 npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
@@ -539,6 +540,43 @@ on stderr. Failed transfers include an error and `complete: false` when the
 output remains writable; a completed 4xx/5xx response has `complete: true` and
 still returns nonzero by default. An output-write failure can leave incomplete
 JSON. The JSON envelope already includes headers, so `--include` is rejected.
+
+### gRPC discovery
+
+`npc grpc HOST:PORT` lists services through server reflection. Select a service
+or symbol for more focused discovery:
+
+```fish
+npc grpc api.example.com:443
+npc grpc api.example.com:443 --list example.v1.EchoService
+npc grpc api.example.com:443 --describe example.v1.EchoRequest
+```
+
+TLS certificate and hostname verification are enabled by default. The existing
+`--ca`, `--system-ca`, `--servername`, `--cert`, `--key`, and `--insecure`
+controls apply. Use `--plaintext` only for a cleartext HTTP/2 endpoint; it
+conflicts with TLS controls. `--header/-H 'name: value'` is repeatable and is
+sent to reflection. Metadata names ending in `-bin` accept standard Base64
+values.
+
+Reflection v1 is preferred. NPC falls back to the deprecated v1alpha protocol
+only when v1 returns `Unimplemented`. `--protoset FILE` replaces reflection
+with a protobuf `FileDescriptorSet`; service listing and schema description are
+then offline and do not connect to `HOST:PORT`. Runtime `.proto` compilation is
+not supported. Discovery output is text by default; `--format json` emits JSON
+lists or a JSON descriptor. The official grpc-go transport and protobuf
+packages are direct dependencies so wire behavior, reflection, dynamic schema
+resolution, and descriptor formatting follow the maintained implementations.
+
+One `--timeout` covers connection setup and reflection and defaults to 10
+seconds; `0` disables the deadline. Descriptor data is limited to 16 MiB, 1,024
+files, and 100 nested message levels. `--verbose/-v` writes status, response
+metadata, and TLS details to stderr.
+
+All local validation, descriptor resolution, and result serialization finish
+before NPC opens `--output`. Opening an existing file is the truncation commit
+point. A later write or close failure may leave partial output; NPC does not
+provide atomic replacement, rollback, `fsync`, or durability guarantees.
 
 ### Key lifecycle walkthrough
 

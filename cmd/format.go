@@ -11,10 +11,15 @@ import (
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
+const (
+	formatJSON = "json"
+	formatText = "text"
+)
+
 var certFormatters = map[string]func() asym.CertFormatter{
 	"text":      func() asym.CertFormatter { return &asym.TextFormatter{} },
 	"long":      func() asym.CertFormatter { return &asym.TextFormatter{Long: true} },
-	"json":      func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
+	formatJSON:  func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
 	"pem":       func() asym.CertFormatter { return &asym.PEMFormatter{} },
 	"chain":     func() asym.CertFormatter { return &asym.ChainPEMFormatter{} },
 	"fullchain": func() asym.CertFormatter { return &asym.PEMFormatter{FullChain: true} },

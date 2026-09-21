@@ -5,6 +5,7 @@ Use NPC to inspect network services, exchange bytes, and work with keys and cert
 ## Start with the task
 
 - **dns** resolves names or asks a particular DNS server.
+- **grpc** discovers services and protobuf schemas.
 - **http** makes an HTTP request and writes its response body.
 - **net** sends or receives raw bytes over TCP, TLS, or UDP.
 - **cert** inspects certificates or creates test identities.
@@ -27,7 +28,7 @@ The certificate names the identity; the private key proves possession of it. Kee
 
 ## Follow the command hierarchy
 
-Most families use a noun followed by an operation. Some need another choice: net connect tcp selects the transport. DNS and HTTP accept their target directly.
+Most families use a noun followed by an operation. Some need another choice: net connect tcp selects the transport. DNS, gRPC, and HTTP accept their target directly.
 
 Commands that process bytes commonly read stdin and write stdout. Use the input and output file flags where applicable; individual guides explain commands with different input behavior.
 

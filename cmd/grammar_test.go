@@ -125,6 +125,8 @@ func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
 }
 
 func commandTreeViolations(root *cobra.Command) []string {
+	const grpcCommandName = "grpc"
+
 	// Cobra's generated help/completion trees are outside npc's command grammar.
 	verbs := map[string]bool{
 		"connect":  true,
@@ -163,7 +165,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 				isTransportVerb := command.Name() == "connect" || command.Name() == "listen"
 				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
 				isRootUtility := command == root && ((child.Name() == httpCommandName && commandHasShape(child, httpRequestShape)) ||
-					(child.Name() == dnsCommandName && commandHasShape(child, dnsQueryShape)))
+					(child.Name() == dnsCommandName && commandHasShape(child, dnsQueryShape)) ||
+					(child.Name() == grpcCommandName && commandHasShape(child, grpcRequestShape)))
 				isHashAlgorithm := command.Name() == "hash" && command.Parent() == root && hashAlgorithmLeaves[child.Name()]
 				if !verbs[child.Name()] && !isTransport && !isRootUtility && !isHashAlgorithm {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))

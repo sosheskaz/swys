@@ -236,7 +236,7 @@ func guideCodeFromNode(source []byte, code *ast.FencedCodeBlock) (guideBlock, er
 	if code.Info != nil {
 		language := strings.TrimSpace(string(code.Info.Value(source)))
 		switch language {
-		case "", "sh", "bash", fishShellName, "powershell", dnsFormatText:
+		case "", "sh", "bash", fishShellName, "powershell", formatText:
 		default:
 			return guideBlock{}, errorsNewGuideMarkdown("unsupported code-block language " + strconv.Quote(language))
 		}

@@ -26,8 +26,8 @@ var keyConversionTargets = map[string]asym.KeyFormat{
 }
 
 var keyFormatters = map[string]func() asym.KeyFormatter{
-	"json": func() asym.KeyFormatter { return &asym.KeyJSONFormatter{Indent: true} },
-	"text": func() asym.KeyFormatter { return &asym.KeyTextFormatter{} },
+	formatJSON: func() asym.KeyFormatter { return &asym.KeyJSONFormatter{Indent: true} },
+	"text":     func() asym.KeyFormatter { return &asym.KeyTextFormatter{} },
 }
 
 func newKeyPublicCmd() *cobra.Command {
@@ -293,7 +293,8 @@ func validateKeyFlagsBeforeIO(cmd *cobra.Command) error {
 func commandPreparesOutput(cmd *cobra.Command) bool {
 	return commandHasShape(cmd, "key-public") || commandHasShape(cmd, "key-convert") ||
 		commandHasShape(cmd, dnsQueryShape) || commandHasShape(cmd, hashOutputShape) ||
-		certificateCreateUsesCSR(cmd) || commandHasShape(cmd, certReportShape)
+		certificateCreateUsesCSR(cmd) || commandHasShape(cmd, certReportShape) ||
+		commandHasShape(cmd, grpcRequestShape)
 }
 
 func certificateCreateUsesCSR(cmd *cobra.Command) bool {
@@ -322,6 +323,12 @@ func prepareCommandOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
 		return prepareCertificateFromCSR(cmd, input)
 	case commandHasShape(cmd, certReportShape):
 		return prepareCertificateReport(cmd, input)
+	case commandHasShape(cmd, grpcRequestShape):
+		prepared, ok := cmd.Context().Value(grpcPreparedOutputKey{}).([]byte)
+		if !ok {
+			return nil, errPreparedOutputUnavailable
+		}
+		return prepared, nil
 	default:
 		return nil, nil
 	}

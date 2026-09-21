@@ -105,7 +105,7 @@ func newCertMatchCmd() *cobra.Command {
 	return command
 }
 
-func certificateReportFormatNames() []string { return []string{dnsFormatJSON, dnsFormatText} }
+func certificateReportFormatNames() []string { return []string{formatJSON, formatText} }
 
 func runPreparedCertificateReport(cmd *cobra.Command, _ []string) error {
 	prepared, output, err := takePreparedOutput(cmd)
@@ -142,7 +142,7 @@ func validateCertVerifyFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read format flag: %w", err)
 	}
-	if format != dnsFormatText && format != dnsFormatJSON {
+	if format != formatText && format != formatJSON {
 		return fmt.Errorf("%w %q (valid: json, text)", errUnknownCertFormat, format)
 	}
 	return nil
@@ -187,7 +187,7 @@ func validateCertMatchFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read format flag: %w", err)
 	}
-	if format != dnsFormatText && format != dnsFormatJSON {
+	if format != formatText && format != formatJSON {
 		return fmt.Errorf("%w %q (valid: json, text)", errUnknownCertFormat, format)
 	}
 	return nil
@@ -627,7 +627,7 @@ func encodeCertificateReport(cmd *cobra.Command, report certificateReport) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("read format flag: %w", err)
 	}
-	if format == dnsFormatJSON {
+	if format == formatJSON {
 		encoded, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("encode certificate report: %w", err)

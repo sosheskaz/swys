@@ -133,7 +133,7 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 		}
 		assertFuzzDNSResultMatchesMessage(t, &result, wireResponse)
 
-		for _, format := range []string{dnsFormatText, dnsFormatJSON} {
+		for _, format := range []string{formatText, formatJSON} {
 			for _, short := range []bool{false, true} {
 				output, err := renderDNSResult(&result, format, short)
 				if err != nil {
@@ -201,7 +201,7 @@ func assertFuzzDNSResultMatchesMessage(t *testing.T, result *dnsquery.Result, re
 
 func assertFuzzDNSRendering(t *testing.T, output []byte, result *dnsquery.Result, format string, short bool) {
 	t.Helper()
-	if format == dnsFormatJSON {
+	if format == formatJSON {
 		assertFuzzDNSJSONRendering(t, output, result, short)
 		return
 	}

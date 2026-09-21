@@ -31,8 +31,6 @@ const (
 	dnsTransportTCP   = "tcp"
 	dnsTransportTLS   = "tls"
 	dnsTransportHTTPS = "https"
-	dnsFormatText     = "text"
-	dnsFormatJSON     = "json"
 	dnsTypeA          = "A"
 	dnsTypeAAAA       = "AAAA"
 	dnsTypePTR        = "PTR"
@@ -83,7 +81,7 @@ type dnsPreparedOutputKey struct{}
 func newDNSCmd(deps dnsquery.Dependencies) *cobra.Command {
 	options := &dnsOptions{
 		resolver: dnsResolverSystem,
-		format:   dnsFormatText,
+		format:   formatText,
 		port:     53,
 		timeout:  defaultNetworkTimeout,
 	}
@@ -151,7 +149,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	flags.BoolVarP(&options.reverse, "reverse", "x", false, "perform a PTR lookup for an IP address")
 	flags.DurationVar(&options.timeout, "timeout", defaultNetworkTimeout, "whole lookup timeout (0 disables)")
 	flags.BoolVar(&options.short, "short", false, "print only answer values")
-	flags.StringVarP(&options.format, formatFlagName, "f", dnsFormatText, "result format (text, json)")
+	flags.StringVarP(&options.format, formatFlagName, "f", formatText, "result format (text, json)")
 	flags.StringVar(&options.cert, tlsCertFlagName, "", "client certificate chain PEM path")
 	flags.StringVar(&options.key, tlsKeyFlagName, "", "client private key path")
 	flags.StringVar(&options.ca, tlsCAFlagName, "", "custom CA certificate bundle PEM path")
@@ -167,7 +165,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	}); err != nil {
 		panic(err)
 	}
-	registerDescribedFlagCompletion(command, formatFlagName, func() []string { return []string{dnsFormatText, dnsFormatJSON} }, structuredFormatDescriptions)
+	registerDescribedFlagCompletion(command, formatFlagName, func() []string { return []string{formatText, formatJSON} }, structuredFormatDescriptions)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
@@ -360,7 +358,7 @@ func validateDNSChoiceOptions(options *dnsOptions) error {
 	if options.resolver != dnsResolverSystem && options.resolver != dnsResolverDirect {
 		return fmt.Errorf("%w: unknown resolver %q (valid: system, dns)", errInvalidDNSOptions, options.resolver)
 	}
-	if options.format != dnsFormatText && options.format != dnsFormatJSON {
+	if options.format != formatText && options.format != formatJSON {
 		return fmt.Errorf("%w: unknown format %q (valid: text, json)", errInvalidDNSOptions, options.format)
 	}
 	return nil
@@ -465,7 +463,7 @@ func prepareDNSOutput(ctx context.Context, query *dnsQuery, deps dnsquery.Depend
 }
 
 func renderDNSResult(result *dnsResult, format string, short bool) ([]byte, error) {
-	if format == dnsFormatJSON {
+	if format == formatJSON {
 		var value any = result
 		if short {
 			values := make([]string, 0, len(result.Answers))
