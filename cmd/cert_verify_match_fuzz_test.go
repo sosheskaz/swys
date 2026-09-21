@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"crypto"
+	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -113,6 +114,9 @@ func FuzzCertMatchCanonicalPublicKeys(f *testing.F) {
 		for _, keyData := range certTestGeneralKeyContainers(f, signer) {
 			f.Add(keyData)
 		}
+	}
+	for _, keyData := range certFuzzInconsistentOpenSSHEd25519Keys(f, matching.leafKey) {
+		f.Add(keyData)
 	}
 	f.Add([]byte("not a key"))
 	f.Add([]byte("-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----"))
@@ -454,6 +458,55 @@ type certFuzzOpenSSHPrivateEnvelope struct { //nolint:govet // Field order is th
 	Rest         []byte `ssh:"rest"`
 }
 
+type certFuzzOpenSSHPrivateHeader struct { //nolint:govet // Field order is the OpenSSH wire format.
+	Check1, Check2 uint32
+	Type           string
+	Rest           []byte `ssh:"rest"`
+}
+
+type certFuzzOpenSSHEd25519Fields struct {
+	Public, Private []byte
+	Comment         string
+	Padding         []byte `ssh:"rest"`
+}
+
+func certFuzzInconsistentOpenSSHEd25519Keys(tb testing.TB, signer crypto.Signer) [][]byte {
+	tb.Helper()
+	block, err := ssh.MarshalPrivateKey(signer, "cert match fuzz fixture")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	mutate := func(change func(*certFuzzOpenSSHEd25519Fields)) []byte {
+		var envelope certFuzzOpenSSHPrivateEnvelope
+		if err := ssh.Unmarshal(block.Bytes[len("openssh-key-v1\x00"):], &envelope); err != nil {
+			tb.Fatal(err)
+		}
+		var header certFuzzOpenSSHPrivateHeader
+		if err := ssh.Unmarshal(envelope.PrivateBlock, &header); err != nil {
+			tb.Fatal(err)
+		}
+		var fields certFuzzOpenSSHEd25519Fields
+		if err := ssh.Unmarshal(header.Rest, &fields); err != nil {
+			tb.Fatal(err)
+		}
+		change(&fields)
+		header.Rest = ssh.Marshal(fields)
+		envelope.PrivateBlock = ssh.Marshal(header)
+		payload := append([]byte("openssh-key-v1\x00"), ssh.Marshal(envelope)...)
+		return pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: payload})
+	}
+	return [][]byte{
+		mutate(func(fields *certFuzzOpenSSHEd25519Fields) {
+			fields.Private = bytes.Clone(fields.Private)
+			fields.Private[0] ^= 1
+		}),
+		mutate(func(fields *certFuzzOpenSSHEd25519Fields) {
+			fields.Public = bytes.Clone(fields.Public)
+			fields.Public[0] ^= 1
+		}),
+	}
+}
+
 func certFuzzParseOpenSSHPrivateKey(encoded, payload []byte) (any, error) {
 	const authMagic = "openssh-key-v1\x00"
 	if !bytes.HasPrefix(payload, []byte(authMagic)) {
@@ -488,7 +541,47 @@ func certFuzzParseOpenSSHPrivateKey(encoded, payload []byte) (any, error) {
 	if !bytes.Equal(outerPublic.Marshal(), derivedPublic.Marshal()) {
 		return nil, fmt.Errorf("%w: OpenSSH public and private identities differ", errCertFuzzOracle)
 	}
+	if err := certFuzzValidateOpenSSHEd25519Fields(envelope.PrivateBlock, material); err != nil {
+		return nil, err
+	}
 	return material, nil
+}
+
+func certFuzzValidateOpenSSHEd25519Fields(privateBlock []byte, material any) error {
+	var private ed25519.PrivateKey
+	switch key := material.(type) {
+	case *ed25519.PrivateKey:
+		if key == nil {
+			return fmt.Errorf("%w: nil OpenSSH Ed25519 private key", errCertFuzzOracle)
+		}
+		private = *key
+	case ed25519.PrivateKey:
+		private = key
+	default:
+		return nil
+	}
+	var header certFuzzOpenSSHPrivateHeader
+	if err := ssh.Unmarshal(privateBlock, &header); err != nil {
+		return fmt.Errorf("%w: parse OpenSSH private header: %w", errCertFuzzOracle, err)
+	}
+	if header.Type != ssh.KeyAlgoED25519 {
+		return fmt.Errorf("%w: OpenSSH private key type differs from Ed25519 material", errCertFuzzOracle)
+	}
+	var fields certFuzzOpenSSHEd25519Fields
+	if err := ssh.Unmarshal(header.Rest, &fields); err != nil {
+		return fmt.Errorf("%w: parse OpenSSH Ed25519 fields: %w", errCertFuzzOracle, err)
+	}
+	if len(fields.Private) != ed25519.PrivateKeySize || len(fields.Public) != ed25519.PublicKeySize {
+		return fmt.Errorf("%w: invalid OpenSSH Ed25519 field lengths", errCertFuzzOracle)
+	}
+	derived := ed25519.NewKeyFromSeed(fields.Private[:ed25519.SeedSize])
+	privateMatchesSeed := bytes.Equal(fields.Private, derived)
+	publicMatchesSeed := bytes.Equal(fields.Public, derived[ed25519.SeedSize:])
+	parsedMatchesSeed := bytes.Equal(private, derived)
+	if !privateMatchesSeed || !publicMatchesSeed || !parsedMatchesSeed {
+		return fmt.Errorf("%w: inconsistent OpenSSH Ed25519 key fields", errCertFuzzOracle)
+	}
+	return nil
 }
 
 func certFuzzParseDEROrSSHKey(data, trimmed []byte) (any, error) {
