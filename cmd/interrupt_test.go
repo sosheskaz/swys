@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -262,95 +263,126 @@ func TestInterruptContextDoesNotArmBackstopWithoutSignal(t *testing.T) {
 
 func TestBackstopEndsARunThatOutlivesItsGrace(t *testing.T) {
 	t.Parallel()
-	exited := make(chan int, 1)
-	var stderr lockedBuffer
-	arm := newBackstop(10*time.Millisecond, &stderr, func(code int) { exited <- code })
+	synctest.Test(t, func(t *testing.T) {
+		const grace = 10 * time.Millisecond
+		exited := make(chan int, 1)
+		var stderr lockedBuffer
+		arm := newBackstop(grace, &stderr, func(code int) { exited <- code })
 
-	arm(&interruptError{signal: syscall.SIGTERM})
-
-	select {
-	case code := <-exited:
-		if code != 143 {
-			t.Fatalf("exit code = %d, want 143", code)
+		arm(&interruptError{signal: syscall.SIGTERM})
+		synctest.Sleep(grace - time.Nanosecond)
+		select {
+		case code := <-exited:
+			t.Fatalf("backstop exited early with %d", code)
+		default:
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("backstop never fired")
-	}
-	if got, want := stderr.String(), "npc: terminated (forced exit after 10ms)\n"; got != want {
-		t.Fatalf("stderr = %q, want %q", got, want)
-	}
+		synctest.Sleep(time.Nanosecond)
+		select {
+		case code := <-exited:
+			if code != 143 {
+				t.Fatalf("exit code = %d, want 143", code)
+			}
+		default:
+			t.Fatal("backstop did not exit after its grace period")
+		}
+		if got, want := stderr.String(), "npc: terminated (forced exit after 10ms)\n"; got != want {
+			t.Fatalf("stderr = %q, want %q", got, want)
+		}
+	})
 }
 
 const backstopTestGrace = 30 * time.Millisecond
 
 func TestBackstopStaysQuietOnceStopped(t *testing.T) {
 	t.Parallel()
-	exited := make(chan int, 1)
-	arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
+	synctest.Test(t, func(t *testing.T) {
+		exited := make(chan int, 1)
+		arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
 
-	arm(&interruptError{signal: os.Interrupt}).stop()
+		arm(&interruptError{signal: os.Interrupt}).stop()
+		synctest.Sleep(10 * backstopTestGrace)
 
-	select {
-	case code := <-exited:
-		t.Fatalf("stopped backstop exited with %d", code)
-	case <-time.After(10 * backstopTestGrace):
-	}
+		select {
+		case code := <-exited:
+			t.Fatalf("stopped backstop exited with %d", code)
+		default:
+		}
+	})
 }
 
 // A pager that owns Ctrl-C pauses the backstop; when it lets go, npc gets a
 // fresh grace period rather than none.
 func TestBackstopIsPausedWhileHeldAndRestartedWhenLetGo(t *testing.T) {
 	t.Parallel()
-	exited := make(chan int, 1)
-	arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
-	held := arm(&interruptError{signal: os.Interrupt})
-	release := held.hold()
+	synctest.Test(t, func(t *testing.T) {
+		exited := make(chan int, 1)
+		arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
+		held := arm(&interruptError{signal: os.Interrupt})
+		release := held.hold()
 
-	select {
-	case code := <-exited:
-		t.Fatalf("held backstop exited with %d", code)
-	case <-time.After(10 * backstopTestGrace):
-	}
-	released := time.Now()
-	release()
+		synctest.Sleep(10 * backstopTestGrace)
+		select {
+		case code := <-exited:
+			t.Fatalf("held backstop exited with %d", code)
+		default:
+		}
+		release()
 
-	select {
-	case code := <-exited:
-		if code != 130 {
-			t.Fatalf("exit code = %d, want 130", code)
+		synctest.Sleep(backstopTestGrace - time.Nanosecond)
+		select {
+		case code := <-exited:
+			t.Fatalf("backstop exited early with %d", code)
+		default:
 		}
-		if elapsed := time.Since(released); elapsed < backstopTestGrace {
-			t.Fatalf("exited %v after being released, want a fresh grace period of %v", elapsed, backstopTestGrace)
+		synctest.Sleep(time.Nanosecond)
+		select {
+		case code := <-exited:
+			if code != 130 {
+				t.Fatalf("exit code = %d, want 130", code)
+			}
+		default:
+			t.Fatal("backstop did not exit after its grace period")
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("backstop never restarted after the hold was released")
-	}
+	})
 }
 
 func TestBackstopStaysPausedUntilEveryHolderLetsGo(t *testing.T) {
 	t.Parallel()
-	exited := make(chan int, 1)
-	arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
-	held := arm(&interruptError{signal: os.Interrupt})
-	first, second := held.hold(), held.hold()
-	first()
-	first() // letting go twice must not release the second holder's claim
+	synctest.Test(t, func(t *testing.T) {
+		exited := make(chan int, 1)
+		arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
+		held := arm(&interruptError{signal: os.Interrupt})
+		first, second := held.hold(), held.hold()
+		first()
+		first() // letting go twice must not release the second holder's claim
 
-	select {
-	case code := <-exited:
-		t.Fatalf("backstop exited with %d while a holder remained", code)
-	case <-time.After(10 * backstopTestGrace):
-	}
-	if !held.holding() {
-		t.Fatal("backstop is not held although one holder remains")
-	}
-	second()
+		synctest.Sleep(10 * backstopTestGrace)
+		select {
+		case code := <-exited:
+			t.Fatalf("backstop exited with %d while a holder remained", code)
+		default:
+		}
+		if !held.holding() {
+			t.Fatal("backstop is not held although one holder remains")
+		}
+		second()
 
-	select {
-	case <-exited:
-	case <-time.After(10 * time.Second):
-		t.Fatal("backstop never restarted after the last hold was released")
-	}
+		synctest.Sleep(backstopTestGrace - time.Nanosecond)
+		select {
+		case code := <-exited:
+			t.Fatalf("backstop exited early with %d", code)
+		default:
+		}
+		synctest.Sleep(time.Nanosecond)
+		select {
+		case code := <-exited:
+			if code != 130 {
+				t.Fatalf("exit code = %d, want 130", code)
+			}
+		default:
+			t.Fatal("backstop did not exit after its grace period")
+		}
+	})
 }
 
 func TestHoldWithoutABackstopIsANoOp(t *testing.T) {
@@ -362,38 +394,50 @@ func TestHoldWithoutABackstopIsANoOp(t *testing.T) {
 
 func TestBackstopStaysStoppedWhenHoldsAreReleasedAfterStop(t *testing.T) {
 	t.Parallel()
-	exited := make(chan int, 1)
-	arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
-	held := arm(&interruptError{signal: os.Interrupt})
-	release := held.hold()
+	synctest.Test(t, func(t *testing.T) {
+		exited := make(chan int, 1)
+		arm := newBackstop(backstopTestGrace, io.Discard, func(code int) { exited <- code })
+		held := arm(&interruptError{signal: os.Interrupt})
+		release := held.hold()
 
-	held.stop()
-	release()
+		held.stop()
+		release()
+		synctest.Sleep(10 * backstopTestGrace)
 
-	select {
-	case code := <-exited:
-		t.Fatalf("stopped backstop restarted and exited with %d", code)
-	case <-time.After(10 * backstopTestGrace):
-	}
+		select {
+		case code := <-exited:
+			t.Fatalf("stopped backstop restarted and exited with %d", code)
+		default:
+		}
+	})
 }
 
 func TestBackstopExitsEvenWhenTheNoteCannotBeWritten(t *testing.T) {
 	t.Parallel()
-	stalled := &stalledWriter{release: make(chan struct{})}
-	t.Cleanup(func() { close(stalled.release) })
-	exited := make(chan int, 1)
-	arm := newBackstop(10*time.Millisecond, stalled, func(code int) { exited <- code })
+	synctest.Test(t, func(t *testing.T) {
+		const grace = 10 * time.Millisecond
+		stalled := &stalledWriter{release: make(chan struct{})}
+		defer close(stalled.release)
+		exited := make(chan int, 1)
+		arm := newBackstop(grace, stalled, func(code int) { exited <- code })
 
-	arm(&interruptError{signal: os.Interrupt})
-
-	select {
-	case code := <-exited:
-		if code != 130 {
-			t.Fatalf("exit code = %d, want 130", code)
+		arm(&interruptError{signal: os.Interrupt})
+		synctest.Sleep(grace + forcedExitNoteWait - time.Nanosecond)
+		select {
+		case code := <-exited:
+			t.Fatalf("backstop exited early with %d", code)
+		default:
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("a stalled stderr kept the backstop from ending the run")
-	}
+		synctest.Sleep(time.Nanosecond)
+		select {
+		case code := <-exited:
+			if code != 130 {
+				t.Fatalf("exit code = %d, want 130", code)
+			}
+		default:
+			t.Fatal("backstop did not exit after waiting for stalled stderr")
+		}
+	})
 }
 
 // stalledWriter blocks every write until released, like a full pipe nobody reads.
