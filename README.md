@@ -508,12 +508,11 @@ HTTP 4xx/5xx statuses return nonzero while preserving the response body. Use
 output failures still return errors. Partial output remains available under
 npc's normal streaming-output contract.
 
-By default, npc advertises `gzip`, Brotli (`br`), and Zstandard (`zstd`)
-compression and streams the decompressed response body. Automatic negotiation
+By default, npc uses Go's HTTP transport to advertise `gzip` compression and
+stream the decompressed response body. Automatic negotiation
 is disabled for HEAD and range requests. Supplying `Accept-Encoding` yourself,
 including an empty value, disables automatic negotiation and leaves the
-response body and its encoding headers untouched. Header completion includes
-the registered `deflate` coding, but npc does not decode deflate responses.
+response body and its encoding headers untouched.
 
 By default, stdout or `--output` contains only the response body. HEAD prints
 the status and headers; `--include` adds them for other methods. Body-only text
@@ -532,8 +531,8 @@ first-byte, and transfer timings. `--format/-f json` instead emits a response
 envelope containing method, final URL, status, protocol, headers, a `body`
 string, `body_encoding: "base64"`, and `complete`. The body is always base64,
 including JSON and text responses, and is streamed without buffering the whole
-response. Bytes reflect the decoded HTTP response body when npc negotiated
-gzip, Brotli, or Zstandard compression. URL passwords are redacted in reports.
+response. Bytes reflect the decoded HTTP response body when npc negotiated gzip
+compression. URL passwords are redacted in reports.
 
 With `-f json --trace`, the trace is embedded in the envelope rather than printed
 on stderr. Failed transfers include an error and `complete: false` when the

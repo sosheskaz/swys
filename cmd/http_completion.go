@@ -26,16 +26,10 @@ var httpHeaderValues = map[string][]string{
 		"application/x-www-form-urlencoded", "multipart/form-data",
 	},
 	"accept-encoding": {
-		httpCodingGzip, "deflate", httpCodingBrotli, httpCodingZstd, "identity",
+		httpCodingGzip, "identity",
 	},
 	"authorization": {"Bearer ", "Basic "},
 	"cache-control": {"no-cache", "no-store", "max-age=", "only-if-cached", "no-transform"},
-}
-
-var httpHeaderValueDescriptions = map[string]map[string]string{
-	"accept-encoding": {
-		"deflate": "request deflate without built-in response decoding",
-	},
 }
 
 func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
@@ -227,9 +221,9 @@ func completeHTTPHeader(cmd *cobra.Command, _ []string, toComplete string) ([]st
 		return prefixMatchesWithBase(common, base, content), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
 	}
 	if httpListHeader(name) {
-		return completeHTTPHeaderList(name, base, content, common), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+		return completeHTTPHeaderList(base, content, common), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
 	}
-	return httpHeaderPrefixMatches(name, common, base, content), cobra.ShellCompDirectiveNoFileComp
+	return prefixMatchesWithBase(common, base, content), cobra.ShellCompDirectiveNoFileComp
 }
 
 func httpListHeader(name string) bool {
@@ -238,7 +232,7 @@ func httpListHeader(name string) bool {
 		strings.EqualFold(strings.TrimSpace(name), "Cache-Control")
 }
 
-func completeHTTPHeaderList(name, base, content string, common []string) []string {
+func completeHTTPHeaderList(base, content string, common []string) []string {
 	comma := strings.LastIndex(content, ",")
 	previous := ""
 	current := content
@@ -260,7 +254,7 @@ func completeHTTPHeaderList(name, base, content string, common []string) []strin
 	for _, candidate := range common {
 		key := httpHeaderValueKey(candidate)
 		if !seen[key] && strings.HasPrefix(strings.ToLower(candidate), strings.ToLower(current)) {
-			values = append(values, describeHTTPHeaderValue(base+previous+separator+candidate, name, candidate))
+			values = append(values, base+previous+separator+candidate)
 		}
 	}
 	return values
@@ -272,22 +266,6 @@ func httpHeaderValueKey(value string) string {
 		return value[:index]
 	}
 	return value
-}
-
-func httpHeaderPrefixMatches(name string, values []string, base, prefix string) []string {
-	matches := prefixMatchesWithBase(values, base, prefix)
-	for index, match := range matches {
-		matches[index] = describeHTTPHeaderValue(match, name, strings.TrimPrefix(match, base))
-	}
-	return matches
-}
-
-func describeHTTPHeaderValue(completion, name, value string) string {
-	descriptions := httpHeaderValueDescriptions[strings.ToLower(strings.TrimSpace(name))]
-	if description := descriptions[strings.ToLower(value)]; description != "" {
-		return cobra.CompletionWithDesc(completion, description)
-	}
-	return completion
 }
 
 func prefixMatches(values []string, prefix string) []string {

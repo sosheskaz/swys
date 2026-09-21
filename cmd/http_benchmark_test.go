@@ -79,28 +79,6 @@ func BenchmarkHTTPStreaming(b *testing.B) {
 	}
 }
 
-func BenchmarkHTTPZstdStreaming(b *testing.B) {
-	for _, size := range []int{64 << 10, 8 << 20, 64 << 20} {
-		payload := bytes.Repeat([]byte("x"), size)
-		compressed := encodeHTTPZstdTestBody(b, payload, 1<<20)
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.Header().Set("Content-Encoding", "zstd")
-			if _, err := writer.Write(compressed); err != nil {
-				b.Errorf("write benchmark response: %v", err)
-			}
-		}))
-		b.Cleanup(server.Close)
-
-		b.Run(byteCountLabel(size), func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				benchmarkHTTPCommand(b, "http", server.URL)
-			}
-		})
-	}
-}
-
 func newHTTPBenchmarkResponseServer(b *testing.B, payload []byte) *httptest.Server {
 	b.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

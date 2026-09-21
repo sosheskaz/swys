@@ -97,7 +97,7 @@ func TestExampleHTTPHeaderCompletion(t *testing.T) {
 	assertHTTPDirective(t, directive)
 
 	values, _ = completeHTTPCommand(t, "--header", "Accept-Encoding:gzip,")
-	assertHTTPCompletions(t, values, "Accept-Encoding:gzip, deflate", "Accept-Encoding:gzip, br")
+	assertHTTPCompletions(t, values, "Accept-Encoding:gzip, identity")
 	assertHTTPCompletionAbsent(t, values, "Accept-Encoding:gzip, gzip")
 
 	values, _ = completeHTTPCommand(t, "-H", "Content-Type:multipart/")
@@ -106,8 +106,8 @@ func TestExampleHTTPHeaderCompletion(t *testing.T) {
 	values, _ = completeHTTPCommand(t, "-H", "Cache-Control:max-age=60,")
 	assertHTTPCompletionAbsent(t, values, "Cache-Control:max-age=60, max-age=")
 
-	values, _ = completeHTTPCommand(t, "-H", "Accept-Encoding:def")
-	assertHTTPCompletionDescription(t, values, "Accept-Encoding:deflate", "request deflate without built-in response decoding")
+	values, _ = completeHTTPCommand(t, "-H", "Accept-Encoding:i")
+	assertHTTPCompletions(t, values, "Accept-Encoding:identity")
 }
 
 func TestHTTPAuthorizationCompletionWithoutDescriptionsDocumentsCobraLimitation(t *testing.T) {
@@ -388,14 +388,6 @@ func assertHTTPDirectiveAllowsSpace(t *testing.T, got cobra.ShellCompDirective) 
 	t.Helper()
 	if got&cobra.ShellCompDirectiveNoFileComp == 0 || got&cobra.ShellCompDirectiveNoSpace != 0 {
 		t.Fatalf("completion directive = %v, want no-file and an argument separator", got)
-	}
-}
-
-func assertHTTPCompletionDescription(t *testing.T, values []string, completion, description string) {
-	t.Helper()
-	want := completion + "\t" + description
-	if !slices.Contains(values, want) {
-		t.Errorf("completion = %q, missing %q", values, want)
 	}
 }
 

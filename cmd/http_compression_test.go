@@ -5,52 +5,46 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/andybalholm/brotli"
-	"github.com/klauspost/compress/zstd"
 )
 
 func TestHTTPAutomaticResponseCompression(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte("response compressed by the server\n")
+	compressed := encodeHTTPGzipTestBody(t, payload)
 	for _, protocol := range []int{1, 2} {
-		for _, coding := range []string{"gzip", "br", "zstd"} {
-			t.Run(fmt.Sprintf("HTTP%d/%s", protocol, coding), func(t *testing.T) {
-				t.Parallel()
-				compressed := encodeHTTPTestBody(t, payload, coding)
-				received := make(chan string, 1)
-				server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-					received <- request.Header.Get("Accept-Encoding")
-					writer.Header().Set("Content-Encoding", coding)
-					writer.Header().Set("Content-Length", strconv.Itoa(len(compressed)))
-					if _, err := writer.Write(compressed); err != nil {
-						t.Errorf("write compressed response: %v", err)
-					}
-				}))
-				server.EnableHTTP2 = protocol == 2
-				server.StartTLS()
-				t.Cleanup(server.Close)
+		t.Run(fmt.Sprintf("HTTP%d", protocol), func(t *testing.T) {
+			t.Parallel()
+			received := make(chan string, 1)
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				received <- request.Header.Get("Accept-Encoding")
+				writer.Header().Set("Content-Encoding", "gzip")
+				writer.Header().Set("Content-Length", strconv.Itoa(len(compressed)))
+				if _, err := writer.Write(compressed); err != nil {
+					t.Errorf("write compressed response: %v", err)
+				}
+			}))
+			server.EnableHTTP2 = protocol == 2
+			server.StartTLS()
+			t.Cleanup(server.Close)
 
-				stdout, _, err := executeRootStreams(t, "http", server.URL, "--insecure")
-				if err != nil {
-					t.Fatalf("HTTP %s response: %v", coding, err)
-				}
-				if stdout != string(payload) {
-					t.Fatalf("stdout = %q, want %q", stdout, payload)
-				}
-				if got := <-received; got != "gzip, br, zstd" {
-					t.Fatalf("Accept-Encoding = %q", got)
-				}
-			})
-		}
+			stdout, _, err := executeRootStreams(t, "http", server.URL, "--insecure")
+			if err != nil {
+				t.Fatalf("HTTP gzip response: %v", err)
+			}
+			if stdout != string(payload) {
+				t.Fatalf("stdout = %q, want %q", stdout, payload)
+			}
+			if got := <-received; got != "gzip" {
+				t.Fatalf("Accept-Encoding = %q, want gzip", got)
+			}
+		})
 	}
 }
 
@@ -58,9 +52,9 @@ func TestHTTPAutomaticCompressionUpdatesResponseMetadata(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte("decoded metadata body")
-	compressed := encodeHTTPTestBody(t, payload, "zstd")
+	compressed := encodeHTTPGzipTestBody(t, payload)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Encoding", "zstd")
+		writer.Header().Set("Content-Encoding", "gzip")
 		writer.Header().Set("Content-Length", strconv.Itoa(len(compressed)))
 		if _, err := writer.Write(compressed); err != nil {
 			t.Errorf("write compressed response: %v", err)
@@ -93,21 +87,13 @@ func TestHTTPAutomaticCompressionUpdatesResponseMetadata(t *testing.T) {
 	if envelope.Body != base64.StdEncoding.EncodeToString(payload) || !envelope.Complete {
 		t.Fatalf("JSON envelope = %+v", envelope)
 	}
-
-	encoded, _, err := executeRootStreams(t, "http", server.URL, "--encoding", "base64")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if encoded != base64.StdEncoding.EncodeToString(payload) {
-		t.Fatalf("encoded body = %q, want base64 decoded response", encoded)
-	}
 }
 
 func TestHTTPAutomaticCompressionFollowsRedirects(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte("redirected and decoded")
-	compressed := encodeHTTPTestBody(t, payload, "br")
+	compressed := encodeHTTPGzipTestBody(t, payload)
 	received := make(chan string, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		received <- request.Header.Get("Accept-Encoding")
@@ -115,7 +101,7 @@ func TestHTTPAutomaticCompressionFollowsRedirects(t *testing.T) {
 			http.Redirect(writer, request, "/final", http.StatusFound)
 			return
 		}
-		writer.Header().Set("Content-Encoding", "br")
+		writer.Header().Set("Content-Encoding", "gzip")
 		if _, err := writer.Write(compressed); err != nil {
 			t.Errorf("write compressed response: %v", err)
 		}
@@ -129,7 +115,7 @@ func TestHTTPAutomaticCompressionFollowsRedirects(t *testing.T) {
 	if stdout != string(payload) {
 		t.Fatalf("stdout = %q, want %q", stdout, payload)
 	}
-	if got := []string{<-received, <-received}; !slices.Equal(got, []string{"gzip, br, zstd", "gzip, br, zstd"}) {
+	if got := []string{<-received, <-received}; !slices.Equal(got, []string{"gzip", "gzip"}) {
 		t.Fatalf("redirect Accept-Encoding values = %q", got)
 	}
 }
@@ -137,20 +123,19 @@ func TestHTTPAutomaticCompressionFollowsRedirects(t *testing.T) {
 func TestHTTPExplicitAcceptEncodingPreservesResponse(t *testing.T) {
 	t.Parallel()
 
-	payload := []byte("explicitly compressed")
-	compressed := encodeHTTPTestBody(t, payload, "br")
+	compressed := encodeHTTPGzipTestBody(t, []byte("explicitly compressed"))
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("Accept-Encoding"); got != "br" {
-			t.Errorf("Accept-Encoding = %q, want br", got)
+		if got := request.Header.Get("Accept-Encoding"); got != "gzip" {
+			t.Errorf("Accept-Encoding = %q, want gzip", got)
 		}
-		writer.Header().Set("Content-Encoding", "br")
+		writer.Header().Set("Content-Encoding", "gzip")
 		if _, err := writer.Write(compressed); err != nil {
 			t.Errorf("write compressed response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
 
-	stdout, _, err := executeRootStreams(t, "http", server.URL, "-H", "Accept-Encoding: br")
+	stdout, _, err := executeRootStreams(t, "http", server.URL, "-H", "Accept-Encoding: gzip")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,33 +180,11 @@ func TestHTTPAutomaticCompressionSkipsIneligibleRequests(t *testing.T) {
 	}
 }
 
-func TestHTTPAutomaticCompressionContentEncodingChains(t *testing.T) {
-	t.Parallel()
-
-	payload := []byte("multiply encoded")
-	compressed := encodeHTTPTestBody(t, payload, "gzip", "br")
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Encoding", "gzip, br")
-		if _, err := writer.Write(compressed); err != nil {
-			t.Errorf("write compressed response: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	stdout, _, err := executeRootStreams(t, "http", server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stdout != string(payload) {
-		t.Fatalf("stdout = %q, want %q", stdout, payload)
-	}
-}
-
-func TestHTTPAutomaticCompressionPreservesUnknownContentEncoding(t *testing.T) {
+func TestHTTPAutomaticCompressionPreservesUnsupportedEncoding(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Encoding", "deflate")
+		writer.Header().Set("Content-Encoding", "zstd")
 		writeHTTPTestString(t, writer, "opaque")
 	}))
 	t.Cleanup(server.Close)
@@ -230,151 +193,64 @@ func TestHTTPAutomaticCompressionPreservesUnknownContentEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Content-Encoding: deflate") || !strings.HasSuffix(stdout, "opaque") {
-		t.Fatalf("response = %q, want untouched unknown encoding", stdout)
+	if !strings.Contains(stdout, "Content-Encoding: zstd") || !strings.HasSuffix(stdout, "opaque") {
+		t.Fatalf("response = %q, want untouched unsupported encoding", stdout)
 	}
 }
 
-func TestHTTPAutomaticCompressionReportsMalformedBodies(t *testing.T) {
+func TestHTTPAutomaticCompressionReportsMalformedGzip(t *testing.T) {
 	t.Parallel()
 
-	for _, coding := range []string{"gzip", "br", "zstd"} {
-		t.Run(coding, func(t *testing.T) {
-			t.Parallel()
-			compressed := encodeHTTPTestBody(t, []byte("truncated compressed body"), coding)
-			compressed = compressed[:len(compressed)/2]
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-				writer.Header().Set("Content-Encoding", coding)
-				if _, err := writer.Write(compressed); err != nil {
-					t.Errorf("write malformed response: %v", err)
-				}
-			}))
-			t.Cleanup(server.Close)
-
-			stdout, _, err := executeRootStreams(t, "http", server.URL, "--format", "json")
-			if err == nil {
-				t.Fatal("malformed compressed response succeeded")
-			}
-			envelope := decodeHTTPEnvelope(t, stdout)
-			if envelope.Complete || !strings.Contains(envelope.Error, coding) {
-				t.Fatalf("envelope = %+v, want %s decoding error", envelope, coding)
-			}
-		})
-	}
-}
-
-func TestHTTPAutomaticCompressionAllowsLargeStreamingBody(t *testing.T) {
-	t.Parallel()
-
-	payload := bytes.Repeat([]byte("streamed zstd response\n"), (9<<20)/23+1)
-	compressed := encodeHTTPZstdTestBody(t, payload, 1<<20)
-	body := &httpDecodedBody{source: io.NopCloser(bytes.NewReader(compressed)), codings: []string{"zstd"}}
-	count, err := io.Copy(io.Discard, body)
-	if err != nil {
-		t.Fatalf("decode body larger than window limit: %v", err)
-	}
-	if err := body.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if count != int64(len(payload)) {
-		t.Fatalf("decoded %d bytes, want %d", count, len(payload))
-	}
-}
-
-func TestHTTPAutomaticCompressionRejectsOversizedZstdWindow(t *testing.T) {
-	t.Parallel()
-
-	payload := bytes.Repeat([]byte("oversized zstd window\n"), (9<<20)/22+1)
-	compressed := encodeHTTPZstdTestBody(t, payload, 16<<20)
+	compressed := encodeHTTPGzipTestBody(t, []byte("truncated compressed body"))
+	compressed = compressed[:len(compressed)/2]
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Encoding", "zstd")
+		writer.Header().Set("Content-Encoding", "gzip")
 		if _, err := writer.Write(compressed); err != nil {
-			t.Errorf("write oversized-window response: %v", err)
+			t.Errorf("write malformed response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
 
 	stdout, _, err := executeRootStreams(t, "http", server.URL, "--format", "json")
 	if err == nil {
-		t.Fatal("oversized zstd window succeeded")
+		t.Fatal("malformed gzip response succeeded")
 	}
 	envelope := decodeHTTPEnvelope(t, stdout)
-	if envelope.Complete || !strings.Contains(envelope.Error, "zstd") {
-		t.Fatalf("envelope = %+v, want zstd window error", envelope)
+	if envelope.Complete || envelope.Error == "" {
+		t.Fatalf("envelope = %+v, want gzip decoding error", envelope)
 	}
 }
 
 func TestHTTPAutomaticCompressionIgnoresBodylessResponseEncoding(t *testing.T) {
 	t.Parallel()
 	for _, status := range []int{http.StatusNoContent, http.StatusResetContent, http.StatusNotModified} {
-		for _, coding := range []string{"gzip", "br", "zstd"} {
-			t.Run(strconv.Itoa(status)+"/"+coding, func(t *testing.T) {
-				t.Parallel()
-				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-					writer.Header().Set("Content-Encoding", coding)
-					writer.WriteHeader(status)
-				}))
-				t.Cleanup(server.Close)
-				stdout, _, err := executeRootStreams(t, "http", server.URL)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if stdout != "" {
-					t.Fatalf("stdout = %q, want empty body", stdout)
-				}
-			})
-		}
-	}
-}
-
-func encodeHTTPTestBody(tb testing.TB, payload []byte, codings ...string) []byte {
-	tb.Helper()
-	encoded := append([]byte(nil), payload...)
-	for _, coding := range codings {
-		var output bytes.Buffer
-		var writer io.WriteCloser
-		switch coding {
-		case "gzip":
-			writer = gzip.NewWriter(&output)
-		case "br":
-			writer = brotli.NewWriter(&output)
-		case "zstd":
-			var err error
-			writer, err = zstd.NewWriter(&output, zstd.WithEncoderConcurrency(1))
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Encoding", "gzip")
+				writer.WriteHeader(status)
+			}))
+			t.Cleanup(server.Close)
+			stdout, _, err := executeRootStreams(t, "http", server.URL)
 			if err != nil {
-				tb.Fatalf("create zstd test encoder: %v", err)
+				t.Fatal(err)
 			}
-		default:
-			tb.Fatalf("unsupported test coding %q", coding)
-		}
-		if _, err := writer.Write(encoded); err != nil {
-			tb.Fatalf("encode %s test body: %v", coding, err)
-		}
-		if err := writer.Close(); err != nil {
-			tb.Fatalf("close %s test encoder: %v", coding, err)
-		}
-		encoded = output.Bytes()
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty body", stdout)
+			}
+		})
 	}
-	return encoded
 }
 
-func encodeHTTPZstdTestBody(tb testing.TB, payload []byte, window int) []byte {
+func encodeHTTPGzipTestBody(tb testing.TB, payload []byte) []byte {
 	tb.Helper()
 	var output bytes.Buffer
-	writer, err := zstd.NewWriter(
-		&output,
-		zstd.WithEncoderConcurrency(1),
-		zstd.WithWindowSize(window),
-		zstd.WithSingleSegment(false),
-	)
-	if err != nil {
-		tb.Fatalf("create zstd test encoder: %v", err)
-	}
+	writer := gzip.NewWriter(&output)
 	if _, err := writer.Write(payload); err != nil {
-		tb.Fatalf("encode zstd test body: %v", err)
+		tb.Fatalf("encode gzip test body: %v", err)
 	}
 	if err := writer.Close(); err != nil {
-		tb.Fatalf("close zstd test encoder: %v", err)
+		tb.Fatalf("close gzip test encoder: %v", err)
 	}
 	return output.Bytes()
 }

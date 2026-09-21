@@ -32,9 +32,10 @@ func executeHTTPRequest(cmd *cobra.Command, options *httpOptions, prepared *http
 
 	request, cancel := httpRequestWithTimeout(prepared.request, options.requestTimeout)
 	defer cancel()
+	// An explicitly empty field opts out, while net/http otherwise treats it as absent.
+	transport.DisableCompression = len(request.Header.Values("Accept-Encoding")) != 0
 	stopBodyClose := closeHTTPBodyOnCancellation(request.Context(), prepared.body)
 	roundTripper, trace := httpTracingTransport(transport, options.trace)
-	roundTripper = httpCompressionTransport(roundTripper)
 
 	checkRedirect, redirectError := httpRedirectChecker(options)
 	client := &http.Client{
@@ -84,7 +85,6 @@ func newHTTPTransport(options *httpOptions, configuredTLS *tls.Config, resolver 
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		DialContext:         resolver.dialContext(dialer, options.timeout),
-		DisableCompression:  true,
 		ForceAttemptHTTP2:   true,
 		TLSClientConfig:     tlsConfig,
 		TLSHandshakeTimeout: options.timeout,

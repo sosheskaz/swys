@@ -22,8 +22,6 @@ const (
 	httpStdinAlways   = "always"
 	httpMediaTypeJSON = "application/json"
 	httpCodingGzip    = "gzip"
-	httpCodingBrotli  = "br"
-	httpCodingZstd    = "zstd"
 )
 
 var (
@@ -76,9 +74,8 @@ Explicit methods other than GET and HEAD automatically read non-terminal stdin
 unless a body option is supplied. Use --stdin never to disable this behavior.
 --trace writes diagnostics to stderr; with --format json it adds trace data to
 the response envelope, whose body is always a base64 string.
-HTTP header completion suggests common values only. Selecting deflate for
-Accept-Encoding requests an encoding npc does not decode; any explicit
-Accept-Encoding disables automatic negotiation and decompression.`,
+Only gzip is automatically negotiated and decompressed. Supplying any explicit
+Accept-Encoding value disables automatic negotiation and decompression.`,
 		Args: validateHTTPArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if prepared == nil {
