@@ -224,7 +224,7 @@ linters:
       forbid:
         - pattern: ^log\.
           pkg: log
-          msg: use internal/sys (logr) instead of the log package
+          msg: use internal/sys (slog) instead of the log package
         - pattern: ^fmt\.Print
           pkg: fmt
           msg: write to the command's writer (cmd.OutOrStdout / cmd.ErrOrStderr), not process-global stdout

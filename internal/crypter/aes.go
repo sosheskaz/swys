@@ -38,7 +38,7 @@ func newAESCrypter(key []byte, bufferSize int) (*AESCrypter, error) {
 	if bufferSize <= 0 || bufferSize%aes.BlockSize != 0 {
 		return nil, fmt.Errorf("%w: must be a positive multiple of %d, got %d", errInvalidBufferSize, aes.BlockSize, bufferSize)
 	}
-	sys.Log().V(1).Info("creating new AES crypter", "bits", len(key)*8)
+	sys.Log().Debug("creating new AES crypter", "bits", len(key)*8)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("create AES cipher: %w", err)

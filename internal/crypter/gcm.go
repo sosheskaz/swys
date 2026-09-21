@@ -64,7 +64,7 @@ type AESGCMCrypter struct {
 
 // NewAESGCMCrypter constructs an AES-GCM crypter from a 16-, 24-, or 32-byte key.
 func NewAESGCMCrypter(key []byte) (*AESGCMCrypter, error) {
-	sys.Log().V(1).Info("creating new AES-GCM crypter", "bits", len(key)*8)
+	sys.Log().Debug("creating new AES-GCM crypter", "bits", len(key)*8)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("create AES cipher: %w", err)

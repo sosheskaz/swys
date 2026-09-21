@@ -1,24 +1,16 @@
 // Package sys provides process-level infrastructure shared by commands.
 package sys
 
-import (
-	"log/slog"
+import "log/slog"
 
-	"github.com/go-logr/logr"
-)
-
-var logger logr.Logger
+var logger = slog.Default()
 
 // Log returns the process logger.
-func Log() logr.Logger {
+func Log() *slog.Logger {
 	return logger
 }
 
 // SetLogger replaces the process logger.
-func SetLogger(l logr.Logger) {
+func SetLogger(l *slog.Logger) {
 	logger = l
-}
-
-func init() {
-	logger = logr.FromSlogHandler(slog.Default().Handler())
 }
