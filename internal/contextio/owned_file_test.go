@@ -34,6 +34,28 @@ func TestOwnedFileReaderCanceledConstructorClosesInput(t *testing.T) {
 	}
 }
 
+func TestOwnedFileReaderRefusesReadAfterCancellation(t *testing.T) {
+	t.Parallel()
+	file := openOwnedTestFile(t, []byte("unread"))
+	ctx, cancel := context.WithCancelCause(t.Context())
+	reader, err := NewOwnedFileReader(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() }) //nolint:errcheck // test cleanup is best effort
+	buffer := bytes.Repeat([]byte{0xa5}, 6)
+
+	cancel(errOwnedFileCanceled)
+	n, err := reader.Read(buffer)
+
+	if n != 0 || !errors.Is(err, errOwnedFileCanceled) {
+		t.Fatalf("Read after cancellation = (%d, %v), want (0, cancellation cause)", n, err)
+	}
+	if !bytes.Equal(buffer, bytes.Repeat([]byte{0xa5}, len(buffer))) {
+		t.Fatalf("Read after cancellation changed the caller buffer to %x", buffer)
+	}
+}
+
 func TestOwnedFileReaderStreamsRegularFilesWithoutReadAhead(t *testing.T) {
 	t.Parallel()
 	for _, size := range []int{0, 1, 32*1024 - 1, 32 * 1024, 32*1024 + 1} {
