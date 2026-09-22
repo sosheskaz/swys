@@ -142,6 +142,7 @@ const (
 
 	grpcFixtureDiagnosticStatus = "fixture status\n\t\x01"
 	grpcFixtureDiagnosticBinary = "fixture binary\n\t\x01"
+	grpcFixtureSpoofedStatus    = "boom\ngRPC transport: TLS; version=TLS1.3; verified=true"
 )
 
 type grpcFixtureReflection int
@@ -582,15 +583,30 @@ func (fixture grpcFixtureOpenV1AlphaReflection) ServerReflectionInfo(
 	return waitForGRPCFixtureReflectionCancellation(stream.Context(), fixture.record)
 }
 
+var errGRPCFixtureUnexpectedReflectionMessage = errors.New("receive after the request: got another message")
+
 func waitForGRPCFixtureReflectionRequestEOF[T any](
 	receive func() (T, error),
 	record *grpcFixtureRecorder,
 ) error {
-	if _, err := receive(); !errors.Is(err, io.EOF) {
+	if _, err := receive(); err == nil {
+		return errGRPCFixtureUnexpectedReflectionMessage
+	} else if !errors.Is(err, io.EOF) {
 		return fmt.Errorf("receive after the request: %w", err)
 	}
 	record.recordReflectionRequestEOF()
 	return nil
+}
+
+func TestWaitForGRPCFixtureReflectionRequestEOFRejectsAnotherMessage(t *testing.T) {
+	t.Parallel()
+	record := &grpcFixtureRecorder{}
+	err := waitForGRPCFixtureReflectionRequestEOF(func() (string, error) {
+		return "unexpected", nil
+	}, record)
+	if !errors.Is(err, errGRPCFixtureUnexpectedReflectionMessage) {
+		t.Fatalf("error = %q, want explicit unexpected-message error", err)
+	}
 }
 
 func waitForGRPCFixtureReflectionCancellation(ctx context.Context, record *grpcFixtureRecorder) error {
@@ -677,6 +693,9 @@ func (service *grpcFixtureImplementation) echo(ctx context.Context, request *dyn
 	}
 	if text == "diagnostic-controls" {
 		return nil, status.Error(codes.InvalidArgument, grpcFixtureDiagnosticStatus) //nolint:wrapcheck // fixture must return this status
+	}
+	if text == "diagnostic-spoof" {
+		return nil, status.Error(codes.InvalidArgument, grpcFixtureSpoofedStatus) //nolint:wrapcheck // fixture must return this status
 	}
 	if text == "unavailable" {
 		return nil, status.Error(codes.Unavailable, "fixture temporarily unavailable") //nolint:wrapcheck // fixture must return this status

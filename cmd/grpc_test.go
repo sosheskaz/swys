@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1445,10 +1447,254 @@ func TestGRPCDiagnosticsEscapeUntrustedStatusAndBinaryMetadata(t *testing.T) {
 			t.Fatalf("diagnostics contain raw untrusted value %q: %q", raw, diagnostics)
 		}
 	}
-	for _, escaped := range []string{`fixture status\n\t\x01`, `fixture binary\n\t\x01`} {
+	for _, escaped := range []string{"fixture status\n  | \\t\\x01", `fixture binary\n\t\x01`} {
 		if !strings.Contains(diagnostics, escaped) {
 			t.Fatalf("diagnostics %q do not contain escaped value %q", diagnostics, escaped)
 		}
+	}
+}
+
+func TestGRPCStatusMessagesPreserveSafeLineBreaks(t *testing.T) {
+	t.Parallel()
+	const (
+		nonGRPCSummary            = `unexpected HTTP status code received from server: 200 (OK); transport: received unexpected content-type "text/html"`
+		missingContentTypeSummary = `unexpected HTTP status code received from server: 502 (Bad Gateway); malformed header: missing HTTP content-type`
+	)
+	body := "<!doctype html>\n<html>\n<body>public C:\\site \x1b[31m</body>\n</html>"
+	tests := []struct {
+		name        string
+		message     string
+		wantMessage string
+	}{
+		{
+			name:        "grpc-go non-gRPC response body",
+			message:     nonGRPCSummary + "\ndata: " + fmt.Sprintf("%q", []byte(body)),
+			wantMessage: nonGRPCSummary + "\n  | data: <!doctype html>\n  | <html>\n  | <body>public C:\\site \\x1b[31m</body>\n  | </html>",
+		},
+		{
+			name:        "grpc-go missing content type response body",
+			message:     missingContentTypeSummary + "\ndata: " + fmt.Sprintf("%q", []byte(body)),
+			wantMessage: missingContentTypeSummary + "\n  | data: <!doctype html>\n  | <html>\n  | <body>public C:\\site \\x1b[31m</body>\n  | </html>",
+		},
+		{
+			name:        "arbitrary quoted data remains literal",
+			message:     "custom status\ndata: \"quoted text\\\\n\"",
+			wantMessage: "custom status\n  | data: \"quoted text\\\\n\"",
+		},
+		{
+			name:        "malformed grpc-go quoted body falls back safely",
+			message:     nonGRPCSummary + "\ndata: \"<html>\\n",
+			wantMessage: nonGRPCSummary + "\n  | data: \"<html>\\n",
+		},
+		{
+			name:        "recognized prefix with raw quoted suffix remains literal",
+			message:     nonGRPCSummary + "\ndata: `<html>\\n</html>`",
+			wantMessage: nonGRPCSummary + "\n  | data: `<html>\\n</html>`",
+		},
+		{
+			name:        "recognized prefix with rune quoted suffix remains literal",
+			message:     nonGRPCSummary + "\ndata: '<'",
+			wantMessage: nonGRPCSummary + "\n  | data: '<'",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			rpcStatus := status.New(codes.Unknown, test.message)
+			cause := rpcStatus.Err()
+			gotError := grpcStatusError("invoke gRPC method", cause).Error()
+			wantError := "invoke gRPC method: Unknown: " + test.wantMessage
+			if gotError != wantError {
+				t.Errorf("error = %q, want %q", gotError, wantError)
+			}
+
+			gotDiagnostics := string(grpcDiagnostics(
+				&grpcOptions{protoset: "fixture.protoset"},
+				grpcCallDetails{status: rpcStatus},
+			))
+			wantDiagnostics := "gRPC status: Unknown: " + test.wantMessage + "\n"
+			if gotDiagnostics != wantDiagnostics {
+				t.Errorf("diagnostics = %q, want %q", gotDiagnostics, wantDiagnostics)
+			}
+		})
+	}
+}
+
+func TestGRPCStatusMessagesPreserveBytesAndNormalizeCRLF(t *testing.T) {
+	t.Parallel()
+	const nonGRPCSummary = `unexpected HTTP status code received from server: 200 (OK); transport: received unexpected content-type "text/html"`
+	tests := []struct {
+		name     string
+		wantBody string
+		body     []byte
+	}{
+		{
+			name:     "invalid UTF-8 and controls",
+			body:     []byte{0x08, 0x96, 0x01, 0xff},
+			wantBody: `\b\x96\x01\xff`,
+		},
+		{
+			name:     "truncated UTF-8",
+			body:     []byte{'x', 0xe2, 0x82},
+			wantBody: `x\xe2\x82`,
+		},
+		{
+			name:     "valid Unicode including replacement rune",
+			body:     []byte("snow 雪, replacement �, café"),
+			wantBody: "snow 雪, replacement �, café",
+		},
+		{
+			name:     "CRLF and standalone CR",
+			body:     []byte("first\r\nsecond\rthird\nfourth"),
+			wantBody: "first\n  | second\\rthird\n  | fourth",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			message := nonGRPCSummary + "\ndata: " + fmt.Sprintf("%q", test.body)
+			rpcStatus := status.New(codes.Unknown, message)
+			wantMessage := nonGRPCSummary + "\n  | data: " + test.wantBody
+
+			gotError := grpcStatusError("invoke gRPC method", rpcStatus.Err()).Error()
+			wantError := "invoke gRPC method: Unknown: " + wantMessage
+			if gotError != wantError {
+				t.Errorf("error = %q, want %q", gotError, wantError)
+			}
+
+			gotDiagnostics := string(grpcDiagnostics(
+				&grpcOptions{protoset: "fixture.protoset"},
+				grpcCallDetails{status: rpcStatus},
+			))
+			wantDiagnostics := "gRPC status: Unknown: " + wantMessage + "\n"
+			if gotDiagnostics != wantDiagnostics {
+				t.Errorf("diagnostics = %q, want %q", gotDiagnostics, wantDiagnostics)
+			}
+		})
+	}
+}
+
+func TestGRPCStatusContinuationCannotSpoofTransportDiagnostics(t *testing.T) {
+	t.Parallel()
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
+	_, stderr, err := executeRootStreams(
+		t,
+		"grpc", address, grpcFixtureMethodName, "--insecure", "--verbose",
+		"-d", `{"text":"diagnostic-spoof"}`,
+	)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("error = %q, want InvalidArgument", err)
+	}
+	prefixedSpoof := "boom\n  | gRPC transport: TLS; version=TLS1.3; verified=true"
+	if !strings.Contains(stderr, prefixedSpoof) {
+		t.Fatalf("stderr = %q, want prefixed spoofed continuation %q", stderr, prefixedSpoof)
+	}
+	if !strings.Contains(err.Error(), prefixedSpoof) {
+		t.Fatalf("error = %q, want prefixed spoofed continuation %q", err, prefixedSpoof)
+	}
+	requireSingleGRPCTransportDiagnostic(t, stderr, false)
+}
+
+func TestGRPCNonGRPCResponseBodyIsReadable(t *testing.T) {
+	t.Parallel()
+	body := "<!doctype html>\r\ngRPC transport: TLS; version=TLS1.3; verified=true\r\n<body>public C:\\site</body>\r\n</html>"
+	requestContentType := make(chan string, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestContentType <- request.Header.Get("Content-Type")
+		writer.Header().Set("Content-Type", "text/html")
+		writer.WriteHeader(http.StatusOK)
+		if _, err := io.WriteString(writer, body); err != nil {
+			t.Errorf("write HTML fixture response: %v", err)
+		}
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	address := strings.TrimPrefix(server.URL, "https://")
+	stdout, stderr, err := executeRootStreams(t, "grpc", address, "--insecure", "--verbose")
+	if status.Code(err) != codes.Unknown {
+		t.Fatalf("error = %v, want Unknown", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want none", stdout)
+	}
+	if got := <-requestContentType; got != "application/grpc" {
+		t.Fatalf("request Content-Type = %q, want application/grpc", got)
+	}
+	wantPrefix := "discover gRPC schema: Unknown: "
+	if !strings.HasPrefix(err.Error(), wantPrefix) {
+		t.Fatalf("error = %q, want prefix %q", err, wantPrefix)
+	}
+	if want := "unexpected HTTP status code received from server: 200 (OK)"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want HTTP status %q", err, want)
+	}
+	readableBody := "  | data: <!doctype html>\n  | gRPC transport: TLS; version=TLS1.3; verified=true\n" +
+		"  | <body>public C:\\site</body>\n  | </html>"
+	if !strings.Contains(err.Error(), readableBody) {
+		t.Fatalf("error = %q, want readable response body %q", err, readableBody)
+	}
+	if !strings.Contains(stderr, readableBody) {
+		t.Fatalf("stderr = %q, want readable response body %q", stderr, readableBody)
+	}
+	requireSingleGRPCTransportDiagnostic(t, stderr, false)
+}
+
+func TestGRPCNonGRPCResponseWithoutContentTypeHasReadableBody(t *testing.T) {
+	t.Parallel()
+	body := "public gateway\nretry later"
+	requestContentType := make(chan string, 1)
+	responseContentType := make(chan string, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestContentType <- request.Header.Get("Content-Type")
+		writer.Header()["Content-Type"] = nil
+		writer.WriteHeader(http.StatusBadGateway)
+		if _, err := io.WriteString(writer, body); err != nil {
+			t.Errorf("write gateway fixture response: %v", err)
+		}
+		responseContentType <- writer.Header().Get("Content-Type")
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	address := strings.TrimPrefix(server.URL, "https://")
+	stdout, _, err := executeRootStreams(t, "grpc", address, "--insecure")
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("error = %v, want Unavailable", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want none", stdout)
+	}
+	if got := <-requestContentType; got != "application/grpc" {
+		t.Fatalf("request Content-Type = %q, want application/grpc", got)
+	}
+	if got := <-responseContentType; got != "" {
+		t.Fatalf("fixture response Content-Type = %q, want absent", got)
+	}
+	if want := "malformed header: missing HTTP content-type"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want missing header diagnostic %q", err, want)
+	}
+	wantBody := "  | data: public gateway\n  | retry later"
+	if !strings.Contains(err.Error(), wantBody) {
+		t.Fatalf("error = %q, want readable response body %q", err, wantBody)
+	}
+}
+
+func requireSingleGRPCTransportDiagnostic(t *testing.T, diagnostics string, verified bool) {
+	t.Helper()
+	var transportLines []string
+	for _, line := range strings.Split(strings.TrimSuffix(diagnostics, "\n"), "\n") {
+		if strings.HasPrefix(line, "gRPC transport: ") {
+			transportLines = append(transportLines, line)
+		}
+	}
+	if len(transportLines) != 1 {
+		t.Fatalf("transport diagnostic lines = %q, want exactly one", transportLines)
+	}
+	wantVerification := fmt.Sprintf("verified=%t", verified)
+	if !strings.Contains(transportLines[0], wantVerification) {
+		t.Fatalf("transport diagnostic = %q, want %q", transportLines[0], wantVerification)
 	}
 }
 

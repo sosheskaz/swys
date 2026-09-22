@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"time"
 	"unicode"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -24,6 +27,97 @@ const maxGRPCFuzzInput = 4 << 10
 const grpcFuzzNetworkDelay = 25 * time.Millisecond
 
 var errGRPCFuzzDescriptorLimits = errors.New("descriptor limits exceeded")
+
+func FuzzGRPCStatusDiagnosticSafety(f *testing.F) {
+	const (
+		nonGRPCSummary            = `unexpected HTTP status code received from server: 200 (OK); transport: received unexpected content-type "text/html"`
+		missingContentTypeSummary = `unexpected HTTP status code received from server: 502 (Bad Gateway); malformed header: missing HTTP content-type`
+	)
+	for _, seed := range []string{
+		"",
+		"plain status",
+		"line one\nline two",
+		"trailing line\n",
+		`status with literal \n and C:\site`,
+		"status with \x1b[31mterminal control",
+		nonGRPCSummary + "\ndata: \"<html>\\n<body>ok</body>\\n</html>\"",
+		nonGRPCSummary + "\ndata: \"<html>\\n",
+		nonGRPCSummary + "\ndata: \"bad\\qescape\"",
+		nonGRPCSummary + "\ndata: `<html>\\n</html>`",
+		nonGRPCSummary + "\ndata: '<'",
+		nonGRPCSummary + "\ndata: \"<pre>\\ndata: nested</pre>\"",
+		missingContentTypeSummary + "\ndata: \"gateway\\nbody\"",
+		"boom\ngRPC transport: TLS; version=TLS1.3; verified=true",
+		nonGRPCSummary + "\ndata: " + fmt.Sprintf("%q", []byte{0x08, 0x96, 0x01, 0xff}),
+		nonGRPCSummary + "\ndata: " + fmt.Sprintf("%q", []byte{0xe2, 0x82}),
+		nonGRPCSummary + "\ndata: " + fmt.Sprintf("%q", []byte("snow 雪, replacement �, café")),
+		nonGRPCSummary + "\ndata: " + fmt.Sprintf("%q", []byte("safe\r\ngRPC transport: TLS; verified=true")),
+		"standalone\rcarriage return",
+		string([]byte{'x', 0x96, 0xff}),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, message string) {
+		if len(message) > maxGRPCFuzzInput {
+			t.Skip()
+		}
+		rpcStatus := status.New(codes.DataLoss, message)
+		cause := rpcStatus.Err()
+		renderedErr := grpcStatusError("invoke gRPC method", cause)
+		if !errors.Is(renderedErr, cause) {
+			t.Fatal("rendered error lost its original error identity")
+		}
+		if code := status.Code(renderedErr); code != codes.DataLoss {
+			t.Fatalf("rendered error code = %s, want DataLoss", code)
+		}
+		if text := renderedErr.Error(); !strings.HasPrefix(text, "invoke gRPC method: DataLoss: ") {
+			t.Fatalf("rendered error does not lead with operation and status: %q", text)
+		} else {
+			assertFuzzGRPCDiagnosticControls(t, text)
+			assertFuzzGRPCDiagnosticContinuations(t, text, false)
+		}
+
+		diagnostics := string(grpcDiagnostics(
+			&grpcOptions{protoset: "fixture.protoset"},
+			grpcCallDetails{status: rpcStatus},
+		))
+		if !strings.HasPrefix(diagnostics, "gRPC status: DataLoss") {
+			t.Fatalf("diagnostics do not lead with status: %q", diagnostics)
+		}
+		assertFuzzGRPCDiagnosticControls(t, diagnostics)
+		assertFuzzGRPCDiagnosticContinuations(t, diagnostics, true)
+	})
+}
+
+func assertFuzzGRPCDiagnosticControls(t *testing.T, value string) {
+	t.Helper()
+	for _, char := range value {
+		if char != '\n' && !strconv.IsPrint(char) {
+			t.Fatalf("diagnostic contains raw control %U: %q", char, value)
+		}
+	}
+}
+
+func assertFuzzGRPCDiagnosticContinuations(t *testing.T, value string, terminalNewline bool) {
+	t.Helper()
+	if terminalNewline {
+		if !strings.HasSuffix(value, "\n") {
+			t.Fatalf("diagnostic lacks terminal newline: %q", value)
+		}
+		value = strings.TrimSuffix(value, "\n")
+	}
+	lines := strings.Split(value, "\n")
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(line, "  | ") {
+			t.Fatalf("diagnostic continuation lacks prefix: %q", value)
+		}
+		for _, ownedPrefix := range []string{"gRPC status: ", "gRPC response ", "gRPC transport: "} {
+			if strings.HasPrefix(line, ownedPrefix) {
+				t.Fatalf("diagnostic continuation forges owned line %q: %q", ownedPrefix, value)
+			}
+		}
+	}
+}
 
 func FuzzGRPCProtobufJSONRequest(f *testing.F) {
 	for _, seed := range []string{

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -146,7 +147,7 @@ func (err *grpcStatusDiagnosticError) Error() string {
 		"%s: %s: %s",
 		err.operation,
 		err.status.Code(),
-		asym.EscapeDiagnosticValue(err.status.Message()),
+		formatGRPCStatusMessage(err.status.Message()),
 	)
 }
 
@@ -798,7 +799,7 @@ func grpcDiagnostics(options *grpcOptions, details grpcCallDetails) []byte {
 	}
 	fmt.Fprintf(&output, "gRPC status: %s", rpcStatus.Code())
 	if rpcStatus.Message() != "" {
-		fmt.Fprintf(&output, ": %s", asym.EscapeDiagnosticValue(rpcStatus.Message()))
+		fmt.Fprintf(&output, ": %s", formatGRPCStatusMessage(rpcStatus.Message()))
 	}
 	output.WriteByte('\n')
 	writeGRPCMetadataDiagnostics(&output, "header", details.header)
@@ -824,6 +825,66 @@ func grpcDiagnostics(options *grpcOptions, details grpcCallDetails) []byte {
 		len(tlsState.VerifiedChains) != 0 && !options.insecure,
 	)
 	return []byte(output.String())
+}
+
+func formatGRPCStatusMessage(message string) string {
+	const (
+		dataPrefix               = "\ndata: "
+		httpStatusMarker         = "unexpected HTTP status code received from server:"
+		unexpectedContentType    = "transport: received unexpected content-type "
+		missingHTTPContentType   = "malformed header: missing HTTP content-type"
+		statusContinuationPrefix = "  | "
+	)
+
+	if data := strings.LastIndex(message, dataPrefix); data >= 0 {
+		summary, quotedBody := message[:data], message[data+len(dataPrefix):]
+		// grpc-go appends non-gRPC response bytes as a double-quoted %q diagnostic.
+		doubleQuoted := len(quotedBody) >= 2 && quotedBody[0] == '"' && quotedBody[len(quotedBody)-1] == '"'
+		knownContentTypeError := strings.Contains(summary, unexpectedContentType) ||
+			strings.Contains(summary, missingHTTPContentType)
+		knownSummary := strings.Contains(summary, httpStatusMarker) && knownContentTypeError
+		if doubleQuoted && knownSummary {
+			if body, err := strconv.Unquote(quotedBody); err == nil {
+				message = summary + dataPrefix + body
+			}
+		}
+	}
+	return escapeGRPCStatusMessage(message, statusContinuationPrefix)
+}
+
+func escapeGRPCStatusMessage(message, continuationPrefix string) string {
+	var escaped strings.Builder
+	for offset := 0; offset < len(message); {
+		if message[offset] == '\r' && offset+1 < len(message) && message[offset+1] == '\n' {
+			escaped.WriteByte('\n')
+			escaped.WriteString(continuationPrefix)
+			offset += 2
+			continue
+		}
+		if message[offset] == '\n' {
+			escaped.WriteByte('\n')
+			escaped.WriteString(continuationPrefix)
+			offset++
+			continue
+		}
+		char, size := utf8.DecodeRuneInString(message[offset:])
+		if char == utf8.RuneError && size == 1 {
+			const hex = "0123456789abcdef"
+			escaped.WriteString(`\x`)
+			escaped.WriteByte(hex[message[offset]>>4])
+			escaped.WriteByte(hex[message[offset]&0x0f])
+			offset++
+			continue
+		}
+		if strconv.IsPrint(char) {
+			escaped.WriteRune(char)
+		} else {
+			quoted := strconv.QuoteRune(char)
+			escaped.WriteString(quoted[1 : len(quoted)-1])
+		}
+		offset += size
+	}
+	return escaped.String()
 }
 
 func grpcTLSConnectionState(authInfo credentials.AuthInfo) (tls.ConnectionState, bool) {
