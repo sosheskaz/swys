@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
@@ -154,10 +155,13 @@ const (
 	grpcFixtureReflectionHangingV1
 	grpcFixtureReflectionOpenV1
 	grpcFixtureReflectionOpenV1Alpha
+	grpcFixtureReflectionEOFBeforeResponseV1
+	grpcFixtureReflectionEOFBeforeResponseV1Alpha
 )
 
 type grpcFixtureRecorder struct {
 	reflectionResponseSent chan struct{}
+	reflectionRequestEOF   chan struct{}
 	reflectionContextDone  chan struct{}
 	reflectionStarted      chan struct{}
 	callStarted            chan struct{}
@@ -204,6 +208,13 @@ func (recorder *grpcFixtureRecorder) recordCallFinished() {
 func (recorder *grpcFixtureRecorder) recordReflectionResponseSent() {
 	select {
 	case recorder.reflectionResponseSent <- struct{}{}:
+	default:
+	}
+}
+
+func (recorder *grpcFixtureRecorder) recordReflectionRequestEOF() {
+	select {
+	case recorder.reflectionRequestEOF <- struct{}{}:
 	default:
 	}
 }
@@ -353,6 +364,7 @@ func startGRPCFixtureWithSchemaModeAt(
 
 	record := &grpcFixtureRecorder{
 		reflectionResponseSent: make(chan struct{}, 1),
+		reflectionRequestEOF:   make(chan struct{}, 1),
 		reflectionContextDone:  make(chan struct{}, 1),
 		reflectionStarted:      make(chan struct{}, 1),
 		callStarted:            make(chan struct{}, 1),
@@ -410,6 +422,22 @@ func startGRPCFixtureWithSchemaModeAt(
 			grpcFixtureOpenReflection: &grpcFixtureOpenReflection{
 				record:      record,
 				descriptors: marshalGRPCFixtureDescriptors(t, set),
+			},
+		})
+	case grpcFixtureReflectionEOFBeforeResponseV1:
+		reflectionv1.RegisterServerReflectionServer(server, grpcFixtureOpenV1Reflection{
+			grpcFixtureOpenReflection: &grpcFixtureOpenReflection{
+				record:            record,
+				descriptors:       marshalGRPCFixtureDescriptors(t, set),
+				waitForRequestEOF: true,
+			},
+		})
+	case grpcFixtureReflectionEOFBeforeResponseV1Alpha:
+		reflectionv1alpha.RegisterServerReflectionServer(server, grpcFixtureOpenV1AlphaReflection{
+			grpcFixtureOpenReflection: &grpcFixtureOpenReflection{
+				record:            record,
+				descriptors:       marshalGRPCFixtureDescriptors(t, set),
+				waitForRequestEOF: true,
 			},
 		})
 	default:
@@ -478,8 +506,9 @@ func (fixture grpcFixtureHangingV1Reflection) ServerReflectionInfo(stream reflec
 }
 
 type grpcFixtureOpenReflection struct {
-	record      *grpcFixtureRecorder
-	descriptors [][]byte
+	record            *grpcFixtureRecorder
+	descriptors       [][]byte
+	waitForRequestEOF bool
 }
 
 type grpcFixtureOpenV1Reflection struct {
@@ -493,6 +522,11 @@ func (fixture grpcFixtureOpenV1Reflection) ServerReflectionInfo(
 	request, err := stream.Recv()
 	if err != nil {
 		return fmt.Errorf("receive open v1 reflection request: %w", err)
+	}
+	if fixture.waitForRequestEOF {
+		if err := waitForGRPCFixtureReflectionRequestEOF(stream.Recv, fixture.record); err != nil {
+			return fmt.Errorf("wait for v1 reflection request EOF: %w", err)
+		}
 	}
 	response := &reflectionv1.ServerReflectionResponse{OriginalRequest: request}
 	if request.GetFileContainingSymbol() != "" {
@@ -525,6 +559,11 @@ func (fixture grpcFixtureOpenV1AlphaReflection) ServerReflectionInfo(
 	if err != nil {
 		return fmt.Errorf("receive open v1alpha reflection request: %w", err)
 	}
+	if fixture.waitForRequestEOF {
+		if err := waitForGRPCFixtureReflectionRequestEOF(stream.Recv, fixture.record); err != nil {
+			return fmt.Errorf("wait for v1alpha reflection request EOF: %w", err)
+		}
+	}
 	response := &reflectionv1alpha.ServerReflectionResponse{OriginalRequest: request}
 	if request.GetFileContainingSymbol() != "" {
 		response.MessageResponse = &reflectionv1alpha.ServerReflectionResponse_FileDescriptorResponse{
@@ -541,6 +580,17 @@ func (fixture grpcFixtureOpenV1AlphaReflection) ServerReflectionInfo(
 		return fmt.Errorf("send open v1alpha reflection response: %w", err)
 	}
 	return waitForGRPCFixtureReflectionCancellation(stream.Context(), fixture.record)
+}
+
+func waitForGRPCFixtureReflectionRequestEOF[T any](
+	receive func() (T, error),
+	record *grpcFixtureRecorder,
+) error {
+	if _, err := receive(); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("receive after the request: %w", err)
+	}
+	record.recordReflectionRequestEOF()
+	return nil
 }
 
 func waitForGRPCFixtureReflectionCancellation(ctx context.Context, record *grpcFixtureRecorder) error {

@@ -934,6 +934,10 @@ func reflectGRPCV1(
 		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
 			fmt.Errorf("send gRPC reflection v1 request: %w", err)
 	}
+	if err := stream.CloseSend(); err != nil {
+		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
+			fmt.Errorf("close gRPC reflection v1 request stream: %w", err)
+	}
 	response, err := stream.Recv()
 	details := grpcReflectionDetails(stream.Header, stream.Trailer, remotePeer, err)
 	if err != nil {
@@ -980,6 +984,10 @@ func reflectGRPCV1Alpha(
 	if err := stream.Send(request); err != nil {
 		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
 			fmt.Errorf("send gRPC reflection v1alpha request: %w", err)
+	}
+	if err := stream.CloseSend(); err != nil {
+		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
+			fmt.Errorf("close gRPC reflection v1alpha request stream: %w", err)
 	}
 	response, err := stream.Recv()
 	details := grpcReflectionDetails(stream.Header, stream.Trailer, remotePeer, err)

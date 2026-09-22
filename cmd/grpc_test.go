@@ -183,6 +183,66 @@ func TestGRPCReflectionFallsBackToV1Alpha(t *testing.T) {
 	}
 }
 
+func TestGRPCReflectionHalfClosesRequestBeforeWaitingForResponse(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name           string
+		wantOutput     string
+		selector       []string
+		reflectionMode grpcFixtureReflection
+	}{
+		{
+			name:           "v1 service discovery",
+			reflectionMode: grpcFixtureReflectionEOFBeforeResponseV1,
+			wantOutput:     grpcFixtureServiceName,
+		},
+		{
+			name:           "v1 symbol discovery",
+			reflectionMode: grpcFixtureReflectionEOFBeforeResponseV1,
+			selector:       []string{"--describe", "fixture.v1.EchoRequest"},
+			wantOutput:     "EchoRequest",
+		},
+		{
+			name:           "v1alpha symbol fallback",
+			reflectionMode: grpcFixtureReflectionEOFBeforeResponseV1Alpha,
+			selector:       []string{"--describe", "fixture.v1.EchoRequest"},
+			wantOutput:     "EchoRequest",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			address, _, record := startGRPCFixture(t, test.reflectionMode, false)
+			args := []string{"grpc", address, "--plaintext", "--timeout", "500ms"}
+			args = append(args, test.selector...)
+			stdout, _, err := executeRootStreams(t, args...)
+
+			observedRequestEOF := false
+			select {
+			case <-record.reflectionRequestEOF:
+				observedRequestEOF = true
+			default:
+			}
+			if err != nil {
+				v1Calls, alphaCalls := record.reflectionCounts()
+				t.Fatalf(
+					"reflection failed before response after request EOF=%t (calls v1=%d v1alpha=%d): %v",
+					observedRequestEOF,
+					v1Calls,
+					alphaCalls,
+					err,
+				)
+			}
+			if !observedRequestEOF {
+				t.Fatal("fixture responded without observing EOF on the reflection request stream")
+			}
+			if !strings.Contains(stdout, test.wantOutput) {
+				t.Fatalf("reflection output %q does not contain %q", stdout, test.wantOutput)
+			}
+		})
+	}
+}
+
 func TestGRPCReflectionDoesNotFallbackOnNonUnimplementedStatus(t *testing.T) {
 	t.Parallel()
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionDeniedV1WithAlpha, false)
