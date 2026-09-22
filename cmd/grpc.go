@@ -597,17 +597,12 @@ func readGRPCRequestFile(ctx context.Context, path string, limit int64) ([]byte,
 	if err != nil {
 		return nil, fmt.Errorf("read gRPC request JSON: %w", err)
 	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = file.Close() //nolint:errcheck // cancellation is the authoritative error
-		case <-done:
-		}
-	}()
-	data, readErr := readGRPCOwnedInput(ctx, file, limit+1)
-	close(done)
-	closeErr := file.Close()
+	reader, err := contextio.NewOwnedFileReader(ctx, file)
+	if err != nil {
+		return nil, fmt.Errorf("read gRPC request JSON: %w", err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(reader, limit+1))
+	closeErr := reader.Close()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		readErr = context.Cause(ctx)
 	} else if readErr == nil && closeErr != nil {

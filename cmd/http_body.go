@@ -126,7 +126,11 @@ func httpFileBody(ctx context.Context, path string, decoder inputDecoder, raw bo
 	if info.IsDir() {
 		return nil, errors.Join(fmt.Errorf("%w: HTTP body is a directory", errInvalidHTTPFlags), file.Close())
 	}
-	body := &httpBody{reader: decoder(file), close: file.Close, length: -1}
+	owned, err := contextio.NewOwnedFileReader(ctx, file)
+	if err != nil {
+		return nil, fmt.Errorf("prepare HTTP body: %w", err)
+	}
+	body := &httpBody{reader: decoder(owned), close: owned.Close, length: -1}
 	if info.Mode().IsRegular() {
 		if raw {
 			body.length = info.Size()
