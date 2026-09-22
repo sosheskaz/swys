@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -637,6 +638,37 @@ func TestResolveClonesTLSConfigBeforeDefaultingServerName(t *testing.T) {
 	}
 	if config.ServerName != "" {
 		t.Fatalf("caller TLS ServerName mutated to %q", config.ServerName)
+	}
+}
+
+func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
+	t.Parallel()
+
+	reservation, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := reservation.Addr().String()
+	if err := reservation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := mustEndpoint(t, "tls://"+address)
+	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	defer cancel()
+
+	_, err = dnsquery.Resolve(ctx, dnsquery.Request{
+		Resolver:  dnsquery.ResolverDirect,
+		Endpoint:  &endpoint,
+		Lookup:    "example.test",
+		Name:      "example.test",
+		Type:      externalDNS.TypeA,
+		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+	}, dnsquery.Dependencies{})
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("error = %v, want connection refused", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("DoT connection refusal exhausted the caller context: %v", ctx.Err())
 	}
 }
 

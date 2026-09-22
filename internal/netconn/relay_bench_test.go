@@ -27,7 +27,13 @@ func BenchmarkRelay(b *testing.B) {
 					_, readErr := io.CopyN(io.Discard, peer, int64(size))
 					peerDone <- errors.Join(readErr, peer.Close())
 				}()
-				if err := Relay(b.Context(), client, bytes.NewReader(payload), io.Discard, time.Second, true); err != nil {
+				if err := RelayWithOptions(
+					b.Context(),
+					client,
+					bytes.NewReader(payload),
+					io.Discard,
+					RelayOptions{Wait: time.Second, CloseWrite: true},
+				); err != nil {
 					b.Fatal(err)
 				}
 				if err := <-peerDone; err != nil {

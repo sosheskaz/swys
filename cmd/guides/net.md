@@ -14,16 +14,22 @@ Then choose TCP, TLS, or UDP. TLS verifies the peer by default on outgoing conne
 First terminal:
 
 ```sh
-printf 'hello from server\n' | npc net listen tcp localhost:9000 --close-write
+printf 'hello from server\n' | npc net listen tcp localhost:9000
 ```
 
 Second terminal:
 
 ```sh
-printf 'hello from client\n' | npc net connect tcp localhost:9000 --close-write
+printf 'hello from client\n' | npc net connect tcp localhost:9000
 ```
 
-Close-write signals the end of each message after stdin ends, so both sides can finish reading without waiting for the drain timeout.
+Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Peer EOF ends the command without waiting for more local input. Use duplex mode when sending must continue independently after peer EOF, or close-write=false when the protocol requires the outgoing side to remain open after input EOF.
+
+This makes local pipelines work without startup sleeps because the connector retries a refused TCP setup within its five-second setup timeout:
+
+```sh
+printf 'hello, world\n' | npc aes encrypt -K aes.key | npc net connect tcp localhost:4444 | npc net listen tcp localhost:4444 | npc aes decrypt -K aes.key
+```
 
 ## Next steps
 

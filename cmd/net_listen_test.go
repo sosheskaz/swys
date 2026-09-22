@@ -21,24 +21,72 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
 
 var errListenDiagnosticOutput = errors.New("diagnostic output failed")
 
-func TestNetListenTCPDefaultsToUnlimitedAcceptWait(t *testing.T) {
+func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 	t.Parallel()
 	if got := newNetListenTCPCmd().Flags().Lookup("timeout").DefValue; got != "0s" {
-		t.Fatalf("listen timeout default = %q, want 0s", got)
+		t.Errorf("listen timeout default = %q, want 0s", got)
 	}
-	if got := newNetConnectTCPCmd().Flags().Lookup("timeout").DefValue; got != "10s" {
-		t.Fatalf("connect timeout default = %q, want unchanged 10s", got)
+	if got := newNetConnectTCPCmd().Flags().Lookup("timeout").DefValue; got != "5s" {
+		t.Errorf("connect timeout default = %q, want 5s", got)
 	}
 	if got := newNetListenTLSCmd().Flags().Lookup("timeout").DefValue; got != "0s" {
-		t.Fatalf("TLS listen timeout default = %q, want 0s", got)
+		t.Errorf("TLS listen timeout default = %q, want 0s", got)
 	}
-	if got := newNetConnectTLSCmd().Flags().Lookup("timeout").DefValue; got != "10s" {
-		t.Fatalf("TLS connect timeout default = %q, want unchanged 10s", got)
+	if got := newNetConnectTLSCmd().Flags().Lookup("timeout").DefValue; got != "5s" {
+		t.Errorf("TLS connect timeout default = %q, want 5s", got)
+	}
+	for _, test := range []struct {
+		command *cobra.Command
+		name    string
+	}{
+		{name: "connect TCP", command: newNetConnectTCPCmd()},
+		{name: "connect TLS", command: newNetConnectTLSCmd()},
+		{name: "listen TCP", command: newNetListenTCPCmd()},
+		{name: "listen TLS", command: newNetListenTLSCmd()},
+	} {
+		if got := test.command.Flags().Lookup("wait").DefValue; got != "0s" {
+			t.Errorf("%s wait default = %q, want 0s", test.name, got)
+		}
+		if got := test.command.Flags().Lookup("close-write").DefValue; got != "true" {
+			t.Errorf("%s close-write default = %q, want true", test.name, got)
+		}
+	}
+}
+
+func TestNetStreamLifecycleFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []*cobra.Command{
+		newNetConnectTCPCmd(),
+		newNetConnectTLSCmd(),
+		newNetListenTCPCmd(),
+		newNetListenTLSCmd(),
+	} {
+		if err := command.Flags().Set("duplex", "true"); err != nil {
+			t.Fatal(err)
+		}
+		if err := command.Flags().Set("close-write", "false"); err != nil {
+			t.Fatal(err)
+		}
+		options, err := networkStreamOptionsFromCommand(command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !options.duplex || options.closeWrite {
+			t.Errorf(
+				"%s lifecycle options = duplex:%t close-write:%t, want true and false",
+				command.CommandPath(),
+				options.duplex,
+				options.closeWrite,
+			)
+		}
 	}
 }
 

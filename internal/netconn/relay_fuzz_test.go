@@ -40,13 +40,12 @@ func FuzzRelayPreservesBidirectionalBytes(f *testing.F) {
 		// CloseWrite forces that ordering instead of leaving it to the scheduler.
 		connection := newFuzzStreamConn(peer, peerChunk, closeWrite)
 		var output bytes.Buffer
-		err := Relay(
+		err := RelayWithOptions(
 			t.Context(),
 			connection,
 			newFuzzChunkReader(input, inputChunk),
 			&output,
-			0,
-			closeWrite,
+			RelayOptions{CloseWrite: closeWrite, Duplex: true},
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -91,7 +90,13 @@ func FuzzRelayPreservesPrefixesBeforeInputFailure(f *testing.F) {
 			newFuzzChunkReader(input, inputChunk),
 			iotest.ErrReader(errFuzzRelayInput),
 		)
-		err := Relay(t.Context(), connection, inputWithFailure, &output, 0, closeWrite)
+		err := RelayWithOptions(
+			t.Context(),
+			connection,
+			inputWithFailure,
+			&output,
+			RelayOptions{CloseWrite: closeWrite, Duplex: true},
+		)
 		if !errors.Is(err, errFuzzRelayInput) {
 			t.Fatalf("error = %v, want input failure", err)
 		}

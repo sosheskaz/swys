@@ -12,11 +12,13 @@ For HTTP, use the HTTP command so request framing, redirects, content decoding, 
 
 ## Inspect a local TCP service
 
-The service must already be listening on the selected port.
+The connector retries a refused TCP connection within its five-second setup timeout, so a local listener may start shortly afterward.
 
 ```sh
-printf 'status\n' | npc net connect tcp localhost:9000 --close-write
+printf 'status\n' | npc net connect tcp localhost:9000
 ```
+
+The setup timeout covers address resolution, connection, and the TLS handshake. It does not time an established byte stream; use an external process deadline when the whole exchange needs a fixed limit.
 
 ## Next steps
 

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"testing/iotest"
+	"testing/synctest"
 	"time"
 )
 
@@ -20,6 +21,8 @@ var (
 	errTestOutput        = errors.New("output failed")
 	errTestCloseWrite    = errors.New("close write failed")
 	errTestClose         = errors.New("close failed")
+	errTestRelayCanceled = errors.New("relay canceled")
+	errTestRelayWrapped  = errors.Join(errTestRelayCanceled, context.Canceled)
 )
 
 func TestRelayHalfClosesAndDrainsPeerResponse(t *testing.T) {
@@ -45,7 +48,13 @@ func TestRelayHalfClosesAndDrainsPeerResponse(t *testing.T) {
 	}()
 
 	var output bytes.Buffer
-	if err := Relay(t.Context(), client, strings.NewReader("request"), &output, time.Second, true); err != nil {
+	if err := RelayWithOptions(
+		t.Context(),
+		client,
+		strings.NewReader("request"),
+		&output,
+		RelayOptions{Wait: time.Second, CloseWrite: true},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-serverErr; err != nil {
@@ -56,7 +65,7 @@ func TestRelayHalfClosesAndDrainsPeerResponse(t *testing.T) {
 	}
 }
 
-func TestRelayContinuesSendingAfterPeerEOF(t *testing.T) {
+func TestRelayDuplexContinuesSendingAfterPeerEOF(t *testing.T) {
 	t.Parallel()
 
 	client, peer := newTCPStreamPair(t)
@@ -73,18 +82,16 @@ func TestRelayContinuesSendingAfterPeerEOF(t *testing.T) {
 
 	relayDone := make(chan error, 1)
 	go func() {
-		relayDone <- Relay(t.Context(), observed, input, io.Discard, time.Second, false)
+		relayDone <- RelayWithOptions(
+			t.Context(),
+			observed,
+			input,
+			io.Discard,
+			RelayOptions{Wait: time.Second, Duplex: true},
+		)
 	}()
 
 	waitForSignal(t, observed.peerEOF, "client receive EOF")
-	select {
-	case err := <-relayDone:
-		if closeErr := inputWriter.Close(); closeErr != nil {
-			t.Errorf("close input writer: %v", closeErr)
-		}
-		t.Fatalf("relay returned before input EOF: %v", err)
-	case <-time.After(25 * time.Millisecond):
-	}
 	if _, err := io.WriteString(inputWriter, "complete request"); err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +122,12 @@ func TestRelayReturnsSendFailureAfterPeerEOF(t *testing.T) {
 	releaseInput := make(chan struct{})
 	relayDone := make(chan error, 1)
 	go func() {
-		relayDone <- Relay(
+		relayDone <- RelayWithOptions(
 			t.Context(),
 			observed,
 			&gatedErrorReader{ready: releaseInput, err: errTestInput},
 			io.Discard,
-			time.Second,
-			false,
+			RelayOptions{Wait: time.Second, Duplex: true},
 		)
 	}()
 
@@ -155,7 +161,9 @@ func TestRelayReturnsReceiveFailureWithoutWaitingForInput(t *testing.T) {
 		serverDone <- writeErr
 	}()
 
-	err := Relay(t.Context(), client, input, failingWriter{err: errTestOutput}, time.Second, false)
+	err := RelayWithOptions(
+		t.Context(), client, input, failingWriter{err: errTestOutput}, RelayOptions{Wait: time.Second},
+	)
 	if closeErr := inputWriter.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
@@ -181,7 +189,9 @@ func TestRelayCancellationAfterPeerEOFDoesNotWaitForBlockedSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	relayDone := make(chan error, 1)
 	go func() {
-		relayDone <- Relay(ctx, observed, input, io.Discard, time.Second, false)
+		relayDone <- RelayWithOptions(
+			ctx, observed, input, io.Discard, RelayOptions{Wait: time.Second, Duplex: true},
+		)
 	}()
 	waitForSignal(t, observed.peerEOF, "client receive EOF")
 	cancel()
@@ -214,6 +224,96 @@ func TestFinishPeerFirstPrefersCompletedSendErrorOverCancellation(t *testing.T) 
 	}
 }
 
+func TestFinishPeerImmediatelyReturnsQueuedSendError(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newTCPStreamPair(t)
+	observed := newObservedStream(client)
+	sent := make(chan copyResult, 1)
+	sent <- copyResult{direction: sendInputData, err: errTestInput}
+
+	err := finishPeerImmediately(observed, sent, copyResult{direction: receivePeerData})
+	if !errors.Is(err, errTestInput) {
+		t.Fatalf("error = %v, want queued send failure", err)
+	}
+	if got := observed.closeCount(); got != 1 {
+		t.Fatalf("connection close count = %d, want 1", got)
+	}
+}
+
+func TestFinishPeerImmediatelyReturnsSendErrorQueuedWhileClosing(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newTCPStreamPair(t)
+	sent := make(chan copyResult, 1)
+	connection := &callbackCloseStream{
+		StreamConn: client,
+		beforeClose: func() {
+			sent <- copyResult{direction: sendInputData, err: errTestInput}
+		},
+	}
+
+	err := finishPeerImmediately(connection, sent, copyResult{direction: receivePeerData})
+	if !errors.Is(err, errTestInput) {
+		t.Fatalf("error = %v, want send failure completed during shutdown", err)
+	}
+}
+
+func TestFinishPeerImmediatelyIgnoresExpectedSendErrorsQueuedWhileClosing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		err  error
+		name string
+	}{
+		{name: "network closed", err: net.ErrClosed},
+		{name: "pipe closed", err: io.ErrClosedPipe},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, _ := newTCPStreamPair(t)
+			sent := make(chan copyResult, 1)
+			connection := &callbackCloseStream{
+				StreamConn: client,
+				beforeClose: func() {
+					sent <- copyResult{direction: sendInputData, err: test.err}
+				},
+			}
+
+			if err := finishPeerImmediately(connection, sent, copyResult{direction: receivePeerData}); err != nil {
+				t.Fatalf("error = %v, want local shutdown error suppressed", err)
+			}
+		})
+	}
+}
+
+func TestFinishPeerImmediatelyDoesNotWaitForSend(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newTCPStreamPair(t)
+	observed := newObservedStream(client)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- finishPeerImmediately(
+			observed,
+			make(chan copyResult),
+			copyResult{direction: receivePeerData},
+		)
+	}()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("peer EOF waited for an unfinished send")
+	}
+	if got := observed.closeCount(); got != 1 {
+		t.Fatalf("connection close count = %d, want 1", got)
+	}
+}
+
 func TestRelayDrainExpiryReturnsTimeoutAndPreservesPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -229,13 +329,12 @@ func TestRelayDrainExpiryReturnsTimeoutAndPreservesPrefix(t *testing.T) {
 
 	var output bytes.Buffer
 	const wait = 50 * time.Millisecond
-	err := Relay(
+	err := RelayWithOptions(
 		t.Context(),
 		observed,
 		&gatedEOFReader{ready: prefixWritten},
 		&output,
-		wait,
-		false,
+		RelayOptions{Wait: wait},
 	)
 	if !errors.Is(err, ErrDrainTimeout) {
 		t.Fatalf("error = %v, want ErrDrainTimeout", err)
@@ -307,7 +406,9 @@ func TestRelayZeroWaitDrainsUntilPeerEOF(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	var output bytes.Buffer
-	if err := Relay(ctx, client, strings.NewReader(""), &output, 0, true); err != nil {
+	if err := RelayWithOptions(
+		ctx, client, strings.NewReader(""), &output, RelayOptions{CloseWrite: true},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-serverErr; err != nil {
@@ -333,7 +434,7 @@ func TestRelayCancellationWaitsForReceiveCopy(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	relayDone := make(chan error, 1)
 	go func() {
-		relayDone <- Relay(ctx, observed, strings.NewReader(""), writer, 0, false)
+		relayDone <- RelayWithOptions(ctx, observed, strings.NewReader(""), writer, RelayOptions{})
 	}()
 	waitForSignal(t, writer.started, "receive output write")
 	cancel()
@@ -356,16 +457,81 @@ func TestRelayCancellationWaitsForReceiveCopy(t *testing.T) {
 
 func TestRelayCancellationClosesConnection(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		connection := newCancelBlockingStream()
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+		defer cancel()
 
-	client, peer := newPipeStream(t)
-	t.Cleanup(func() { closeTestConnection(t, "peer connection", peer) })
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
+		err := RelayWithOptions(ctx, connection, strings.NewReader(""), io.Discard, RelayOptions{})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want context deadline exceeded", err)
+		}
+		select {
+		case <-connection.closed:
+		default:
+			t.Fatal("relay cancellation did not close the connection")
+		}
+	})
+}
 
-	err := Relay(ctx, client, strings.NewReader(""), io.Discard, 0, false)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context deadline exceeded", err)
-	}
+func TestCancellationErrorIncludesCanonicalContextErrorOnce(t *testing.T) {
+	t.Parallel()
+	t.Run("canceled", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		err := cancellationError(ctx)
+		if got := strings.Count(err.Error(), context.Canceled.Error()); got != 1 {
+			t.Fatalf("canonical cancellation occurrences = %d in %q, want 1", got, err)
+		}
+	})
+	t.Run("deadline", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithDeadline(t.Context(), time.Time{})
+		defer cancel()
+
+		err := cancellationError(ctx)
+		if got := strings.Count(err.Error(), context.DeadlineExceeded.Error()); got != 1 {
+			t.Fatalf("canonical deadline occurrences = %d in %q, want 1", got, err)
+		}
+	})
+}
+
+func TestRelayPreservesCancellationCause(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		connection := newCancelBlockingStream()
+		ctx, cancel := context.WithCancelCause(t.Context())
+		relayDone := make(chan error, 1)
+		go func() {
+			relayDone <- RelayWithOptions(ctx, connection, strings.NewReader(""), io.Discard, RelayOptions{})
+		}()
+		synctest.Wait()
+		cancel(errTestRelayCanceled)
+
+		if err := <-relayDone; !errors.Is(err, errTestRelayCanceled) {
+			t.Fatalf("error = %v, want cancellation cause", err)
+		}
+	})
+}
+
+func TestRelayPreservesWrappedCancellationCause(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		connection := newCancelBlockingStream()
+		ctx, cancel := context.WithCancelCause(t.Context())
+		relayDone := make(chan error, 1)
+		go func() {
+			relayDone <- RelayWithOptions(ctx, connection, strings.NewReader(""), io.Discard, RelayOptions{})
+		}()
+		synctest.Wait()
+		cancel(errTestRelayWrapped)
+
+		if err := <-relayDone; !errors.Is(err, errTestRelayWrapped) {
+			t.Fatalf("error = %v, want exact wrapping cancellation cause", err)
+		}
+	})
 }
 
 func TestRelayAlreadyCanceledDoesNotWaitForBlockedInput(t *testing.T) {
@@ -377,7 +543,7 @@ func TestRelayAlreadyCanceledDoesNotWaitForBlockedInput(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := Relay(ctx, client, input, io.Discard, time.Second, false)
+	err := RelayWithOptions(ctx, client, input, io.Discard, RelayOptions{Wait: time.Second})
 	if closeErr := inputWriter.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
@@ -394,7 +560,13 @@ func TestRelayReturnsCloseWriteFailure(t *testing.T) {
 	go func() { serverDone <- drainConnection(peer) }()
 
 	connection := &failingCloseWriteStream{StreamConn: client, err: errTestCloseWrite}
-	err := Relay(t.Context(), connection, strings.NewReader(""), io.Discard, time.Second, true)
+	err := RelayWithOptions(
+		t.Context(),
+		connection,
+		strings.NewReader(""),
+		io.Discard,
+		RelayOptions{Wait: time.Second, CloseWrite: true},
+	)
 	if !errors.Is(err, errTestCloseWrite) {
 		t.Fatalf("error = %v, want CloseWrite failure", err)
 	}
@@ -407,7 +579,9 @@ func TestRelayRejectsNegativeWait(t *testing.T) {
 	t.Parallel()
 
 	client, _ := newTCPStreamPair(t)
-	err := Relay(t.Context(), client, strings.NewReader(""), io.Discard, -time.Second, false)
+	err := RelayWithOptions(
+		t.Context(), client, strings.NewReader(""), io.Discard, RelayOptions{Wait: -time.Second},
+	)
 	if !errors.Is(err, ErrInvalidWait) {
 		t.Fatalf("error = %v, want ErrInvalidWait", err)
 	}
@@ -423,7 +597,9 @@ func TestRelayClosesConnectionWhenInputFails(t *testing.T) {
 		peerDone <- errors.Join(err, peer.Close())
 	}()
 
-	err := Relay(t.Context(), client, iotest.ErrReader(errTestInput), io.Discard, time.Second, false)
+	err := RelayWithOptions(
+		t.Context(), client, iotest.ErrReader(errTestInput), io.Discard, RelayOptions{Wait: time.Second},
+	)
 	if !errors.Is(err, errTestInput) {
 		t.Fatalf("error = %v, want input failure", err)
 	}
@@ -443,7 +619,13 @@ func TestRelayReturnsOutputFailure(t *testing.T) {
 		peerDone <- errors.Join(err, peer.Close())
 	}()
 
-	err := Relay(t.Context(), client, strings.NewReader(""), failingWriter{err: errTestOutput}, time.Second, true)
+	err := RelayWithOptions(
+		t.Context(),
+		client,
+		strings.NewReader(""),
+		failingWriter{err: errTestOutput},
+		RelayOptions{Wait: time.Second, CloseWrite: true},
+	)
 	if !errors.Is(err, errTestOutput) {
 		t.Fatalf("error = %v, want output failure", err)
 	}
@@ -498,6 +680,63 @@ type blockingWriter struct {
 
 type failingWriter struct {
 	err error
+}
+
+type cancelBlockingStream struct {
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func newCancelBlockingStream() *cancelBlockingStream {
+	return &cancelBlockingStream{closed: make(chan struct{})}
+}
+
+func (connection *cancelBlockingStream) Read([]byte) (int, error) {
+	<-connection.closed
+	return 0, net.ErrClosed
+}
+
+func (*cancelBlockingStream) Write(buffer []byte) (int, error) {
+	return len(buffer), nil
+}
+
+func (connection *cancelBlockingStream) Close() error {
+	connection.closeOnce.Do(func() { close(connection.closed) })
+	return nil
+}
+
+func (*cancelBlockingStream) CloseWrite() error {
+	return nil
+}
+
+func (*cancelBlockingStream) LocalAddr() net.Addr {
+	return testNetAddr("local")
+}
+
+func (*cancelBlockingStream) RemoteAddr() net.Addr {
+	return testNetAddr("remote")
+}
+
+func (*cancelBlockingStream) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (*cancelBlockingStream) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (*cancelBlockingStream) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type testNetAddr string
+
+func (testNetAddr) Network() string {
+	return "test"
+}
+
+func (address testNetAddr) String() string {
+	return string(address)
 }
 
 func (writer failingWriter) Write([]byte) (int, error) {

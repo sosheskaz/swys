@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -109,6 +110,7 @@ func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
 		&commandGatedEOFReader{ready: responseStarted},
 		"net", "connect", "tcp", address,
 		"--output", outputPath,
+		"--close-write=false",
 		"--wait", "50ms",
 	)
 	if !errors.Is(err, netconn.ErrDrainTimeout) {
@@ -168,6 +170,41 @@ func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
 		t.Fatal(result.err)
 	}
 	if result.request != "request" || result.alpn != "" || !result.clientVerified {
+		t.Fatalf("server result = %+v", result)
+	}
+}
+
+func TestNetConnectTLSDefaultsToHalfCloseAndDrain(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	requestPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(requestPath, []byte("request"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address, serverResult := startTLSEOFResponseServer(t, &identity)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	root := newRootCmd()
+	root.SetContext(ctx)
+
+	stdout, stderr, err := executeRootCommandStreams(
+		t,
+		root,
+		"net", "connect", "tls", address,
+		"--input", requestPath,
+		"--ca", identity.caCert,
+		"--servername", "localhost",
+	)
+	if err != nil {
+		t.Fatalf("default TLS pipe exchange: %v", err)
+	}
+	if stdout != "response" {
+		t.Fatalf("response = %q, want response", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want quiet success", stderr)
+	}
+	if result := <-serverResult; result.err != nil || result.request != "request" {
 		t.Fatalf("server result = %+v", result)
 	}
 }
@@ -385,6 +422,31 @@ func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("TLS handshake connection was not accepted")
+	}
+}
+
+func TestCertConnectConnectionRefusedDoesNotRetry(t *testing.T) {
+	t.Parallel()
+
+	reservation, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := reservation.Addr().String()
+	if err := reservation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	defer cancel()
+	root := newRootCmd()
+	root.SetContext(ctx)
+
+	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", address, "--timeout", "0")
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("error = %v, want connection refused", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("certificate connection refusal exhausted the caller context: %v", ctx.Err())
 	}
 }
 
@@ -635,6 +697,54 @@ func startTLSExchangeServer(
 			request:        string(request),
 			alpn:           state.NegotiatedProtocol,
 			clientVerified: len(state.VerifiedChains) > 0,
+		}
+	}()
+	return listener.Addr().String(), result
+}
+
+func startTLSEOFResponseServer(
+	t *testing.T,
+	identity *networkTestIdentity,
+) (string, <-chan exchangeResult) {
+	t.Helper()
+	serverIdentity, err := tls.LoadX509KeyPair(identity.serverCert, identity.serverKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseListener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := tls.NewListener(baseListener, &tls.Config{
+		Certificates: []tls.Certificate{serverIdentity},
+		MinVersion:   tls.VersionTLS12,
+	})
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close TLS EOF listener: %v", closeErr)
+		}
+	})
+	result := make(chan exchangeResult, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			result <- exchangeResult{err: acceptErr}
+			return
+		}
+		tlsConnection, ok := connection.(*tls.Conn)
+		if !ok {
+			result <- exchangeResult{err: errors.Join(errNonTLSConnection, connection.Close())}
+			return
+		}
+		request, readErr := io.ReadAll(tlsConnection)
+		if readErr != nil {
+			result <- exchangeResult{request: string(request), err: errors.Join(readErr, tlsConnection.Close())}
+			return
+		}
+		_, writeErr := io.WriteString(tlsConnection, "response")
+		result <- exchangeResult{
+			request: string(request),
+			err:     errors.Join(writeErr, tlsConnection.Close()),
 		}
 	}()
 	return listener.Addr().String(), result

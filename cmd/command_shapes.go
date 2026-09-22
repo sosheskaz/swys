@@ -19,6 +19,7 @@ const (
 	formatFlagName               = "format"
 	defaultNetworkTimeout        = 10 * time.Second
 	defaultNetworkWait           = 5 * time.Second
+	defaultStreamConnectTimeout  = 5 * time.Second
 	commandShapeAnnotationPrefix = "npc.shape."
 	binaryOutputShape            = "binary-output"
 	sensitiveOutputShape         = "sensitive-output"
@@ -122,7 +123,7 @@ func networkSetupContext(parent context.Context, timeout time.Duration) (context
 func streamNetworkCommand(command *cobra.Command) *cobra.Command {
 	return streamNetworkCommandWithTimeout(
 		command,
-		defaultNetworkTimeout,
+		defaultStreamConnectTimeout,
 		"TCP setup and TLS handshake timeout (0 disables)",
 		false,
 	)
@@ -189,12 +190,13 @@ func streamNetworkCommandWithTimeout(
 	command.Flags().Duration("timeout", defaultTimeout, timeoutHelp)
 	command.Flags().Duration(
 		"wait",
-		defaultNetworkWait,
+		0,
 		"maximum response drain time after input EOF; expiry returns an error with partial output preserved (0 waits indefinitely)",
 	)
 	registerDurationCompletion(command, "timeout", "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"))
 	registerDurationCompletion(command, "wait", "Wait indefinitely while draining the response")
-	command.Flags().Bool("close-write", false, "half-close the connection write side after input EOF")
+	command.Flags().Bool("close-write", true, "half-close the connection write side after input EOF")
+	command.Flags().Bool("duplex", false, "keep sending input after the peer closes its write side")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args, allowEmptyHost)
 	command.ValidArgsFunction = cobra.NoFileCompletions

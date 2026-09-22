@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,38 @@ import (
 	"testing"
 	"time"
 )
+
+func TestExampleNetConnectTCPDefaultsToHalfCloseAndDrain(t *testing.T) {
+	t.Parallel()
+	requestPath := filepath.Join(t.TempDir(), "request")
+	if err := os.WriteFile(requestPath, []byte("request"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address, serverResult := startEOFResponseServer(t, "request", "response")
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	root := newRootCmd()
+	root.SetContext(ctx)
+
+	stdout, stderr, err := executeRootCommandStreams(
+		t,
+		root,
+		"net", "connect", "tcp", address,
+		"--input", requestPath,
+	)
+	if err != nil {
+		t.Fatalf("default TCP pipe exchange: %v", err)
+	}
+	if stdout != "response" {
+		t.Fatalf("response = %q, want response", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want quiet success", stderr)
+	}
+	if result := <-serverResult; result.err != nil || result.request != "request" {
+		t.Fatalf("server result = %+v", result)
+	}
+}
 
 func TestExampleNetConnectTCPHTTPResponse(t *testing.T) {
 	t.Parallel()
@@ -25,6 +58,7 @@ func TestExampleNetConnectTCPHTTPResponse(t *testing.T) {
 		t,
 		"net", "connect", "tcp", address,
 		"--input", requestPath,
+		"--close-write=false",
 		"--wait", "1s",
 	)
 	if err != nil {

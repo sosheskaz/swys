@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"github.com/sosheskaz-systems/npc/internal/contextio"
 )
 
 var (
@@ -22,6 +24,13 @@ type StreamConn interface {
 	CloseWrite() error
 }
 
+// RelayOptions controls stream shutdown after either copy direction finishes.
+type RelayOptions struct {
+	Wait       time.Duration
+	CloseWrite bool
+	Duplex     bool
+}
+
 type copyResult struct {
 	err       error
 	direction copyDirection
@@ -34,32 +43,51 @@ const (
 	sendInputData
 )
 
-// Relay copies input to the peer and peer data to output until both directions
-// finish, the drain period expires after input EOF, or the context is canceled.
-func Relay(
+// RelayWithOptions copies bytes in both directions according to the stream
+// shutdown policy in options.
+func RelayWithOptions(
 	ctx context.Context,
 	connection StreamConn,
 	input io.Reader,
 	output io.Writer,
-	wait time.Duration,
-	closeWrite bool,
+	options RelayOptions,
 ) error {
+	wait := options.Wait
 	if wait < 0 {
 		return fmt.Errorf("%w: %s", ErrInvalidWait, wait)
 	}
+	copyContext, cancelCopy := context.WithCancelCause(ctx)
+	defer cancelCopy(nil)
 
 	received := make(chan copyResult, 1)
 	sent := make(chan copyResult, 1)
 	go copyStream(received, receivePeerData, output, connection)
-	go copyStream(sent, sendInputData, connection, input)
+	go copyStream(sent, sendInputData, connection, contextio.NewReader(copyContext, input))
 
 	select {
 	case result := <-received:
+		if !options.Duplex {
+			return finishPeerImmediately(connection, sent, result)
+		}
 		return finishPeerFirst(ctx, connection, sent, result)
 	case result := <-sent:
-		return finishInputFirst(ctx, connection, received, result, wait, closeWrite)
+		return finishInputFirst(ctx, connection, received, result, wait, options.CloseWrite)
 	case <-ctx.Done():
-		return cancelRelay(connection, received, ctx.Err())
+		return cancelRelay(connection, received, cancellationError(ctx))
+	}
+}
+
+func finishPeerImmediately(
+	connection StreamConn,
+	sent <-chan copyResult,
+	received copyResult,
+) error {
+	closeErr := wrapCloseError(connection.Close())
+	select {
+	case result := <-sent:
+		return errors.Join(wrapCopyError(received), wrapExpectedCloseCopyError(result), closeErr)
+	default:
+		return errors.Join(wrapCopyError(received), closeErr)
 	}
 }
 
@@ -87,7 +115,7 @@ func finishPeerFirst(
 	case result := <-sent:
 		return finishPeerAndSend(connection, result)
 	case <-ctx.Done():
-		return errors.Join(ctx.Err(), wrapCloseError(connection.Close()))
+		return errors.Join(cancellationError(ctx), wrapCloseError(connection.Close()))
 	}
 }
 
@@ -116,7 +144,7 @@ func finishInputFirst(
 		case result := <-received:
 			return finishReceived(connection, result)
 		case <-ctx.Done():
-			return cancelRelay(connection, received, ctx.Err())
+			return cancelRelay(connection, received, cancellationError(ctx))
 		}
 	}
 
@@ -128,7 +156,7 @@ func finishInputFirst(
 	case <-timer.C:
 		return expireDrain(connection, received, wait)
 	case <-ctx.Done():
-		return cancelRelay(connection, received, ctx.Err())
+		return cancelRelay(connection, received, cancellationError(ctx))
 	}
 }
 
@@ -191,4 +219,16 @@ func wrapCloseError(err error) error {
 
 func isExpectedCloseError(err error) bool {
 	return err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe)
+}
+
+func cancellationError(ctx context.Context) error {
+	err := ctx.Err()
+	cause := context.Cause(ctx)
+	if cause == nil {
+		return fmt.Errorf("operation canceled: %w", err)
+	}
+	if cause == err { //nolint:err113,errorlint // exact identity must retain distinct causes that wrap err
+		return fmt.Errorf("operation canceled: %w", err)
+	}
+	return errors.Join(err, cause)
 }

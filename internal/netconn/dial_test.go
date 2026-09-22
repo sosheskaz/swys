@@ -5,13 +5,21 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+)
+
+var (
+	errDialRetryCanceled       = errors.New("dial retry canceled")
+	errDialWrappedCancellation = errors.Join(errDialRetryCanceled, context.DeadlineExceeded)
 )
 
 func TestDialTCPConnectsToLoopback(t *testing.T) {
@@ -49,6 +57,210 @@ func TestDialTCPConnectsToLoopback(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("TCP connection was not accepted")
+	}
+}
+
+func TestDialTCPRetryRefusedRetriesUntilContextExpires(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	connection, err := DialTCPRetryRefused(ctx, address)
+	if connection != nil {
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Errorf("close unexpected connection: %v", closeErr)
+		}
+		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want setup deadline after retrying connection refusal", err)
+	}
+}
+
+func TestDialTCPRetryRefusedConnectsWhenListenerStarts(t *testing.T) {
+	t.Parallel()
+
+	reservation, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := reservation.Addr().String()
+	if err := reservation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	type listenResult struct {
+		listener net.Listener
+		err      error
+	}
+	listenerStarted := make(chan listenResult, 1)
+	timer := time.AfterFunc(2*tcpRefusedRetryInterval, func() {
+		listener, listenErr := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
+		listenerStarted <- listenResult{listener: listener, err: listenErr}
+	})
+	t.Cleanup(func() { timer.Stop() })
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	connection, dialErr := DialTCPRetryRefused(ctx, address)
+	result := <-listenerStarted
+	if result.err != nil {
+		t.Fatalf("start delayed listener: %v", result.err)
+	}
+	t.Cleanup(func() {
+		if closeErr := result.listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close delayed listener: %v", closeErr)
+		}
+	})
+	if dialErr != nil {
+		t.Fatalf("dial before delayed listener startup: %v", dialErr)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	serverConnection, err := result.listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := serverConnection.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDialTCPRetryRefusedDoesNotRetryOtherErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	connection, err := DialTCPRetryRefused(ctx, "missing-port")
+	if connection != nil {
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Errorf("close unexpected connection: %v", closeErr)
+		}
+		t.Fatal("DialTCPRetryRefused returned a connection for an invalid address")
+	}
+	if err == nil {
+		t.Fatal("DialTCPRetryRefused accepted an address without a port")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("invalid address exhausted retry budget: %v", err)
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatalf("invalid address waited for setup context: %v", err)
+	default:
+	}
+}
+
+func TestDialTCPReturnsResolverDeadlineWithUnboundedParent(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	command := exec.CommandContext(
+		ctx,
+		os.Args[0],
+		"-test.run=^TestDialTCPResolverDeadlineProcess$",
+		"-test.count=1",
+	)
+	command.Env = append(os.Environ(), "NPC_DIAL_RESOLVER_DEADLINE_PROCESS=1", "GORACE=atexit_sleep_ms=0")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolver deadline child: %v\n%s", err, output)
+	}
+}
+
+func TestDialTCPResolverDeadlineProcess(_ *testing.T) { //nolint:paralleltest // isolated child mutates net.DefaultResolver and exits directly
+	if os.Getenv("NPC_DIAL_RESOLVER_DEADLINE_PROCESS") != "1" {
+		return
+	}
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(context.Context, string, string) (net.Conn, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}
+	watchdog := time.AfterFunc(250*time.Millisecond, func() {
+		fmt.Fprintln(os.Stderr, "DialTCP waited for an unbounded parent after the resolver deadline")
+		os.Exit(2)
+	})
+	connection, err := DialTCP(
+		context.Background(), //nolint:usetesting // an unbounded parent is the regression condition
+		"resolver-deadline.invalid:80",
+	)
+	watchdog.Stop()
+	if connection != nil {
+		_ = connection.Close() //nolint:errcheck // the unexpected connection is already a test failure
+		fmt.Fprintln(os.Stderr, "DialTCP returned an unexpected connection")
+		os.Exit(1)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		fmt.Fprintf(os.Stderr, "DialTCP error = %v, want resolver deadline\n", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*tcpRefusedRetryInterval, errDialRetryCanceled)
+	defer cancel()
+
+	connection, err := DialTCPRetryRefused(ctx, address)
+	if connection != nil {
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Errorf("close unexpected connection: %v", closeErr)
+		}
+		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
+	}
+	if !errors.Is(err, errDialRetryCanceled) {
+		t.Fatalf("error = %v, want cancellation cause", err)
+	}
+}
+
+func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeoutCause(
+		t.Context(),
+		2*tcpRefusedRetryInterval,
+		errDialWrappedCancellation,
+	)
+	defer cancel()
+
+	connection, err := DialTCPRetryRefused(ctx, address)
+	if connection != nil {
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Errorf("close unexpected connection: %v", closeErr)
+		}
+		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
+	}
+	if !errors.Is(err, errDialWrappedCancellation) {
+		t.Fatalf("error = %v, want exact wrapping cancellation cause", err)
 	}
 }
 

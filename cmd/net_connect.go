@@ -109,6 +109,7 @@ type networkStreamOptions struct {
 	timeout    time.Duration
 	wait       time.Duration
 	closeWrite bool
+	duplex     bool
 	verbose    bool
 }
 
@@ -124,7 +125,7 @@ func runNetConnectTCP(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	setupContext, cancel := networkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialTCP(setupContext, args[0])
+	connection, err := netconn.DialTCPRetryRefused(setupContext, args[0])
 	cancel()
 	if err != nil {
 		return err
@@ -134,13 +135,12 @@ func runNetConnectTCP(cmd *cobra.Command, args []string) error {
 			return errors.Join(err, connection.Close())
 		}
 	}
-	return netconn.Relay(
+	return netconn.RelayWithOptions(
 		cmd.Context(),
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
-		options.wait,
-		options.closeWrite,
+		netconn.RelayOptions{Wait: options.wait, CloseWrite: options.closeWrite, Duplex: options.duplex},
 	)
 }
 
@@ -225,7 +225,7 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	setupContext, cancel := networkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialTLS(setupContext, args[0], config)
+	connection, err := netconn.DialTLSRetryRefused(setupContext, args[0], config)
 	cancel()
 	if err != nil {
 		return err
@@ -235,13 +235,12 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 			return errors.Join(err, connection.Close())
 		}
 	}
-	return netconn.Relay(
+	return netconn.RelayWithOptions(
 		cmd.Context(),
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
-		options.wait,
-		options.closeWrite,
+		netconn.RelayOptions{Wait: options.wait, CloseWrite: options.closeWrite, Duplex: options.duplex},
 	)
 }
 
@@ -258,6 +257,10 @@ func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, 
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read close-write flag: %w", err)
 	}
+	duplex, err := cmd.Flags().GetBool("duplex")
+	if err != nil {
+		return networkStreamOptions{}, fmt.Errorf("read duplex flag: %w", err)
+	}
 	verbose, err := cmd.Flags().GetBool("verbose")
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read verbose flag: %w", err)
@@ -266,6 +269,7 @@ func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, 
 		timeout:    timeout,
 		wait:       wait,
 		closeWrite: closeWrite,
+		duplex:     duplex,
 		verbose:    verbose,
 	}, nil
 }

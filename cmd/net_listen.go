@@ -114,13 +114,12 @@ func runNetListenTCP(cmd *cobra.Command, args []string) error {
 			return errors.Join(err, connection.Close())
 		}
 	}
-	return netconn.Relay(
+	return netconn.RelayWithOptions(
 		cmd.Context(),
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
-		options.wait,
-		options.closeWrite,
+		netconn.RelayOptions{Wait: options.wait, CloseWrite: options.closeWrite, Duplex: options.duplex},
 	)
 }
 
@@ -239,13 +238,12 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 			return errors.Join(err, connection.Close())
 		}
 	}
-	return netconn.Relay(
+	return netconn.RelayWithOptions(
 		cmd.Context(),
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
-		options.wait,
-		options.closeWrite,
+		netconn.RelayOptions{Wait: options.wait, CloseWrite: options.closeWrite, Duplex: options.duplex},
 	)
 }
 
