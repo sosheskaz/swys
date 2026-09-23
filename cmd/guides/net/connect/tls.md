@@ -18,7 +18,7 @@ printf 'hello\n' | npc net connect tls service.example.test:443 --ca test-ca.pem
 
 The CA flag replaces system roots unless system-ca is also selected. Insecure mode disables certificate and hostname verification and is intended only for controlled diagnostics. ALPN selection does not transform payload bytes.
 
-Input EOF half-closes the outgoing side and response draining is unlimited by default. Duplex mode keeps sending after peer EOF. The five-second setup timeout includes TCP retries after connection refusal and one TLS handshake; established streams and application data are never retried.
+Input EOF half-closes the outgoing side and response draining is unlimited by default. Peer EOF waits for unfinished local input by default. Explicit --duplex=false exits on peer EOF and can discard outgoing data that has not yet been sent. The five-second setup timeout includes TCP retries after connection refusal and one TLS handshake; established streams and application data are never retried.
 
 Inspect presented certificates separately when troubleshooting trust.
 

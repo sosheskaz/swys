@@ -28,7 +28,7 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 
 	encrypt := newNetPipeProcess(ctx, "aes", "encrypt", "-K", keyPath)
 	connect := newNetPipeProcess(ctx, "net", "connect", "tcp", address)
-	listen := newNetPipeProcess(ctx, "net", "listen", "tcp", address)
+	listen := newNetPipeProcess(ctx, "net", "listen", "tcp", address, "-r")
 	decrypt := newNetPipeProcess(ctx, "aes", "decrypt", "-K", keyPath)
 	commands := []*exec.Cmd{encrypt, connect, listen, decrypt}
 
@@ -111,6 +111,47 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 	}
 }
 
+func TestExampleDefaultDuplexTransfersFullFileToListener(t *testing.T) {
+	t.Parallel()
+	payload := exampleStreamPayload("default duplex request\n")
+	inputPath := filepath.Join(t.TempDir(), "request.bin")
+	if err := os.WriteFile(inputPath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := startExampleListenCommand(
+		t,
+		strings.NewReader(""),
+		"net", "listen", "tcp", "127.0.0.1:0",
+		"--verbose",
+	)
+	address := readExampleListeningAddress(t, run.stderr, "listening tcp ")
+	remainingStderr := drainExampleStderr(run.stderr)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	root := newRootCmd()
+	root.SetContext(ctx)
+
+	stdout, stderr, err := executeRootCommandStreams(
+		t,
+		root,
+		"net", "connect", "tcp", address,
+		"--input", inputPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("connector output = stdout:%q stderr:%q, want empty", stdout, stderr)
+	}
+	if err := <-run.done; err != nil {
+		t.Fatal(err)
+	}
+	assertExamplePayload(t, run.stdout.Bytes(), payload)
+	if diagnostics := <-remainingStderr; !strings.Contains(diagnostics, "accepted tcp ") {
+		t.Fatalf("stderr = %q, want accepted endpoint summary", diagnostics)
+	}
+}
+
 func TestNetConnectTCPPeerEOFStopsBlockedInput(t *testing.T) {
 	t.Parallel()
 	address, serverDone := startNetPipePeerEOFServer(t, "response")
@@ -121,7 +162,12 @@ func TestNetConnectTCPPeerEOFStopsBlockedInput(t *testing.T) {
 	root.SetContext(ctx)
 	root.SetIn(input)
 
-	stdout, stderr, err := executeRootCommandStreams(t, root, "net", "connect", "tcp", address)
+	stdout, stderr, err := executeRootCommandStreams(
+		t,
+		root,
+		"net", "connect", "tcp", address,
+		"--duplex=false",
+	)
 	if closeErr := inputWriter.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}

@@ -26,9 +26,10 @@ type StreamConn interface {
 
 // RelayOptions controls stream shutdown after either copy direction finishes.
 type RelayOptions struct {
-	Wait       time.Duration
-	CloseWrite bool
-	Duplex     bool
+	Wait        time.Duration
+	CloseWrite  bool
+	Duplex      bool
+	ReceiveOnly bool
 }
 
 type copyResult struct {
@@ -56,6 +57,9 @@ func RelayWithOptions(
 	if wait < 0 {
 		return fmt.Errorf("%w: %s", ErrInvalidWait, wait)
 	}
+	if options.ReceiveOnly {
+		return receiveOnly(ctx, connection, output)
+	}
 	copyContext, cancelCopy := context.WithCancelCause(ctx)
 	defer cancelCopy(nil)
 
@@ -72,6 +76,17 @@ func RelayWithOptions(
 		return finishPeerFirst(ctx, connection, sent, result)
 	case result := <-sent:
 		return finishInputFirst(ctx, connection, received, result, wait, options.CloseWrite)
+	case <-ctx.Done():
+		return cancelRelay(connection, received, cancellationError(ctx))
+	}
+}
+
+func receiveOnly(ctx context.Context, connection StreamConn, output io.Writer) error {
+	received := make(chan copyResult, 1)
+	go copyStream(received, receivePeerData, output, connection)
+	select {
+	case result := <-received:
+		return finishReceived(connection, result)
 	case <-ctx.Done():
 		return cancelRelay(connection, received, cancellationError(ctx))
 	}

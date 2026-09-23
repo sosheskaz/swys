@@ -119,7 +119,10 @@ func runNetListenTCP(cmd *cobra.Command, args []string) error {
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
-		netconn.RelayOptions{Wait: options.wait, CloseWrite: options.closeWrite, Duplex: options.duplex},
+		netconn.RelayOptions{
+			Wait: options.wait, CloseWrite: options.closeWrite,
+			Duplex: options.duplex, ReceiveOnly: options.receiveOnly,
+		},
 	)
 }
 
@@ -243,7 +246,10 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
-		netconn.RelayOptions{Wait: options.wait, CloseWrite: options.closeWrite, Duplex: options.duplex},
+		netconn.RelayOptions{
+			Wait: options.wait, CloseWrite: options.closeWrite,
+			Duplex: options.duplex, ReceiveOnly: options.receiveOnly,
+		},
 	)
 }
 

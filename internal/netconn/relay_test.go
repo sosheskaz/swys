@@ -634,6 +634,63 @@ func TestRelayReturnsOutputFailure(t *testing.T) {
 	}
 }
 
+func TestRelayReceiveOnlyPreservesCancellationCause(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		connection := newCancelBlockingStream()
+		ctx, cancel := context.WithCancelCause(t.Context())
+		relayDone := make(chan error, 1)
+		go func() {
+			relayDone <- RelayWithOptions(
+				ctx,
+				connection,
+				iotest.ErrReader(errTestInput),
+				io.Discard,
+				RelayOptions{ReceiveOnly: true},
+			)
+		}()
+		synctest.Wait()
+		cancel(errTestRelayWrapped)
+
+		if err := <-relayDone; !errors.Is(err, errTestRelayWrapped) {
+			t.Fatalf("error = %v, want exact wrapping cancellation cause", err)
+		}
+		select {
+		case <-connection.closed:
+		default:
+			t.Fatal("receive-only cancellation did not close the connection")
+		}
+	})
+}
+
+func TestRelayReceiveOnlyReturnsOutputFailureWithoutReadingInput(t *testing.T) {
+	t.Parallel()
+
+	client, peer := newPipeStream(t)
+	peerDone := make(chan error, 1)
+	go func() {
+		_, writeErr := io.WriteString(peer, "response")
+		peerDone <- errors.Join(writeErr, peer.Close())
+	}()
+
+	err := RelayWithOptions(
+		t.Context(),
+		client,
+		iotest.ErrReader(errTestInput),
+		failingWriter{err: errTestOutput},
+		RelayOptions{ReceiveOnly: true},
+	)
+	if !errors.Is(err, errTestOutput) {
+		t.Fatalf("error = %v, want output failure", err)
+	}
+	if errors.Is(err, errTestInput) {
+		t.Fatalf("error = %v, receive-only relay read input", err)
+	}
+	if err := <-peerDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 type pipeStream struct {
 	net.Conn
 	writeClosed chan struct{}

@@ -106,11 +106,12 @@ payload: when h2 is selected, input must contain valid HTTP/2 frames.`,
 }
 
 type networkStreamOptions struct {
-	timeout    time.Duration
-	wait       time.Duration
-	closeWrite bool
-	duplex     bool
-	verbose    bool
+	timeout     time.Duration
+	wait        time.Duration
+	closeWrite  bool
+	duplex      bool
+	receiveOnly bool
+	verbose     bool
 }
 
 type networkDatagramConnectOptions struct {
@@ -265,12 +266,20 @@ func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, 
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read verbose flag: %w", err)
 	}
+	receiveOnly := false
+	if cmd.Flags().Lookup("recv-only") != nil {
+		receiveOnly, err = cmd.Flags().GetBool("recv-only")
+		if err != nil {
+			return networkStreamOptions{}, fmt.Errorf("read recv-only flag: %w", err)
+		}
+	}
 	return networkStreamOptions{
-		timeout:    timeout,
-		wait:       wait,
-		closeWrite: closeWrite,
-		duplex:     duplex,
-		verbose:    verbose,
+		timeout:     timeout,
+		wait:        wait,
+		closeWrite:  closeWrite,
+		duplex:      duplex,
+		receiveOnly: receiveOnly,
+		verbose:     verbose,
 	}, nil
 }
 
@@ -503,6 +512,18 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 		}
 		if wait < 0 {
 			return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)
+		}
+	}
+	if cmd.Flags().Lookup("recv-only") != nil {
+		receiveOnly, err := cmd.Flags().GetBool("recv-only")
+		if err != nil {
+			return fmt.Errorf("read recv-only flag: %w", err)
+		}
+		if receiveOnly && cmd.Flags().Changed("duplex") {
+			return fmt.Errorf("%w: --recv-only cannot be combined with --duplex", errInvalidNetworkFlags)
+		}
+		if receiveOnly && cmd.Flags().Changed("input") {
+			return fmt.Errorf("%w: --recv-only cannot be combined with --input", errInvalidNetworkFlags)
 		}
 	}
 	if commandHasShape(cmd, "net-listen-tls") {

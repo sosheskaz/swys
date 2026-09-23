@@ -16,7 +16,7 @@ Start the listener before the client.
 printf 'hello from server\n' | npc net listen tcp localhost:9000
 ```
 
-Input EOF half-closes the accepted stream and response draining is unlimited by default. Peer EOF normally ends the command without waiting for more local input; duplex mode keeps both directions independent. Omitting the host listens on all available local IPv4 and IPv6 addresses. Bind to a specific interface when broad exposure is not intended.
+Input EOF half-closes the accepted stream and response draining is unlimited by default. Peer EOF waits for unfinished local input by default. Explicit --duplex=false exits on peer EOF and can discard outgoing data that has not yet been sent. Use --recv-only (-r) to drain the peer without reading stdin or sending a response; the listener keeps its write half open until the peer reaches EOF. Omitting the host listens on all available local IPv4 and IPv6 addresses. Bind to a specific interface when broad exposure is not intended.
 
 ## Next steps
 

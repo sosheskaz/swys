@@ -14,7 +14,7 @@ Client certificates are optional by default. Supplying a client CA bundle requir
 
 ALPN selection does not transform application bytes. Omit the host only when listening on every local interface is intended.
 
-TLS streams use the same pipe lifecycle as TCP: input EOF half-closes sending, peer EOF normally ends blocked input, and duplex mode keeps the directions independent. Listener setup waits indefinitely by default; a positive timeout bounds bind, accept, and handshake setup.
+TLS streams use the same pipe lifecycle as TCP: input EOF half-closes sending, and peer EOF waits for unfinished local input by default. Explicit --duplex=false can discard outgoing data that has not yet been sent. Use --recv-only (-r) to drain the peer without reading stdin or sending application data. Listener setup waits indefinitely by default; a positive timeout bounds bind, accept, and handshake setup.
 
 ## Related guide
 

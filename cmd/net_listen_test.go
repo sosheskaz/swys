@@ -57,6 +57,44 @@ func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 		if got := test.command.Flags().Lookup("close-write").DefValue; got != "true" {
 			t.Errorf("%s close-write default = %q, want true", test.name, got)
 		}
+		if got := test.command.Flags().Lookup("duplex").DefValue; got != "true" {
+			t.Errorf("%s duplex default = %q, want true", test.name, got)
+		}
+		if got := test.command.Flags().Lookup("duplex").Shorthand; got != "d" {
+			t.Errorf("%s duplex shorthand = %q, want d", test.name, got)
+		}
+	}
+	for _, test := range []struct {
+		command *cobra.Command
+		name    string
+	}{
+		{name: "listen TCP", command: newNetListenTCPCmd()},
+		{name: "listen TLS", command: newNetListenTLSCmd()},
+	} {
+		flag := test.command.Flags().Lookup("recv-only")
+		if flag == nil {
+			t.Errorf("%s has no recv-only flag", test.name)
+			continue
+		}
+		if flag.DefValue != "false" || flag.Shorthand != "r" {
+			t.Errorf(
+				"%s recv-only flag = default:%q shorthand:%q, want false and r",
+				test.name,
+				flag.DefValue,
+				flag.Shorthand,
+			)
+		}
+	}
+	for _, test := range []struct {
+		command *cobra.Command
+		name    string
+	}{
+		{name: "connect TCP", command: newNetConnectTCPCmd()},
+		{name: "connect TLS", command: newNetConnectTLSCmd()},
+	} {
+		if flag := test.command.Flags().Lookup("recv-only"); flag != nil {
+			t.Errorf("%s unexpectedly has recv-only flag", test.name)
+		}
 	}
 }
 
@@ -69,7 +107,7 @@ func TestNetStreamLifecycleFlags(t *testing.T) {
 		newNetListenTCPCmd(),
 		newNetListenTLSCmd(),
 	} {
-		if err := command.Flags().Set("duplex", "true"); err != nil {
+		if err := command.Flags().Set("duplex", "false"); err != nil {
 			t.Fatal(err)
 		}
 		if err := command.Flags().Set("close-write", "false"); err != nil {
@@ -79,14 +117,34 @@ func TestNetStreamLifecycleFlags(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !options.duplex || options.closeWrite {
+		if options.duplex || options.closeWrite {
 			t.Errorf(
-				"%s lifecycle options = duplex:%t close-write:%t, want true and false",
+				"%s lifecycle options = duplex:%t close-write:%t, want both false",
 				command.CommandPath(),
 				options.duplex,
 				options.closeWrite,
 			)
 		}
+	}
+}
+
+func TestNetListenTCPReceiveOnlyRejectsConflictingInputModesBeforeIO(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "duplex", args: []string{"--recv-only", "--duplex"}},
+		{name: "input", args: []string{"--recv-only", "--input", filepath.Join(t.TempDir(), "missing")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"net", "listen", "tcp", "127.0.0.1:0"}, test.args...)
+			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
+				t.Fatalf("error = %v, want errInvalidNetworkFlags before input setup", err)
+			}
+		})
 	}
 }
 

@@ -224,9 +224,10 @@ They do not accept filename operands, labels, manifests, or multiple inputs.
 ### Raw TCP, TLS, and UDP walkthrough
 
 `net connect` sends stdin or `--input` to an endpoint and copies the peer's
-response to stdout or `--output`. At input EOF, it keeps the connection's write
-side open while draining the response; `--close-write` opts into a TCP
-half-close for protocols that require EOF before responding. The TCP form is a
+response to stdout or `--output`. At input EOF, it half-closes the connection's
+write side and drains the response. Peer EOF waits for unfinished local input by
+default; explicit `--duplex=false` can discard data that has not yet been sent.
+`--close-write=false` keeps the write side open after input EOF. The TCP form is a
 compact netcat-style exchange:
 
 ```fish
@@ -337,6 +338,10 @@ Connect from another terminal:
 ```fish
 printf 'hello from client\n' | npc net connect tcp 127.0.0.1:9000 --close-write
 ```
+
+Use `--recv-only` (`-r`) when the listener should drain the peer without
+reading stdin or sending a response. Its write half remains open until peer EOF.
+This is useful at the receiving end of a circular pipeline.
 
 The listener waits indefinitely for its connection by default. Set a positive
 `--timeout` to bound address resolution, binding, and accepting. Port `0` asks

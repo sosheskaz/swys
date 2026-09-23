@@ -23,12 +23,12 @@ Second terminal:
 printf 'hello from client\n' | npc net connect tcp localhost:9000
 ```
 
-Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Peer EOF ends the command without waiting for more local input. Use duplex mode when sending must continue independently after peer EOF, or close-write=false when the protocol requires the outgoing side to remain open after input EOF.
+Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Sending and receiving are independent by default, so peer EOF does not discard unfinished local input. Explicit --duplex=false restores early exit on peer EOF and can discard outgoing data that has not yet been sent. Use --close-write=false when input EOF must leave the outgoing side open.
 
 This makes local pipelines work without startup sleeps because the connector retries a refused TCP setup within its five-second setup timeout:
 
 ```sh
-printf 'hello, world\n' | npc aes encrypt -K aes.key | npc net connect tcp localhost:4444 | npc net listen tcp localhost:4444 | npc aes decrypt -K aes.key
+printf 'hello, world\n' | npc aes encrypt -K aes.key | npc net connect tcp localhost:4444 | npc net listen tcp localhost:4444 -r | npc aes decrypt -K aes.key
 ```
 
 ## Next steps

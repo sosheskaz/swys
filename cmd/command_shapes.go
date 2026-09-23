@@ -149,12 +149,14 @@ func connectDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
 }
 
 func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
-	return streamNetworkCommandWithTimeout(
+	command = streamNetworkCommandWithTimeout(
 		command,
 		0,
 		"bind resolution and accept timeout (0 disables)",
 		true,
 	)
+	command.Flags().BoolP("recv-only", "r", false, "receive peer data without reading or sending input")
+	return command
 }
 
 func listenDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
@@ -171,12 +173,14 @@ func listenDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
 }
 
 func listenTLSStreamNetworkCommand(command *cobra.Command) *cobra.Command {
-	return streamNetworkCommandWithTimeout(
+	command = streamNetworkCommandWithTimeout(
 		command,
 		0,
 		"bind resolution, accept, and TLS handshake timeout (0 disables)",
 		true,
 	)
+	command.Flags().BoolP("recv-only", "r", false, "receive peer data without reading or sending input")
+	return command
 }
 
 func streamNetworkCommandWithTimeout(
@@ -196,7 +200,7 @@ func streamNetworkCommandWithTimeout(
 	registerDurationCompletion(command, "timeout", "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"))
 	registerDurationCompletion(command, "wait", "Wait indefinitely while draining the response")
 	command.Flags().Bool("close-write", true, "half-close the connection write side after input EOF")
-	command.Flags().Bool("duplex", false, "keep sending input after the peer closes its write side")
+	command.Flags().BoolP("duplex", "d", true, "keep sending input after the peer closes its write side")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args, allowEmptyHost)
 	command.ValidArgsFunction = cobra.NoFileCompletions

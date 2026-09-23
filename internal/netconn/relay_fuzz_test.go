@@ -115,6 +115,43 @@ func FuzzRelayPreservesPrefixesBeforeInputFailure(f *testing.F) {
 	})
 }
 
+func FuzzRelayReceiveOnlyPreservesBytes(f *testing.F) {
+	f.Add([]byte{}, uint8(1))
+	f.Add([]byte("response"), uint8(3))
+	f.Add([]byte{0x00, 0xff, 0x80, 0x7f}, uint8(255))
+
+	f.Fuzz(func(t *testing.T, peer []byte, peerChunk uint8) {
+		if len(peer) > maxFuzzRelayPayloadSize {
+			t.Skip()
+		}
+
+		connection := newFuzzStreamConn(peer, peerChunk, false)
+		var output bytes.Buffer
+		err := RelayWithOptions(
+			t.Context(),
+			connection,
+			iotest.ErrReader(errFuzzRelayInput),
+			&output,
+			RelayOptions{ReceiveOnly: true},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(output.Bytes(), peer) {
+			t.Fatalf("received bytes changed: got %x, want %x", output.Bytes(), peer)
+		}
+		if connection.sent.Len() != 0 {
+			t.Fatalf("sent bytes = %x, want none", connection.sent.Bytes())
+		}
+		if connection.closes != 1 {
+			t.Fatalf("connection close count = %d, want 1", connection.closes)
+		}
+		if connection.closeWrites != 0 {
+			t.Fatalf("connection CloseWrite count = %d, want 0", connection.closeWrites)
+		}
+	})
+}
+
 type fuzzChunkReader struct {
 	source  *bytes.Reader
 	maximum int
