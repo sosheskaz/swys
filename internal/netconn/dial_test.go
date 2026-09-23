@@ -219,6 +219,14 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
+	_, nativeRefusalErr := (&net.Dialer{}).DialContext(t.Context(), "tcp", address)
+	if nativeRefusalErr == nil {
+		t.Fatal("native TCP dial connected to a closed loopback address")
+	}
+	var syscallErr *os.SyscallError
+	if !errors.As(nativeRefusalErr, &syscallErr) {
+		t.Fatalf("native TCP refusal = %T %v, want wrapped system call error", nativeRefusalErr, nativeRefusalErr)
+	}
 	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*tcpRefusedRetryInterval, errDialRetryCanceled)
 	defer cancel()
 
@@ -231,6 +239,12 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 	}
 	if !errors.Is(err, errDialRetryCanceled) {
 		t.Fatalf("error = %v, want cancellation cause", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want canonical context deadline", err)
+	}
+	if !errors.Is(err, syscallErr.Err) {
+		t.Fatalf("error = %v, want most recent native TCP refusal %v", err, syscallErr.Err)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"syscall"
 	"time"
 )
 
@@ -28,6 +27,7 @@ func DialTCPRetryRefused(ctx context.Context, address string) (*net.TCPConn, err
 }
 
 func dialTCP(ctx context.Context, address string, retryRefused bool) (*net.TCPConn, error) {
+	var lastRefusal error
 	for {
 		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 		if err == nil {
@@ -37,15 +37,23 @@ func dialTCP(ctx context.Context, address string, retryRefused bool) (*net.TCPCo
 			}
 			return tcpConnection, nil
 		}
-		if !retryRefused || !errors.Is(err, syscall.ECONNREFUSED) {
+		if !retryRefused || !isConnectionRefused(err) {
 			err = withContextCause(ctx, err)
+			if lastRefusal != nil {
+				err = errors.Join(lastRefusal, err)
+			}
 			return nil, fmt.Errorf("dial TCP endpoint %q: %w", address, err)
 		}
+		lastRefusal = err
 		timer := time.NewTimer(tcpRefusedRetryInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, fmt.Errorf("dial TCP endpoint %q: %w", address, cancellationError(ctx))
+			return nil, fmt.Errorf(
+				"dial TCP endpoint %q: %w",
+				address,
+				errors.Join(lastRefusal, cancellationError(ctx)),
+			)
 		case <-timer.C:
 		}
 	}
