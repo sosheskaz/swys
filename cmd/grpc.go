@@ -216,6 +216,7 @@ func newGRPCCmd() *cobra.Command {
 	flags.StringVar(&options.key, tlsKeyFlagName, "", "client private key path")
 	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
+	registerGRPCCompletion(command, options)
 	registerFlagCompletion(command, formatFlagName, func() []string { return []string{formatText, formatJSON} })
 	for _, name := range []string{tlsCAFlagName, tlsCertFlagName, tlsKeyFlagName, "protoset"} {
 		if err := command.MarkPersistentFlagFilename(name); err != nil {
@@ -409,17 +410,8 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if cmd.Flags().Changed("data") && cmd.Flags().Changed("input") {
 		return fmt.Errorf("%w: --data and --input are mutually exclusive", errInvalidGRPCOptions)
 	}
-	if options.plaintext && (options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "" || options.insecure) {
-		return fmt.Errorf("%w: --plaintext conflicts with TLS flags", errInvalidGRPCOptions)
-	}
-	if (options.cert == "") != (options.key == "") {
-		return fmt.Errorf("%w: --cert and --key must be specified together", errInvalidGRPCOptions)
-	}
-	if options.systemCA && options.ca == "" {
-		return fmt.Errorf("%w: --system-ca requires --ca", errInvalidGRPCOptions)
-	}
-	if options.insecure && (options.ca != "" || options.systemCA) {
-		return fmt.Errorf("%w: --insecure conflicts with --ca and --system-ca", errInvalidGRPCOptions)
+	if err := validateGRPCTLSOptionCombinations(options); err != nil {
+		return err
 	}
 	if err := validateCertificatePaths(cmd, tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName); err != nil {
 		return err
@@ -442,6 +434,22 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 		return err
 	}
 	return rejectSameFile(options.protoset, output)
+}
+
+func validateGRPCTLSOptionCombinations(options *grpcOptions) error {
+	if options.plaintext && (options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "" || options.insecure) {
+		return fmt.Errorf("%w: --plaintext conflicts with TLS flags", errInvalidGRPCOptions)
+	}
+	if (options.cert == "") != (options.key == "") {
+		return fmt.Errorf("%w: --cert and --key must be specified together", errInvalidGRPCOptions)
+	}
+	if options.systemCA && options.ca == "" {
+		return fmt.Errorf("%w: --system-ca requires --ca", errInvalidGRPCOptions)
+	}
+	if options.insecure && (options.ca != "" || options.systemCA) {
+		return fmt.Errorf("%w: --insecure conflicts with --ca and --system-ca", errInvalidGRPCOptions)
+	}
+	return nil
 }
 
 func validGRPCMethodSelector(selector string) bool {
@@ -991,13 +999,16 @@ func reflectGRPCV1(
 	} else {
 		request.MessageRequest = &reflectionv1.ServerReflectionRequest_FileContainingSymbol{FileContainingSymbol: symbol}
 	}
-	if err := stream.Send(request); err != nil {
-		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
-			fmt.Errorf("send gRPC reflection v1 request: %w", err)
+	sendErr := stream.Send(request)
+	if sendErr != nil && !errors.Is(sendErr, io.EOF) {
+		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(sendErr)},
+			fmt.Errorf("send gRPC reflection v1 request: %w", sendErr)
 	}
-	if err := stream.CloseSend(); err != nil {
-		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
-			fmt.Errorf("close gRPC reflection v1 request stream: %w", err)
+	if sendErr == nil {
+		if err := stream.CloseSend(); err != nil {
+			return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
+				fmt.Errorf("close gRPC reflection v1 request stream: %w", err)
+		}
 	}
 	response, err := stream.Recv()
 	details := grpcReflectionDetails(stream.Header, stream.Trailer, remotePeer, err)
@@ -1042,13 +1053,16 @@ func reflectGRPCV1Alpha(
 	} else {
 		request.MessageRequest = &reflectionv1alpha.ServerReflectionRequest_FileContainingSymbol{FileContainingSymbol: symbol}
 	}
-	if err := stream.Send(request); err != nil {
-		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
-			fmt.Errorf("send gRPC reflection v1alpha request: %w", err)
+	sendErr := stream.Send(request)
+	if sendErr != nil && !errors.Is(sendErr, io.EOF) {
+		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(sendErr)},
+			fmt.Errorf("send gRPC reflection v1alpha request: %w", sendErr)
 	}
-	if err := stream.CloseSend(); err != nil {
-		return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
-			fmt.Errorf("close gRPC reflection v1alpha request stream: %w", err)
+	if sendErr == nil {
+		if err := stream.CloseSend(); err != nil {
+			return nil, nil, grpcCallDetails{peer: remotePeer, status: status.Convert(err)},
+				fmt.Errorf("close gRPC reflection v1alpha request stream: %w", err)
+		}
 	}
 	response, err := stream.Recv()
 	details := grpcReflectionDetails(stream.Header, stream.Trailer, remotePeer, err)

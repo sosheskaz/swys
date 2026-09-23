@@ -158,6 +158,8 @@ const (
 	grpcFixtureReflectionOpenV1Alpha
 	grpcFixtureReflectionEOFBeforeResponseV1
 	grpcFixtureReflectionEOFBeforeResponseV1Alpha
+	grpcFixtureReflectionUntrustedNamesV1
+	grpcFixtureReflectionUnavailableV1
 )
 
 type grpcFixtureRecorder struct {
@@ -441,6 +443,20 @@ func startGRPCFixtureWithSchemaModeAt(
 				waitForRequestEOF: true,
 			},
 		})
+	case grpcFixtureReflectionUntrustedNamesV1:
+		reflectionv1.RegisterServerReflectionServer(server, grpcFixtureOpenV1Reflection{
+			grpcFixtureOpenReflection: &grpcFixtureOpenReflection{
+				record: record,
+				services: []string{
+					grpcFixtureServiceName,
+					"forged.v1.Service\ninjected-completion",
+					"forged.v1.Service\r--output=stolen",
+					"forged.v1.Service\tdescription",
+				},
+			},
+		})
+	case grpcFixtureReflectionUnavailableV1:
+		reflectionv1.RegisterServerReflectionServer(server, grpcFixtureUnavailableV1Reflection{})
 	default:
 		t.Fatalf("unknown reflection mode %d", reflectionMode)
 	}
@@ -495,6 +511,16 @@ func (grpcFixtureEOFV1Reflection) ServerReflectionInfo(reflectionv1.ServerReflec
 	return nil
 }
 
+type grpcFixtureUnavailableV1Reflection struct {
+	reflectionv1.UnimplementedServerReflectionServer
+}
+
+func (grpcFixtureUnavailableV1Reflection) ServerReflectionInfo(
+	reflectionv1.ServerReflection_ServerReflectionInfoServer,
+) error {
+	return status.Error(codes.Unavailable, "fixture reflection unavailable") //nolint:wrapcheck // fixture must return this status
+}
+
 type grpcFixtureHangingV1Reflection struct {
 	reflectionv1.UnimplementedServerReflectionServer
 	record *grpcFixtureRecorder
@@ -509,6 +535,7 @@ func (fixture grpcFixtureHangingV1Reflection) ServerReflectionInfo(stream reflec
 type grpcFixtureOpenReflection struct {
 	record            *grpcFixtureRecorder
 	descriptors       [][]byte
+	services          []string
 	waitForRequestEOF bool
 }
 
@@ -535,10 +562,16 @@ func (fixture grpcFixtureOpenV1Reflection) ServerReflectionInfo(
 			FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: fixture.descriptors},
 		}
 	} else {
+		services := fixture.services
+		if len(services) == 0 {
+			services = []string{grpcFixtureServiceName}
+		}
+		reflectedServices := make([]*reflectionv1.ServiceResponse, 0, len(services))
+		for _, service := range services {
+			reflectedServices = append(reflectedServices, &reflectionv1.ServiceResponse{Name: service})
+		}
 		response.MessageResponse = &reflectionv1.ServerReflectionResponse_ListServicesResponse{
-			ListServicesResponse: &reflectionv1.ListServiceResponse{Service: []*reflectionv1.ServiceResponse{{
-				Name: grpcFixtureServiceName,
-			}}},
+			ListServicesResponse: &reflectionv1.ListServiceResponse{Service: reflectedServices},
 		}
 	}
 	if err := stream.Send(response); err != nil {
@@ -571,10 +604,16 @@ func (fixture grpcFixtureOpenV1AlphaReflection) ServerReflectionInfo(
 			FileDescriptorResponse: &reflectionv1alpha.FileDescriptorResponse{FileDescriptorProto: fixture.descriptors},
 		}
 	} else {
+		services := fixture.services
+		if len(services) == 0 {
+			services = []string{grpcFixtureServiceName}
+		}
+		reflectedServices := make([]*reflectionv1alpha.ServiceResponse, 0, len(services))
+		for _, service := range services {
+			reflectedServices = append(reflectedServices, &reflectionv1alpha.ServiceResponse{Name: service})
+		}
 		response.MessageResponse = &reflectionv1alpha.ServerReflectionResponse_ListServicesResponse{
-			ListServicesResponse: &reflectionv1alpha.ListServiceResponse{Service: []*reflectionv1alpha.ServiceResponse{{
-				Name: grpcFixtureServiceName,
-			}}},
+			ListServicesResponse: &reflectionv1alpha.ListServiceResponse{Service: reflectedServices},
 		}
 	}
 	if err := stream.Send(response); err != nil {

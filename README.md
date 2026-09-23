@@ -560,6 +560,10 @@ npc grpc api.example.com:443 example.v1.EchoService/Echo \
     -d '{"text":"hello"}'
 ```
 
+Shell completion discovers gRPC services and unary methods through reflection with a
+separate two-second deadline. The same TLS and metadata flags apply during completion;
+`--protoset` completion reads descriptors locally without connecting to the endpoint.
+
 TLS certificate and hostname verification are enabled by default. The existing
 `--ca`, `--system-ca`, `--servername`, `--cert`, `--key`, and `--insecure`
 controls apply. Use `--plaintext` only for a cleartext HTTP/2 endpoint; it
