@@ -6,11 +6,13 @@ func completeAESCipherModes(cmd *cobra.Command, _ []string, _ string) ([]string,
 	aadSelected := cmd.Flags().Changed("aad")
 	ivFlag := cmd.Flags().Lookup("iv")
 	ivSelected := ivFlag != nil && ivFlag.Changed
+	chunkSelected := cmd.Flags().Changed("chunk-size")
+	rawSelected := cmd.Flags().Changed("raw")
 
 	completions := make([]string, 0, len(aesCipherModes))
 	for _, name := range aesCipherModeNames() {
 		mode := aesCipherModes[name]
-		if (aadSelected && mode != aesCipherModeGCM) || (ivSelected && mode != aesCipherModeCBC) {
+		if (aadSelected && mode != aesCipherModeGCM) || (ivSelected && mode != aesCipherModeCBC) || ((chunkSelected || rawSelected) && mode != aesCipherModeGCM) {
 			continue
 		}
 		completions = append(completions, cobra.CompletionWithDesc(name, aesCipherModeDescriptions[mode]))
@@ -45,6 +47,10 @@ func prepareAESCompletion(completionCmd *cobra.Command, args []string) {
 	}
 	if mode == aesCipherModeCBC || ivSelected {
 		actualCommand.Flags().Lookup("aad").Hidden = true
+		actualCommand.Flags().Lookup("raw").Hidden = true
+		if chunk := actualCommand.Flags().Lookup("chunk-size"); chunk != nil {
+			chunk.Hidden = true
+		}
 	}
 	if mode == aesCipherModeGCM || aadSelected {
 		if actualIV := actualCommand.Flags().Lookup("iv"); actualIV != nil {

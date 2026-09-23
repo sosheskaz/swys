@@ -182,7 +182,7 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, _, err := executeRootStreams(t, "aes", "encrypt", "hello", "--keyfile", path)
-			valid := size == 16 || size == 24 || size == 32
+			valid := size == 16 || size == 32
 			if (err == nil) != valid || errors.Is(err, errArtifactTooLarge) {
 				t.Fatalf("key size %d: %v", size, err)
 			}

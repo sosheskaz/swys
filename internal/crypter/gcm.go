@@ -62,9 +62,12 @@ type AESGCMCrypter struct {
 	maxPlaintextSize int
 }
 
-// NewAESGCMCrypter constructs an AES-GCM crypter from a 16-, 24-, or 32-byte key.
+// NewAESGCMCrypter constructs an AES-GCM crypter from a 16- or 32-byte key.
 func NewAESGCMCrypter(key []byte) (*AESGCMCrypter, error) {
 	sys.Log().Debug("creating new AES-GCM crypter", "bits", len(key)*8)
+	if len(key) != 16 && len(key) != 32 {
+		return nil, fmt.Errorf("create AES cipher: %w", aes.KeySizeError(len(key)))
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("create AES cipher: %w", err)

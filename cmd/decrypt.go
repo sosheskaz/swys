@@ -29,15 +29,26 @@ func newDecryptCmd() *cobra.Command {
 			}
 			switch mode {
 			case aesCipherModeGCM:
-				cipher, err := crypter.NewAESGCMCrypter(key)
+				raw, err := cmd.Flags().GetBool("raw")
 				if err != nil {
-					return err
+					return fmt.Errorf("read raw flag: %w", err)
 				}
 				aad, err := aesAADFromCommand(cmd)
 				if err != nil {
 					return err
 				}
-				return cipher.Decrypt(input, cmd.OutOrStdout(), aad)
+				if raw {
+					cipher, err := crypter.NewAESGCMCrypter(key)
+					if err != nil {
+						return err
+					}
+					return cipher.Decrypt(input, cmd.OutOrStdout(), aad)
+				}
+				stream, err := crypter.NewAESStreamingCrypter(key)
+				if err != nil {
+					return err
+				}
+				return stream.Decrypt(input, cmd.OutOrStdout(), aad)
 			case aesCipherModeCBC:
 				cipher, err := crypter.NewAESCrypter(key)
 				if err != nil {
@@ -51,6 +62,7 @@ func newDecryptCmd() *cobra.Command {
 	}, true)
 	addKeyFlags(decryptCmd)
 	addAESCipherFlags(decryptCmd)
+	decryptCmd.Flags().Bool("raw", false, "use legacy single-message AES-GCM format (64 MiB limit)")
 	decryptCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return decryptCmd
 }

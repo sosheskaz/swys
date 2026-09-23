@@ -305,7 +305,7 @@ func TestAESGCMTamperingAndAADAreAllOrNothing(t *testing.T) {
 func TestAESGCMWrongKeysFailAuthentication(t *testing.T) {
 	t.Parallel()
 
-	for _, size := range []int{16, 24, 32} {
+	for _, size := range []int{16, 32} {
 		t.Run(fmt.Sprintf("AES_%d", size*8), func(t *testing.T) {
 			t.Parallel()
 

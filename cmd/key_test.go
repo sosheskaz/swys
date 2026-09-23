@@ -39,7 +39,6 @@ func TestKeyGenerateAlgorithms(t *testing.T) {
 		{name: "rsa2048", algorithm: "rsa2048", keyType: "rsa", bits: 2048},
 		{name: "rsa4096", algorithm: "rsa4096", keyType: "rsa", bits: 4096},
 		{name: "aes128", algorithm: "aes128", bytes: 16},
-		{name: "aes192", algorithm: "aes192", bytes: 24},
 		{name: "aes256", algorithm: "aes256", bytes: 32},
 	}
 
@@ -317,7 +316,6 @@ func TestKeyGenerateAcceptsLongAlgorithmNames(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
 		"aes128":  "aes-128",
-		"aes192":  "aes-192",
 		"aes256":  "aes-256",
 		"p256":    "ecdsa-p256",
 		"p384":    "ecdsa-p384",

@@ -135,9 +135,9 @@ A package must carry benchmarks when any of these hold:
   ~flat as input grows — that is the streaming guarantee made measurable.
   Allocation counts that scale with input size are a bug, both for memory
   and for the GC pressure they generate; per-chunk work must not allocate
-  per iteration. Authenticated GCM is deliberately single-shot rather than
-  streaming: benchmark its size-proportional allocation through the enforced
-  64 MiB limit and retain its all-or-nothing plaintext-release guarantee.
+  per iteration. The default AES-GCM-HKDF stream uses bounded segments; report
+  cumulative allocation separately from peak memory. Raw GCM remains
+  single-message with a 64 MiB limit and whole-message authentication.
 - Performance claims require evidence: `mise run bench` before and after,
   compared with `benchstat`, numbers included in the PR description. No
   claim without a comparison.

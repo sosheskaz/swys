@@ -99,16 +99,18 @@ func configureCommandIO(cmd *cobra.Command) error {
 	if err := validateNetFlagsBeforeIO(cmd); err != nil {
 		return fmt.Errorf("validate network flags: %w", err)
 	}
-	cleanup, preparedOutput, preparedWriter, err := configureIO(cmd)
+	var preparedAESKey []byte
+	cleanup, preparedOutput, preparedWriter, err := configureIO(cmd, &preparedAESKey)
 	if err != nil {
 		return err
 	}
 	originalContext := cmd.Context()
-	state := &commandIO{preparedOutput: preparedOutput, preparedWriter: preparedWriter}
+	state := &commandIO{preparedOutput: preparedOutput, preparedWriter: preparedWriter, preparedAESKey: preparedAESKey}
 	state.cleanup = func() error {
 		defer func() {
 			state.preparedOutput = nil
 			state.preparedWriter = nil
+			state.preparedAESKey = nil
 			cmd.SetContext(originalContext)
 		}()
 		return cleanup()
@@ -124,6 +126,7 @@ type commandIO struct {
 	cleanup        func() error
 	preparedWriter io.Writer
 	preparedOutput []byte
+	preparedAESKey []byte
 	once           sync.Once
 }
 
@@ -182,7 +185,7 @@ func generateIV(blockSize int) ([]byte, error) {
 	return iv, nil
 }
 
-func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
+func configureIO(cmd *cobra.Command, preparedAESKey *[]byte) (func() error, []byte, io.Writer, error) {
 	originalIn := cmd.InOrStdin()
 	originalOut := cmd.OutOrStdout()
 	preparesOutput := commandPreparesOutput(cmd)
@@ -213,8 +216,8 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if outputOptions.mode != nil && outputPath == "" {
-		return fail(fmt.Errorf("%w: --mode requires --output", errModeRequiresRegularOutput))
+	if err := validateCommandOutputMode(outputPath, outputOptions); err != nil {
+		return fail(err)
 	}
 	decoder, encoder, err := commandCodecs(cmd)
 	if err != nil {
@@ -235,6 +238,11 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 	}
 	input = decoder(contextio.NewReader(cmd.Context(), input))
 	setConfiguredInput(cmd, input, preparesOutput)
+
+	*preparedAESKey, err = prepareAESKeyBeforeIO(cmd)
+	if err != nil {
+		return fail(fmt.Errorf("validate AES key: %w", err))
+	}
 
 	preparedOutput, err := prepareCommandOutput(cmd, input)
 	if err != nil {
@@ -264,6 +272,13 @@ func configureIO(cmd *cobra.Command) (func() error, []byte, io.Writer, error) {
 	setConfiguredOutput(cmd, output, preparesOutput)
 
 	return cleanup, preparedOutput, output, nil
+}
+
+func validateCommandOutputMode(outputPath string, options commandOutputOptions) error {
+	if options.mode != nil && outputPath == "" {
+		return fmt.Errorf("%w: --mode requires --output", errModeRequiresRegularOutput)
+	}
+	return nil
 }
 
 // openCommandInput opens the path the CLI user chose without blocking a signal.

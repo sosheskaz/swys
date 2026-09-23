@@ -22,7 +22,6 @@ type keyAlgorithm struct {
 
 var keyAlgorithms = map[string]keyAlgorithm{
 	"aes128":  {longName: "aes-128", description: "AES-128 symmetric key", aesBits: 128},
-	"aes192":  {longName: "aes-192", description: "AES-192 symmetric key", aesBits: 192},
 	"aes256":  {longName: "aes-256", description: "AES-256 symmetric key", aesBits: 256},
 	"ed25519": {description: "Ed25519 signing key", asymmetric: asym.KeyAlgorithmEd25519},
 	"p256":    {longName: "ecdsa-p256", description: "ECDSA key on NIST P-256", asymmetric: asym.KeyAlgorithmECDSAP256},
@@ -262,7 +261,7 @@ func generateAESKey(bits int, output io.Writer) error {
 
 func validateAESKeySize(bits int) error {
 	switch bits {
-	case 128, 192, 256:
+	case 128, 256:
 		return nil
 	default:
 		return fmt.Errorf("%w, got %d", errInvalidAESKeySize, bits)

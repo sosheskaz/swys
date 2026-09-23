@@ -161,7 +161,7 @@ func TestAESAADUsesExactStringBytes(t *testing.T) {
 	t.Parallel()
 	aad := string([]byte{0x00, 0xff, 'N', 'P', 'C', 0x00})
 	plaintext := []byte("exact AAD bytes")
-	wire, err := executeRoot(t, "aes", "encrypt", string(plaintext), "--key", testAESKeyBase64, "--aad", aad)
+	wire, err := executeRoot(t, "aes", "encrypt", string(plaintext), "--raw", "--key", testAESKeyBase64, "--aad", aad)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestAESAADUsesExactStringBytes(t *testing.T) {
 	}
 
 	inputPath := writeTestFile(t, "gcm-wire", encoded)
-	decrypted, err := executeRoot(t, "aes", "decrypt", "--key", testAESKeyBase64, "--aad", aad, "--input", inputPath)
+	decrypted, err := executeRoot(t, "aes", "decrypt", "--raw", "--key", testAESKeyBase64, "--aad", aad, "--input", inputPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,13 +366,17 @@ func TestAESGCMRuntimeFailuresDoNotWritePlaintext(t *testing.T) {
 		name    string
 		args    []string
 	}{
-		{name: "read", args: []string{"aes", "encrypt", "--key", testAESKeyBase64, "--input", readFailurePath}},
-		{name: "size", wantErr: crypter.ErrInputTooLarge, args: []string{"aes", "encrypt", "--key", testAESKeyBase64, "--input", sizePath}},
-		{name: "malformed", wantErr: crypter.ErrMalformedCiphertext, args: []string{"aes", "decrypt", "--key", testAESKeyBase64, "--input", malformedPath}},
+		{name: "raw read", args: []string{"aes", "encrypt", "--raw", "--key", testAESKeyBase64, "--input", readFailurePath}},
+		{name: "raw size", wantErr: crypter.ErrInputTooLarge, args: []string{"aes", "encrypt", "--raw", "--key", testAESKeyBase64, "--input", sizePath}},
+		{
+			name:    "raw malformed",
+			wantErr: crypter.ErrMalformedCiphertext,
+			args:    []string{"aes", "decrypt", "--raw", "--key", testAESKeyBase64, "--input", malformedPath},
+		},
 		{
 			name:    "CBC selected as GCM authentication",
 			wantErr: crypter.ErrAuthenticationFailed,
-			args:    []string{"aes", "decrypt", "--key", testAESKeyBase64, "--input", cbcPath},
+			args:    []string{"aes", "decrypt", "--raw", "--key", testAESKeyBase64, "--input", cbcPath},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

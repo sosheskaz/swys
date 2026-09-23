@@ -693,9 +693,9 @@ npc key inspect --input private.der.b64 \
 ```
 
 Generation supports `ed25519`, `p256`, `p384`, `rsa2048`, `rsa4096`, and raw
-`aes128|aes192|aes256` keys as a required argument. These compact names are
+`aes128|aes256` keys as a required argument. These compact names are
 preferred; the descriptive aliases `ecdsa-p256`, `ecdsa-p384`, `rsa-2048`,
-`rsa-4096`, and `aes-128|aes-192|aes-256` are also accepted.
+`rsa-4096`, and `aes-128|aes-256` are also accepted.
 Asymmetric private keys use PKCS#8 PEM; AES keys are raw bytes. PKCS#1 output is
 limited to RSA private keys, SEC1 to ECDSA private keys, and PKCS#8 to supported
 private-key algorithms. PKIX and OpenSSH targets contain only public material.
@@ -929,13 +929,25 @@ npc aes decrypt --keyfile aes.key --aad "customer=42;format=v1" \
     --input document.txt.gcm --output recovered.txt
 ```
 
-`aes encrypt` and `aes decrypt` default to authenticated AES-GCM. Its wire
-format is `[12-byte random nonce][ciphertext][16-byte authentication tag]`.
-GCM accepts `--aad`; the exact string bytes are authenticated but are not
-stored in the ciphertext, so decryption requires the same value. Nonces are
-generated internally and cannot be supplied by the caller. GCM reads one
-message of at most 64 MiB before writing because authentication must complete
-before any plaintext is released.
+`aes encrypt` and `aes decrypt` default to authenticated AES-GCM-HKDF streaming.
+The [version 1 wire format](docs/aes-stream-v1.md) has a 16-byte NPC header
+followed by a Tink stream. Encryption uses `--chunk-size 1M` by default; any
+integral byte count from 64 through 64 MiB is accepted. Suffixes K/M/G and
+KiB/MiB/GiB are binary, while KB/MB/GB are decimal. Fractions are accepted
+only when they yield whole bytes (for example, `1.5KB`). Decryption reads the
+chunk size from the stream. Input is buffered by segment with lookahead, so
+this mode is suited to files and pipelines rather than interactive flushing.
+A stream has Tink's finite segment-count limit.
+
+Existing single-message GCM ciphertext requires `aes decrypt --raw`; use
+`aes encrypt --raw` to create that legacy wire format,
+`[12-byte nonce][ciphertext][16-byte tag]`. Raw mode retains the 64 MiB
+message limit and releases plaintext only after whole-message authentication.
+There is no automatic format detection. Both formats accept `--aad`; its exact
+bytes are authenticated but are not stored in the ciphertext. A failed later
+stream segment leaves previously authenticated plaintext in stdout or the
+output file, along with a nonzero exit status. No plaintext from the failing
+segment is released. AES-192 keys are no longer supported.
 
 Use `--cipher-mode cbc` only for compatibility. CBC retains its existing wire
 format, `[16-byte IV][PKCS#7-padded CBC ciphertext]`, and streams input and
@@ -954,7 +966,7 @@ old binary `--format/-f` axis and structured `--output-format/-F` axis; for
 example, `cert connect -f hex` must be replaced with an applicable structured
 format rather than a byte encoding.
 
-Generate AES keys through `key generate aes128|aes192|aes256`; bare `key
+Generate AES keys through `key generate aes128|aes256`; bare `key
 generate` reports the required algorithm.
 
 `x509`, `certificate`, and `x.509` are ordinary aliases for `cert`:
@@ -971,8 +983,8 @@ first. Errors after the output is opened can therefore leave an empty or partial
 destination; the command's non-zero exit status indicates that the output is
 incomplete.
 
-The GCM crypter itself makes zero writer calls until encryption or authenticated
-decryption succeeds. That does not preserve a CLI output file on runtime
+Raw GCM makes zero writer calls until encryption or whole-message authenticated
+decryption succeeds. Streaming GCM writes authenticated segments incrementally. That does not preserve a CLI output file on runtime
 failure: npc opens and truncates regular `--output` destinations before the
 crypter runs, and encoders and operating-system writes have their own buffering
 and failure behavior. Flag and mode validation occurs before that open.
@@ -1192,9 +1204,10 @@ identity loading accept asymmetric key artifacts up to 1 MiB. Certificate
 inspection, verification, matching, issuer certificates, and TLS certificate/CA bundles accept up to
 16 MiB per input. For commands that support `--input-encoding`, these limits apply after decoding,
 including stdin; oversized artifacts fail without parsing truncated data.
-AES `--keyfile` accepts at most 32 raw bytes; keys must still be exactly 16, 24,
-or 32 bytes. Raw network payload streams are not subject to artifact limits. Existing
-output files are still opened before artifact reads for streaming commands, so a
-read failure can leave them truncated under the normal streaming-output contract.
-Certificate verification and matching instead prepare their bounded reports
-before opening output.
+AES `--keyfile` accepts at most 32 raw bytes; keys must still be exactly 16
+or 32 bytes. AES keyfiles are read once and key length is validated before the
+output file is opened. Raw network payload streams are not subject to artifact
+limits. Other streaming commands can open existing output files before artifact
+reads, so a read failure can leave them truncated under the normal streaming-output
+contract. Certificate verification and matching instead prepare their bounded
+reports before opening output.

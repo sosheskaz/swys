@@ -7,7 +7,11 @@ import "errors"
 var (
 	errKeySelection               = errors.New("exactly one of key or keyfile must be set")
 	errUnknownCertFormat          = errors.New("unknown output format")
-	errInvalidAESKeySize          = errors.New("AES key size must be 128, 192, or 256 bits")
+	errRawCipherMode              = errors.New("--raw is only valid with --cipher-mode gcm")
+	errChunkCipherMode            = errors.New("--chunk-size is only valid with --cipher-mode gcm")
+	errRawChunkSize               = errors.New("--chunk-size cannot be used with --raw")
+	errInvalidAESChunkSize        = errors.New("invalid AES chunk size")
+	errInvalidAESKeySize          = errors.New("AES key size must be 128 or 256 bits")
 	errSameInputOutput            = errors.New("input and output refer to the same file")
 	errOutputIsDirectory          = errors.New("output is a directory")
 	errUnexpectedPEMType          = errors.New("unexpected PEM block type")

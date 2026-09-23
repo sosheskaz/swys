@@ -29,7 +29,7 @@ type AESCrypter struct {
 	bufferSize int
 }
 
-// NewAESCrypter constructs an AES crypter from a 16-, 24-, or 32-byte key.
+// NewAESCrypter constructs an AES crypter from a 16- or 32-byte key.
 func NewAESCrypter(key []byte) (*AESCrypter, error) {
 	return newAESCrypter(key, cryptBufferSize)
 }
@@ -39,6 +39,9 @@ func newAESCrypter(key []byte, bufferSize int) (*AESCrypter, error) {
 		return nil, fmt.Errorf("%w: must be a positive multiple of %d, got %d", errInvalidBufferSize, aes.BlockSize, bufferSize)
 	}
 	sys.Log().Debug("creating new AES crypter", "bits", len(key)*8)
+	if len(key) != 16 && len(key) != 32 {
+		return nil, fmt.Errorf("create AES cipher: %w", aes.KeySizeError(len(key)))
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("create AES cipher: %w", err)

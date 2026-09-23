@@ -1,8 +1,5 @@
-// Package crypter provides AES-GCM with wire format [12-byte random
-// nonce][ciphertext][16-byte authentication tag]. GCM buffers a bounded message
-// of at most 64 MiB of plaintext because it cannot release authenticated
-// plaintext before verifying the final tag.
-//
-// AES-CBC remains available only as streaming, unauthenticated compatibility,
-// with wire format [16-byte IV][PKCS#7-padded CBC ciphertext].
+// Package crypter provides versioned AES-GCM-HKDF streaming, legacy bounded
+// single-message AES-GCM, and unauthenticated AES-CBC compatibility. The stream
+// envelope is documented in docs/aes-stream-v1.md. Raw GCM retains its
+// [12-byte nonce][ciphertext][16-byte tag] wire format and 64 MiB limit.
 package crypter

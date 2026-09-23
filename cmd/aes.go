@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/aes"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,7 +50,7 @@ func newAesCmd() *cobra.Command {
 		},
 		Long: `Perform AES encryption and decryption using a specified key.
 AES-GCM is the authenticated default; select AES-CBC explicitly for compatibility.
-The length of the key implicitly determines the AES variant used (128, 192, or 256 bits).`,
+The length of the key implicitly determines the AES variant used (128 or 256 bits).`,
 	}
 	aesCmd.AddCommand(newEncryptCmd(), newDecryptCmd())
 	return aesCmd
@@ -117,6 +118,9 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 	if mode == aesCipherModeGCM && cmd.Flags().Changed("iv") {
 		return errIVCipherMode
 	}
+	if err := validateAESStreamFlags(cmd, mode); err != nil {
+		return err
+	}
 	keyfile, err := cmd.Flags().GetString("keyfile")
 	if err != nil {
 		return fmt.Errorf("read keyfile flag: %w", err)
@@ -138,6 +142,27 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 }
 
 func getKey(cmd *cobra.Command) ([]byte, error) {
+	if state, ok := cmd.Context().Value(commandIOKey{}).(*commandIO); ok && state.preparedAESKey != nil {
+		return state.preparedAESKey, nil
+	}
+	return readAESKey(cmd)
+}
+
+func prepareAESKeyBeforeIO(cmd *cobra.Command) ([]byte, error) {
+	if !isAESOperation(cmd) {
+		return nil, nil
+	}
+	key, err := readAESKey(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != 16 && len(key) != 32 {
+		return nil, fmt.Errorf("%w: %w", errInvalidAESKeySize, aes.KeySizeError(len(key)))
+	}
+	return key, nil
+}
+
+func readAESKey(cmd *cobra.Command) ([]byte, error) {
 	keyFlag := cmd.Flags().Lookup("key")
 	keyFileFlag := cmd.Flags().Lookup("keyfile")
 	if keyFlag.Changed == keyFileFlag.Changed {
@@ -162,4 +187,30 @@ func getKey(cmd *cobra.Command) ([]byte, error) {
 		return nil, fmt.Errorf("read keyfile %q: %w", keyFilePath, err)
 	}
 	return key, nil
+}
+
+func validateAESStreamFlags(cmd *cobra.Command, mode aesCipherMode) error {
+	if rawFlag := cmd.Flags().Lookup("raw"); rawFlag != nil && rawFlag.Changed && mode == aesCipherModeCBC {
+		return errRawCipherMode
+	}
+	chunkFlag := cmd.Flags().Lookup("chunk-size")
+	if chunkFlag == nil {
+		return nil
+	}
+	if chunkFlag.Changed && mode == aesCipherModeCBC {
+		return errChunkCipherMode
+	}
+	raw, err := cmd.Flags().GetBool("raw")
+	if err != nil {
+		return fmt.Errorf("read raw flag: %w", err)
+	}
+	if chunkFlag.Changed && raw {
+		return errRawChunkSize
+	}
+	value, err := cmd.Flags().GetString("chunk-size")
+	if err != nil {
+		return fmt.Errorf("read chunk-size flag: %w", err)
+	}
+	_, err = parseAESChunkSize(value)
+	return err
 }
