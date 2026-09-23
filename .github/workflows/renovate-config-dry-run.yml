@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   renovate:
-    uses: sosheskaz-systems/reno/.github/workflows/renovate-config-dry-run.yml@d2fa3e8bdb084a57d0c79b77f7d269dd226204e1 # v1.2.1
+    uses: sosheskaz-systems/reno/.github/workflows/renovate-config-dry-run.yml@03e576688a2184b4928f78f58084e060dba22c75 # v1.3.0
     with:
       install-go: true
       log-level: ${{ vars.RENOVATE_LOG_LEVEL || 'info' }}
