@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -20,32 +23,20 @@ func TestAESCBCCompatibilityFixture(t *testing.T) {
 	iv := decodeCompatibilityHex(t, cbcCompatibilityIVHex)
 	wire := decodeCompatibilityHex(t, cbcCompatibilityCipherHex)
 	crypter, err := NewAESCrypter(key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	var encrypted bytes.Buffer
-	if err := crypter.Encrypt(iv, bytes.NewBufferString(cbcCompatibilityPlaintext), &encrypted); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(encrypted.Bytes(), wire) {
-		t.Fatalf("CBC compatibility ciphertext = %x, want %x", encrypted.Bytes(), wire)
-	}
+	require.NoError(t, crypter.Encrypt(iv, bytes.NewBufferString(cbcCompatibilityPlaintext), &encrypted))
+	assert.Equal(t, wire, encrypted.Bytes(), "CBC compatibility ciphertext")
 
 	var decrypted bytes.Buffer
-	if err := crypter.Decrypt(bytes.NewReader(wire), &decrypted); err != nil {
-		t.Fatal(err)
-	}
-	if decrypted.String() != cbcCompatibilityPlaintext {
-		t.Fatalf("CBC compatibility plaintext = %q, want %q", decrypted.String(), cbcCompatibilityPlaintext)
-	}
+	require.NoError(t, crypter.Decrypt(bytes.NewReader(wire), &decrypted))
+	assert.Equal(t, cbcCompatibilityPlaintext, decrypted.String(), "CBC compatibility plaintext")
 }
 
 func decodeCompatibilityHex(t *testing.T, value string) []byte {
 	t.Helper()
 	decoded, err := hex.DecodeString(value)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return decoded
 }

@@ -1,15 +1,18 @@
 package crypter
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestAESConstructorsReject192BitKeys(t *testing.T) {
 	t.Parallel()
 
 	key := make([]byte, 24)
-	if crypter, err := NewAESCrypter(key); err == nil {
-		t.Fatalf("NewAESCrypter(24-byte key) = %#v, nil; want rejection", crypter)
-	}
-	if crypter, err := NewAESGCMCrypter(key); err == nil {
-		t.Fatalf("NewAESGCMCrypter(24-byte key) = %#v, nil; want rejection", crypter)
-	}
+	cbc, cbcErr := NewAESCrypter(key)
+	require.Error(t, cbcErr, "NewAESCrypter(24-byte key) returned %#v", cbc)
+	gcm, gcmErr := NewAESGCMCrypter(key)
+	assert.Error(t, gcmErr, "NewAESGCMCrypter(24-byte key) returned %#v", gcm)
 }

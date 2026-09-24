@@ -10,6 +10,9 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -23,12 +26,8 @@ var (
 func TestAESGCMConstants(t *testing.T) {
 	t.Parallel()
 
-	if maxGCMPlaintextSize != 64*1024*1024 {
-		t.Fatalf("maxGCMPlaintextSize = %d, want %d", maxGCMPlaintextSize, 64*1024*1024)
-	}
-	if gcmWireOverhead != 12+16 {
-		t.Fatalf("gcmWireOverhead = %d, want 28", gcmWireOverhead)
-	}
+	assert.Equal(t, 64*1024*1024, maxGCMPlaintextSize)
+	assert.Equal(t, 12+16, gcmWireOverhead)
 }
 
 func TestAESGCMRoundTripBoundaries(t *testing.T) {
@@ -40,29 +39,17 @@ func TestAESGCMRoundTripBoundaries(t *testing.T) {
 
 			key := bytes.Repeat([]byte{byte(size + 1)}, 32)
 			crypter, err := NewAESGCMCrypter(key)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			plaintext := patternedBytes(size)
 			aad := []byte("exact associated data\x00")
 			var ciphertext countingWriter
-			if err := crypter.Encrypt(bytes.NewReader(plaintext), &ciphertext, aad); err != nil {
-				t.Fatalf("Encrypt: %v", err)
-			}
-			if ciphertext.calls != 1 {
-				t.Fatalf("Encrypt writer calls = %d, want 1", ciphertext.calls)
-			}
-			if got := len(ciphertext.data); got != size+gcmWireOverhead {
-				t.Fatalf("wire length = %d, want %d", got, size+gcmWireOverhead)
-			}
+			require.NoError(t, crypter.Encrypt(bytes.NewReader(plaintext), &ciphertext, aad))
+			require.Equal(t, 1, ciphertext.calls, "Encrypt writer calls")
+			require.Len(t, ciphertext.data, size+gcmWireOverhead)
 
 			var decrypted countingWriter
-			if err := crypter.Decrypt(bytes.NewReader(ciphertext.data), &decrypted, aad); err != nil {
-				t.Fatalf("Decrypt: %v", err)
-			}
-			if decrypted.calls != 1 {
-				t.Fatalf("Decrypt writer calls = %d, want 1", decrypted.calls)
-			}
+			require.NoError(t, crypter.Decrypt(bytes.NewReader(ciphertext.data), &decrypted, aad))
+			require.Equal(t, 1, decrypted.calls, "Decrypt writer calls")
 			if !bytes.Equal(decrypted.data, plaintext) {
 				t.Fatal("round trip changed plaintext")
 			}
