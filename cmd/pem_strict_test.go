@@ -59,7 +59,7 @@ func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {
 					if !errors.Is(err, errTrailingCertificateData) || output != "" {
 						t.Fatalf("intermediate corruption: output = %q, error = %v", output, err)
 					}
-					output, err = executeRoot(t, "net", "connect", "tls", "localhost:1", "--ca", path)
+					output, err = executeRoot(t, "net", "connect", "--tls", "localhost:1", "--ca", path)
 					if !errors.Is(err, errTrailingCertificateData) || output != "" {
 						t.Fatalf("TLS CA corruption: output = %q, error = %v", output, err)
 					}

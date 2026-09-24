@@ -177,7 +177,7 @@ complete -C "npc http --json @$ESCAPED_DIRECTORY_PREFIX"
 complete -C "npc http --json @$ESCAPED_PARENT"
 complete -C "npc http --json @$ESCAPED_LITERAL"
 complete -C "npc http --header Authorization:"
-complete -C "npc net connect tls --alpn h"
+complete -C "npc net connect --tls --alpn h"
 `)
 	command.Env = append(os.Environ(),
 		"TEST_BINARY="+os.Args[0],

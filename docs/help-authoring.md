@@ -44,7 +44,7 @@ Files under cmd/guides mirror canonical Cobra paths:
 cmd/guides/root.md                 npc help
 cmd/guides/net.md                  npc help net
 cmd/guides/net/connect.md          npc help net connect
-cmd/guides/net/connect/tls.md      npc help net connect tls
+cmd/guides/net/listen.md           npc help net listen
 ```
 
 The embedded filesystem path is the canonical mapping. Do not create an alias registry or an alias-named file. Resolution walks the initialized Cobra tree, accepts aliases at every level, and selects the file for the resulting canonical path.

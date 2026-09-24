@@ -90,8 +90,8 @@ func structuredOutputCommand(command *cobra.Command, formats func() []string) *c
 
 func networkCommand(command *cobra.Command) *cobra.Command {
 	addCommandShape(command, networkShape)
-	command.Flags().Duration("timeout", defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
-	registerDurationCompletion(command, "timeout", "Disable TCP setup and TLS handshake timeout")
+	command.Flags().Duration(netTimeoutFlagName, defaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
+	registerDurationCompletion(command, netTimeoutFlagName, "Disable TCP setup and TLS handshake timeout")
 	command.Args = networkAddressArgs(command.Args, false)
 
 	if command.RunE == nil {
@@ -99,7 +99,7 @@ func networkCommand(command *cobra.Command) *cobra.Command {
 	}
 	originalRunE := command.RunE
 	command.RunE = func(cmd *cobra.Command, args []string) error {
-		timeout, err := cmd.Flags().GetDuration("timeout")
+		timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
 		if err != nil {
 			return fmt.Errorf("read timeout flag: %w", err)
 		}
@@ -121,66 +121,8 @@ func networkSetupContext(parent context.Context, timeout time.Duration) (context
 }
 
 func streamNetworkCommand(command *cobra.Command) *cobra.Command {
-	return streamNetworkCommandWithTimeout(
-		command,
-		defaultStreamConnectTimeout,
-		"TCP setup and TLS handshake timeout (0 disables)",
-		false,
-	)
-}
-
-func connectDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
-	addCommandShape(command, networkShape)
-	command.Flags().Duration("timeout", defaultNetworkTimeout, "UDP address resolution and socket setup timeout (0 disables)")
-	command.Flags().Duration(
-		"wait",
-		defaultNetworkWait,
-		"maximum wait for one response datagram after sending (0 waits indefinitely)",
-	)
-	registerDurationCompletion(command, "timeout", "Disable UDP address resolution and socket setup timeout")
-	registerDurationCompletion(command, "wait", "Wait indefinitely for a response datagram")
-	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
-	command.Args = networkAddressArgs(command.Args, false)
-	command.ValidArgsFunction = cobra.NoFileCompletions
-	if command.RunE == nil {
-		panic(fmt.Sprintf("connectDatagramNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
-	}
-	return command
-}
-
-func listenStreamNetworkCommand(command *cobra.Command) *cobra.Command {
-	command = streamNetworkCommandWithTimeout(
-		command,
-		0,
-		"bind resolution and accept timeout (0 disables)",
-		true,
-	)
-	command.Flags().BoolP("recv-only", "r", false, "receive peer data without reading or sending input")
-	return command
-}
-
-func listenDatagramNetworkCommand(command *cobra.Command) *cobra.Command {
-	addCommandShape(command, networkShape)
-	command.Flags().Duration("timeout", 0, "bind resolution and first datagram timeout (0 disables)")
-	registerDurationCompletion(command, "timeout", "Disable bind resolution and first datagram timeout")
-	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
-	command.Args = networkAddressArgs(command.Args, true)
-	command.ValidArgsFunction = cobra.NoFileCompletions
-	if command.RunE == nil {
-		panic(fmt.Sprintf("listenDatagramNetworkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
-	}
-	return command
-}
-
-func listenTLSStreamNetworkCommand(command *cobra.Command) *cobra.Command {
-	command = streamNetworkCommandWithTimeout(
-		command,
-		0,
-		"bind resolution, accept, and TLS handshake timeout (0 disables)",
-		true,
-	)
-	command.Flags().BoolP("recv-only", "r", false, "receive peer data without reading or sending input")
-	return command
+	return streamNetworkCommandWithTimeout(command, defaultStreamConnectTimeout,
+		"TCP setup and TLS handshake timeout (0 disables)", false)
 }
 
 func streamNetworkCommandWithTimeout(
@@ -191,16 +133,16 @@ func streamNetworkCommandWithTimeout(
 ) *cobra.Command {
 	addCommandShape(command, streamNetworkShape)
 	addCommandShape(command, networkShape)
-	command.Flags().Duration("timeout", defaultTimeout, timeoutHelp)
+	command.Flags().Duration(netTimeoutFlagName, defaultTimeout, timeoutHelp)
 	command.Flags().Duration(
-		"wait",
+		netWaitFlagName,
 		0,
 		"maximum response drain time after input EOF; expiry returns an error with partial output preserved (0 waits indefinitely)",
 	)
-	registerDurationCompletion(command, "timeout", "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"))
-	registerDurationCompletion(command, "wait", "Wait indefinitely while draining the response")
-	command.Flags().Bool("close-write", true, "half-close the connection write side after input EOF")
-	command.Flags().BoolP("duplex", "d", true, "keep sending input after the peer closes its write side")
+	registerDurationCompletion(command, netTimeoutFlagName, "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"))
+	registerDurationCompletion(command, netWaitFlagName, "Wait indefinitely while draining the response")
+	command.Flags().Bool(netCloseWriteFlagName, true, "half-close the connection write side after input EOF")
+	command.Flags().BoolP(netDuplexFlagName, "d", true, "keep sending input after the peer closes its write side")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = networkAddressArgs(command.Args, allowEmptyHost)
 	command.ValidArgsFunction = cobra.NoFileCompletions
@@ -278,13 +220,19 @@ func registerFlagCompletion(command *cobra.Command, name string, values func() [
 func registerDurationCompletion(command *cobra.Command, name, zeroDescription string) {
 	if err := command.RegisterFlagCompletionFunc(
 		name,
-		func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if !netFlagValueCompletionApplicable(cmd, name) {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
 			completions := make([]string, 0, len(durationCompletionValues))
 			for _, candidate := range durationCompletionValues {
 				if strings.HasPrefix(candidate.value, toComplete) {
 					description := candidate.description
 					if candidate.value == "0" {
 						description = zeroDescription
+						if commandHasShape(command, netProtocolShape) {
+							description = netDurationZeroDescription(command, name, description)
+						}
 					}
 					completions = append(completions, candidate.value+"\t"+description)
 				}

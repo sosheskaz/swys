@@ -14,13 +14,13 @@ Then choose TCP, TLS, or UDP. TLS verifies the peer by default on outgoing conne
 First terminal:
 
 ```sh
-printf 'hello from server\n' | npc net listen tcp localhost:9000
+printf 'hello from server\n' | npc net listen localhost:9000
 ```
 
 Second terminal:
 
 ```sh
-printf 'hello from client\n' | npc net connect tcp localhost:9000
+printf 'hello from client\n' | npc net connect localhost:9000
 ```
 
 Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Sending and receiving are independent by default, so peer EOF does not discard unfinished local input. Explicit --duplex=false restores early exit on peer EOF and can discard outgoing data that has not yet been sent. Use --close-write=false when input EOF must leave the outgoing side open.
@@ -28,13 +28,13 @@ Input EOF half-closes each outgoing stream by default, and each command drains i
 This makes local pipelines work without startup sleeps because the connector retries a refused TCP setup within its five-second setup timeout:
 
 ```sh
-printf 'hello, world\n' | npc aes encrypt -K aes.key | npc net connect tcp localhost:4444 | npc net listen tcp localhost:4444 -r | npc aes decrypt -K aes.key
+printf 'hello, world\n' | npc aes encrypt -K aes.key | npc net connect localhost:4444 | npc net listen localhost:4444 -r | npc aes decrypt -K aes.key
 ```
 
 ## Next steps
 
 ```sh
-npc help net connect tls
+npc help net connect
 npc help net listen
 npc net --help
 ```

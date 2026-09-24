@@ -29,12 +29,15 @@ var alpnCompletions = []struct {
 }
 
 func registerALPNCompletion(command *cobra.Command) {
-	if err := command.RegisterFlagCompletionFunc("alpn", completeALPN); err != nil {
+	if err := command.RegisterFlagCompletionFunc(netALPNFlagName, completeALPN); err != nil {
 		panic(err)
 	}
 }
 
-func completeALPN(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func completeALPN(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if !netFlagValueCompletionApplicable(cmd, netALPNFlagName) {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 	prefix := ""
 	component := toComplete
 	used := make(map[string]struct{})
@@ -80,21 +83,18 @@ func (value completionValue) Set(input string) error {
 
 func configureTLSConnectFlagCompletion(command *cobra.Command) {
 	update := func() {
-		if !networkCompletionRequested(command) {
-			return
+		if networkCompletionRequested(command) {
+			updateTLSConnectCompletionFlags(command)
 		}
-		insecure := command.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse
-		ca := command.Flags().Lookup(tlsCAFlagName).Value.String()
-		systemCA := command.Flags().Lookup(netSystemCAFlagName).Value.String() != completionBoolFalse
-		command.Flags().Lookup(netInsecureFlagName).Hidden = ca != "" || systemCA
-		command.Flags().Lookup(tlsCAFlagName).Hidden = insecure
-		command.Flags().Lookup(netSystemCAFlagName).Hidden = insecure
 	}
 	for _, name := range []string{tlsCAFlagName, netSystemCAFlagName, netInsecureFlagName} {
 		flag := command.Flags().Lookup(name)
 		flag.Value = completionValue{Value: flag.Value, afterSet: update}
 	}
 	if err := command.RegisterFlagCompletionFunc(tlsCAFlagName, func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if !netFlagValueCompletionApplicable(cmd, tlsCAFlagName) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
 		insecure := cmd.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse
 		if insecure {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -110,8 +110,24 @@ func configureTLSConnectFlagCompletion(command *cobra.Command) {
 	}
 }
 
+func updateTLSConnectCompletionFlags(command *cobra.Command) {
+	protocol, err := networkProtocolFromCommand(command)
+	if err != nil || protocol != netProtocolTLS {
+		return
+	}
+	insecure := command.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse
+	ca := command.Flags().Lookup(tlsCAFlagName).Value.String()
+	systemCA := command.Flags().Lookup(netSystemCAFlagName).Value.String() != completionBoolFalse
+	command.Flags().Lookup(netInsecureFlagName).Hidden = ca != "" || systemCA
+	command.Flags().Lookup(tlsCAFlagName).Hidden = insecure
+	command.Flags().Lookup(netSystemCAFlagName).Hidden = insecure
+}
+
 func completeTLSBoolean(name string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if !netFlagValueCompletionApplicable(cmd, name) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
 		insecure := cmd.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse
 		ca := cmd.Flags().Lookup(tlsCAFlagName).Value.String()
 		systemCA := cmd.Flags().Lookup(netSystemCAFlagName).Value.String() != completionBoolFalse
@@ -133,4 +149,112 @@ func networkCompletionRequested(command *cobra.Command) bool {
 		}
 	}
 	return false
+}
+
+func configureNetProtocolCompletion(command *cobra.Command, listen bool) {
+	// The initial visibility is the default TCP selection. Help restores the full
+	// documented flag union before rendering.
+	setNetProtocolFlagVisibility(command, netProtocolTCP, listen)
+	for _, name := range []string{netProtocolUDP, netProtocolTLS} {
+		flag := command.Flags().Lookup(name)
+		flag.Value = completionValue{Value: flag.Value, afterSet: func() {
+			if networkCompletionRequested(command) {
+				protocol, err := networkProtocolFromCommand(command)
+				if err == nil {
+					setNetProtocolFlagVisibility(command, protocol, listen)
+					if !listen && protocol == netProtocolTLS {
+						updateTLSConnectCompletionFlags(command)
+					}
+				}
+			}
+		}}
+	}
+}
+
+func setNetProtocolFlagVisibility(command *cobra.Command, protocol string, listen bool) {
+	command.Flags().Lookup(netProtocolUDP).Hidden = protocol == netProtocolTLS
+	command.Flags().Lookup(netProtocolTLS).Hidden = protocol == netProtocolUDP
+	for _, name := range []string{
+		tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName, netSystemCAFlagName,
+		netALPNFlagName, tlsServerNameFlagName, netInsecureFlagName,
+	} {
+		if candidate := command.Flags().Lookup(name); candidate != nil {
+			candidate.Hidden = protocol != netProtocolTLS
+		}
+	}
+	for _, name := range []string{netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName} {
+		if candidate := command.Flags().Lookup(name); candidate != nil {
+			candidate.Hidden = protocol == netProtocolUDP
+		}
+	}
+	if listen {
+		command.Flags().Lookup(netWaitFlagName).Hidden = protocol == netProtocolUDP
+	}
+}
+
+func netDurationZeroDescription(command *cobra.Command, name, fallback string) string {
+	protocol, err := networkProtocolFromCommand(command)
+	if err != nil {
+		return fallback
+	}
+	switch name {
+	case netWaitFlagName:
+		if protocol == netProtocolUDP {
+			return "Wait indefinitely for a response datagram"
+		}
+		return "Wait indefinitely while draining the response"
+	case netTimeoutFlagName:
+		if command.Name() == netConnectCommandName {
+			if protocol == netProtocolUDP {
+				return "Disable UDP address resolution and socket setup timeout"
+			}
+			return "Disable TCP setup and TLS handshake timeout"
+		}
+		switch protocol {
+		case netProtocolUDP:
+			return "Disable bind resolution and first datagram timeout"
+		case netProtocolTLS:
+			return "Disable bind resolution, accept, and TLS handshake timeout"
+		default:
+			return "Disable bind resolution and accept timeout"
+		}
+	}
+	return fallback
+}
+
+func netFlagValueCompletionApplicable(cmd *cobra.Command, name string) bool {
+	if !commandHasShape(cmd, netProtocolShape) {
+		return true
+	}
+	protocol, err := networkProtocolFromCommand(cmd)
+	return err == nil && netProtocolFlagApplicable(cmd, protocol, name)
+}
+
+// Cobra's default filename and boolean value completions do not inspect flag
+// visibility. Register callbacks for applicable protocol flags without an
+// existing specialized callback.
+func registerNetDefaultValueCompletions(command *cobra.Command) {
+	for _, name := range []string{
+		tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName, netSystemCAFlagName,
+		netInsecureFlagName, netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName,
+	} {
+		flag := command.Flags().Lookup(name)
+		if flag == nil {
+			continue
+		}
+		if _, registered := command.GetFlagCompletionFunc(name); registered {
+			continue
+		}
+		if err := command.RegisterFlagCompletionFunc(name, func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+			if !netFlagValueCompletionApplicable(cmd, name) {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			if flag.Value.Type() == "bool" {
+				return filterDescribedCompletions([]string{completionBoolTrue, completionBoolFalse}, prefix), cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveDefault
+		}); err != nil {
+			panic(err)
+		}
+	}
 }

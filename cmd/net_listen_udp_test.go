@@ -18,29 +18,29 @@ import (
 
 func TestNetListenUDPFlagAndAddressContract(t *testing.T) {
 	t.Parallel()
-	netListenUDPCmd := newNetListenUDPCmd()
+	netListenUDPCmd := newNetListenTestCommand(t, "udp")
 	if got := netListenUDPCmd.Flags().Lookup("timeout").DefValue; got != "0s" {
 		t.Fatalf("timeout default = %q, want 0s", got)
 	}
 	for _, name := range []string{"wait", "close-write"} {
-		if flag := netListenUDPCmd.Flags().Lookup(name); flag != nil {
-			t.Fatalf("UDP listener unexpectedly exposes --%s", flag.Name)
+		if flag := netListenUDPCmd.Flags().Lookup(name); flag == nil {
+			t.Fatalf("net listen union has no --%s flag", name)
 		}
 	}
-	stdout, _, err := executeRootStreams(t, "net", "listen", "udp", "--help")
+	stdout, _, err := executeRootStreams(t, "net", "listen", "--udp", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "udp [host:]port") {
+	if !strings.Contains(stdout, "net listen [host:]port") {
 		t.Fatalf("help = %q, want optional-host usage", stdout)
 	}
 	for _, address := range []string{"localhost:", ":", "localhost", "http", "65536"} {
-		_, _, err := executeRootStreams(t, "net", "listen", "udp", address)
+		_, _, err := executeRootStreams(t, "net", "listen", "--udp", address)
 		if !errors.Is(err, errInvalidHostPort) {
 			t.Fatalf("address %q error = %v, want errInvalidHostPort", address, err)
 		}
 	}
-	_, _, err = executeRootStreams(t, "net", "listen", "udp", "0", "--timeout", "-1s")
+	_, _, err = executeRootStreams(t, "net", "listen", "--udp", "0", "--timeout", "-1s")
 	if !errors.Is(err, errInvalidNetworkFlags) {
 		t.Fatalf("negative timeout error = %v, want errInvalidNetworkFlags", err)
 	}
@@ -51,7 +51,7 @@ func TestNetListenUDPPositiveFirstDatagramTimeoutClosesSocket(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("response"),
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--timeout", "30ms",
 		"--verbose",
 	)
@@ -77,7 +77,7 @@ func TestNetListenUDPAcceptsColonPortCompatibility(t *testing.T) {
 	t.Parallel()
 	_, _, err := executeRootStreams(
 		t,
-		"net", "listen", "udp", ":0",
+		"net", "listen", "--udp", ":0",
 		"--timeout", "25ms",
 	)
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -96,7 +96,7 @@ func TestNetListenUDPIPv6Loopback(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("response"),
-		"net", "listen", "udp", "[::1]:0",
+		"net", "listen", "--udp", "[::1]:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
@@ -139,7 +139,7 @@ func TestNetListenUDPBindFailure(t *testing.T) {
 	occupied := listenUDPTest(t)
 	_, _, err := executeRootStreams(
 		t,
-		"net", "listen", "udp", occupied.LocalAddr().String(),
+		"net", "listen", "--udp", occupied.LocalAddr().String(),
 		"--timeout", "25ms",
 	)
 	if err == nil || !strings.Contains(err.Error(), "listen on UDP endpoint") {
@@ -153,7 +153,7 @@ func TestNetListenUDPRelaysEncodedDatagrams(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(response),
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--input-encoding", "base64",
 		"--encoding", "base64",
 		"--verbose",
@@ -210,7 +210,7 @@ func TestNetListenUDPFinalizesEncodedRequestBeforeReadingResponse(t *testing.T) 
 			run := startExampleListenCommand(
 				t,
 				responseReader,
-				"net", "listen", "udp", "127.0.0.1:0",
+				"net", "listen", "--udp", "127.0.0.1:0",
 				"--encoding", test.encoding,
 				"--output", outputPath,
 				"--verbose",
@@ -261,7 +261,7 @@ func TestNetListenUDPCancellationWhileReadingResponseClosesSocket(t *testing.T) 
 	run := startExampleListenCommand(
 		t,
 		responseReader,
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
@@ -314,7 +314,7 @@ func TestNetListenUDPTimeoutOnlyCoversSetupAndFirstDatagram(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		responseReader,
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--timeout", "1s",
 		"--verbose",
 	)
@@ -356,7 +356,7 @@ func TestNetListenUDPRespondsOnlyToFirstPeer(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("response"),
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
@@ -401,7 +401,7 @@ func TestNetListenUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
@@ -432,7 +432,7 @@ func TestNetListenUDPRejectsOversizedResponseWithoutSending(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		bytes.NewReader(make([]byte, netconn.MaxUDPPayloadSize+1)),
-		"net", "listen", "udp", "127.0.0.1:0",
+		"net", "listen", "--udp", "127.0.0.1:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")

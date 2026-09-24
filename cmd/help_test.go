@@ -161,8 +161,8 @@ func TestHelpAliasesSelectCanonicalGuides(t *testing.T) {
 		{name: "certificate-family", args: []string{"x509", "connect"}, wantHeading: "Inspect a TLS server's certificates"},
 		{name: "certificate-leaf", args: []string{"certificate", "conn"}, wantHeading: "Inspect a TLS server's certificates"},
 		{name: "punctuated-certificate", args: []string{"x.509", "c"}, wantHeading: "Inspect a TLS server's certificates"},
-		{name: "network-family", args: []string{"nc", "connect", "tls"}, wantHeading: "Exchange bytes over verified TLS"},
-		{name: "network-long-alias", args: []string{"netcat", "listen", "udp"}, wantHeading: "Receive one UDP request and send one response"},
+		{name: "network-family", args: []string{"nc", "connect"}, wantHeading: "Connect to a network endpoint"},
+		{name: "network-long-alias", args: []string{"netcat", "listen"}, wantHeading: "Listen for one network exchange"},
 		{name: "key-family-and-leaf", args: []string{"k", "gen"}, wantHeading: "Generate a cryptographic key"},
 		{name: "key-leaf", args: []string{"key", "p"}, wantHeading: "Derive or canonicalize a public key"},
 		{name: "aes-encrypt", args: []string{"aes", "enc"}, wantHeading: "Encrypt a message with AES"},
@@ -282,7 +282,7 @@ func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
 		{name: "bare-root", want: "Usage:\n  npc [command]"},
 		{name: "bare-branch", args: []string{"net"}, want: "Usage:\n  npc net [command]"},
 		{name: "bare-hash", args: []string{"hash"}, want: "Usage:\n  npc hash [flags]"},
-		{name: "reference", args: []string{"net", "connect", "tls", "--help"}, want: "Usage:\n  npc net connect tls host:port [flags]"},
+		{name: "reference", args: []string{"net", "connect", "--tls", "--help"}, want: "Usage:\n  npc net connect host:port [flags]"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -301,7 +301,7 @@ func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
 		})
 	}
 
-	stdout, _, err := executeRootCommandStreams(t, newGuideTestRoot(false, 0, nil), "net", "connect", "tls")
+	stdout, _, err := executeRootCommandStreams(t, newGuideTestRoot(false, 0, nil), "net", "connect", "--tls")
 	if err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s), received 0") {
 		t.Fatalf("missing operational argument error = %v", err)
 	}

@@ -21,19 +21,30 @@ var (
 
 func TestNetConnectUDPFlagContract(t *testing.T) {
 	t.Parallel()
-	netConnectUDPCmd := newNetConnectUDPCmd()
-	if got := netConnectUDPCmd.Flags().Lookup("timeout").DefValue; got != "10s" {
-		t.Fatalf("timeout default = %q, want 10s", got)
+	netConnectUDPCmd := newNetConnectTestCommand(t, "udp")
+	options, err := networkDatagramConnectOptionsFromCommand(netConnectUDPCmd)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := netConnectUDPCmd.Flags().Lookup("wait").DefValue; got != "5s" {
-		t.Fatalf("wait default = %q, want 5s", got)
+	if options.timeout != 5*time.Second || options.wait != 5*time.Second {
+		t.Fatalf("UDP defaults = timeout:%s wait:%s, want 5s and 5s", options.timeout, options.wait)
 	}
-	if flag := netConnectUDPCmd.Flags().Lookup("close-write"); flag != nil {
-		t.Fatalf("UDP connector unexpectedly exposes --%s", flag.Name)
+	if err := netConnectUDPCmd.Flags().Set("wait", "0"); err != nil {
+		t.Fatal(err)
+	}
+	options, err = networkDatagramConnectOptionsFromCommand(netConnectUDPCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.wait != 0 {
+		t.Fatalf("explicit UDP wait = %s, want 0", options.wait)
+	}
+	if flag := netConnectUDPCmd.Flags().Lookup("close-write"); flag == nil {
+		t.Fatal("net connect union has no --close-write flag")
 	}
 	for _, args := range [][]string{
-		{"net", "connect", "udp", "127.0.0.1:53", "--timeout", "-1s"},
-		{"net", "connect", "udp", "127.0.0.1:53", "--wait", "-1s"},
+		{"net", "connect", "--udp", "127.0.0.1:53", "--timeout", "-1s"},
+		{"net", "connect", "--udp", "127.0.0.1:53", "--wait", "-1s"},
 	} {
 		if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
 			t.Fatalf("args %v error = %v, want errInvalidNetworkFlags", args, err)
@@ -44,7 +55,7 @@ func TestNetConnectUDPFlagContract(t *testing.T) {
 func TestNetConnectUDPRequiresHostAndPort(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{"53", ":53", "localhost:", "localhost"} {
-		_, _, err := executeRootStreams(t, "net", "connect", "udp", address)
+		_, _, err := executeRootStreams(t, "net", "connect", "--udp", address)
 		if !errors.Is(err, errInvalidHostPort) {
 			t.Fatalf("address %q error = %v, want errInvalidHostPort", address, err)
 		}
@@ -64,7 +75,7 @@ func TestNetConnectUDPResponseTimeout(t *testing.T) {
 	_, _, err := executeRootStreamsWithInput(
 		t,
 		strings.NewReader("request"),
-		"net", "connect", "udp", listener.LocalAddr().String(),
+		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--wait", "30ms",
 	)
 	if !errors.Is(err, netconn.ErrUDPResponseTimeout) || !errors.Is(err, context.DeadlineExceeded) {
@@ -94,7 +105,7 @@ func TestNetConnectUDPZeroWaitWaitsIndefinitelyForFirstResponse(t *testing.T) {
 	stdout, _, err := executeRootStreamsWithInput(
 		t,
 		strings.NewReader("request"),
-		"net", "connect", "udp", listener.LocalAddr().String(),
+		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--wait", "0",
 	)
 	if err != nil {
@@ -127,7 +138,7 @@ func TestNetConnectUDPExitsAfterFirstResponseDatagram(t *testing.T) {
 	stdout, _, err := executeRootStreamsWithInput(
 		t,
 		strings.NewReader("request"),
-		"net", "connect", "udp", listener.LocalAddr().String(),
+		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--wait", "1s",
 	)
 	if err != nil {
@@ -161,7 +172,7 @@ func TestNetConnectUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
 	stdout, _, err := executeRootStreamsWithInput(
 		t,
 		strings.NewReader(""),
-		"net", "connect", "udp", listener.LocalAddr().String(),
+		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--wait", "1s",
 	)
 	if err != nil {
@@ -188,7 +199,7 @@ func TestNetConnectUDPRejectsOversizedInputBeforeSending(t *testing.T) {
 	_, _, err := executeRootStreamsWithInput(
 		t,
 		bytes.NewReader(make([]byte, netconn.MaxUDPPayloadSize+1)),
-		"net", "connect", "udp", listener.LocalAddr().String(),
+		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--wait", "1s",
 	)
 	if !errors.Is(err, netconn.ErrDatagramTooLarge) {
@@ -209,7 +220,7 @@ func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
 	rootCmd := newRootCmd()
 	rootCmd.SetContext(ctx)
 	rootCmd.SetArgs([]string{
-		"net", "connect", "udp", listener.LocalAddr().String(),
+		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--verbose",
 	})
 	rootCmd.SetIn(input)

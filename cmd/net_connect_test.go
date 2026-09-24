@@ -45,7 +45,7 @@ func TestNetConnectTCPRelaysEncodedPayload(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tcp", address,
+		"net", "connect", "--udp=false", "--tls=false", address,
 		"--input", inputPath,
 		"--input-encoding", "base64",
 		"--encoding", "base64",
@@ -80,7 +80,7 @@ func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--input", inputPath,
 		"--timeout", "1s",
 		"--wait", "5s",
@@ -108,7 +108,7 @@ func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
 	stdout, _, err := executeRootStreamsWithInput(
 		t,
 		&commandGatedEOFReader{ready: responseStarted},
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--output", outputPath,
 		"--close-write=false",
 		"--wait", "50ms",
@@ -145,7 +145,7 @@ func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tls", address,
+		"net", "connect", "-T", "--udp=false", address,
 		"--input", inputPath,
 		"--ca", identity.caCert,
 		"--cert", identity.clientCert,
@@ -190,7 +190,7 @@ func TestNetConnectTLSDefaultsToHalfCloseAndDrain(t *testing.T) {
 	stdout, stderr, err := executeRootCommandStreams(
 		t,
 		root,
-		"net", "connect", "tls", address,
+		"net", "connect", "--tls", address,
 		"--input", requestPath,
 		"--ca", identity.caCert,
 		"--servername", "localhost",
@@ -221,7 +221,7 @@ func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tls", address,
+		"net", "connect", "--tls", address,
 		"--input", inputPath,
 		"--servername", "localhost",
 		"--alpn", hostileALPN,
@@ -260,7 +260,7 @@ func TestNetConnectTLSCanDisableALPNWithoutVerboseWarning(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tls", address,
+		"net", "connect", "--tls", address,
 		"--input", inputPath,
 		"--alpn=",
 		"--insecure",
@@ -285,7 +285,7 @@ func TestNetConnectTLSRejectsMismatchedClientIdentityBeforeDial(t *testing.T) {
 	identity := createNetworkTestIdentity(t)
 	_, _, err := executeRootStreams(
 		t,
-		"net", "connect", "tls", "localhost:1",
+		"net", "connect", "--tls", "localhost:1",
 		"--cert", identity.clientCert,
 		"--key", identity.serverKey,
 	)
@@ -304,7 +304,7 @@ func TestNetConnectTLSRejectsArtifactOutputCollisionBeforeTruncation(t *testing.
 
 	_, _, err = executeRootStreams(
 		t,
-		"net", "connect", "tls", "localhost:1",
+		"net", "connect", "--tls", "localhost:1",
 		"--cert", identity.clientCert,
 		"--key", identity.clientKey,
 		"--output", identity.clientCert,
@@ -332,7 +332,7 @@ func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
 
 	stdout, _, err := executeRootStreams(
 		t,
-		"net", "connect", "tls", address,
+		"net", "connect", "--tls", address,
 		"--input", inputPath,
 		"--servername", "localhost",
 	)
@@ -365,7 +365,7 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			args := append([]string{"net", "connect", "tls", "localhost:443"}, test.args...)
+			args := append([]string{"net", "connect", "--tls", "localhost:443"}, test.args...)
 			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
 				t.Fatalf("error = %v, want errInvalidNetworkFlags", err)
 			}

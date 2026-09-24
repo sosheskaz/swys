@@ -29,7 +29,7 @@ func TestInterruptExamples(t *testing.T) {
 
 	t.Run("Ctrl-C stops a listener waiting for a peer", func(t *testing.T) {
 		t.Parallel()
-		run := startInterruptibleCommand(t, strings.NewReader(""), "net", "listen", "tcp", "127.0.0.1:0", "--verbose")
+		run := startInterruptibleCommand(t, strings.NewReader(""), "net", "listen", "127.0.0.1:0", "--verbose")
 		readExampleListeningAddress(t, run.stderr, "listening tcp ")
 		drainExampleStderr(run.stderr)
 
@@ -42,7 +42,7 @@ func TestInterruptExamples(t *testing.T) {
 		t.Parallel()
 		stdin, stdinWriter := io.Pipe()
 		t.Cleanup(func() { _ = stdinWriter.Close() }) //nolint:errcheck // test cleanup is best effort
-		run := startInterruptibleCommand(t, stdin, "net", "listen", "tcp", "127.0.0.1:0", "--verbose")
+		run := startInterruptibleCommand(t, stdin, "net", "listen", "127.0.0.1:0", "--verbose")
 		address := readExampleListeningAddress(t, run.stderr, "listening tcp ")
 		drainExampleStderr(run.stderr)
 		connection := dialListenTestTCP(t, address)

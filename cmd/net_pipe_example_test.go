@@ -27,8 +27,8 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 	defer cancel()
 
 	encrypt := newNetPipeProcess(ctx, "aes", "encrypt", "-K", keyPath)
-	connect := newNetPipeProcess(ctx, "net", "connect", "tcp", address)
-	listen := newNetPipeProcess(ctx, "net", "listen", "tcp", address, "-r")
+	connect := newNetPipeProcess(ctx, "net", "connect", address)
+	listen := newNetPipeProcess(ctx, "net", "listen", address, "-r")
 	decrypt := newNetPipeProcess(ctx, "aes", "decrypt", "-K", keyPath)
 	commands := []*exec.Cmd{encrypt, connect, listen, decrypt}
 
@@ -121,7 +121,7 @@ func TestExampleDefaultDuplexTransfersFullFileToListener(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tcp ")
@@ -134,7 +134,7 @@ func TestExampleDefaultDuplexTransfersFullFileToListener(t *testing.T) {
 	stdout, stderr, err := executeRootCommandStreams(
 		t,
 		root,
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--input", inputPath,
 	)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestNetConnectTCPPeerEOFStopsBlockedInput(t *testing.T) {
 	stdout, stderr, err := executeRootCommandStreams(
 		t,
 		root,
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--duplex=false",
 	)
 	if closeErr := inputWriter.Close(); closeErr != nil {

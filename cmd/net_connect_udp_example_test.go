@@ -16,7 +16,7 @@ func TestExampleNetConnectUDPDatagramExchange(t *testing.T) {
 	stdout, stderr, err := executeRootStreamsWithInput(
 		t,
 		strings.NewReader("hello from client"),
-		"net", "connect", "udp", address,
+		"net", "connect", "--udp", address,
 		"--verbose",
 		"--wait", "1s",
 	)
@@ -51,7 +51,7 @@ func TestExampleNetConnectUDPRawDNSPacket(t *testing.T) {
 	stdout, _, err := executeRootStreamsWithInput(
 		t,
 		strings.NewReader(queryHex+"\n"),
-		"net", "connect", "udp", address,
+		"net", "connect", "--udp", address,
 		"--input-encoding", "hex",
 		"--encoding", "hex",
 		"--wait", "1s",

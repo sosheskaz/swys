@@ -37,72 +37,63 @@ func newNetCmd() *cobra.Command {
 }
 
 func newNetConnectCmd() *cobra.Command {
-	netConnectCmd := &cobra.Command{
-		Use:   "connect",
-		Short: "Connect to a remote endpoint",
-	}
-	netConnectCmd.AddCommand(newNetConnectTCPCmd(), newNetConnectTLSCmd(), newNetConnectUDPCmd())
-	return netConnectCmd
-}
+	command := binaryOutputCommand(streamNetworkCommandWithTimeout(&cobra.Command{
+		Use:   "connect host:port",
+		Short: "Exchange raw bytes with a remote TCP, UDP, or TLS endpoint",
+		Long: `Connect to a remote endpoint using TCP by default, --udp for UDP, or --tls for TLS.
 
-func newNetConnectTCPCmd() *cobra.Command {
-	netConnectTCPCmd := binaryOutputCommand(streamNetworkCommand(&cobra.Command{
-		Use:   "tcp host:port",
-		Short: "Exchange raw bytes over TCP",
-		RunE:  runNetConnectTCP,
-	}), true)
-	return netConnectTCPCmd
-}
-
-func newNetConnectUDPCmd() *cobra.Command {
-	netConnectUDPCmd := binaryOutputCommand(connectDatagramNetworkCommand(&cobra.Command{
-		Use:   "udp host:port",
-		Short: "Exchange one raw UDP request and response datagram",
-		Long: `Exchange exactly one request and one response datagram over UDP.
-
-Decoded stdin or --input becomes one datagram, including when it is empty. The
-first response datagram is written to stdout or --output and the command exits.
-Input must reach EOF before the request is sent; pressing Enter alone does not
-send it. The connector always expects one response and has no send-only mode.
-Use --wait 0 to wait indefinitely for that response.`,
-		RunE: runNetConnectUDP,
-	}), true)
-	return netConnectUDPCmd
-}
-
-func newNetConnectTLSCmd() *cobra.Command {
-	netConnectTLSCmd := binaryOutputCommand(streamNetworkCommand(&cobra.Command{
-		Use:   "tls host:port",
-		Short: "Exchange raw bytes over a verified TLS connection",
-		Long: `Exchange raw application bytes over TLS.
-
-Server certificates and hostnames are verified by default. --ca replaces the
-system trust store with a PEM bundle; add --system-ca to combine both stores.
---cert and --key configure an optional mTLS client identity. --insecure disables
-verification explicitly and is intended only for controlled diagnostics.
-
-No ALPN protocols are advertised by default. Use --alpn with a comma-separated
-list to advertise protocols explicitly. Negotiation does not transform the
-payload: when h2 is selected, input must contain valid HTTP/2 frames.`,
-		RunE: runNetConnectTLS,
-	}), true)
-	netConnectTLSCmd.Flags().String(tlsCertFlagName, "", "client certificate chain PEM path")
-	netConnectTLSCmd.Flags().String(tlsKeyFlagName, "", "client private key path")
-	netConnectTLSCmd.Flags().String(tlsCAFlagName, "", "custom CA certificate bundle PEM path")
-	netConnectTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
-	netConnectTLSCmd.Flags().String(tlsServerNameFlagName, "", "TLS SNI and verification name (default endpoint host)")
-	netConnectTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
-	netConnectTLSCmd.Flags().Bool("insecure", false, "disable TLS certificate and hostname verification")
-	registerNoFileFlagCompletion(netConnectTLSCmd, tlsServerNameFlagName)
-	registerALPNCompletion(netConnectTLSCmd)
-	configureTLSConnectFlagCompletion(netConnectTLSCmd)
+TCP and TLS exchange application bytes until response EOF. UDP sends one decoded
+request datagram and writes the first response datagram. Input must reach EOF
+before UDP sends. TLS verifies certificates and hostnames by default; --ca
+replaces system roots unless --system-ca is set. Use --alpn to advertise TLS
+protocols explicitly; it does not transform the application payload.`,
+		RunE: runNetConnect,
+	}, defaultStreamConnectTimeout,
+		"TCP or UDP setup and TLS handshake timeout (0 disables)", false), true)
+	command.Flags().BoolP(netProtocolUDP, "u", false, "use UDP datagrams instead of TCP")
+	command.Flags().BoolP(netProtocolTLS, "T", false, "use a verified TLS stream instead of TCP")
+	command.Flags().Lookup(netCloseWriteFlagName).Usage += netStreamOnlyHelp
+	command.Flags().Lookup(netDuplexFlagName).Usage += netStreamOnlyHelp
+	command.Flags().Lookup(netWaitFlagName).Usage =
+		"response wait: TCP/TLS drain defaults to 0 (unlimited); " +
+			"UDP first datagram defaults to 5s (explicit 0 waits indefinitely)"
+	command.Flags().String(tlsCertFlagName, "", "TLS client certificate chain PEM path (TLS only)")
+	command.Flags().String(tlsKeyFlagName, "", "TLS client private key path (TLS only)")
+	command.Flags().String(tlsCAFlagName, "", "TLS custom CA certificate bundle PEM path (TLS only)")
+	command.Flags().Bool(netSystemCAFlagName, false, "include system roots with --ca (TLS only)")
+	command.Flags().String(tlsServerNameFlagName, "", "TLS SNI and verification name (default endpoint host; TLS only)")
+	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")
+	command.Flags().Bool(netInsecureFlagName, false, "disable TLS certificate and hostname verification (TLS only)")
+	registerNoFileFlagCompletion(command, tlsServerNameFlagName)
+	registerALPNCompletion(command)
+	configureTLSConnectFlagCompletion(command)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
-		if err := netConnectTLSCmd.MarkFlagFilename(name); err != nil {
+		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
 	}
-	addCommandShape(netConnectTLSCmd, "net-connect-tls")
-	return netConnectTLSCmd
+	registerNetDefaultValueCompletions(command)
+	configureNetProtocolCompletion(command, false)
+	addCommandShape(command, netProtocolShape)
+	command.Args = netProtocolAddressArgs(nil, false)
+	return command
+}
+
+func runNetConnect(cmd *cobra.Command, args []string) error {
+	protocol, err := networkProtocolFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	switch protocol {
+	case netProtocolTCP:
+		return runNetConnectTCP(cmd, args)
+	case netProtocolUDP:
+		return runNetConnectUDP(cmd, args)
+	case netProtocolTLS:
+		return runNetConnectTLS(cmd, args)
+	default:
+		panic("validated network protocol")
+	}
 }
 
 type networkStreamOptions struct {
@@ -201,13 +192,13 @@ func exchangeUDPDatagram(
 }
 
 func networkDatagramConnectOptionsFromCommand(cmd *cobra.Command) (networkDatagramConnectOptions, error) {
-	timeout, err := cmd.Flags().GetDuration("timeout")
+	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
 	if err != nil {
 		return networkDatagramConnectOptions{}, fmt.Errorf("read timeout flag: %w", err)
 	}
-	wait, err := cmd.Flags().GetDuration("wait")
+	wait, err := netConnectWait(cmd)
 	if err != nil {
-		return networkDatagramConnectOptions{}, fmt.Errorf("read wait flag: %w", err)
+		return networkDatagramConnectOptions{}, err
 	}
 	verbose, err := cmd.Flags().GetBool("verbose")
 	if err != nil {
@@ -246,19 +237,19 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 }
 
 func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, error) {
-	timeout, err := cmd.Flags().GetDuration("timeout")
+	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read timeout flag: %w", err)
 	}
-	wait, err := cmd.Flags().GetDuration("wait")
+	wait, err := cmd.Flags().GetDuration(netWaitFlagName)
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read wait flag: %w", err)
 	}
-	closeWrite, err := cmd.Flags().GetBool("close-write")
+	closeWrite, err := cmd.Flags().GetBool(netCloseWriteFlagName)
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read close-write flag: %w", err)
 	}
-	duplex, err := cmd.Flags().GetBool("duplex")
+	duplex, err := cmd.Flags().GetBool(netDuplexFlagName)
 	if err != nil {
 		return networkStreamOptions{}, fmt.Errorf("read duplex flag: %w", err)
 	}
@@ -267,8 +258,8 @@ func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, 
 		return networkStreamOptions{}, fmt.Errorf("read verbose flag: %w", err)
 	}
 	receiveOnly := false
-	if cmd.Flags().Lookup("recv-only") != nil {
-		receiveOnly, err = cmd.Flags().GetBool("recv-only")
+	if cmd.Flags().Lookup(netRecvOnlyFlagName) != nil {
+		receiveOnly, err = cmd.Flags().GetBool(netRecvOnlyFlagName)
 		if err != nil {
 			return networkStreamOptions{}, fmt.Errorf("read recv-only flag: %w", err)
 		}
@@ -295,7 +286,7 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 	if serverName == "" {
 		serverName = host
 	}
-	alpnText, err := cmd.Flags().GetString("alpn")
+	alpnText, err := cmd.Flags().GetString(netALPNFlagName)
 	if err != nil {
 		return nil, fmt.Errorf("read alpn flag: %w", err)
 	}
@@ -303,7 +294,7 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 	if err != nil {
 		return nil, err
 	}
-	insecure, err := cmd.Flags().GetBool("insecure")
+	insecure, err := cmd.Flags().GetBool(netInsecureFlagName)
 	if err != nil {
 		return nil, fmt.Errorf("read insecure flag: %w", err)
 	}
@@ -342,7 +333,7 @@ func tlsCAPoolFromCommand(cmd *cobra.Command) (*x509.CertPool, bool, error) {
 	if caPath == "" {
 		return nil, false, nil
 	}
-	systemCA, err := cmd.Flags().GetBool("system-ca")
+	systemCA, err := cmd.Flags().GetBool(netSystemCAFlagName)
 	if err != nil {
 		return nil, false, fmt.Errorf("read system-ca flag: %w", err)
 	}
@@ -483,7 +474,7 @@ func writeTLSConnectionDetails(output io.Writer, connection *tls.Conn, config *t
 	fields := []struct{ label, value string }{
 		{label: "version", value: tls.VersionName(state.Version)},
 		{label: "cipher", value: tls.CipherSuiteName(state.CipherSuite)},
-		{label: "alpn", value: alpn},
+		{label: netALPNFlagName, value: alpn},
 		{label: "server name", value: config.ServerName},
 	}
 	for _, field := range fields {
@@ -498,15 +489,15 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if !commandHasShape(cmd, networkShape) {
 		return nil
 	}
-	timeout, err := cmd.Flags().GetDuration("timeout")
+	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
 	if err != nil {
 		return fmt.Errorf("read timeout flag: %w", err)
 	}
 	if timeout < 0 {
 		return fmt.Errorf("%w: --timeout cannot be negative", errInvalidNetworkFlags)
 	}
-	if cmd.Flags().Lookup("wait") != nil {
-		wait, err := cmd.Flags().GetDuration("wait")
+	if cmd.Flags().Lookup(netWaitFlagName) != nil {
+		wait, err := cmd.Flags().GetDuration(netWaitFlagName)
 		if err != nil {
 			return fmt.Errorf("read wait flag: %w", err)
 		}
@@ -514,40 +505,48 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 			return fmt.Errorf("%w: --wait cannot be negative", errInvalidNetworkFlags)
 		}
 	}
-	if cmd.Flags().Lookup("recv-only") != nil {
-		receiveOnly, err := cmd.Flags().GetBool("recv-only")
+	if cmd.Flags().Lookup(netRecvOnlyFlagName) != nil {
+		receiveOnly, err := cmd.Flags().GetBool(netRecvOnlyFlagName)
 		if err != nil {
 			return fmt.Errorf("read recv-only flag: %w", err)
 		}
-		if receiveOnly && cmd.Flags().Changed("duplex") {
+		if receiveOnly && cmd.Flags().Changed(netDuplexFlagName) {
 			return fmt.Errorf("%w: --recv-only cannot be combined with --duplex", errInvalidNetworkFlags)
 		}
 		if receiveOnly && cmd.Flags().Changed("input") {
 			return fmt.Errorf("%w: --recv-only cannot be combined with --input", errInvalidNetworkFlags)
 		}
 	}
-	if commandHasShape(cmd, "net-listen-tls") {
-		return validateTLSListenFlagsBeforeIO(cmd)
-	}
-	if commandHasShape(cmd, "net-connect-tls") {
-		return validateTLSFlagsBeforeIO(cmd)
+	if commandHasShape(cmd, netProtocolShape) {
+		return validateNetProtocolFlagsBeforeIO(cmd)
 	}
 	return nil
 }
 
 func validateTLSListenFlagsBeforeIO(cmd *cobra.Command) error {
+	certPath, err := cmd.Flags().GetString(tlsCertFlagName)
+	if err != nil {
+		return fmt.Errorf("read cert flag: %w", err)
+	}
+	keyPath, err := cmd.Flags().GetString(tlsKeyFlagName)
+	if err != nil {
+		return fmt.Errorf("read key flag: %w", err)
+	}
+	if certPath == "" || keyPath == "" {
+		return fmt.Errorf("%w: required flags --cert and --key must be specified together for TLS listeners", errInvalidNetworkFlags)
+	}
 	caPath, err := cmd.Flags().GetString(tlsCAFlagName)
 	if err != nil {
 		return fmt.Errorf("read ca flag: %w", err)
 	}
-	systemCA, err := cmd.Flags().GetBool("system-ca")
+	systemCA, err := cmd.Flags().GetBool(netSystemCAFlagName)
 	if err != nil {
 		return fmt.Errorf("read system-ca flag: %w", err)
 	}
 	if systemCA && caPath == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", errInvalidNetworkFlags)
 	}
-	alpn, err := cmd.Flags().GetString("alpn")
+	alpn, err := cmd.Flags().GetString(netALPNFlagName)
 	if err != nil {
 		return fmt.Errorf("read alpn flag: %w", err)
 	}
@@ -573,11 +572,11 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read ca flag: %w", err)
 	}
-	systemCA, err := cmd.Flags().GetBool("system-ca")
+	systemCA, err := cmd.Flags().GetBool(netSystemCAFlagName)
 	if err != nil {
 		return fmt.Errorf("read system-ca flag: %w", err)
 	}
-	insecure, err := cmd.Flags().GetBool("insecure")
+	insecure, err := cmd.Flags().GetBool(netInsecureFlagName)
 	if err != nil {
 		return fmt.Errorf("read insecure flag: %w", err)
 	}
@@ -587,7 +586,7 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 	if systemCA && caPath == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", errInvalidNetworkFlags)
 	}
-	alpn, err := cmd.Flags().GetString("alpn")
+	alpn, err := cmd.Flags().GetString(netALPNFlagName)
 	if err != nil {
 		return fmt.Errorf("read alpn flag: %w", err)
 	}

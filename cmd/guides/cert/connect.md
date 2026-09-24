@@ -25,6 +25,6 @@ Inspection retrieves certificates even when verification fails, then reports ver
 For application traffic over verified TLS, continue with the network TLS guide.
 
 ```sh
-npc help net connect tls
+npc help net connect
 npc cert connect --help
 ```

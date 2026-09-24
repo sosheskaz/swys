@@ -72,7 +72,7 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 	}
 	for _, operation := range []string{"connect", "listen"} {
 		for _, artifact := range []struct{ name, path string }{{"ca", certPath}, {"cert", certPath}, {"key", keyPath}} {
-			args := []string{"net", operation, "tls", "127.0.0.1:0"}
+			args := []string{"net", operation, "--tls", "127.0.0.1:0"}
 			switch artifact.name {
 			case "ca":
 				args = append(args, "--ca", artifact.path, "--cert", identity.serverCert, "--key", identity.serverKey)

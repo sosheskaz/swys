@@ -7,7 +7,7 @@ The help command displays curated task guidance. A command's help flag remains t
 Use canonical command names or their aliases. Output always uses canonical names so examples remain consistent.
 
 ```sh
-npc help net connect tls
+npc help net connect
 npc help x509 connect
 ```
 

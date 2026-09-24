@@ -152,8 +152,8 @@ func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
 	defer cancel()
 	commands := []*exec.Cmd{
 		newNetPipeProcess(ctx, "aes", "encrypt", "--keyfile", keyPath, "--input", plaintextPath),
-		newNetPipeProcess(ctx, "net", "connect", "tcp", address),
-		newNetPipeProcess(ctx, "net", "listen", "tcp", address, "--recv-only"),
+		newNetPipeProcess(ctx, "net", "connect", address),
+		newNetPipeProcess(ctx, "net", "listen", address, "--recv-only"),
 		newNetPipeProcess(ctx, "aes", "decrypt", "--keyfile", keyPath),
 		newNetPipeProcess(ctx, "hash", "sha256"),
 	}

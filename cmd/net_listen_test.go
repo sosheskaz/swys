@@ -30,26 +30,18 @@ var errListenDiagnosticOutput = errors.New("diagnostic output failed")
 
 func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 	t.Parallel()
-	if got := newNetListenTCPCmd().Flags().Lookup("timeout").DefValue; got != "0s" {
+	if got := newNetListenTestCommand(t, "tcp").Flags().Lookup("timeout").DefValue; got != "0s" {
 		t.Errorf("listen timeout default = %q, want 0s", got)
 	}
-	if got := newNetConnectTCPCmd().Flags().Lookup("timeout").DefValue; got != "5s" {
+	if got := newNetConnectTestCommand(t, "tcp").Flags().Lookup("timeout").DefValue; got != "5s" {
 		t.Errorf("connect timeout default = %q, want 5s", got)
-	}
-	if got := newNetListenTLSCmd().Flags().Lookup("timeout").DefValue; got != "0s" {
-		t.Errorf("TLS listen timeout default = %q, want 0s", got)
-	}
-	if got := newNetConnectTLSCmd().Flags().Lookup("timeout").DefValue; got != "5s" {
-		t.Errorf("TLS connect timeout default = %q, want 5s", got)
 	}
 	for _, test := range []struct {
 		command *cobra.Command
 		name    string
 	}{
-		{name: "connect TCP", command: newNetConnectTCPCmd()},
-		{name: "connect TLS", command: newNetConnectTLSCmd()},
-		{name: "listen TCP", command: newNetListenTCPCmd()},
-		{name: "listen TLS", command: newNetListenTLSCmd()},
+		{name: "connect TCP", command: newNetConnectTestCommand(t, "tcp")},
+		{name: "listen TCP", command: newNetListenTestCommand(t, "tcp")},
 	} {
 		if got := test.command.Flags().Lookup("wait").DefValue; got != "0s" {
 			t.Errorf("%s wait default = %q, want 0s", test.name, got)
@@ -64,37 +56,14 @@ func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 			t.Errorf("%s duplex shorthand = %q, want d", test.name, got)
 		}
 	}
-	for _, test := range []struct {
-		command *cobra.Command
-		name    string
-	}{
-		{name: "listen TCP", command: newNetListenTCPCmd()},
-		{name: "listen TLS", command: newNetListenTLSCmd()},
-	} {
-		flag := test.command.Flags().Lookup("recv-only")
-		if flag == nil {
-			t.Errorf("%s has no recv-only flag", test.name)
-			continue
-		}
-		if flag.DefValue != "false" || flag.Shorthand != "r" {
-			t.Errorf(
-				"%s recv-only flag = default:%q shorthand:%q, want false and r",
-				test.name,
-				flag.DefValue,
-				flag.Shorthand,
-			)
-		}
+	flag := newNetListenTestCommand(t, "tcp").Flags().Lookup("recv-only")
+	if flag == nil {
+		t.Error("listen TCP has no recv-only flag")
+	} else if flag.DefValue != "false" || flag.Shorthand != "r" {
+		t.Errorf("listen TCP recv-only flag = default:%q shorthand:%q, want false and r", flag.DefValue, flag.Shorthand)
 	}
-	for _, test := range []struct {
-		command *cobra.Command
-		name    string
-	}{
-		{name: "connect TCP", command: newNetConnectTCPCmd()},
-		{name: "connect TLS", command: newNetConnectTLSCmd()},
-	} {
-		if flag := test.command.Flags().Lookup("recv-only"); flag != nil {
-			t.Errorf("%s unexpectedly has recv-only flag", test.name)
-		}
+	if connectFlag := newNetConnectTestCommand(t, "tcp").Flags().Lookup("recv-only"); connectFlag != nil {
+		t.Error("connect TCP unexpectedly has recv-only flag")
 	}
 }
 
@@ -102,10 +71,10 @@ func TestNetStreamLifecycleFlags(t *testing.T) {
 	t.Parallel()
 
 	for _, command := range []*cobra.Command{
-		newNetConnectTCPCmd(),
-		newNetConnectTLSCmd(),
-		newNetListenTCPCmd(),
-		newNetListenTLSCmd(),
+		newNetConnectTestCommand(t, "tcp"),
+		newNetConnectTestCommand(t, "tls"),
+		newNetListenTestCommand(t, "tcp"),
+		newNetListenTestCommand(t, "tls"),
 	} {
 		if err := command.Flags().Set("duplex", "false"); err != nil {
 			t.Fatal(err)
@@ -140,7 +109,7 @@ func TestNetListenTCPReceiveOnlyRejectsConflictingInputModesBeforeIO(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			args := append([]string{"net", "listen", "tcp", "127.0.0.1:0"}, test.args...)
+			args := append([]string{"net", "listen", "127.0.0.1:0"}, test.args...)
 			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
 				t.Fatalf("error = %v, want errInvalidNetworkFlags before input setup", err)
 			}
@@ -152,7 +121,7 @@ func TestNetListenTCPPositiveAcceptTimeout(t *testing.T) {
 	t.Parallel()
 	_, _, err := executeRootStreams(
 		t,
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--timeout", "30ms",
 	)
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -166,7 +135,7 @@ func TestNetListenTCPPositiveAcceptTimeout(t *testing.T) {
 func TestNetListenTCPRejectsMissingPort(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{"localhost:", ":", "localhost", "http", "65536"} {
-		_, _, err := executeRootStreams(t, "net", "listen", "tcp", address)
+		_, _, err := executeRootStreams(t, "net", "listen", address)
 		if !errors.Is(err, errInvalidHostPort) {
 			t.Fatalf("address %q error = %v, want errInvalidHostPort", address, err)
 		}
@@ -177,7 +146,7 @@ func TestNetListenTCPAcceptsColonPortCompatibility(t *testing.T) {
 	t.Parallel()
 	_, _, err := executeRootStreams(
 		t,
-		"net", "listen", "tcp", ":0",
+		"net", "listen", ":0",
 		"--timeout", "30ms",
 	)
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -187,21 +156,19 @@ func TestNetListenTCPAcceptsColonPortCompatibility(t *testing.T) {
 
 func TestNetListenHelpDocumentsOptionalHost(t *testing.T) {
 	t.Parallel()
-	for _, protocol := range []string{"tcp", "tls"} {
-		stdout, _, err := executeRootStreams(t, "net", "listen", protocol, "--help")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(stdout, protocol+" [host:]port") {
-			t.Fatalf("%s help = %q, want optional host usage", protocol, stdout)
-		}
+	stdout, _, err := executeRootStreams(t, "net", "listen", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "net listen [host:]port") || !strings.Contains(stdout, "Omit the host") {
+		t.Fatalf("help = %q, want optional host usage and explanation", stdout)
 	}
 }
 
 func TestNetConnectStillRejectsMissingHost(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{":8080", "8080"} {
-		_, _, err := executeRootStreams(t, "net", "connect", "tcp", address)
+		_, _, err := executeRootStreams(t, "net", "connect", address)
 		if !errors.Is(err, errInvalidHostPort) {
 			t.Fatalf("address %q error = %v, want errInvalidHostPort", address, err)
 		}
@@ -219,7 +186,7 @@ func TestNetListenTCPBindFailure(t *testing.T) {
 			t.Errorf("close occupied listener: %v", err)
 		}
 	})
-	_, _, err = executeRootStreams(t, "net", "listen", "tcp", occupied.Addr().String())
+	_, _, err = executeRootStreams(t, "net", "listen", occupied.Addr().String())
 	if err == nil || !strings.Contains(err.Error(), "listen on TCP endpoint") {
 		t.Fatalf("error = %v, want TCP bind failure", err)
 	}
@@ -266,7 +233,7 @@ func TestNetListenTCPRelaysEncodedPayload(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(listenerInput),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--input-encoding", "base64",
 		"--encoding", "base64",
 		"--verbose",
@@ -306,7 +273,7 @@ func TestNetListenTCPTimeoutOnlyCoversSetup(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("request"),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--timeout", "1s",
 		"--verbose",
 		"--wait", "5s",
@@ -340,7 +307,7 @@ func TestNetListenTCPCloseWriteSignalsInputEOF(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("request"),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--close-write",
 		"--verbose",
 		"--wait", "1s",
@@ -373,7 +340,7 @@ func TestNetListenTCPDrainTimeoutPreservesPartialOutput(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--verbose",
 		"--wait", "50ms",
 	)
@@ -398,7 +365,7 @@ func TestNetListenTCPZeroWaitDrainsUntilPeerCloses(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--verbose",
 		"--wait", "0",
 	)
@@ -425,7 +392,7 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("server payload"),
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "-T", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 		"--verbose",
@@ -474,7 +441,7 @@ func TestNetListenTLSVerboseEscapesMetadata(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader(""),
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "--tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 		"--alpn", hostileALPN,
@@ -510,13 +477,13 @@ func TestNetListenTLSVerboseEscapesMetadata(t *testing.T) {
 func TestNetListenTLSRequiresAndValidatesServerIdentityBeforeBind(t *testing.T) {
 	t.Parallel()
 	identity := createNetworkTestIdentity(t)
-	_, _, err := executeRootStreams(t, "net", "listen", "tls", "127.0.0.1:0")
+	_, _, err := executeRootStreams(t, "net", "listen", "--tls", "127.0.0.1:0")
 	if err == nil || !strings.Contains(err.Error(), "required flag") {
 		t.Fatalf("missing identity error = %v, want required flags", err)
 	}
 	_, _, err = executeRootStreams(
 		t,
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "--tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.clientKey,
 	)
@@ -569,7 +536,7 @@ func TestNetListenTLSRejectsUnusableServerIdentityBeforeBind(t *testing.T) {
 			t.Parallel()
 			_, _, err := executeRootStreams(
 				t,
-				"net", "listen", "tls", occupied.Addr().String(),
+				"net", "listen", "--tls", occupied.Addr().String(),
 				"--cert", test.cert,
 				"--key", test.key,
 			)
@@ -610,7 +577,7 @@ func TestNetListenTLSRejectsMalformedCABeforeBind(t *testing.T) {
 	})
 	_, _, err = executeRootStreams(
 		t,
-		"net", "listen", "tls", occupied.Addr().String(),
+		"net", "listen", "--tls", occupied.Addr().String(),
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 		"--ca", caPath,
@@ -641,7 +608,7 @@ func TestNetListenTLSRejectsMissingAndUntrustedClientsWithoutPayload(t *testing.
 			run := startExampleListenCommand(
 				t,
 				strings.NewReader("must not be sent"),
-				"net", "listen", "tls", "127.0.0.1:0",
+				"net", "listen", "--tls", "127.0.0.1:0",
 				"--cert", serverIdentity.serverCert,
 				"--key", serverIdentity.serverKey,
 				"--ca", serverIdentity.caCert,
@@ -683,7 +650,7 @@ func TestNetListenTLSHandshakeTimeoutClosesConnection(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("must not be sent"),
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "--tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 		"--timeout", "50ms",
@@ -713,7 +680,7 @@ func TestNetListenTLSFlagValidation(t *testing.T) {
 	t.Parallel()
 	identity := createNetworkTestIdentity(t)
 	base := []string{
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "--tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 	}

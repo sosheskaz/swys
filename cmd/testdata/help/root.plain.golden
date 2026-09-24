@@ -31,9 +31,9 @@ testing, not automatic trust by other clients.
 
 Follow the command hierarchy
 
-Most families use a noun followed by an operation. Some need another choice: net
-connect tcp selects the transport. DNS, gRPC, and HTTP accept their target
-directly.
+Most families use a noun followed by an operation. Net connect and net listen
+use TCP by default; select UDP with --udp or TLS with --tls. DNS, gRPC, and HTTP
+accept their target directly.
 
 Commands that process bytes commonly read stdin and write stdout. Use the input
 and output file flags where applicable; individual guides explain commands with

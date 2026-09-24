@@ -76,7 +76,7 @@ task:
 
 ```fish
 npc help
-npc help net connect tls
+npc help net connect
 npc help x509 connect
 ```
 
@@ -118,8 +118,8 @@ npc dns [@server] name [type]      # system resolution or a direct DNS query
 npc hash sha256|sha512|sha1|md5   # stream one input into an explicit digest
 npc grpc HOST:PORT [SERVICE/METHOD] # discover schemas or invoke a unary RPC
 npc http URL [-X METHOD]          # GET by default; --method selects any HTTP method
-npc net connect tcp|tls|udp host:port # exchange raw bytes over TCP, TLS, or UDP
-npc net listen tcp|tls|udp [host:]port # serve one TCP, TLS, or UDP exchange
+npc net connect [--udp|--tls] host:port # exchange raw bytes over TCP (default), UDP, or TLS
+npc net listen [--udp|--tls] [host:]port # serve one TCP (default), UDP, or TLS exchange
 ```
 
 Use `npc help [command path]` for task guidance and `npc --help` or
@@ -231,14 +231,14 @@ default; explicit `--duplex=false` can discard data that has not yet been sent.
 compact netcat-style exchange:
 
 ```fish
-printf 'hello\n' | npc net connect tcp localhost:9000
+printf 'hello\n' | npc net connect localhost:9000
 ```
 
 The TLS form verifies the server certificate and endpoint hostname by default.
 Use a private test CA without changing the system trust store:
 
 ```fish
-printf 'hello\n' | npc net connect tls localhost:9443 \
+printf 'hello\n' | npc net connect --tls localhost:9443 \
     --ca ca.crt
 ```
 
@@ -246,7 +246,7 @@ Add a client identity for mutual TLS. The certificate and private key are
 required together and must match:
 
 ```fish
-printf 'hello\n' | npc net connect tls localhost:9443 \
+printf 'hello\n' | npc net connect --tls localhost:9443 \
     --ca ca.crt \
     --cert client.crt \
     --key client.key
@@ -271,11 +271,10 @@ With Fish, Cobra may display an additional candidate ending in `.` when a
 single ALPN match must leave the argument open for a comma. That dotted entry
 is a completion workaround; select the undotted protocol identifier.
 
-`--timeout` bounds only TCP setup and the TLS handshake (10 seconds by
+`--timeout` bounds only TCP setup and the TLS handshake (5 seconds by
 default); established streaming is not timed out. After input EOF, `--wait`
-allows up to 5 seconds for the peer to finish its response before npc closes the
-connection. Set `--wait 0` to drain until the peer closes, or choose a shorter
-duration for a protocol that keeps connections open. With `--close-write`, npc
+defaults to 0, so npc drains until the peer closes. Set a positive `--wait`
+to bound response draining for a protocol that keeps connections open. With `--close-write`, npc
 half-closes before starting that drain period. If a finite wait expires, the
 command closes the connection and exits nonzero with a drain-timeout error.
 Bytes already written to stdout or `--output` remain available, but are a
@@ -287,11 +286,11 @@ a new timeout or wait control from these suggestions.
 
 UDP preserves datagram boundaries instead of exposing a byte stream. The
 decoded stdin or `--input` payload becomes exactly one datagram, including when
-it is empty. `net connect udp` writes the first response datagram to stdout or
+it is empty. `net connect --udp` writes the first response datagram to stdout or
 `--output`, then exits:
 
 ```fish
-printf 'hello over UDP' | npc net connect udp 127.0.0.1:9000 --verbose
+printf 'hello over UDP' | npc net connect --udp 127.0.0.1:9000 --verbose
 ```
 
 The entire decoded request is buffered before it is sent, so stdin must reach
@@ -300,12 +299,12 @@ EOF (Ctrl-D on Unix), use a command such as `printf` that closes its output, or
 redirect an empty input to send a zero-length datagram:
 
 ```fish
-npc net connect udp 127.0.0.1:9000 </dev/null
+npc net connect --udp 127.0.0.1:9000 </dev/null
 ```
 
-For UDP, `--timeout` retains the 10-second setup default and covers address
+For UDP, `--timeout` uses the 5-second setup default and covers address
 resolution and socket setup. `--wait` allows up to 5 seconds for the one
-response datagram; `--wait 0` waits indefinitely. UDP does not expose
+response datagram; `--wait 0` waits indefinitely. UDP rejects an explicit
 `--close-write` because it has no stream write side to half-close. The connector
 always expects one response: a non-replying service produces a timeout error,
 while `--wait 0` waits indefinitely. There is no send-only mode.
@@ -316,7 +315,7 @@ resolver and query you intend to test:
 
 ```fish
 printf '%s\n' '1a2b01000001000000000000076578616d706c6503636f6d0000010001' |
-    npc net connect udp 1.1.1.1:53 \
+    npc net connect --udp 1.1.1.1:53 \
         --input-encoding hex \
         --encoding hex
 ```
@@ -325,18 +324,18 @@ The command decodes the hexadecimal request into one raw DNS datagram and
 prints the raw response datagram as hexadecimal. It does not interpret DNS
 records or retry a truncated response over TCP.
 
-`net listen tcp` binds a port and optional host, accepts one connection,
+`net listen` binds a port and optional host, accepts one connection,
 relays bytes with the same input, output, encoding, half-close, and drain
 controls as `net connect`, then exits. In one terminal:
 
 ```fish
-printf 'hello from listener\n' | npc net listen tcp 9000 --close-write --verbose
+printf 'hello from listener\n' | npc net listen 9000 --close-write --verbose
 ```
 
 Connect from another terminal:
 
 ```fish
-printf 'hello from client\n' | npc net connect tcp 127.0.0.1:9000 --close-write
+printf 'hello from client\n' | npc net connect 127.0.0.1:9000 --close-write
 ```
 
 Use `--recv-only` (`-r`) when the listener should drain the peer without
@@ -351,12 +350,12 @@ all available local IPv4 (`0.0.0.0`) and IPv6 (`::`) addresses; the `:port`
 form remains accepted. Supply an IP address or name to restrict the listener to
 that host.
 
-`net listen tls` adds a required server certificate chain and matching private
+`net listen --tls` adds a required server certificate chain and matching private
 key. The client supplies SNI; the listener reports it with `--verbose` but does
 not configure it with a flag:
 
 ```fish
-printf 'hello from TLS listener\n' | npc net listen tls 9443 \
+printf 'hello from TLS listener\n' | npc net listen --tls 9443 \
     --cert server.crt \
     --key server.key \
     --verbose
@@ -367,7 +366,7 @@ certificate chaining to that bundle. Add `--system-ca` to combine system roots
 with the bundle:
 
 ```fish
-printf 'authenticated response\n' | npc net listen tls 127.0.0.1:9443 \
+printf 'authenticated response\n' | npc net listen --tls 127.0.0.1:9443 \
     --cert server.crt \
     --key server.key \
     --ca client-ca.crt \
@@ -381,18 +380,18 @@ must finish before any stdin payload is relayed; a positive `--timeout` covers
 binding, accepting, and the handshake, while established relay draining remains
 governed only by `--wait`.
 
-`net listen udp` waits for one request datagram, writes it to stdout or
+`net listen --udp` waits for one request datagram, writes it to stdout or
 `--output`, sends the decoded stdin or `--input` payload back to that same peer
 as one response datagram, then exits. Start a listener in one terminal:
 
 ```fish
-printf 'pong' | npc net listen udp 9000 --verbose
+printf 'pong' | npc net listen --udp 9000 --verbose
 ```
 
 Send one request and receive its response from another terminal:
 
 ```fish
-printf 'ping' | npc net connect udp 127.0.0.1:9000
+printf 'ping' | npc net connect --udp 127.0.0.1:9000
 ```
 
 Like the TCP and TLS listeners, a bare numeric UDP port binds all available
@@ -400,16 +399,16 @@ local IPv4 and IPv6 addresses, `:port` remains accepted, and an explicit host
 restricts the bind. Its `--timeout` defaults to `0` and, when positive, covers
 binding and receipt of the first datagram. Reading the response payload from
 stdin and sending it happen outside that setup timeout. The listener sends a
-zero-length response when its decoded input is empty; it does not expose
-stream-only `--wait` or `--close-write` controls. As with the connector, the
+zero-length response when its decoded input is empty; it rejects explicit
+stream-only `--wait` or `--close-write` flags. As with the connector, the
 response is not sent until stdin reaches EOF; pressing Enter alone is not
-enough. Use `npc net listen udp 9000 </dev/null` for an empty response.
+enough. Use `npc net listen --udp 9000 </dev/null` for an empty response.
 
 `cert connect` and `cert inspect` remain inspection commands: they always report
 certificate verification status, but a failed verification is not enforced.
 Text, long, and JSON views include it in their structured output; PEM views
 report it on stderr so stdout remains a clean certificate artifact. `net
-connect tls` is the data-bearing client and therefore fails the handshake before
+connect --tls` is the data-bearing client and therefore fails the handshake before
 sending input when verification fails.
 
 ### HTTP requests
@@ -1127,7 +1126,7 @@ are bugs, and where possible they are enforced by tests rather than review.
    parameters (TLS ciphersuite, ALPN, HTTP version) are rendered in output,
    never encoded in command structure; derivable parameters (the key type
    inside a PEM block) come from the artifact. Hence `aes encrypt`,
-   `hash sha256`, and `net connect tcp` name the mechanism — while `sign` does
+   `hash sha256`, and `net connect` name the mechanism — while `sign` does
    not (PEM keys are self-describing) and `http`/`cert connect` report what
    was negotiated.
 

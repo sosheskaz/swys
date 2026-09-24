@@ -42,7 +42,7 @@ func TestSignalsEndTheProcessWithTheShellStatus(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			process := exec.CommandContext(t.Context(), os.Args[0])
-			process.Env = append(os.Environ(), runAsNPCEnvironment+"=net listen tcp 127.0.0.1:0 --verbose")
+			process.Env = append(os.Environ(), runAsNPCEnvironment+"=net listen 127.0.0.1:0 --verbose")
 			stderr, err := process.StderrPipe()
 			if err != nil {
 				t.Fatal(err)

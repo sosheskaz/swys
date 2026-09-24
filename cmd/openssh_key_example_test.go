@@ -86,7 +86,7 @@ func TestExampleCertificateAndTLSConsumersAcceptOpenSSHPrivateKey(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	tlsCommand := newNetConnectTLSCmd()
+	tlsCommand := newNetConnectTestCommand(t, "tls")
 	if err := tlsCommand.Flags().Set(tlsCertFlagName, certPath); err != nil {
 		t.Fatal(err)
 	}

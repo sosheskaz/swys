@@ -27,7 +27,7 @@ func TestExampleNetConnectTCPDefaultsToHalfCloseAndDrain(t *testing.T) {
 	stdout, stderr, err := executeRootCommandStreams(
 		t,
 		root,
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--input", requestPath,
 	)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestExampleNetConnectTCPHTTPResponse(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--input", requestPath,
 		"--close-write=false",
 		"--wait", "1s",
@@ -85,7 +85,7 @@ func TestExampleNetConnectTCPCanCloseWriteAfterInput(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"net", "connect", "tcp", address,
+		"net", "connect", address,
 		"--input", requestPath,
 		"--close-write",
 		"--wait", "1s",

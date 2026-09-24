@@ -38,7 +38,7 @@ func TestSharedBooleanValuesAndPrefixes(t *testing.T) {
 		{"http", "--follow="},
 		{"dns", "--reverse="},
 		{"cert", "create", "--ca="},
-		{"net", "connect", "tls", "--insecure="},
+		{"net", "connect", "--tls", "--insecure="},
 		{"key", "inspect", "--help="},
 		{"completion", "bash", "--no-descriptions="},
 		{"completion", "fish", "--help="},

@@ -33,7 +33,7 @@ func TestExampleNetListenTCPDrainsFileResponseAfterClientEOF(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		&unexpectedListenerInputReader{},
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--input", inputPath,
 		"--verbose",
 	)
@@ -65,7 +65,7 @@ func TestExampleNetListenTCPDrainsPipeResponseAfterClientEOF(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		responseReader,
-		"net", "listen", "tcp", "127.0.0.1:0",
+		"net", "listen", "127.0.0.1:0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tcp ")
@@ -104,7 +104,7 @@ func TestExampleNetListenTLSDrainsFileResponseAfterClientEOF(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		&unexpectedListenerInputReader{},
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "--tls", "127.0.0.1:0",
 		"--input", inputPath,
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
@@ -137,7 +137,7 @@ func TestExampleNetListenTCPReceiveOnlyDrainsRequestWithoutReadingInput(t *testi
 			run := startExampleListenCommand(
 				t,
 				input,
-				"net", "listen", "tcp", "127.0.0.1:0",
+				"net", "listen", "127.0.0.1:0",
 				flag,
 				"--verbose",
 			)
@@ -168,7 +168,7 @@ func TestExampleNetListenTLSReceiveOnlyDrainsRequestWithoutReadingInput(t *testi
 	run := startExampleListenCommand(
 		t,
 		input,
-		"net", "listen", "tls", "127.0.0.1:0",
+		"net", "listen", "--tls", "127.0.0.1:0",
 		"--recv-only",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
@@ -196,7 +196,7 @@ func TestExampleNetListenTCPBidirectionalRelay(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from listener"),
-		"net", "listen", "tcp", "0",
+		"net", "listen", "0",
 		"--verbose",
 		"--wait", "1s",
 	)
@@ -246,7 +246,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from TLS listener"),
-		"net", "listen", "tls", "0",
+		"net", "listen", "--tls", "0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
 		"--ca", identity.caCert,

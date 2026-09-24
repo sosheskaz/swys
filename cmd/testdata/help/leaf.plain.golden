@@ -21,5 +21,5 @@ is trusted. The peer-provided chain may omit the root.
 
 For application traffic over verified TLS, continue with the network TLS guide.
 
-  npc help net connect tls
+  npc help net connect
   npc cert connect --help

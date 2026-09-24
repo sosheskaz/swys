@@ -13,7 +13,7 @@ func TestExampleNetListenUDPDatagramExchange(t *testing.T) {
 	run := startExampleListenCommand(
 		t,
 		strings.NewReader("hello from listener"),
-		"net", "listen", "udp", "0",
+		"net", "listen", "-u", "0",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")

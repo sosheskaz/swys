@@ -18,70 +18,58 @@ import (
 )
 
 func newNetListenCmd() *cobra.Command {
-	netListenCmd := &cobra.Command{
-		Use:   "listen",
-		Short: "Listen for one incoming connection",
-	}
-	netListenCmd.AddCommand(newNetListenTCPCmd(), newNetListenTLSCmd(), newNetListenUDPCmd())
-	return netListenCmd
-}
+	command := binaryOutputCommand(streamNetworkCommandWithTimeout(&cobra.Command{
+		Use:   "listen [host:]port",
+		Short: "Serve one TCP, UDP, or TLS exchange",
+		Long: `Listen for one exchange using TCP by default, --udp for UDP, or --tls for TLS.
 
-func newNetListenTCPCmd() *cobra.Command {
-	netListenTCPCmd := binaryOutputCommand(listenStreamNetworkCommand(&cobra.Command{
-		Use:   "tcp [host:]port",
-		Short: "Exchange raw bytes over one accepted TCP connection",
-		RunE:  runNetListenTCP,
-	}), true)
-	return netListenTCPCmd
-}
-
-func newNetListenUDPCmd() *cobra.Command {
-	netListenUDPCmd := binaryOutputCommand(listenDatagramNetworkCommand(&cobra.Command{
-		Use:   "udp [host:]port",
-		Short: "Exchange one raw UDP request and response datagram",
-		Long: `Exchange exactly one request and one response datagram over UDP.
-
-The listener writes the first received datagram to stdout or --output. Decoded
-stdin or --input then becomes one response datagram to that same peer, including
-when the response is empty. Response input must reach EOF before it is sent;
-pressing Enter alone does not send it. Omit the host to bind all available local
-IPv4 and IPv6 addresses.`,
-		RunE: runNetListenUDP,
-	}), true)
-	return netListenUDPCmd
-}
-
-func newNetListenTLSCmd() *cobra.Command {
-	netListenTLSCmd := binaryOutputCommand(listenTLSStreamNetworkCommand(&cobra.Command{
-		Use:   "tls [host:]port",
-		Short: "Exchange raw bytes over one accepted TLS connection",
-		Long: `Exchange raw application bytes over one accepted TLS connection.
-
---cert and --key provide the required server identity. Supplying --ca requires
-and verifies a client certificate; add --system-ca to combine the supplied
-bundle with system roots. No ALPN protocols are advertised by default. Omit
-the host by passing only the numeric port to listen on all available local
-IPv4 and IPv6 addresses.`,
-		RunE: runNetListenTLS,
-	}), true)
-	netListenTLSCmd.Flags().String(tlsCertFlagName, "", "server certificate chain PEM path")
-	netListenTLSCmd.Flags().String(tlsKeyFlagName, "", "server private key path")
-	netListenTLSCmd.Flags().String(tlsCAFlagName, "", "client CA certificate bundle PEM path")
-	netListenTLSCmd.Flags().Bool("system-ca", false, "include system roots with --ca")
-	netListenTLSCmd.Flags().String("alpn", "", "comma-separated ALPN protocols (empty disables)")
-	registerALPNCompletion(netListenTLSCmd)
+TCP and TLS accept one stream connection; --recv-only reads peer data without
+sending input. UDP writes the first request datagram and sends one decoded
+response datagram to its peer. UDP uses --timeout for the first datagram and
+does not accept --wait. TLS requires --cert and --key for the server identity;
+--ca requires and verifies a client certificate. Omit the host to bind all
+available local IPv4 and IPv6 addresses.`,
+		RunE: runNetListen,
+	}, 0, "bind resolution, accept or first datagram, and TLS handshake timeout (0 disables)", true), true)
+	command.Flags().BoolP(netProtocolUDP, "u", false, "use UDP datagrams instead of TCP")
+	command.Flags().BoolP(netProtocolTLS, "T", false, "use a verified TLS stream instead of TCP")
+	command.Flags().Lookup(netCloseWriteFlagName).Usage += netStreamOnlyHelp
+	command.Flags().Lookup(netDuplexFlagName).Usage += netStreamOnlyHelp
+	command.Flags().Lookup(netWaitFlagName).Usage += " (TCP/TLS only; UDP listener uses --timeout)"
+	command.Flags().BoolP(netRecvOnlyFlagName, "r", false, "receive peer data without reading or sending input (TCP/TLS only)")
+	command.Flags().String(tlsCertFlagName, "", "TLS server certificate chain PEM path (TLS only; required)")
+	command.Flags().String(tlsKeyFlagName, "", "TLS server private key path (TLS only; required)")
+	command.Flags().String(tlsCAFlagName, "", "TLS client CA certificate bundle PEM path (TLS only)")
+	command.Flags().Bool(netSystemCAFlagName, false, "include system roots with --ca (TLS only)")
+	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")
+	registerALPNCompletion(command)
 	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName, tlsCAFlagName} {
-		if err := netListenTLSCmd.MarkFlagFilename(name); err != nil {
+		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
 	}
-	for _, name := range []string{tlsCertFlagName, tlsKeyFlagName} {
-		if err := netListenTLSCmd.MarkFlagRequired(name); err != nil {
-			panic(err)
-		}
+	registerNetDefaultValueCompletions(command)
+	configureNetProtocolCompletion(command, true)
+	addCommandShape(command, netProtocolShape)
+	command.Args = netProtocolAddressArgs(nil, true)
+	return command
+}
+
+func runNetListen(cmd *cobra.Command, args []string) error {
+	protocol, err := networkProtocolFromCommand(cmd)
+	if err != nil {
+		return err
 	}
-	addCommandShape(netListenTLSCmd, "net-listen-tls")
-	return netListenTLSCmd
+	switch protocol {
+	case netProtocolTCP:
+		return runNetListenTCP(cmd, args)
+	case netProtocolUDP:
+		return runNetListenUDP(cmd, args)
+	case netProtocolTLS:
+		return runNetListenTLS(cmd, args)
+	default:
+		panic("validated network protocol")
+	}
 }
 
 func runNetListenTCP(cmd *cobra.Command, args []string) error {
@@ -175,7 +163,7 @@ type networkDatagramListenOptions struct {
 }
 
 func networkDatagramListenOptionsFromCommand(cmd *cobra.Command) (networkDatagramListenOptions, error) {
-	timeout, err := cmd.Flags().GetDuration("timeout")
+	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
 	if err != nil {
 		return networkDatagramListenOptions{}, fmt.Errorf("read timeout flag: %w", err)
 	}
@@ -259,12 +247,12 @@ func tlsServerConfigFromCommand(cmd *cobra.Command) (*tls.Config, error) {
 		return nil, err
 	}
 	if !hasIdentity {
-		return nil, fmt.Errorf("%w: --cert and --key are required", errInvalidNetworkFlags)
+		return nil, fmt.Errorf("%w: required flags --cert and --key are missing", errInvalidNetworkFlags)
 	}
 	if err := validateTLSServerIdentity(&identity); err != nil {
 		return nil, err
 	}
-	alpnText, err := cmd.Flags().GetString("alpn")
+	alpnText, err := cmd.Flags().GetString(netALPNFlagName)
 	if err != nil {
 		return nil, fmt.Errorf("read alpn flag: %w", err)
 	}
@@ -394,7 +382,7 @@ func writeTLSAcceptedDetails(output io.Writer, connection *tls.Conn) error {
 	fields := []struct{ label, value string }{
 		{label: "version", value: tls.VersionName(state.Version)},
 		{label: "cipher", value: tls.CipherSuiteName(state.CipherSuite)},
-		{label: "alpn", value: alpn},
+		{label: netALPNFlagName, value: alpn},
 		{label: "sni", value: serverName},
 		{label: "peer certificates", value: strconv.Itoa(len(state.PeerCertificates))},
 		{label: "client chain verified", value: clientVerified},

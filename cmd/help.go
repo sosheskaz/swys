@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 )
 
@@ -71,6 +72,20 @@ func configureGuideHelp(root *cobra.Command, dependencies guideDependencies) {
 	dependencies = dependencies.withDefaults()
 	referenceHelp := root.HelpFunc()
 	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+		if commandHasShape(command, netProtocolShape) {
+			var hidden []*pflag.Flag
+			command.Flags().VisitAll(func(flag *pflag.Flag) {
+				if flag.Hidden {
+					hidden = append(hidden, flag)
+					flag.Hidden = false
+				}
+			})
+			defer func() {
+				for _, flag := range hidden {
+					flag.Hidden = true
+				}
+			}()
+		}
 		referenceHelp(command, args)
 		key := canonicalGuideKey(root, command)
 		if _, ok := guideSource(key); !ok {

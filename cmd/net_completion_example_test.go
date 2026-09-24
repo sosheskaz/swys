@@ -11,7 +11,7 @@ func TestNetCompletionExamples(t *testing.T) {
 
 	t.Run("choose an ALPN protocol", func(t *testing.T) {
 		t.Parallel()
-		stdout := completeCommand(t, "net", "connect", "tls", "--alpn", "h")
+		stdout := completeCommand(t, "net", "connect", "--tls", "--alpn", "h")
 		want := []string{"h2\tHTTP/2", "http/1.1\tHTTP/1.1", ":38"}
 		if got := completionLines(stdout); !slices.Equal(got, want) {
 			t.Fatalf("completion = %q, want %q", got, want)
@@ -20,7 +20,7 @@ func TestNetCompletionExamples(t *testing.T) {
 
 	t.Run("continue an ordered ALPN list", func(t *testing.T) {
 		t.Parallel()
-		stdout := completeCommand(t, "net", "listen", "tls", "--alpn", "h2,h")
+		stdout := completeCommand(t, "net", "listen", "--tls", "--alpn", "h2,h")
 		want := []string{"h2,http/1.1\tHTTP/1.1", ":38"}
 		if got := completionLines(stdout); !slices.Equal(got, want) {
 			t.Fatalf("completion = %q, want %q", got, want)
@@ -29,7 +29,7 @@ func TestNetCompletionExamples(t *testing.T) {
 
 	t.Run("choose a response wait", func(t *testing.T) {
 		t.Parallel()
-		stdout := completeCommand(t, "nc", "connect", "udp", "--wait", "")
+		stdout := completeCommand(t, "nc", "connect", "--udp", "--wait", "")
 		want := []string{
 			"0\tWait indefinitely for a response datagram",
 			"1s\tOne second",
@@ -58,15 +58,15 @@ func TestNetALPNCompletion(t *testing.T) {
 		":38",
 	}
 	for _, args := range [][]string{
-		{"net", "connect", "tls", "--alpn", ""},
-		{"netcat", "listen", "tls", "--alpn", ""},
+		{"net", "connect", "--tls", "--alpn", ""},
+		{"netcat", "listen", "--tls", "--alpn", ""},
 	} {
 		if got := completionLines(completeCommand(t, args...)); !slices.Equal(got, want) {
 			t.Fatalf("completion for %q = %q, want %q", args, got, want)
 		}
 	}
 
-	stdout := completeCommand(t, "net", "connect", "tls", "--alpn", "h2,mqtt,")
+	stdout := completeCommand(t, "net", "connect", "--tls", "--alpn", "h2,mqtt,")
 	lines := completionLines(stdout)
 	if lines[len(lines)-1] != ":38" {
 		t.Fatalf("completion directive = %q, want no-space, no-file, keep-order", lines[len(lines)-1])
@@ -80,7 +80,7 @@ func TestNetALPNCompletion(t *testing.T) {
 		}
 	}
 
-	if got := completionLines(completeCommand(t, "net", "connect", "tls", "--alpn", "custom")); !slices.Equal(got, []string{":38"}) {
+	if got := completionLines(completeCommand(t, "net", "connect", "--tls", "--alpn", "custom")); !slices.Equal(got, []string{":38"}) {
 		t.Fatalf("custom ALPN completion = %q, want directive only", got)
 	}
 	for _, excluded := range []string{"h2c", "h3", "doq"} {
@@ -102,14 +102,26 @@ func TestNetworkDurationCompletion(t *testing.T) {
 		name, zero string
 		args       []string
 	}{
-		{name: "connect TCP timeout", args: []string{"net", "connect", "tcp", "--timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
-		{name: "connect TLS wait", args: []string{"net", "connect", "tls", "--wait", ""}, zero: "Wait indefinitely while draining the response"},
-		{name: "connect UDP timeout", args: []string{"net", "connect", "udp", "--timeout", ""}, zero: "Disable UDP address resolution and socket setup timeout"},
-		{name: "connect UDP wait", args: []string{"net", "connect", "udp", "--wait", ""}, zero: "Wait indefinitely for a response datagram"},
-		{name: "listen TCP timeout", args: []string{"net", "listen", "tcp", "--timeout", ""}, zero: "Disable bind resolution and accept timeout"},
-		{name: "listen TCP wait", args: []string{"net", "listen", "tcp", "--wait", ""}, zero: "Wait indefinitely while draining the response"},
-		{name: "listen TLS timeout", args: []string{"net", "listen", "tls", "--timeout", ""}, zero: "Disable bind resolution, accept, and TLS handshake timeout"},
-		{name: "listen UDP timeout", args: []string{"net", "listen", "udp", "--timeout", ""}, zero: "Disable bind resolution and first datagram timeout"},
+		{name: "connect TCP timeout", args: []string{"net", "connect", "--timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
+		{name: "connect TLS wait", args: []string{"net", "connect", "--tls", "--wait", ""}, zero: "Wait indefinitely while draining the response"},
+		{
+			name: "connect UDP timeout",
+			args: []string{"net", "connect", "--udp", "--timeout", ""},
+			zero: "Disable UDP address resolution and socket setup timeout",
+		},
+		{name: "connect UDP wait", args: []string{"net", "connect", "--udp", "--wait", ""}, zero: "Wait indefinitely for a response datagram"},
+		{name: "listen TCP timeout", args: []string{"net", "listen", "--timeout", ""}, zero: "Disable bind resolution and accept timeout"},
+		{name: "listen TCP wait", args: []string{"net", "listen", "--wait", ""}, zero: "Wait indefinitely while draining the response"},
+		{
+			name: "listen TLS timeout",
+			args: []string{"net", "listen", "--tls", "--timeout", ""},
+			zero: "Disable bind resolution, accept, and TLS handshake timeout",
+		},
+		{
+			name: "listen UDP timeout",
+			args: []string{"net", "listen", "--udp", "--timeout", ""},
+			zero: "Disable bind resolution and first datagram timeout",
+		},
 		{name: "certificate connect timeout", args: []string{"cert", "connect", "--timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -128,7 +140,7 @@ func TestNetworkDurationCompletion(t *testing.T) {
 			}
 		})
 	}
-	command := newNetConnectTCPCmd()
+	command := newNetConnectTestCommand(t, "tcp")
 	if err := command.Flags().Set("timeout", "250ms"); err != nil {
 		t.Fatalf("set arbitrary duration: %v", err)
 	}
@@ -136,11 +148,11 @@ func TestNetworkDurationCompletion(t *testing.T) {
 		t.Fatalf("arbitrary duration = %s, error %v", got, err)
 	}
 	wantPrefix := []string{"1s\tOne second", "10s\tTen seconds", ":36"}
-	if got := completionLines(completeCommand(t, "net", "connect", "tcp", "--timeout", "1")); !slices.Equal(got, wantPrefix) {
+	if got := completionLines(completeCommand(t, "net", "connect", "--timeout", "1")); !slices.Equal(got, wantPrefix) {
 		t.Fatalf("duration prefix completion = %q", got)
 	}
-	if newNetListenUDPCmd().Flags().Lookup("wait") != nil {
-		t.Fatal("UDP listener unexpectedly gained a wait flag")
+	if newNetListenTestCommand(t, "udp").Flags().Lookup("wait") == nil {
+		t.Fatal("net listen union has no --wait flag")
 	}
 }
 
@@ -149,15 +161,19 @@ func TestNetCompletionSuppressesFilesForNonPathValues(t *testing.T) {
 	var nonPathCompletions [][]string
 	for _, alias := range []string{"net", "nc", "netcat"} {
 		for _, direction := range []string{"connect", "listen"} {
-			for _, transport := range []string{"tcp", "tls", "udp"} {
-				nonPathCompletions = append(nonPathCompletions, []string{alias, direction, transport, ""})
+			for _, selector := range []string{"", "--tls", "--udp"} {
+				args := []string{alias, direction}
+				if selector != "" {
+					args = append(args, selector)
+				}
+				nonPathCompletions = append(nonPathCompletions, append(args, ""))
 			}
 		}
 	}
 	nonPathCompletions = append(nonPathCompletions,
-		[]string{"nc", "connect", "udp", "example.test:53", "extra"},
-		[]string{"netcat", "listen", "tls", "9443", "extra"},
-		[]string{"net", "connect", "tls", "--servername", "example"},
+		[]string{"nc", "connect", "--udp", "example.test:53", "extra"},
+		[]string{"netcat", "listen", "--tls", "9443", "extra"},
+		[]string{"net", "connect", "--tls", "--servername", "example"},
 	)
 	for _, args := range nonPathCompletions {
 		lines := completionLines(completeCommand(t, args...))
@@ -171,11 +187,11 @@ func TestNetCompletionSuppressesFilesForNonPathValues(t *testing.T) {
 		}
 	}
 
-	if got := completionLines(completeCommand(t, "net", "connect", "tls", "--ca", "fixture")); !slices.Equal(got, []string{":0"}) {
+	if got := completionLines(completeCommand(t, "net", "connect", "--tls", "--ca", "fixture")); !slices.Equal(got, []string{":0"}) {
 		t.Fatalf("CA path completion = %q, want filesystem fallback", got)
 	}
 	wantEncodings := []string{"b64", "base32", "base64", "base64url", "hex", "raw", ":4"}
-	gotEncodings := completionLines(completeCommand(t, "net", "connect", "tcp", "-e", ""))
+	gotEncodings := completionLines(completeCommand(t, "net", "connect", "-e", ""))
 	for index, value := range gotEncodings {
 		gotEncodings[index], _, _ = strings.Cut(value, "\t")
 	}
@@ -183,7 +199,7 @@ func TestNetCompletionSuppressesFilesForNonPathValues(t *testing.T) {
 		t.Fatalf("short encoding completion = %q", gotEncodings)
 	}
 
-	gotPrefix := completionLines(completeCommand(t, "net", "connect", "tcp", "-e", "h"))
+	gotPrefix := completionLines(completeCommand(t, "net", "connect", "-e", "h"))
 	for index, value := range gotPrefix {
 		gotPrefix[index], _, _ = strings.Cut(value, "\t")
 	}
@@ -209,7 +225,7 @@ func TestNetTLSConnectConflictCompletion(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			args := append([]string{"net", "connect", "tls"}, test.args...)
+			args := append([]string{"net", "connect", "--tls"}, test.args...)
 			stdout := completeCommand(t, append(args, "--")...)
 			for _, flag := range test.hidden {
 				if strings.Contains(stdout, flag+"\t") {
@@ -224,7 +240,7 @@ func TestNetTLSConnectConflictCompletion(t *testing.T) {
 		})
 	}
 
-	stdout := completeCommand(t, "net", "listen", "tls", "--ca", "ca.pem", "--")
+	stdout := completeCommand(t, "net", "listen", "--tls", "--ca", "ca.pem", "--")
 	if strings.Contains(stdout, "--insecure\t") {
 		t.Fatal("listen unexpectedly exposes connect-only --insecure")
 	}
@@ -233,7 +249,7 @@ func TestNetTLSConnectConflictCompletion(t *testing.T) {
 func TestNetTLSCompletionDoesNotChangeNormalHelp(t *testing.T) {
 	t.Parallel()
 	for _, flags := range [][]string{{"--ca", "ca.pem"}, {"--insecure"}, {"--system-ca"}} {
-		args := append([]string{"net", "connect", "tls"}, flags...)
+		args := append([]string{"net", "connect", "--tls"}, flags...)
 		stdout, _, err := executeRootStreams(t, append(args, "--help")...)
 		if err != nil {
 			t.Fatal(err)
@@ -244,7 +260,7 @@ func TestNetTLSCompletionDoesNotChangeNormalHelp(t *testing.T) {
 			}
 		}
 	}
-	_, _, err := executeRootStreams(t, "net", "connect", "tls", "--insecure=invalid")
+	_, _, err := executeRootStreams(t, "net", "connect", "--tls", "--insecure=invalid")
 	if err == nil || strings.Contains(err.Error(), "completion-aware") {
 		t.Errorf("boolean parser error = %v, want original parser error", err)
 	}
@@ -264,7 +280,7 @@ func TestNetTLSConflictingValueCompletion(t *testing.T) {
 		{args: []string{"--system-ca", "--insecure="}, want: []string{"false", ":4"}},
 		{args: []string{"--system-ca=false", "--insecure="}, want: []string{"true", "false", ":4"}},
 	} {
-		args := append([]string{"net", "connect", "tls"}, test.args...)
+		args := append([]string{"net", "connect", "--tls"}, test.args...)
 		got := completionLines(completeCommand(t, args...))
 		if !slices.Equal(got, test.want) {
 			t.Errorf("completion %q = %q, want %q", args, got, test.want)
