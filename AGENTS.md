@@ -1,0 +1,69 @@
+# Repository guidance
+
+## Project and layout
+
+NPC is a Go CLI for networking, protocols, cryptography, and X.509 tasks.
+It uses Cobra; `mise.toml` defines the toolchain and task configuration.
+
+- `cmd/` owns command construction, argument and flag validation, completion,
+  help guides, and command I/O lifecycles.
+- `internal/crypter/` implements AES streaming, raw GCM, and CBC.
+- `internal/asym/` handles asymmetric keys and X.509 parsing, creation,
+  verification, and formatting.
+- `internal/netconn/` provides connection setup and stream/datagram transport;
+  `internal/dnsquery/` implements DNS resolution.
+- `internal/contextio/` handles cancellable reads and opens;
+  `internal/securefile/` implements platform-specific private-file protections.
+- `cmd/guides/` contains embedded command guides. Follow
+  [the help authoring standard](docs/help-authoring.md) when changing them.
+
+## Commands and validation
+
+Use the repository's mise tasks; `mise tasks` lists them.
+
+```fish
+mise run build:dev
+mise run test:unit -- -run TestName
+mise run check
+mise run test:race -- -shuffle=on
+mise run test:fuzz
+mise run bench
+mise run scan:vuln
+```
+
+`mise run check` runs Go lint, platform-specific vet checks, coverage-reporter
+tests, and unit tests. Race tests, fuzz mutation, benchmarks, vulnerability
+scanning, and changed-file configuration checks are separate CI checks.
+Lefthook configures formatting and configuration checks in `lefthook.yml`.
+
+Follow [TESTING.md](TESTING.md), the existing testing policy, with the segmented
+authentication contract below applying to streaming AES. Exercise user-visible
+behavior through the real root command and its I/O hooks. Use local servers and
+temporary fixtures for tests. Run `mise run check` before pushing code changes
+and race tests for concurrency or subprocess work.
+
+## Command behavior
+
+- Build on the existing command-shape helpers in `cmd/command_shapes.go`.
+  Preserve shared flag, completion, and I/O behavior.
+- Use Cobra's configured input, output, and error streams. Preserve error
+  identity when wrapping failures, and close output filters before their files.
+- Preserve validation before output-file mutation and the existing same-file
+  and sensitive-output protections.
+- Add or update the corresponding embedded guide whenever a public command
+  or its behavior changes. Aliases share the canonical command's guide.
+
+## Cryptographic and I/O contracts
+
+- Default AES encryption uses the versioned AES-GCM-HKDF stream documented in
+  [docs/aes-stream-v1.md](docs/aes-stream-v1.md). Authentication is per segment;
+  earlier authenticated plaintext may remain after a later failure. Test that
+  unauthenticated segments emit no plaintext; do not require whole-stream
+  rollback of authenticated output.
+- `--raw` selects legacy single-message GCM, with a 64 MiB plaintext limit and
+  whole-message authentication before plaintext output.
+- CBC is an explicit, unauthenticated compatibility mode. Keep its I/O
+  streaming and preserve its wire-format and padding behavior.
+- Preserve the distinction between borrowed and owned inputs in
+  `internal/contextio/`: cancellation must not close a borrowed input.
+- Support performance claims with representative before-and-after benchmarks.
