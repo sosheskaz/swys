@@ -19,7 +19,7 @@ func presentGuideThroughPager(
 	dependencies guideDependencies,
 	configuration string,
 	rendered []byte,
-) error {
+) (result error) {
 	arguments, err := parsePager(configuration)
 	if err != nil {
 		return err
@@ -43,7 +43,14 @@ func presentGuideThroughPager(
 	signal.Notify(interrupts, guidePagerInterruptSignals()...)
 	defer signal.Stop(interrupts)
 	stopTerminations := terminatePagerOnSignal(releasePager)
-	defer stopTerminations()
+	defer func() {
+		if received := stopTerminations(); received != nil && interruptOf(commandContext) == nil {
+			if first := firstInterruptSignal(commandContext); first != nil {
+				received = first
+			}
+			result = &interruptError{signal: received}
+		}
+	}()
 	if err := process.Start(); err != nil {
 		return warnAndWriteGuide(command, rendered, arguments[0], errors.Join(err, input.Close()))
 	}
@@ -105,36 +112,38 @@ func pagerProcessContext(parent context.Context) (context.Context, context.Cance
 // terminatePagerOnSignal ends the pager on SIGTERM or SIGHUP. The root handler
 // stops intercepting after its first signal, so without this a SIGTERM after a
 // Ctrl-C the pager owned would kill npc and leave the pager running.
-func terminatePagerOnSignal(terminate func()) func() {
+func terminatePagerOnSignal(terminate func()) func() os.Signal {
 	signals := guidePagerTerminationSignals()
 	if len(signals) == 0 {
-		return func() {}
+		return func() os.Signal { return nil }
 	}
 	received := make(chan os.Signal, 1)
 	signal.Notify(received, signals...)
 	stop := terminateOnReceive(received, terminate)
-	return func() {
+	return func() os.Signal {
 		signal.Stop(received)
-		stop()
+		return stop()
 	}
 }
 
 // terminateOnReceive is terminatePagerOnSignal with the signal source injected
 // for tests. Once the returned stop func returns, terminate can no longer run.
-func terminateOnReceive(received <-chan os.Signal, terminate func()) func() {
+func terminateOnReceive(received <-chan os.Signal, terminate func()) func() os.Signal {
 	done := make(chan struct{})
 	exited := make(chan struct{})
+	var handled os.Signal
 	go func() {
 		defer close(exited)
 		select {
-		case <-received:
+		case handled = <-received:
 			terminate()
 		case <-done:
 		}
 	}()
-	return func() {
+	return func() os.Signal {
 		close(done)
 		<-exited
+		return handled
 	}
 }
 

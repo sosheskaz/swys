@@ -3,11 +3,13 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -17,7 +19,175 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const pagerSignalHelperEnvironment = "NPC_TEST_PAGER_SIGNAL_HELPER"
+const (
+	pagerSignalHelperEnvironment = "NPC_TEST_PAGER_SIGNAL_HELPER"
+	pagerSignalRaceEnvironment   = "NPC_TEST_PAGER_SIGNAL_RACE"
+)
+
+// Hold the root signal handler before it records the first signal or its
+// cancellation cause. The pager can stop and reap the child in that interval.
+func TestPagerTerminationRetainsSignalStatusWhenRootHandlerRunsLater(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name            string
+		firstSignal     syscall.Signal
+		laterSignal     syscall.Signal
+		pauseBeforeStop bool
+		status          int
+	}{
+		{name: "SIGTERM alone", firstSignal: syscall.SIGTERM, status: 143},
+		{name: "SIGINT then SIGTERM during arm", firstSignal: syscall.SIGINT, laterSignal: syscall.SIGTERM, status: 130},
+		{name: "SIGINT then SIGTERM during notify stop", firstSignal: syscall.SIGINT, laterSignal: syscall.SIGTERM, pauseBeforeStop: true, status: 130},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			testPagerTerminationWithDelayedRootHandler(t, test.firstSignal, test.laterSignal, test.pauseBeforeStop, test.status)
+		})
+	}
+}
+
+func testPagerTerminationWithDelayedRootHandler(t *testing.T, firstSignal, laterSignal syscall.Signal, pauseBeforeStop bool, wantStatus int) {
+	t.Helper()
+	directory := t.TempDir()
+	if pauseBeforeStop {
+		if err := os.WriteFile(filepath.Join(directory, "pause-before-stop"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	helper := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestPagerSignalRaceHelperProcess$")
+	helper.Env = append(os.Environ(), pagerSignalRaceEnvironment+"="+directory)
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- helper.Wait() }()
+	pagerPID := 0
+	finished := false
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(directory, "release-root"), nil, 0o600) //nolint:errcheck // cleanup also kills the helper
+		if pagerPID != 0 {
+			_ = syscall.Kill(pagerPID, syscall.SIGKILL) //nolint:errcheck // pager may already be gone
+		}
+		if !finished {
+			_ = helper.Process.Kill() //nolint:errcheck // helper may already be gone
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Error("helper did not exit after cleanup")
+			}
+		}
+	})
+	pagerPID = waitForPagerPID(t, filepath.Join(directory, "started"))
+	if err := helper.Process.Signal(firstSignal); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(directory, "result")
+	rootReceivedPath := filepath.Join(directory, "root-received")
+	if laterSignal != 0 {
+		waitForFile(t, rootReceivedPath)
+		select {
+		case err := <-done:
+			finished = true
+			t.Fatalf("run ended after first signal: %v", err)
+		default:
+		}
+		if err := syscall.Kill(pagerPID, 0); err != nil {
+			t.Fatalf("pager ended after first signal: %v", err)
+		}
+		if err := helper.Process.Signal(laterSignal); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitUntil(t, func() bool {
+		_, rootErr := os.Stat(rootReceivedPath)
+		_, resultErr := os.Stat(resultPath)
+		return rootErr == nil || resultErr == nil
+	}, "neither root handler nor pager result observed the termination signal")
+	if _, err := os.Stat(rootReceivedPath); err == nil {
+		waitUntil(t, func() bool { return errors.Is(syscall.Kill(pagerPID, 0), syscall.ESRCH) }, "pager was not reaped while root signal handling was paused")
+	}
+
+	// A result published before the root handler resumes must already carry the
+	// signal status. Otherwise let the handler finish, then inspect the result.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(resultPath); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "release-root"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForFile(t, resultPath)
+	result, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result) != strconv.Itoa(wantStatus) {
+		t.Fatalf("termination result = %q, want signal exit status %d", result, wantStatus)
+	}
+	select {
+	case err := <-done:
+		finished = true
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != wantStatus {
+			t.Fatalf("helper ended with %v, want exit status %d", err, wantStatus)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("helper outlived the termination signal")
+	}
+}
+
+func TestPagerSignalRaceHelperProcess(t *testing.T) { //nolint:paralleltest // subprocess branch exits the test process
+	directory, ok := os.LookupEnv(pagerSignalRaceEnvironment)
+	if !ok {
+		t.Parallel()
+		return
+	}
+	pauseRoot := func() {
+		if err := os.WriteFile(filepath.Join(directory, "root-received"), nil, 0o600); err != nil {
+			os.Exit(91)
+		}
+		for {
+			if _, err := os.Stat(filepath.Join(directory, "release-root")); err == nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	var ctx context.Context
+	var stop context.CancelFunc
+	if _, err := os.Stat(filepath.Join(directory, "pause-before-stop")); err == nil {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, interruptSignals()...)
+		ctx, stop = interruptContext(t.Context(), signals, func() {
+			signal.Stop(signals)
+			pauseRoot()
+		}, func(_ *interruptError) *backstop { return &backstop{} })
+	} else {
+		ctx, stop = withInterrupt(t.Context(), func(_ *interruptError) *backstop {
+			pauseRoot()
+			return &backstop{}
+		})
+	}
+	command := &cobra.Command{}
+	command.SetContext(ctx)
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	pager := guidePagerHelperCommand("hold", filepath.Join(directory, "started"), filepath.Join(directory, "release-pager"))
+	err := attributeInterrupt(ctx, presentGuideThroughPager(command, defaultGuideDependencies(), pager, []byte("guide\n")))
+	status := ExitCode(err)
+	resultTemporary := filepath.Join(directory, "result-temporary")
+	if err := os.WriteFile(resultTemporary, []byte(strconv.Itoa(status)), 0o600); err != nil {
+		os.Exit(92)
+	}
+	if err := os.Rename(resultTemporary, filepath.Join(directory, "result")); err != nil {
+		os.Exit(92)
+	}
+	stop()
+	os.Exit(status)
+}
 
 // The root handler stops intercepting after its first signal, so only real
 // signals delivered to a real process show what a later one does to the pager.

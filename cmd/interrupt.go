@@ -28,6 +28,13 @@ type interruptError struct {
 	backstop *backstop
 }
 
+type interruptSignalKey struct{}
+
+type firstInterrupt struct {
+	ready  chan struct{}
+	signal os.Signal
+}
+
 // Error is the text printed after "npc:" when a signal ends a run.
 func (interrupt *interruptError) Error() string {
 	if interrupt.signal == os.Interrupt {
@@ -95,12 +102,16 @@ func interruptContext(
 	arm func(*interruptError) *backstop,
 ) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancelCause(parent)
+	firstSignal := &firstInterrupt{ready: make(chan struct{})}
+	ctx = context.WithValue(ctx, interruptSignalKey{}, firstSignal)
 	release := sync.OnceFunc(stopNotify)
 	finished := make(chan struct{})
 	finish := sync.OnceFunc(func() { close(finished) })
 	go func() {
 		select {
 		case received := <-signals:
+			firstSignal.signal = received
+			close(firstSignal.ready)
 			// Release first so a second signal already gets the prior behavior.
 			release()
 			interrupt := &interruptError{signal: received}
@@ -109,6 +120,7 @@ func interruptContext(
 			cancel(interrupt)
 			<-finished
 		case <-ctx.Done():
+			close(firstSignal.ready)
 			release()
 		}
 	}()
@@ -117,6 +129,16 @@ func interruptContext(
 		release()
 		finish()
 	}
+}
+
+// firstInterruptSignal waits for the root handler's signal decision, which is
+// available before it releases notification or arms the backstop.
+func firstInterruptSignal(ctx context.Context) os.Signal {
+	if first, ok := ctx.Value(interruptSignalKey{}).(*firstInterrupt); ok {
+		<-first.ready
+		return first.signal
+	}
+	return nil
 }
 
 // backstop ends a run that is still going a grace period after its first
