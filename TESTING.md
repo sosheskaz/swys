@@ -25,6 +25,22 @@ and expanded — it is never weakened to make a change land.
    shared state. Package-global mutation in a test requires cleanup
    (`t.Cleanup`) and a comment noting the parallelism constraint.
 
+## Assertion style
+
+Use Testify `assert` for independent checks and `require` for prerequisites
+whose failure makes later checks invalid. Put expected values before actual
+values, and retain useful case context in failure messages. Keep plain Go
+checks when they express the condition more clearly.
+
+Preserve the original comparison semantics: error identity, ordering,
+nil versus empty values, and exact bytes matter. Prefer `ErrorIs` or `ErrorAs`
+to matching error text when testing error identity or type.
+
+Call `require` only from the goroutine running the test or subtest. Collect
+worker results through the existing synchronization before asserting on them.
+Do not replace deterministic coordination or `testing/synctest` with polling
+assertions. Keep assertion work outside timed benchmark loops.
+
 ## What every change tests
 
 The baseline expectations for any code path, established by the existing

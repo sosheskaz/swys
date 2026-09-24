@@ -1,8 +1,10 @@
 package version
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInfoString(t *testing.T) {
@@ -42,9 +44,7 @@ func TestInfoString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tt.info.String(); got != tt.want {
-				t.Fatalf("String() = %q, want %q", got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.info.String())
 		})
 	}
 }
@@ -52,10 +52,6 @@ func TestInfoString(t *testing.T) {
 func TestGetReportsAVersion(t *testing.T) {
 	t.Parallel()
 	info := Get()
-	if info.Version == "" {
-		t.Fatal("Get() returned an empty version; expected ldflags value or build-info fallback")
-	}
-	if strings.Contains(info.String(), "  ") {
-		t.Fatalf("String() contains doubled spaces: %q", info.String())
-	}
+	require.NotEmpty(t, info.Version, "expected ldflags value or build-info fallback")
+	assert.NotContains(t, info.String(), "  ")
 }

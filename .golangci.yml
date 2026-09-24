@@ -5,8 +5,8 @@
 # two configs disagree. npc-specific divergences:
 # - performance linters emphasized (perfsprint, prealloc, exptostd, gocritic
 #   performance tag) per this project's low-allocation goals
-# - SQL and testify linters omitted: no database/sql or testify dependency, so
-#   they cannot fire. Re-add rowserrcheck/sqlclosecheck/testifylint if that changes.
+# - SQL linters omitted: no database/sql dependency, so they cannot fire.
+#   Re-add rowserrcheck/sqlclosecheck if that changes.
 # - bodyclose/noctx stay enabled despite no HTTP-client code today: internal/asym
 #   already dials TLS, and HTTP use is plausible near-term.
 # - stricter than healthchecksio-cli: no (io.Closer).Close or (*os.File).Close
@@ -103,6 +103,7 @@ linters:
     - paralleltest    # Detect missing usage of t.Parallel() method in Go tests
     - sloglint        # Ensure consistent code style when using log/slog
     - tagliatelle     # Check struct tags
+    - testifylint     # Check Testify assertion usage
     - thelper         # Detect test helpers without t.Helper() call
     - forbidigo       # Forbid use of banned identifiers
     - wrapcheck       # Check that errors from external packages are wrapped
