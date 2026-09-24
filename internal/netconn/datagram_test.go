@@ -10,6 +10,9 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -22,21 +25,15 @@ func TestReadDatagramPreservesMaximumPortableUDPPayload(t *testing.T) {
 
 	want := bytes.Repeat([]byte{0xa5}, MaxUDPPayloadSize)
 	got, err := ReadDatagram(bytes.NewReader(want))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("datagram length = %d, want %d exact bytes", len(got), len(want))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestReadDatagramRejectsOversizedPayload(t *testing.T) {
 	t.Parallel()
 
 	_, err := ReadDatagram(bytes.NewReader(make([]byte, MaxUDPPayloadSize+1)))
-	if !errors.Is(err, ErrDatagramTooLarge) {
-		t.Fatalf("error = %v, want ErrDatagramTooLarge", err)
-	}
+	assert.ErrorIs(t, err, ErrDatagramTooLarge)
 }
 
 func TestReadDatagramReturnsInputFailure(t *testing.T) {
@@ -44,9 +41,7 @@ func TestReadDatagramReturnsInputFailure(t *testing.T) {
 
 	want := errUDPTestInput
 	_, err := ReadDatagram(iotest.ErrReader(want))
-	if !errors.Is(err, want) {
-		t.Fatalf("error = %v, want input failure", err)
-	}
+	assert.ErrorIs(t, err, want)
 }
 
 func TestReadDatagramContextCancellationDoesNotCloseInput(t *testing.T) {
@@ -91,9 +86,8 @@ func TestReadDatagramContextRejectsCanceledContextBeforeRead(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := ReadDatagramContext(ctx, iotest.ErrReader(errUDPTestInput))
-	if !errors.Is(err, context.Canceled) || errors.Is(err, errUDPTestInput) {
-		t.Fatalf("error = %v, want context cancellation before input read", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotErrorIs(t, err, errUDPTestInput, "input should not be read after cancellation")
 }
 
 func TestDialUDPExchangesOneDatagramOnLoopback(t *testing.T) {
@@ -213,9 +207,7 @@ func TestSendUDPRejectsOversizedPayload(t *testing.T) {
 
 	connection := &net.UDPConn{}
 	err := SendUDP(t.Context(), connection, make([]byte, MaxUDPPayloadSize+1))
-	if !errors.Is(err, ErrDatagramTooLarge) {
-		t.Fatalf("error = %v, want ErrDatagramTooLarge", err)
-	}
+	assert.ErrorIs(t, err, ErrDatagramTooLarge)
 }
 
 func TestReceiveUDPRejectsCanceledContextBeforeIO(t *testing.T) {
@@ -224,9 +216,7 @@ func TestReceiveUDPRejectsCanceledContextBeforeIO(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := ReceiveUDP(ctx, &net.UDPConn{})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestUDPOperationRecognizesDeadlineWhileCancellationPropagates(t *testing.T) {
