@@ -22,7 +22,7 @@ func TestChainPEMFormatterSingle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Single cert should produce no output (no chain)
-	assert.Zero(t, buf.Len())
+	assert.Empty(t, buf.Bytes())
 }
 
 func TestChainPEMFormatterMultiple(t *testing.T) {
@@ -137,5 +137,5 @@ func TestChainPEMFormatterEmptyChain(t *testing.T) {
 	require.NoError(t, err)
 
 	// Single cert in array should still produce no output (no chain)
-	assert.Zero(t, buf.Len())
+	assert.Empty(t, buf.Bytes())
 }
