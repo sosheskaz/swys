@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var errOwnedFileCanceled = errors.New("owned file canceled")
@@ -39,9 +42,7 @@ func TestOwnedFileReaderRefusesReadAfterCancellation(t *testing.T) {
 	file := openOwnedTestFile(t, []byte("unread"))
 	ctx, cancel := context.WithCancelCause(t.Context())
 	reader, err := NewOwnedFileReader(ctx, file)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = reader.Close() }) //nolint:errcheck // test cleanup is best effort
 	buffer := bytes.Repeat([]byte{0xa5}, 6)
 
@@ -103,22 +104,18 @@ func TestOwnedFileReaderCloseIsIdempotentAndClosesInput(t *testing.T) {
 	t.Parallel()
 	file := openOwnedTestFile(t, []byte("data"))
 	reader, err := NewOwnedFileReader(context.WithoutCancel(t.Context()), file)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	firstErr := reader.Close()
 	secondErr := reader.Close()
 
-	if firstErr != nil || secondErr != nil {
-		t.Fatalf("Close errors = (%v, %v), want idempotent nil results", firstErr, secondErr)
-	}
-	if _, err := file.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("owned input Stat after Close = %v, want os.ErrClosed", err)
-	}
-	if n, err := reader.Read(make([]byte, 1)); n != 0 || !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("Read after Close = (%d, %v), want (0, os.ErrClosed)", n, err)
-	}
+	assert.NoError(t, firstErr, "first Close")
+	assert.NoError(t, secondErr, "second Close")
+	_, err = file.Stat()
+	require.ErrorIs(t, err, os.ErrClosed, "owned input Stat after Close")
+	n, err := reader.Read(make([]byte, 1))
+	assert.Zero(t, n, "Read after Close")
+	assert.ErrorIs(t, err, os.ErrClosed, "Read after Close")
 }
 
 func TestOwnedFileReaderCancellationReleasesEnteredRead(t *testing.T) {

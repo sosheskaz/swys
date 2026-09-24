@@ -11,14 +11,15 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenFileReturnsTheOpenResult(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "input")
-	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))
 	openFile := func() (*os.File, error) { return os.Open(path) }
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -29,15 +30,10 @@ func TestOpenFileReturnsTheOpenResult(t *testing.T) {
 		"cancelable context":              ctx,
 	} {
 		file, err := OpenFile(ctx, openFile)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if err := file.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := OpenFile(ctx, func() (*os.File, error) { return nil, os.ErrNotExist }); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("%s: error = %v, want the open failure", name, err)
-		}
+		require.NoError(t, err, name)
+		require.NoError(t, file.Close(), name)
+		_, err = OpenFile(ctx, func() (*os.File, error) { return nil, os.ErrNotExist })
+		assert.ErrorIs(t, err, os.ErrNotExist, name)
 	}
 }
 

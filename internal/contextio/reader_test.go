@@ -13,6 +13,9 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type readerKind struct {
@@ -96,9 +99,7 @@ func TestReaderPassesThroughWhenNeverCanceled(t *testing.T) {
 		"context that cannot be canceled": context.WithoutCancel(t.Context()),
 		"missing context":                 noContext,
 	} {
-		if got := NewReader(ctx, source); got != io.Reader(source) {
-			t.Fatalf("%s: reader = %T, want the source itself so Fd and WriteTo stay available", name, got)
-		}
+		assert.Same(t, source, NewReader(ctx, source), name+": Fd and WriteTo should stay available")
 	}
 }
 
@@ -113,9 +114,7 @@ func TestReaderDeliversSourceBytesUnchanged(t *testing.T) {
 					content[i] = byte(i % 251)
 				}
 				reader, _ := kind.open(t.Context(), t, content)
-				if err := iotest.TestReader(reader, content); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, iotest.TestReader(reader, content))
 			})
 		}
 	}
@@ -199,19 +198,13 @@ func TestReaderReadsOnlyWhatTheCallerRequests(t *testing.T) {
 	source := &recordingReader{reader: bytes.NewReader(make([]byte, 4*readChunk))}
 	reader := NewReader(t.Context(), source)
 
-	if _, err := reader.Read(make([]byte, 10)); err != nil {
-		t.Fatal(err)
-	}
-	if source.largest != 10 {
-		t.Fatalf("source asked for %d bytes, want 10 so unrequested bytes stay in the source", source.largest)
-	}
+	_, err := reader.Read(make([]byte, 10))
+	require.NoError(t, err)
+	require.Equal(t, 10, source.largest, "source should leave unrequested bytes unread")
 
-	if _, err := reader.Read(make([]byte, 3*readChunk)); err != nil {
-		t.Fatal(err)
-	}
-	if source.largest != readChunk {
-		t.Fatalf("source asked for %d bytes, want the %d-byte chunk cap", source.largest, readChunk)
-	}
+	_, err = reader.Read(make([]byte, 3*readChunk))
+	require.NoError(t, err)
+	assert.Equal(t, readChunk, source.largest, "source request should respect the chunk cap")
 }
 
 func TestReaderPreservesSourceErrors(t *testing.T) {
