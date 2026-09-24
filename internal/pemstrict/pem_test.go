@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/pem"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecodePreservesPEMConventions(t *testing.T) {
@@ -16,9 +19,11 @@ func TestDecodePreservesPEMConventions(t *testing.T) {
 			for _, suffix := range [][]byte{nil, []byte(" \t\ntrailing"), encoded, append([]byte("garbage\n"), encoded...)} {
 				input := append(bytes.Clone(first), suffix...)
 				block, rest := Decode(input)
-				if block == nil || block.Type != "TEST" || string(block.Bytes) != "data" || block.Headers["Comment"] != "retained" || !bytes.Equal(rest, suffix) {
-					t.Fatalf("Decode = %#v, %q; want original block and %q", block, rest, suffix)
-				}
+				require.NotNil(t, block, "suffix %q", suffix)
+				assert.Equal(t, "TEST", block.Type, "suffix %q", suffix)
+				assert.Equal(t, []byte("data"), block.Bytes, "suffix %q", suffix)
+				assert.Equal(t, "retained", block.Headers["Comment"], "suffix %q", suffix)
+				assert.True(t, bytes.Equal(rest, suffix), "rest = %q, want suffix %q", rest, suffix)
 			}
 		})
 	}
@@ -35,9 +40,8 @@ func TestDecodeRejectsMalformedFirstBlock(t *testing.T) {
 				input = append(input, valid...)
 			}
 			block, rest := Decode(input)
-			if block != nil || !bytes.Equal(rest, input) {
-				t.Fatalf("Decode = %#v, %q, want nil and unchanged input", block, rest)
-			}
+			assert.Nil(t, block, "prefix %q", prefix)
+			assert.True(t, bytes.Equal(rest, input), "rest = %q, want unchanged input %q", rest, input)
 		})
 	}
 }
