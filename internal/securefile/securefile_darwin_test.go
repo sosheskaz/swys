@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -18,39 +20,27 @@ func TestOpenOrCreateOwnerOnlyRejectsExistingDarwinACL(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "private.key")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 	addDarwinACL(t, path, "everyone allow read")
 
-	if _, err := OpenOrCreateOwnerOnly(path); !errors.Is(err, ErrNotOwnerOnly) {
-		t.Fatalf("open error = %v, want ErrNotOwnerOnly", err)
-	}
+	_, err := OpenOrCreateOwnerOnly(path)
+	require.ErrorIs(t, err, ErrNotOwnerOnly)
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("contents = %q, want preserved", data)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data))
 }
 
 func TestOpenOrCreateOwnerOnlyRejectsCurrentUserDarwinACL(t *testing.T) {
 	t.Parallel()
 
 	current, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "private.key")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 	addDarwinACL(t, path, current.Username+" allow read")
 
-	if _, err := OpenOrCreateOwnerOnly(path); !errors.Is(err, ErrNotOwnerOnly) {
-		t.Fatalf("open error = %v, want ErrNotOwnerOnly", err)
-	}
+	_, err = OpenOrCreateOwnerOnly(path)
+	assert.ErrorIs(t, err, ErrNotOwnerOnly)
 }
 
 func TestOpenOrCreateOwnerOnlySuppressesInheritedDarwinACL(t *testing.T) {
@@ -60,12 +50,8 @@ func TestOpenOrCreateOwnerOnlySuppressesInheritedDarwinACL(t *testing.T) {
 	addDarwinACL(t, dir, "everyone allow read,file_inherit")
 	path := filepath.Join(dir, "private.key")
 	file, err := OpenOrCreateOwnerOnly(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
 	assertNoDarwinACL(t, path)
 }
 
@@ -84,9 +70,8 @@ func TestDarwinReturnedCommonAttributes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := darwinReturnedCommonAttributes(tt.buffer); err == nil {
-				t.Fatal("error = nil, want malformed response error")
-			}
+			_, err := darwinReturnedCommonAttributes(tt.buffer)
+			assert.Error(t, err, "malformed response")
 		})
 	}
 
@@ -95,12 +80,8 @@ func TestDarwinReturnedCommonAttributes(t *testing.T) {
 		unix.ATTR_CMN_RETURNED_ATTRS|unix.ATTR_CMN_EXTENDED_SECURITY,
 	)
 	common, err := darwinReturnedCommonAttributes(buffer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if common&unix.ATTR_CMN_EXTENDED_SECURITY == 0 {
-		t.Fatalf("common attributes = %#x, want extended security", common)
-	}
+	require.NoError(t, err)
+	assert.NotZero(t, common&unix.ATTR_CMN_EXTENDED_SECURITY, "common attributes = %#x", common)
 }
 
 func FuzzDarwinReturnedCommonAttributes(f *testing.F) {
@@ -164,19 +145,11 @@ func addDarwinACL(t *testing.T, path, entry string) {
 func assertNoDarwinACL(t *testing.T, path string) {
 	t.Helper()
 	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() {
-		if err := file.Close(); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, file.Close())
 	}()
 	hasACL, err := hasDarwinExtendedACL(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hasACL {
-		t.Fatal("new file inherited an extended ACL")
-	}
+	require.NoError(t, err)
+	assert.False(t, hasACL, "new file inherited an extended ACL")
 }

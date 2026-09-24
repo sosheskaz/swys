@@ -3,60 +3,41 @@
 package securefile
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenOrCreateOwnerOnlyRejectsInsecureExistingFile(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "private.key")
-	if err := os.WriteFile(path, []byte("preserve"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := OpenOrCreateOwnerOnly(path); !errors.Is(err, ErrNotOwnerOnly) {
-		t.Fatalf("open error = %v, want ErrNotOwnerOnly", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o644))
+	_, err := OpenOrCreateOwnerOnly(path)
+	require.ErrorIs(t, err, ErrNotOwnerOnly)
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("contents = %q, want preserved", data)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data))
 }
 
 func TestOpenOrCreateOwnerOnlyPreservesSecureExistingModeAndContents(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "private.key")
-	if err := os.WriteFile(path, []byte("preserve"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o700))
 	file, err := OpenOrCreateOwnerOnly(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("contents = %q, want preserved", data)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data))
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o700 {
-		t.Fatalf("mode = %04o, want preserved 0700", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
 func TestOpenOrCreateOwnerOnlyHandlesDanglingSymlink(t *testing.T) {
@@ -76,22 +57,13 @@ func TestOpenOrCreateOwnerOnlyHandlesDanglingSymlink(t *testing.T) {
 			}
 			t.Fatal("open succeeded, want dangling symlink rejection")
 		}
-		if _, statErr := os.Stat(target); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("target stat error = %v, want ErrNotExist", statErr)
-		}
+		_, statErr := os.Stat(target)
+		assert.ErrorIs(t, statErr, os.ErrNotExist)
 		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
 	info, err := os.Stat(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("mode = %04o, want owner-only", info.Mode().Perm())
-	}
+	require.NoError(t, err)
+	assert.Zero(t, info.Mode().Perm()&0o077, "mode = %04o, want owner-only", info.Mode().Perm())
 }

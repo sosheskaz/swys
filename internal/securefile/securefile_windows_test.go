@@ -3,12 +3,13 @@
 package securefile
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"unsafe"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 )
 
@@ -16,21 +17,15 @@ func TestOwnerOnlyWindowsSecurityDescriptor(t *testing.T) {
 	t.Parallel()
 
 	descriptor, err := ownerOnlyWindowsSecurityDescriptor()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateOwnerOnlyWindowsSecurityDescriptor(descriptor); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	assert.NoError(t, validateOwnerOnlyWindowsSecurityDescriptor(descriptor))
 }
 
 func TestValidateOwnerOnlyWindowsSecurityDescriptorRejectsUnsafeDACLs(t *testing.T) {
 	t.Parallel()
 
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	tests := []struct {
 		name string
 		sddl string
@@ -49,12 +44,8 @@ func TestValidateOwnerOnlyWindowsSecurityDescriptorRejectsUnsafeDACLs(t *testing
 			t.Parallel()
 
 			descriptor, err := windows.SecurityDescriptorFromString(tt.sddl)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := validateOwnerOnlyWindowsSecurityDescriptor(descriptor); !errors.Is(err, ErrNotOwnerOnly) {
-				t.Fatalf("error = %v, want ErrNotOwnerOnly", err)
-			}
+			require.NoError(t, err)
+			assert.ErrorIs(t, validateOwnerOnlyWindowsSecurityDescriptor(descriptor), ErrNotOwnerOnly)
 		})
 	}
 }
@@ -63,18 +54,12 @@ func TestOpenOrCreateOwnerOnlyWindowsRejectsInsecureExistingFile(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "private.key")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;WD)")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	dacl, _, err := descriptor.DACL()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetNamedSecurityInfo(
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(
 		path,
 		windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
@@ -82,19 +67,12 @@ func TestOpenOrCreateOwnerOnlyWindowsRejectsInsecureExistingFile(t *testing.T) {
 		nil,
 		dacl,
 		nil,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := OpenOrCreateOwnerOnly(path); !errors.Is(err, ErrNotOwnerOnly) {
-		t.Fatalf("open error = %v, want ErrNotOwnerOnly", err)
-	}
+	))
+	_, err = OpenOrCreateOwnerOnly(path)
+	require.ErrorIs(t, err, ErrNotOwnerOnly)
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("contents = %q, want preserved", data)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data))
 }
 
 func TestOpenOrCreateOwnerOnlyWindowsCreatesProtectedFile(t *testing.T) {
@@ -102,12 +80,8 @@ func TestOpenOrCreateOwnerOnlyWindowsCreatesProtectedFile(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "private.key")
 	file, err := OpenOrCreateOwnerOnly(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
 	assertOwnerOnlyPath(t, path)
 }
 
@@ -118,26 +92,14 @@ func assertOwnerOnlyPath(t *testing.T, path string) {
 		windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateOwnerOnlyWindowsSecurityDescriptor(descriptor); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, validateOwnerOnlyWindowsSecurityDescriptor(descriptor))
 	dacl, _, err := descriptor.DACL()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var ace *windows.ACCESS_ALLOWED_ACE
-	if err := windows.GetAce(dacl, 0, &ace); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, windows.GetAce(dacl, 0, &ace))
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-	if !aceSID.Equals(user.User.Sid) {
-		t.Fatalf("ACE SID = %s, want current user %s", aceSID, user.User.Sid)
-	}
+	assert.True(t, aceSID.Equals(user.User.Sid), "ACE SID = %s, want current user %s", aceSID, user.User.Sid)
 }
