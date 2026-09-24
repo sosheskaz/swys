@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCertificateTextEscapesControlCharacters(t *testing.T) {
@@ -20,30 +23,23 @@ func TestCertificateTextEscapesControlCharacters(t *testing.T) {
 			info.VerifyError = "failed: " + hostile
 			info.Chains = [][]ChainCertInfo{{{CommonName: hostile}, {Subject: hostile}}}
 			var output bytes.Buffer
-			if err := (&TextFormatter{Long: long}).Format(info, &output); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, (&TextFormatter{Long: long}).Format(info, &output))
 			text := output.String()
-			if strings.ContainsAny(text, "\x1b\r\t\u009b\u202e") || strings.Contains(text, "\n\t") {
-				t.Fatalf("unsafe output: %q", text)
-			}
-			if !strings.Contains(text, "x "+escaped+" | "+escaped+" |") || !strings.Contains(text, "Error: failed: "+escaped) {
-				t.Fatalf("missing escaped summary: %q", text)
-			}
-			if !strings.Contains(text, escaped) || (long && !strings.Contains(text, escaped+" -> "+escaped)) {
-				t.Fatalf("missing escaped fields: %q", text)
+			assert.False(t, strings.ContainsAny(text, "\x1b\r\t\u009b\u202e"), "unsafe output: %q", text)
+			assert.NotContains(t, text, "\n\t")
+			assert.Contains(t, text, "x "+escaped+" | "+escaped+" |")
+			assert.Contains(t, text, "Error: failed: "+escaped)
+			assert.Contains(t, text, escaped)
+			if long {
+				assert.Contains(t, text, escaped+" -> "+escaped)
 			}
 			var structured bytes.Buffer
-			if err := (&JSONFormatter{}).Format(info, &structured); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, (&JSONFormatter{}).Format(info, &structured))
 			var decoded certInfoJSON
-			if err := json.Unmarshal(structured.Bytes(), &decoded); err != nil {
-				t.Fatal(err)
-			}
-			if decoded.DNSNames[0] != hostile || decoded.VerifyError != info.VerifyError {
-				t.Fatalf("JSON values changed: %+v", decoded)
-			}
+			require.NoError(t, json.Unmarshal(structured.Bytes(), &decoded))
+			require.NotEmpty(t, decoded.DNSNames)
+			assert.Equal(t, hostile, decoded.DNSNames[0])
+			assert.Equal(t, info.VerifyError, decoded.VerifyError)
 		}
 	}
 }
@@ -52,10 +48,6 @@ func TestCertificateTextPreservesPrintableValues(t *testing.T) {
 	t.Parallel()
 	const value = `CN=José\, O="example"`
 	var output bytes.Buffer
-	if err := writeField(&output, "Subject", value); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(output.String(), value) {
-		t.Fatalf("printable value changed: %q", output.String())
-	}
+	require.NoError(t, writeField(&output, "Subject", value))
+	assert.Contains(t, output.String(), value)
 }

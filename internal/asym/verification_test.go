@@ -8,9 +8,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewCertInfosVerifiesHostnameAndPeerIntermediates(t *testing.T) {
@@ -23,43 +25,27 @@ func TestNewCertInfosVerifiesHostnameAndPeerIntermediates(t *testing.T) {
 		DNSName: "service.example.com",
 		Roots:   roots,
 	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !infos[0].Verified {
-		t.Fatalf("leaf was not verified: %s", infos[0].VerifyError)
-	}
-	if !infos[1].Verified {
-		t.Fatalf("intermediate was not verified: %s", infos[1].VerifyError)
-	}
+	require.NoError(t, err)
+	require.Len(t, infos, 2)
+	assert.True(t, infos[0].Verified, "leaf verification: %s", infos[0].VerifyError)
+	assert.True(t, infos[1].Verified, "intermediate verification: %s", infos[1].VerifyError)
 	var output bytes.Buffer
-	if err := (&TextFormatter{Long: true}).Format(infos[0], &output); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(output.String(), "Test, Root") {
-		t.Fatalf("chain output did not preserve comma in common name:\n%s", output.String())
-	}
+	require.NoError(t, (&TextFormatter{Long: true}).Format(infos[0], &output))
+	assert.Contains(t, output.String(), "Test, Root", "chain output should preserve the comma in the common name")
 	leafOnly, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
 		DNSName: "service.example.com",
 		Roots:   roots,
 	}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(leafOnly) != 1 {
-		t.Fatalf("leaf-only info count = %d, want 1", len(leafOnly))
-	}
+	require.NoError(t, err)
+	assert.Len(t, leafOnly, 1)
 
 	wrongHost, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
 		DNSName: "other.example.com",
 		Roots:   roots,
 	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wrongHost[0].Verified {
-		t.Fatal("leaf unexpectedly verified for the wrong hostname")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, wrongHost)
+	assert.False(t, wrongHost[0].Verified, "leaf unexpectedly verified for the wrong hostname")
 }
 
 func TestNewCertInfosPreservesCommonNamesContainingCommas(t *testing.T) {
@@ -72,22 +58,14 @@ func TestNewCertInfosPreservesCommonNamesContainingCommas(t *testing.T) {
 		DNSName: "service.example.com",
 		Roots:   roots,
 	}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := infos[0].CommonName(); got != "Service, Leaf" {
-		t.Fatalf("leaf common name = %q, want %q", got, "Service, Leaf")
-	}
-	if len(infos[0].Chains) != 1 || len(infos[0].Chains[0]) != 3 {
-		t.Fatalf("verified chains = %#v, want one three-certificate chain", infos[0].Chains)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, infos)
+	assert.Equal(t, "Service, Leaf", infos[0].CommonName())
+	require.Len(t, infos[0].Chains, 1)
+	require.Len(t, infos[0].Chains[0], 3)
 	chain := infos[0].Chains[0]
-	if got := chain[0].CommonName; got != "Service, Leaf" {
-		t.Fatalf("chain leaf common name = %q, want %q", got, "Service, Leaf")
-	}
-	if got := chain[2].CommonName; got != "Test, Root" {
-		t.Fatalf("chain root common name = %q, want %q", got, "Test, Root")
-	}
+	assert.Equal(t, "Service, Leaf", chain[0].CommonName)
+	assert.Equal(t, "Test, Root", chain[2].CommonName)
 }
 
 func TestNewCertInfoVerifiedDoesNotMutateOptions(t *testing.T) {
@@ -103,12 +81,9 @@ func TestNewCertInfoVerifiedDoesNotMutateOptions(t *testing.T) {
 		Intermediates: intermediates,
 	}
 
-	if _, err := NewCertInfoVerified(leaf, options); err != nil {
-		t.Fatal(err)
-	}
-	if !options.CurrentTime.IsZero() {
-		t.Fatal("NewCertInfoVerified mutated the caller's CurrentTime")
-	}
+	_, err := NewCertInfoVerified(leaf, options)
+	require.NoError(t, err)
+	assert.True(t, options.CurrentTime.IsZero(), "NewCertInfoVerified mutated the caller's CurrentTime")
 }
 
 func generateCertificateChain(t *testing.T) (*x509.Certificate, *x509.Certificate, *x509.Certificate) {
@@ -155,9 +130,7 @@ func generateCertificateChain(t *testing.T) (*x509.Certificate, *x509.Certificat
 func generateECDSAKey(t *testing.T) *ecdsa.PrivateKey {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }
 
@@ -170,12 +143,8 @@ func createCertificate(
 ) *x509.Certificate {
 	t.Helper()
 	der, err := x509.CreateCertificate(rand.Reader, template, parent, publicKey, signer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return cert
 }

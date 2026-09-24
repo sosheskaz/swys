@@ -11,6 +11,9 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateCertificateSupportsValidatedSigningKeys(t *testing.T) {
@@ -174,44 +177,37 @@ func TestCreateCertificateRejectsInvalidIssuer(t *testing.T) {
 
 	nonCA := *ca
 	nonCA.IsCA = false
-	if _, err := createCertificateAt(&options, leafKey, &nonCA, caKey, now, rand.Reader); !errors.Is(err, ErrIssuerNotCA) {
-		t.Fatalf("non-CA error = %v, want ErrIssuerNotCA", err)
-	}
+	_, err = createCertificateAt(&options, leafKey, &nonCA, caKey, now, rand.Reader)
+	require.ErrorIs(t, err, ErrIssuerNotCA, "non-CA issuer")
 
 	badConstraints := *ca
 	badConstraints.BasicConstraintsValid = false
-	if _, err := createCertificateAt(&options, leafKey, &badConstraints, caKey, now, rand.Reader); !errors.Is(err, ErrIssuerNotCA) {
-		t.Fatalf("invalid constraints error = %v, want ErrIssuerNotCA", err)
-	}
+	_, err = createCertificateAt(&options, leafKey, &badConstraints, caKey, now, rand.Reader)
+	require.ErrorIs(t, err, ErrIssuerNotCA, "invalid issuer constraints")
 
 	badUsage := *ca
 	badUsage.KeyUsage = x509.KeyUsageDigitalSignature
-	if _, err := createCertificateAt(&options, leafKey, &badUsage, caKey, now, rand.Reader); !errors.Is(err, ErrIssuerNotCA) {
-		t.Fatalf("invalid key usage error = %v, want ErrIssuerNotCA", err)
-	}
+	_, err = createCertificateAt(&options, leafKey, &badUsage, caKey, now, rand.Reader)
+	require.ErrorIs(t, err, ErrIssuerNotCA, "invalid issuer key usage")
 
 	expired := *ca
 	expired.NotAfter = now.Add(-time.Second)
-	if _, err := createCertificateAt(&options, leafKey, &expired, caKey, now, rand.Reader); !errors.Is(err, ErrIssuerValidity) {
-		t.Fatalf("expired issuer error = %v, want ErrIssuerValidity", err)
-	}
+	_, err = createCertificateAt(&options, leafKey, &expired, caKey, now, rand.Reader)
+	require.ErrorIs(t, err, ErrIssuerValidity, "expired issuer")
 
 	notYetValid := *ca
 	notYetValid.NotBefore = now.Add(time.Second)
-	if _, err := createCertificateAt(&options, leafKey, &notYetValid, caKey, now, rand.Reader); !errors.Is(err, ErrIssuerValidity) {
-		t.Fatalf("future issuer error = %v, want ErrIssuerValidity", err)
-	}
+	_, err = createCertificateAt(&options, leafKey, &notYetValid, caKey, now, rand.Reader)
+	require.ErrorIs(t, err, ErrIssuerValidity, "future issuer")
 
 	longOptions := options
 	longOptions.ValidFor = 400 * 24 * time.Hour
-	if _, err := createCertificateAt(&longOptions, leafKey, ca, caKey, now, rand.Reader); !errors.Is(err, ErrIssuerValidity) {
-		t.Fatalf("outliving leaf error = %v, want ErrIssuerValidity", err)
-	}
+	_, err = createCertificateAt(&longOptions, leafKey, ca, caKey, now, rand.Reader)
+	require.ErrorIs(t, err, ErrIssuerValidity, "leaf outlives issuer")
 
 	wrongKey := mustGenerateKey(t, KeyAlgorithmEd25519)
-	if _, err := createCertificateAt(&options, leafKey, ca, wrongKey, now, rand.Reader); !errors.Is(err, ErrIssuerKeyMismatch) {
-		t.Fatalf("mismatch error = %v, want ErrIssuerKeyMismatch", err)
-	}
+	_, err = createCertificateAt(&options, leafKey, ca, wrongKey, now, rand.Reader)
+	assert.ErrorIs(t, err, ErrIssuerKeyMismatch, "issuer key mismatch")
 }
 
 func TestCreateCertificateEnforcesIssuerValidityBounds(t *testing.T) {
