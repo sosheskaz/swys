@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunReportsExitStatus(t *testing.T) { //nolint:paralleltest // mutates process-wide os.Args
@@ -10,12 +12,8 @@ func TestRunReportsExitStatus(t *testing.T) { //nolint:paralleltest // mutates p
 	t.Cleanup(func() { os.Args = originalArgs })
 
 	os.Args = []string{"npc", "--version"}
-	if got := run(); got != 0 {
-		t.Fatalf("exit status for a successful command = %d, want 0", got)
-	}
+	require.Equal(t, 0, run(), "exit status for a successful command")
 
 	os.Args = []string{"npc", "no-such-command"}
-	if got := run(); got != 1 {
-		t.Fatalf("exit status for a failed command = %d, want 1", got)
-	}
+	require.Equal(t, 1, run(), "exit status for a failed command")
 }
