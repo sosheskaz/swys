@@ -21,8 +21,8 @@ env:
   MISE_TASK_RUN_AUTO_INSTALL: 'false'
 
 jobs:
-  go:
-    name: Build, test, lint
+  core:
+    name: Go build, coverage, lint
     runs-on: sosheskaz
     timeout-minutes: 30
     permissions:
@@ -66,8 +66,9 @@ jobs:
           # Arch in the key: runners are mixed amd64/arm64 and go-build cache
           # entries are GOARCH-specific — a cross-arch restore is all misses
           # and then clobbers the shared key with foreign objects.
-          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-${{ hashFiles('.golangci.yml', 'go.mod', 'go.sum') }}
+          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-core-${{ hashFiles('.golangci.yml', 'go.mod', 'go.sum') }}
           restore-keys: |
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-core-
             ${{ steps.go-toolchain.outputs.cache_prefix }}-
 
       - name: Download modules
@@ -79,20 +80,11 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Vet platform-specific implementations
-        run: mise run lint:platforms
-
       - name: Verify go.mod is tidy
         run: go mod tidy -diff -v
 
       - name: Test (with coverage)
         run: mise run test:unit -- -shuffle=on -coverprofile=coverage.out -covermode=atomic -coverpkg=./...
-
-      - name: Test (race detector)
-        run: mise run test:race -- -shuffle=on
-
-      - name: Fuzz smoke campaign
-        run: mise run test:fuzz
 
       - name: Benchmark smoke test
         run: mise run bench -- -benchtime=1x
@@ -151,3 +143,131 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/golangci-lint
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  platforms:
+    name: Go platform vet
+    runs-on: sosheskaz
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Register problem matcher
+        run: echo "::add-matcher::.github/problem-matchers/go.json"
+
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: 'go'
+          cache: true
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Resolve Go cache identity
+        id: go-toolchain
+        run: echo "cache_prefix=${RUNNER_OS}-${RUNNER_ARCH}-golang-$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-platforms-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-platforms-
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet platform-specific implementations
+        run: mise run lint:platforms
+
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  race-fuzz:
+    name: Go race and fuzz
+    runs-on: sosheskaz
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Register problem matcher
+        run: echo "::add-matcher::.github/problem-matchers/go.json"
+
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: 'go'
+          cache: true
+          cache_save: false
+
+      - name: Resolve Go cache identity
+        id: go-toolchain
+        run: echo "cache_prefix=${RUNNER_OS}-${RUNNER_ARCH}-golang-$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-race-fuzz-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-race-fuzz-
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Test (race detector)
+        run: mise run test:race -- -shuffle=on
+
+      - name: Fuzz smoke campaign
+        run: mise run test:fuzz
+
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  go:
+    name: Build, test, lint
+    needs: [core, platforms, race-fuzz]
+    if: ${{ always() }}
+    runs-on: sosheskaz
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require all Go jobs
+        env:
+          CORE_RESULT: ${{ needs.core.result }}
+          PLATFORMS_RESULT: ${{ needs.platforms.result }}
+          RACE_FUZZ_RESULT: ${{ needs.race-fuzz.result }}
+        run: |
+          if [[ "$CORE_RESULT" != success || "$PLATFORMS_RESULT" != success || "$RACE_FUZZ_RESULT" != success ]]; then
+            printf 'Go jobs: core=%s platforms=%s race-fuzz=%s\n' "$CORE_RESULT" "$PLATFORMS_RESULT" "$RACE_FUZZ_RESULT" >&2
+            exit 1
+          fi
