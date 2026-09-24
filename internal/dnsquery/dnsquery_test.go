@@ -25,6 +25,8 @@ import (
 
 	externalDNS "codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
@@ -50,21 +52,15 @@ func TestResolveSystemResultPreservesJSONSchema(t *testing.T) {
 			return []netip.Addr{netip.MustParseAddr("192.0.2.10")}, nil
 		},
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := `{"resolver":"system","server":null,"transport":null,"query_name":"example.test.",` +
 		`"query_type":"A","status":null,"id":null,"authoritative":null,"truncated":null,` +
 		`"recursion_available":null,"answers":[{"name":"example.test.","type":"A","class":"IN",` +
 		`"ttl":null,"value":"192.0.2.10"}]}`
-	if string(encoded) != want {
-		t.Fatalf("JSON = %s\nwant = %s", encoded, want)
-	}
+	assert.Equal(t, want, string(encoded))
 }
 
 func TestResolveValidatesTypedRequestsIndependently(t *testing.T) {
@@ -104,9 +100,7 @@ func TestResolveValidatesTypedRequestsIndependently(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := dnsquery.Resolve(t.Context(), test.request, dnsquery.Dependencies{})
-			if !errors.Is(err, dnsquery.ErrInvalidRequest) {
-				t.Fatalf("error = %v, want ErrInvalidRequest", err)
-			}
+			assert.ErrorIs(t, err, dnsquery.ErrInvalidRequest)
 		})
 	}
 }
@@ -136,17 +130,11 @@ func TestParseEndpointPortAgreement(t *testing.T) {
 			t.Parallel()
 			endpoint, err := dnsquery.ParseEndpoint(test.raw, test.explicitPort)
 			if test.wantErr {
-				if !errors.Is(err, dnsquery.ErrInvalidEndpoint) {
-					t.Fatalf("error = %v, want ErrInvalidEndpoint", err)
-				}
+				assert.ErrorIs(t, err, dnsquery.ErrInvalidEndpoint)
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if endpoint.Address() != test.wantAddress {
-				t.Fatalf("Address() = %q, want %q", endpoint.Address(), test.wantAddress)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantAddress, endpoint.Address())
 		})
 	}
 }
@@ -172,12 +160,12 @@ func TestResolveConfiguredUDPExplicitPort53(t *testing.T) {
 			return replyFor(request), nil
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if calls != 1 || result.Server == nil || *result.Server != "192.0.2.53:53" || result.Transport == nil || *result.Transport != dnsquery.TransportUDP {
-		t.Fatalf("calls=%d server=%v transport=%v", calls, result.Server, result.Transport)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
+	require.NotNil(t, result.Server)
+	assert.Equal(t, "192.0.2.53:53", *result.Server)
+	require.NotNil(t, result.Transport)
+	assert.Equal(t, dnsquery.TransportUDP, *result.Transport)
 }
 
 func TestResolveConfiguredPortConflictPreventsExchange(t *testing.T) {
@@ -198,12 +186,8 @@ func TestResolveConfiguredPortConflictPreventsExchange(t *testing.T) {
 			return nil, nil //nolint:nilnil // A nil peer response is the protocol boundary under test.
 		},
 	})
-	if !errors.Is(err, dnsquery.ErrInvalidEndpoint) {
-		t.Fatalf("error = %v, want ErrInvalidEndpoint", err)
-	}
-	if exchanged {
-		t.Fatal("conflicting configured port reached exchange")
-	}
+	require.ErrorIs(t, err, dnsquery.ErrInvalidEndpoint)
+	assert.False(t, exchanged, "conflicting configured port reached exchange")
 }
 
 func TestResolveConfiguredServersSkipsMalformedEntries(t *testing.T) {
@@ -222,12 +206,10 @@ func TestResolveConfiguredServersSkipsMalformedEntries(t *testing.T) {
 			return replyFor(request), nil
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exchanged != 1 || result.Server == nil || *result.Server != "192.0.2.53:53" {
-		t.Fatalf("exchanges=%d server=%v", exchanged, result.Server)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, exchanged)
+	require.NotNil(t, result.Server)
+	assert.Equal(t, "192.0.2.53:53", *result.Server)
 }
 
 func TestResolveConfiguredServersRejectsNonUDPSchemesAndUsesBareFallback(t *testing.T) {

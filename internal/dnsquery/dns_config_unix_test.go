@@ -3,9 +3,11 @@
 package dnsquery
 
 import (
-	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseConfiguredDNSServers(t *testing.T) {
@@ -14,10 +16,6 @@ func TestParseConfiguredDNSServers(t *testing.T) {
 	servers, err := parseConfiguredDNSServers(strings.NewReader(
 		"search example.test\n# comment\nnameserver 192.0.2.53\nnameserver 2001:db8::53 # local\n",
 	))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(servers, []string{"192.0.2.53", "2001:db8::53"}) {
-		t.Fatalf("servers = %q", servers)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, []string{"192.0.2.53", "2001:db8::53"}, servers)
 }
