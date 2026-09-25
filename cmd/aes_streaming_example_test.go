@@ -3,127 +3,17 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 )
-
-const (
-	testAESStreamHeaderSize       = 16
-	testAESStreamDefaultChunkSize = 1024 * 1024
-)
-
-func TestExampleAESStreamingFileRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	directory := t.TempDir()
-	keyPath := filepath.Join(directory, "aes.key")
-	plaintextPath := filepath.Join(directory, "message.txt")
-	ciphertextPath := filepath.Join(directory, "message.npcenc")
-	openedPath := filepath.Join(directory, "opened.txt")
-	plaintext := []byte("authenticated streaming example\n")
-	if err := os.WriteFile(keyPath, bytes.Repeat([]byte{0x42}, 32), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(plaintextPath, plaintext, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := executeRoot(
-		t,
-		"aes", "encrypt", "--keyfile", keyPath,
-		"--input", plaintextPath, "--output", ciphertextPath,
-	); err != nil {
-		t.Fatal(err)
-	}
-	ciphertext, err := os.ReadFile(ciphertextPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ciphertext) < testAESStreamHeaderSize {
-		t.Fatalf("ciphertext length = %d, want at least %d", len(ciphertext), testAESStreamHeaderSize)
-	}
-	header := ciphertext[:testAESStreamHeaderSize]
-	if got := string(header[:8]); got != "NPCENC\r\n" {
-		t.Fatalf("stream magic = %q, want %q", got, "NPCENC\\r\\n")
-	}
-	if header[8] != 1 || header[9] != 2 {
-		t.Fatalf("stream version/suite = %d/%d, want 1/2", header[8], header[9])
-	}
-	if got := binary.BigEndian.Uint16(header[10:12]); got != testAESStreamHeaderSize {
-		t.Fatalf("stream header length = %d, want %d", got, testAESStreamHeaderSize)
-	}
-	if got := binary.BigEndian.Uint32(header[12:16]); got != testAESStreamDefaultChunkSize {
-		t.Fatalf("stream chunk size = %d, want %d", got, testAESStreamDefaultChunkSize)
-	}
-
-	if _, err := executeRoot(
-		t,
-		"aes", "decrypt", "--keyfile", keyPath,
-		"--input", ciphertextPath, "--output", openedPath,
-	); err != nil {
-		t.Fatal(err)
-	}
-	opened, err := os.ReadFile(openedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(opened, plaintext) {
-		t.Fatalf("opened plaintext = %q, want %q", opened, plaintext)
-	}
-}
-
-//nolint:paralleltest // The greater-than-64-MiB round trip is intentionally serial to bound peak memory.
-func TestExampleAESStreamingLargerThanSingleMessageFileRoundTrip(t *testing.T) {
-	const plaintextSize = 64*1024*1024 + 1
-
-	directory := t.TempDir()
-	keyPath := filepath.Join(directory, "aes.key")
-	plaintextPath := filepath.Join(directory, "payload.bin")
-	ciphertextPath := filepath.Join(directory, "payload.npcenc")
-	openedPath := filepath.Join(directory, "opened.bin")
-	if err := os.WriteFile(keyPath, bytes.Repeat([]byte{0x24}, 32), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	plaintext, err := os.Create(plaintextPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := plaintext.Truncate(plaintextSize); err != nil {
-		t.Fatal(errors.Join(err, plaintext.Close()))
-	}
-	if err := plaintext.Close(); err != nil {
-		t.Fatal(err)
-	}
-	wantDigest := fileSHA256(t, plaintextPath)
-
-	if _, err := executeRoot(
-		t,
-		"aes", "encrypt", "--keyfile", keyPath,
-		"--input", plaintextPath, "--output", ciphertextPath,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := executeRoot(
-		t,
-		"aes", "decrypt", "--keyfile", keyPath,
-		"--input", ciphertextPath, "--output", openedPath,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if gotDigest := fileSHA256(t, openedPath); gotDigest != wantDigest {
-		t.Fatalf("opened plaintext SHA-256 = %q, want %q", gotDigest, wantDigest)
-	}
-}
 
 //nolint:paralleltest // The greater-than-64-MiB process pipeline is intentionally serial to bound peak memory.
 func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
@@ -218,18 +108,5 @@ func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
 
 func fileSHA256(t *testing.T, path string) string {
 	t.Helper()
-	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if closeErr := file.Close(); closeErr != nil {
-			t.Errorf("close digest input: %v", closeErr)
-		}
-	}()
-	digest := sha256.New()
-	if _, err := io.Copy(digest, file); err != nil {
-		t.Fatal(err)
-	}
-	return hex.EncodeToString(digest.Sum(nil))
+	return testcmd.FileSHA256(t, path)
 }

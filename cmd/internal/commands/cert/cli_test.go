@@ -1,0 +1,63 @@
+package cert_test
+
+import (
+	"bytes"
+	"io"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
+
+	rootcmd "github.com/sosheskaz-systems/npc/cmd"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz-systems/npc/cmd/internal/commands/cert"
+	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+)
+
+const certificatePEMType = certinput.PEMType
+
+var (
+	errCertificateInputSelection = cert.ErrCertificateInputSelection
+	errCertificatePathCollision  = certinput.ErrPathCollision
+	errCertificateReportNegative = cert.ErrCertificateReportNegative
+	errTrailingCertificateData   = certinput.ErrTrailingData
+	errUnexpectedPEMType         = certinput.ErrUnexpectedPEMType
+)
+
+func newRootCmd() *cobra.Command { return rootcmd.NewCommand() }
+
+func certCommand(t *testing.T, path ...string) *cobra.Command {
+	t.Helper()
+	command, _, err := rootcmd.NewCommand().Find(append([]string{"cert"}, path...))
+	require.NoError(t, err)
+	return command
+}
+
+func executeRootStreams(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	stdout, stderr, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, args...)
+	return string(stdout), string(stderr), err
+}
+
+func executeRoot(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	stdout, stderr, err := executeRootStreams(t, args...)
+	return stdout + stderr, err
+}
+
+func executeRootStreamsWithInput(t *testing.T, input io.Reader, args ...string) (string, string, error) {
+	t.Helper()
+	stdout, stderr, err := testcmd.RunStreams(t, rootcmd.NewCommand(), input, args...)
+	return string(stdout), string(stderr), err
+}
+
+func executeRootCommandStreams(t *testing.T, root *cobra.Command, args ...string) (string, string, error) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs(args)
+	err := commandio.Execute(root)
+	return stdout.String(), stderr.String(), err
+}

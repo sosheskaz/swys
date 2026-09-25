@@ -1,3 +1,2 @@
-// Package cmd implements the npc command-line interface, including AES-GCM by
-// default and explicit AES-CBC compatibility operations.
+// Package cmd assembles NPC's command tree and exposes execution and signal handling.
 package cmd

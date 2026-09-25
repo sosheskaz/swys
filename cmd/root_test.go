@@ -18,6 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 	"github.com/sosheskaz-systems/npc/internal/crypter"
 	"github.com/sosheskaz-systems/npc/internal/securefile"
 )
@@ -74,7 +76,7 @@ func TestUnknownOutputEncodingFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := executeRoot(t, "key", "generate", "ed25519", "--encoding", "rot13", "--output", path)
-	if err == nil || !errors.Is(err, errUnknownOutputEncoding) {
+	if err == nil || !errors.Is(err, byteencoding.ErrUnknownOutputEncoding) {
 		t.Fatalf("error = %v, want unknown output encoding", err)
 	}
 	data, readErr := os.ReadFile(path)
@@ -162,7 +164,7 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 	}
 
 	_, err := executeRoot(t, "key", "generate", "ed25519", "--input", path, "--output", path)
-	if !errors.Is(err, errSameInputOutput) {
+	if !errors.Is(err, commandio.ErrSameInputOutput) {
 		t.Fatalf("error = %v, want errSameInputOutput", err)
 	}
 	data, readErr := os.ReadFile(path)
@@ -293,7 +295,7 @@ func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
 
 func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 	t.Parallel()
-	command := binaryOutputCommand(&cobra.Command{
+	command := commandio.BinaryOutputCommand(&cobra.Command{
 		Use:    "ordinary-output-test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -461,9 +463,9 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.mode)
-			wantErr := errInvalidOutputMode
+			wantErr := commandio.ErrInvalidOutputMode
 			if runtime.GOOS == "windows" {
-				wantErr = errOutputModeUnsupported
+				wantErr = commandio.ErrOutputModeUnsupported
 			}
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("error = %v, want %v", err, wantErr)
@@ -482,26 +484,12 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
 	t.Parallel()
 	_, err := executeRoot(t, "key", "generate", "ed25519", "--mode", "0640")
-	wantErr := errModeRequiresRegularOutput
+	wantErr := commandio.ErrModeRequiresRegularOutput
 	if runtime.GOOS == "windows" {
-		wantErr = errOutputModeUnsupported
+		wantErr = commandio.ErrOutputModeUnsupported
 	}
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want %v", err, wantErr)
-	}
-}
-
-func TestOutputModeIsRejectedOnWindows(t *testing.T) {
-	t.Parallel()
-	command := &cobra.Command{Use: "mode-test"}
-	command.Flags().String("mode", "", "")
-	if err := command.Flags().Set("mode", "0640"); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := commandOutputOptionsForOS(command, "windows")
-	if !errors.Is(err, errOutputModeUnsupported) {
-		t.Fatalf("error = %v, want unsupported-output-mode", err)
 	}
 }
 
@@ -683,7 +671,7 @@ func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
 
 func TestPersistentIOHooksApplyToNewCommands(t *testing.T) {
 	t.Parallel()
-	command := binaryOutputCommand(&cobra.Command{
+	command := commandio.BinaryOutputCommand(&cobra.Command{
 		Use:    "hook-test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -712,7 +700,7 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 	t.Parallel()
 	outputPath := filepath.Join(t.TempDir(), "shadowed.bin")
 	var childPreRan, childPostRan bool
-	command := binaryOutputCommand(&cobra.Command{
+	command := commandio.BinaryOutputCommand(&cobra.Command{
 		Use:    "shadow-hook-test",
 		Hidden: true,
 		PersistentPreRunE: func(*cobra.Command, []string) error {
@@ -758,7 +746,7 @@ func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
 	}
 
 	var observed []byte
-	command := binaryOutputCommand(&cobra.Command{
+	command := commandio.BinaryOutputCommand(&cobra.Command{
 		Use:    "live-output-test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -792,7 +780,7 @@ func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
 	}
 
 	var observed os.FileMode
-	command := binaryOutputCommand(&cobra.Command{
+	command := commandio.BinaryOutputCommand(&cobra.Command{
 		Use:    "output-mode-test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -842,7 +830,7 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.encoding, func(t *testing.T) {
 			t.Parallel()
-			command := binaryOutputCommand(&cobra.Command{
+			command := commandio.BinaryOutputCommand(&cobra.Command{
 				Use:    "hook-error-test",
 				Hidden: true,
 				RunE: func(cmd *cobra.Command, _ []string) error {
@@ -869,7 +857,7 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 func TestCommandErrorLeavesWrittenOutputFile(t *testing.T) {
 	t.Parallel()
 	runErr := errTestCommandFailed
-	command := binaryOutputCommand(&cobra.Command{
+	command := commandio.BinaryOutputCommand(&cobra.Command{
 		Use:    "output-error-test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -919,7 +907,7 @@ func executeRootCommandStreams(t *testing.T, rootCmd *cobra.Command, args ...str
 	rootCmd.SetErr(&stderr)
 	rootCmd.SetArgs(args)
 	command, runErr := rootCmd.ExecuteC()
-	err := errors.Join(runErr, closeCommandIO(command))
+	err := errors.Join(runErr, commandio.Close(command))
 	return stdout.String(), stderr.String(), err
 }
 

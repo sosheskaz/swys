@@ -5,8 +5,18 @@
 NPC is a Go CLI for networking, protocols, cryptography, and X.509 tasks.
 It uses Cobra; `mise.toml` defines the toolchain and task configuration.
 
-- `cmd/` owns command construction, argument and flag validation, completion,
-  help guides, and command I/O lifecycles.
+- `cmd/` assembles and executes the root command. Each command family lives in
+  `cmd/internal/commands/<family>`, owns its flags, validation, execution,
+  and guides, and exposes a `NewCommand` builder.
+- `cmd/internal/cli/` contains shared CLI support for I/O, encoding,
+  completion, help, and signal handling; helpers here may use Cobra. Production
+  command families must not import `cmd` or other families; shared CLI support
+  must not import families.
+  Domain packages under the top-level `internal/` remain independent of the
+  command tree.
+- `cmd/internal/testcmd/` contains test-only command harnesses and is not a
+  production dependency.
+  External test packages may use `cmd.NewCommand` to exercise the full CLI.
 - `internal/crypter/` implements AES streaming, raw GCM, and CBC.
 - `internal/asym/` handles asymmetric keys and X.509 parsing, creation,
   verification, and formatting.
@@ -14,7 +24,8 @@ It uses Cobra; `mise.toml` defines the toolchain and task configuration.
   `internal/dnsquery/` implements DNS resolution.
 - `internal/contextio/` handles cancellable reads and opens;
   `internal/securefile/` implements platform-specific private-file protections.
-- `cmd/guides/` contains embedded command guides. Follow
+- `cmd/guides/` contains root and generated-command guides; each
+  `cmd/internal/commands/<family>/guides/` directory contains that family's guides. Follow
   [the help authoring standard](docs/help-authoring.md) when changing them.
 
 ## Commands and validation
@@ -44,8 +55,9 @@ and race tests for concurrency or subprocess work.
 
 ## Command behavior
 
-- Build on the existing command-shape helpers in `cmd/command_shapes.go`.
-  Preserve shared flag, completion, and I/O behavior.
+- Register command-specific preparation with the shared `commandio` lifecycle.
+  Keep family-specific validation and state in the owning command package;
+  preserve shared flag, completion, and I/O behavior.
 - Use Cobra's configured input, output, and error streams. Preserve error
   identity when wrapping failures, and close output filters before their files.
 - Preserve validation before output-file mutation and the existing same-file

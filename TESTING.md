@@ -56,8 +56,10 @@ suite and carried forward:
   error (not misreported as data corruption); a failing writer propagates
   its error. Output filters flush and close before their underlying files.
 - **Command-level behavior**: user-visible behavior is tested through the
-  real root command (`executeRoot` in `cmd/root_test.go`) so flag parsing,
-  I/O hooks, and cleanup lifecycles are exercised, not mocked away.
+  real root command (`cmd.NewCommand`) so flag parsing, I/O hooks, and
+  cleanup lifecycles are exercised, not mocked away. Family consumer tests
+  use external test packages; `cmd/internal/testcmd` runs the shared execution
+  lifecycle for their command trees.
 
 ## Curated help guides
 
@@ -69,6 +71,8 @@ stale guide file both fail. Generated public commands, including `help`,
 the command tree and share the canonical guide. Hidden and deprecated commands
 are the only standing exclusions; any broader exclusion must be narrow,
 documented, and tested.
+Root and generated-command guides live in `cmd/guides/`; family guides live in
+their owning `cmd/internal/commands/<family>/guides/` directory.
 
 When command behavior changes, update every affected guide example and keep at
 least one representative documented workflow executable through the real root
@@ -202,21 +206,19 @@ mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzCertificateJSON$' -fu
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelope$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
 mise exec -- go test ./internal/pemstrict -run='^$' -fuzz='^FuzzDecode$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzByteEncodingRoundTrip$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzByteDecoders$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzStripNewlinesInputFailure$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParseALPN$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzEscapeNetworkDiagnosticValue$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzReadArtifact$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPField$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzParseHTTPHeaders$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPDecodedBody$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzSupportedHTTPContentCodings$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzWriteHTTPJSONResponse$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzWriteHTTPHead$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd -run='^$' -fuzz='^FuzzHTTPTraceText$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/cli/certinput -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzByteEncodingRoundTrip$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzByteDecoders$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzStripNewlinesInputFailure$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/net -run='^$' -fuzz='^FuzzParseALPN$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/net -run='^$' -fuzz='^FuzzEscapeNetworkDiagnosticValue$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/cli/artifact -run='^$' -fuzz='^FuzzReadArtifact$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzHTTPField$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzParseHTTPHeaders$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzWriteHTTPJSONResponse$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzWriteHTTPHead$' -fuzztime=30s -parallel=2
+mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzHTTPTraceText$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzUnpadPKCS7$' -fuzztime=30s -parallel=2

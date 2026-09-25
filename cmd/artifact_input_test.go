@@ -7,54 +7,21 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
+	"testing/iotest"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
+	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 )
 
-func TestReadArtifactBoundaries(t *testing.T) {
-	t.Parallel()
-	for _, size := range []int{0, 1, 31, 32, 33, 4096} {
-		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			t.Parallel()
-			input := bytes.NewReader(bytes.Repeat([]byte{'x'}, size))
-			data, err := readArtifact(input, 32)
-			if size > 32 {
-				if !errors.Is(err, errArtifactTooLarge) || data != nil {
-					t.Fatalf("data = %v, err = %v", data, err)
-				}
-				if input.Len() != size-33 {
-					t.Fatalf("read beyond overflow probe: %d bytes remain", input.Len())
-				}
-			} else if err != nil || len(data) != size {
-				t.Fatalf("length = %d, err = %v", len(data), err)
-			}
-		})
-	}
-}
-
-func TestReadArtifactPreservesIOErrors(t *testing.T) {
-	t.Parallel()
-	input := io.MultiReader(strings.NewReader("partial"), keyFailingReader{err: errKeyTestReadFailed})
-	data, err := readArtifact(input, 32)
-	if !errors.Is(err, errKeyTestReadFailed) || data != nil {
-		t.Fatalf("data = %v, err = %v", data, err)
-	}
-	_, err = readArtifactFile(filepath.Join(t.TempDir(), "missing"), 32)
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("missing file: %v", err)
-	}
-	_, err = readArtifactFile(t.TempDir(), 32)
-	if err == nil {
-		t.Fatal("directory read succeeded")
-	}
-}
+var errArtifactRootReadFailure = errors.New("read failed")
 
 func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 	t.Parallel()
 	identity := createNetworkTestIdentity(t)
-	keyPath := writeOversizedArtifact(t, maxKeyArtifactBytes)
-	certPath := writeOversizedArtifact(t, maxCertificateArtifactBytes)
-	aesPath := writeOversizedArtifact(t, maxAESKeyBytes)
+	keyPath := writeOversizedArtifact(t, artifact.MaxKeyBytes)
+	certPath := writeOversizedArtifact(t, artifact.MaxCertificateBytes)
+	aesPath := writeOversizedArtifact(t, artifact.MaxAESKeyBytes)
 	tests := []struct {
 		name string
 		args []string
@@ -91,7 +58,7 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			stdout, _, err := executeRootStreams(t, test.args...)
-			if !errors.Is(err, errArtifactTooLarge) || stdout != "" {
+			if !errors.Is(err, artifact.ErrTooLarge) || stdout != "" {
 				t.Fatalf("stdout = %q, err = %v", stdout, err)
 			}
 		})
@@ -105,20 +72,20 @@ func TestArtifactCommandsBoundStdinAndPreserveFaults(t *testing.T) {
 		args  []string
 		limit int64
 	}{
-		{"key", []string{"key", "inspect"}, maxKeyArtifactBytes},
-		{"certificate", []string{"cert", "inspect"}, maxCertificateArtifactBytes},
-		{"create", []string{"cert", "create", "--key", "-"}, maxKeyArtifactBytes},
-		{"csr", []string{"cert", "csr", "--key", "-"}, maxKeyArtifactBytes},
+		{"key", []string{"key", "inspect"}, artifact.MaxKeyBytes},
+		{"certificate", []string{"cert", "inspect"}, artifact.MaxCertificateBytes},
+		{"create", []string{"cert", "create", "--key", "-"}, artifact.MaxKeyBytes},
+		{"csr", []string{"cert", "csr", "--key", "-"}, artifact.MaxKeyBytes},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			input := bytes.NewReader(bytes.Repeat([]byte{'x'}, int(test.limit)+2))
 			stdout, stderr, err := executeRootStreamsWithInput(t, input, test.args...)
-			if !errors.Is(err, errArtifactTooLarge) || input.Len() != 1 || stdout != "" {
+			if !errors.Is(err, artifact.ErrTooLarge) || input.Len() != 1 || stdout != "" {
 				t.Fatalf("remaining = %d, stdout = %q, stderr = %q, err = %v", input.Len(), stdout, stderr, err)
 			}
-			_, _, err = executeRootStreamsWithInput(t, keyFailingReader{err: errKeyTestReadFailed}, test.args...)
-			if !errors.Is(err, errKeyTestReadFailed) {
+			_, _, err = executeRootStreamsWithInput(t, iotest.ErrReader(errArtifactRootReadFailure), test.args...)
+			if !errors.Is(err, errArtifactRootReadFailure) {
 				t.Fatalf("read fault: %v", err)
 			}
 		})
@@ -134,21 +101,6 @@ func writeOversizedArtifact(t *testing.T, limit int64) string {
 	return path
 }
 
-func BenchmarkReadArtifact(b *testing.B) {
-	for _, size := range []int{4096, 1 << 20, 16 << 20} {
-		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			data := bytes.Repeat([]byte{'x'}, size)
-			b.ReportAllocs()
-			for b.Loop() {
-				_, err := readArtifact(bytes.NewReader(data), maxKeyArtifactBytes)
-				if err != nil && !errors.Is(err, errArtifactTooLarge) {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}
-
 func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 	t.Parallel()
 	identity := createNetworkTestIdentity(t)
@@ -158,8 +110,8 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 		args  []string
 		limit int64
 	}{
-		{"key", identity.serverKey, []string{"key", "inspect"}, maxKeyArtifactBytes},
-		{"certificate", identity.caCert, []string{"cert", "inspect"}, maxCertificateArtifactBytes},
+		{"key", identity.serverKey, []string{"key", "inspect"}, artifact.MaxKeyBytes},
+		{"certificate", identity.caCert, []string{"cert", "inspect"}, artifact.MaxCertificateBytes},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -183,9 +135,35 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 			}
 			_, _, err := executeRootStreams(t, "aes", "encrypt", "hello", "--keyfile", path)
 			valid := size == 16 || size == 32
-			if (err == nil) != valid || errors.Is(err, errArtifactTooLarge) {
+			if (err == nil) != valid || errors.Is(err, artifact.ErrTooLarge) {
 				t.Fatalf("key size %d: %v", size, err)
 			}
 		})
+	}
+}
+
+func executeRootStreamsWithInput(t *testing.T, input io.Reader, args ...string) (string, string, error) {
+	t.Helper()
+	stdout, stderr, err := testcmd.RunStreams(t, NewCommand(), input, args...)
+	return string(stdout), string(stderr), err
+}
+
+type networkTestIdentity struct {
+	caCert     string
+	serverCert string
+	serverKey  string
+	clientCert string
+	clientKey  string
+}
+
+func createNetworkTestIdentity(t *testing.T) networkTestIdentity {
+	t.Helper()
+	identity := testcmd.CreateNetworkIdentity(t, NewCommand)
+	return networkTestIdentity{
+		caCert:     identity.CACert,
+		serverCert: identity.ServerCert,
+		serverKey:  identity.ServerKey,
+		clientCert: identity.ClientCert,
+		clientKey:  identity.ClientKey,
 	}
 }

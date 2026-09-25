@@ -66,9 +66,6 @@ func TestSharedCompletionPreservesPathsAndManualModes(t *testing.T) {
 	if output := executeSharedCompletion(t, "__complete", "http", "--mode", "075"); output != ":4\n" {
 		t.Fatalf("manual mode completion = %q, want no suggested restriction or files", output)
 	}
-	if _, err := parseOutputMode("0750"); err != nil {
-		t.Fatalf("valid manual mode rejected: %v", err)
-	}
 	if _, _, err := executeRootStreams(t, "http", "--follow", "--help"); err != nil {
 		t.Fatalf("bare boolean flag changed: %v", err)
 	}

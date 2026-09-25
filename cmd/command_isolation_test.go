@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
 
 func TestCommandTreesOwnFlagsAndAnnotations(t *testing.T) {
@@ -35,7 +37,7 @@ func TestCommandTreesOwnFlagsAndAnnotations(t *testing.T) {
 	if err := first.PersistentFlags().Set("output", "first.pem"); err != nil {
 		t.Fatal(err)
 	}
-	addCommandShape(firstLeaf, "test-only")
+	commandio.AddShape(firstLeaf, "test-only")
 	secondDNS, err := secondLeaf.Flags().GetStringArray("dns")
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +45,7 @@ func TestCommandTreesOwnFlagsAndAnnotations(t *testing.T) {
 	if len(secondDNS) != 0 || secondLeaf.Flags().Changed("dns") || second.PersistentFlags().Changed("output") {
 		t.Fatal("flags leaked between command trees")
 	}
-	if commandHasShape(secondLeaf, "test-only") {
+	if commandio.HasShape(secondLeaf, "test-only") {
 		t.Fatal("annotations leaked between command trees")
 	}
 }
@@ -81,7 +83,7 @@ func TestCommandExecutionRestoresStreamsAndContext(t *testing.T) {
 			defer cancel()
 			input := strings.NewReader("input")
 			var output bytes.Buffer
-			command := binaryOutputCommand(&cobra.Command{
+			command := commandio.BinaryOutputCommand(&cobra.Command{
 				Use: "isolation-test",
 				RunE: func(cmd *cobra.Command, _ []string) error {
 					if _, err := io.WriteString(cmd.OutOrStdout(), "A"); err != nil {
@@ -140,13 +142,13 @@ func TestStreamCommandShapeDoesNotRequireTLSFlags(t *testing.T) {
 	t.Parallel()
 	root := newRootCmd()
 	called := false
-	command := streamNetworkCommand(&cobra.Command{
+	command := commandio.StreamNetworkCommandWithTimeout(&cobra.Command{
 		Use: "custom-stream host:port",
 		RunE: func(*cobra.Command, []string) error {
 			called = true
 			return nil
 		},
-	})
+	}, commandio.DefaultStreamConnectTimeout, "TCP setup and TLS handshake timeout (0 disables)", false)
 	root.AddCommand(command)
 	if _, err := executeRootCommand(t, root, "custom-stream", "localhost:443"); err != nil {
 		t.Fatal(err)

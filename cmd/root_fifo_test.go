@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
 
 func TestFIFOOutputStreamsDirectly(t *testing.T) {
@@ -63,7 +65,7 @@ func TestOutputModeWithFIFORejectsBeforeWriting(t *testing.T) {
 	}
 
 	_, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", "0640")
-	if !errors.Is(err, errModeRequiresRegularOutput) {
+	if !errors.Is(err, commandio.ErrModeRequiresRegularOutput) {
 		t.Fatalf("error = %v, want --mode-requires-regular-output", err)
 	}
 

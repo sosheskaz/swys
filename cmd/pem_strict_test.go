@@ -2,32 +2,32 @@ package cmd
 
 import (
 	"encoding/pem"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
+	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
 func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {
 	t.Parallel()
-	chain := newTLSCertificateChain(t)
-	certificate := string(pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: chain.Certificate[0]}))
+	chain := testcmd.NewTLSCertificateChain(t)
+	certificate := string(pem.EncodeToMemory(&pem.Block{Type: certinput.PEMType, Bytes: chain.Certificate[0]}))
 	key, err := asym.NewKey(chain.PrivateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	keyPEM, err := key.Marshal(asym.KeyFormatPKCS8PEM)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, artifact := range []struct {
 		wantErr                error
 		name, blockType, valid string
 	}{
-		{name: "cert", blockType: "CERTIFICATE", valid: certificate, wantErr: errTrailingCertificateData},
+		{name: "cert", blockType: "CERTIFICATE", valid: certificate, wantErr: certinput.ErrTrailingData},
 		{name: "key", blockType: "PRIVATE KEY", valid: string(keyPEM), wantErr: asym.ErrMalformedKey},
 	} {
 		for _, malformed := range []struct{ name, data string }{
@@ -41,28 +41,18 @@ func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {
 				t.Parallel()
 				data := strings.ReplaceAll(malformed.data, "TYPE", artifact.blockType) + artifact.valid
 				path := filepath.Join(t.TempDir(), "artifact.pem")
-				if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
 				output, err := executeRoot(t, artifact.name, "inspect", "--input", path)
-				if !errors.Is(err, artifact.wantErr) {
-					t.Fatalf("error = %v, want %v", err, artifact.wantErr)
-				}
-				if output != "" {
-					t.Fatalf("output = %q, want empty", output)
-				}
+				require.ErrorIs(t, err, artifact.wantErr)
+				assert.Empty(t, output)
 				if artifact.name == "cert" {
-					if err := os.WriteFile(path, []byte(artifact.valid+data), 0o600); err != nil {
-						t.Fatal(err)
-					}
+					require.NoError(t, os.WriteFile(path, []byte(artifact.valid+data), 0o600))
 					output, err = executeRoot(t, "cert", "inspect", "--input", path)
-					if !errors.Is(err, errTrailingCertificateData) || output != "" {
-						t.Fatalf("intermediate corruption: output = %q, error = %v", output, err)
-					}
+					require.ErrorIs(t, err, certinput.ErrTrailingData, "intermediate corruption")
+					assert.Empty(t, output, "intermediate corruption")
 					output, err = executeRoot(t, "net", "connect", "--tls", "localhost:1", "--ca", path)
-					if !errors.Is(err, errTrailingCertificateData) || output != "" {
-						t.Fatalf("TLS CA corruption: output = %q, error = %v", output, err)
-					}
+					require.ErrorIs(t, err, certinput.ErrTrailingData, "TLS CA corruption")
+					assert.Empty(t, output, "TLS CA corruption")
 				}
 			})
 		}

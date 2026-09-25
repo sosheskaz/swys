@@ -12,6 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	netcmd "github.com/sosheskaz-systems/npc/cmd/internal/commands/net"
+	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
@@ -37,7 +42,11 @@ func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
 
 func TestCertificateAliasesShowHelpWithoutSideEffects(t *testing.T) {
 	t.Parallel()
-	for _, alias := range newCertCmd().Aliases {
+	cert, _, findErr := NewCommand().Find([]string{"cert"})
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	for _, alias := range cert.Aliases {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "existing-output")
@@ -70,9 +79,9 @@ func TestCertificateAliasesShowHelpWithoutSideEffects(t *testing.T) {
 
 func TestCertificateAliasSubcommandsMatchCanonicalCommand(t *testing.T) {
 	t.Parallel()
-	certificate := newTLSCertificateChain(t).Certificate[0]
+	certificate := testcmd.NewTLSCertificateChain(t).Certificate[0]
 	path := filepath.Join(t.TempDir(), "certificate.pem")
-	data := pem.EncodeToMemory(&pem.Block{Type: certificatePEMType, Bytes: certificate})
+	data := pem.EncodeToMemory(&pem.Block{Type: certinput.PEMType, Bytes: certificate})
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +90,11 @@ func TestCertificateAliasSubcommandsMatchCanonicalCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, alias := range newCertCmd().Aliases {
+	cert, _, findErr := NewCommand().Find([]string{"cert"})
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	for _, alias := range cert.Aliases {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
 			stdout, stderr, err := executeRootStreams(t, alias, "inspect", "--input", path, "--format", "pem")
@@ -150,14 +163,6 @@ func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
 	}
 }
 
-func TestCertificateFormatRejectsLegacyEncodingWithMigrationHint(t *testing.T) {
-	t.Parallel()
-	_, err := executeRoot(t, "cert", "inspect", "--format", "hex")
-	if !errors.Is(err, errFormatSelectsStructuredOutput) {
-		t.Fatalf("error = %v, want format-axis migration hint", err)
-	}
-}
-
 func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 	t.Parallel()
 	const plaintext = "encoding round trip"
@@ -168,7 +173,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, encoding := range byteEncodingNames() {
+	for _, encoding := range byteencoding.Names() {
 		t.Run(encoding, func(t *testing.T) {
 			t.Parallel()
 			ciphertext, err := executeRoot(
@@ -290,7 +295,7 @@ func TestUnknownInputEncodingDoesNotTruncateOutput(t *testing.T) {
 		"--input-encoding", "rot13",
 		"--output", outputPath,
 	)
-	if !errors.Is(err, errUnknownInputEncoding) {
+	if !errors.Is(err, byteencoding.ErrUnknownInputEncoding) {
 		t.Fatalf("error = %v, want unknown input encoding", err)
 	}
 	data, readErr := os.ReadFile(outputPath)
@@ -309,7 +314,7 @@ func TestNetworkCommandValidatesAddressBeforeIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := executeRoot(t, "cert", "connect", "not-an-address", "--output", path)
-	if !errors.Is(err, errInvalidHostPort) {
+	if !errors.Is(err, commandio.ErrInvalidHostPort) {
 		t.Fatalf("error = %v, want invalid host:port", err)
 	}
 	data, readErr := os.ReadFile(path)
@@ -328,7 +333,7 @@ func TestNetworkCommandRejectsNegativeTimeoutBeforeIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := executeRoot(t, "cert", "connect", "localhost:443", "--timeout", "-1s", "--output", path)
-	if !errors.Is(err, errInvalidNetworkFlags) {
+	if !errors.Is(err, netcmd.ErrInvalidFlags) {
 		t.Fatalf("error = %v, want errInvalidNetworkFlags", err)
 	}
 	data, readErr := os.ReadFile(path)
@@ -343,7 +348,7 @@ func TestNetworkCommandRejectsNegativeTimeoutBeforeIO(t *testing.T) {
 func TestNetworkCommandAppliesTimeout(t *testing.T) {
 	t.Parallel()
 	var remaining time.Duration
-	command := networkCommand(&cobra.Command{
+	command := commandio.NetworkCommand(&cobra.Command{
 		Use:    "network-test host:port",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -371,7 +376,7 @@ func TestNetworkCommandAppliesTimeout(t *testing.T) {
 
 func TestNetworkCommandZeroTimeoutDisablesDeadline(t *testing.T) {
 	t.Parallel()
-	command := networkCommand(&cobra.Command{
+	command := commandio.NetworkCommand(&cobra.Command{
 		Use:    "network-zero-timeout-test host:port",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -397,5 +402,28 @@ func TestCertConnectHelpDocumentsZeroTimeout(t *testing.T) {
 	}
 	if !strings.Contains(output, "TCP setup and TLS handshake timeout (0 disables)") {
 		t.Fatalf("help = %q, want zero-timeout behavior", output)
+	}
+}
+
+func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
+	t.Parallel()
+	root := NewCommand()
+	for _, path := range [][]string{{"key", "generate"}} {
+		command, _, err := root.Find(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !commandio.HasShape(command, "sensitive-output") {
+			t.Fatalf("%s is not marked as sensitive output", command.CommandPath())
+		}
+	}
+	for _, path := range [][]string{{"key", "public"}, {"key", "inspect"}, {"key", "convert"}, {"cert", "create"}, {"cert", "csr"}} {
+		command, _, err := root.Find(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if commandio.HasShape(command, "sensitive-output") {
+			t.Fatalf("%s is unexpectedly marked as sensitive output", command.CommandPath())
+		}
 	}
 }

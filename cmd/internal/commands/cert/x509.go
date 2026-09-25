@@ -1,0 +1,120 @@
+package cert
+
+import (
+	"crypto/x509"
+	"embed"
+	"fmt"
+	"io"
+
+	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
+	"github.com/sosheskaz-systems/npc/internal/asym"
+)
+
+//go:embed guides
+var certGuideFiles embed.FS
+
+// NewCommand constructs the certificate command family for one root lifecycle.
+func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
+	certCmd := &cobra.Command{
+		Aliases: []string{"x509", "certificate", "x.509"},
+		Use:     "cert",
+		Short:   "Create, inspect, and retrieve X.509 certificates",
+		Args:    cobra.NoArgs,
+	}
+	inspect := newCertInspectCmd()
+	connect := newConnectCmd()
+	create := newCertCreateCmd()
+	csr := newCertCSRCmd()
+	verify := newCertVerifyCmd()
+	match := newCertMatchCmd()
+	certCmd.AddCommand(inspect, connect, create, csr, verify, match)
+	lifecycle.Register(inspect, commandio.Behavior{})
+	lifecycle.Register(connect, commandio.Behavior{Validate: func(cmd *cobra.Command) error {
+		if err := commandio.ValidateNetworkTimeout(cmd); err != nil {
+			return fmt.Errorf("validate network flags: %w", err)
+		}
+		return nil
+	}})
+	lifecycle.Register(create, commandio.Behavior{
+		Validate:       validateCertificateFlags(validateCertificateCreateFlags),
+		PreparesOutput: certificateCreateUsesCSR,
+		Prepare: func(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+			if !certificateCreateUsesCSR(cmd) {
+				return nil, nil
+			}
+			return prepareCertificateFromCSR(cmd, input)
+		},
+	})
+	lifecycle.Register(csr, commandio.Behavior{Validate: validateCertificateFlags(validateCertificateCSRFlags)})
+	lifecycle.Register(verify, commandio.Behavior{
+		Validate:       validateCertificateFlags(validateCertVerifyFlags),
+		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare: func(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+			return prepareCertificateReport(cmd, input, prepareCertVerifyReport)
+		},
+	})
+	lifecycle.Register(match, commandio.Behavior{
+		Validate:       validateCertificateFlags(validateCertMatchFlags),
+		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare: func(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+			return prepareCertificateReport(cmd, input, prepareCertMatchReport)
+		},
+	})
+	if err := help.RegisterGuides(certCmd, certGuideFiles); err != nil {
+		panic(err)
+	}
+	return certCmd
+}
+
+func validateCertificateFlags(validate func(*cobra.Command) error) func(*cobra.Command) error {
+	return func(cmd *cobra.Command) error {
+		if err := validate(cmd); err != nil {
+			return fmt.Errorf("validate certificate flags: %w", err)
+		}
+		return nil
+	}
+}
+
+func certificateCreateUsesCSR(cmd *cobra.Command) bool {
+	value, err := cmd.Flags().GetString(csrFlagName)
+	return err == nil && value != ""
+}
+
+func newCertInspectCmd() *cobra.Command {
+	certInspectCmd := commandio.StructuredOutputCommand(&cobra.Command{
+		Use:   "inspect",
+		Short: "Inspect X.509 certificates",
+		Args:  cobra.NoArgs,
+		RunE:  runCertInspect,
+	}, certFormatNames)
+	certInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
+	return certInspectCmd
+}
+
+func runCertInspect(cmd *cobra.Command, _ []string) error {
+	formatter, err := certFormatterFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+
+	data, err := artifact.Read(cmd.InOrStdin(), artifact.MaxCertificateBytes)
+	if err != nil {
+		return fmt.Errorf("read certificate input: %w", err)
+	}
+	certs, err := certinput.ParsePEMCertificates(data)
+	if err != nil {
+		return err
+	}
+	certInfos, err := asym.NewCertInfos(certs, &x509.VerifyOptions{
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}, true)
+	if err != nil {
+		return err
+	}
+	return formatCertificates(cmd, formatter, certInfos)
+}

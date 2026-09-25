@@ -1,18 +1,25 @@
 package cmd
 
 import (
+	"crypto/x509"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 )
 
 func TestExampleHelpSelectsCanonicalGuideThroughAlias(t *testing.T) {
 	t.Parallel()
 
-	root := newRootCmdWithGuideDependencies(defaultDNSDependencies(), guideDependencies{
-		getenv: func(string) (string, bool) { return "", false },
-		terminal: func(io.Writer) (bool, int) {
+	root := newRootCmdWithGuideDependencies(defaultDNSDependencies(), help.Dependencies{
+		Getenv: func(string) (string, bool) { return "", false },
+		Terminal: func(io.Writer) (bool, int) {
 			return false, 0
 		},
 	})
@@ -29,6 +36,16 @@ func TestExampleHelpSelectsCanonicalGuideThroughAlias(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want no diagnostics", stderr)
 	}
+}
+
+func readSingleCertificate(t *testing.T, path string) *x509.Certificate {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	certificates, err := certinput.ParsePEMCertificates(data)
+	require.NoError(t, err)
+	require.Len(t, certificates, 1)
+	return certificates[0]
 }
 
 func TestExampleReferenceHelpRemainsGenerated(t *testing.T) {
@@ -59,14 +76,14 @@ func TestExampleCertificateGuideUsesClickableLabelsInRichOutput(t *testing.T) {
 	t.Parallel()
 
 	const destination = "https://www.rfc-editor.org/rfc/rfc5280"
-	rich, _, err := executeRootCommandStreams(t, newGuideTestRoot(false, 0, nil), "help", "cert", "--rich")
+	rich, _, err := executeRootCommandStreams(t, newGuideTestRoot(), "help", "cert", "--rich")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(rich, "\x1b]8;;"+destination+"\x1b\\") || strings.Count(rich, destination) != 1 {
 		t.Fatalf("rich guide must link the label without a second URL: %q", rich)
 	}
-	plain, _, err := executeRootCommandStreams(t, newGuideTestRoot(false, 0, nil), "help", "cert", "--plain")
+	plain, _, err := executeRootCommandStreams(t, newGuideTestRoot(), "help", "cert", "--plain")
 	if err != nil {
 		t.Fatal(err)
 	}

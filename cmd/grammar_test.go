@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
 
 func TestCommandTreeConformsToNounVerbGrammar(t *testing.T) {
@@ -56,7 +58,7 @@ func TestCommandTreeScopesHashAlgorithmsToRootGroup(t *testing.T) {
 			t.Parallel()
 			root := &cobra.Command{Use: "root"}
 			hash := &cobra.Command{Use: "hash"}
-			hash.AddCommand(binaryOutputCommand(&cobra.Command{
+			hash.AddCommand(commandio.BinaryOutputCommand(&cobra.Command{
 				Use: test.algorithm,
 				Run: func(*cobra.Command, []string) {},
 			}, true))
@@ -104,7 +106,7 @@ func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
 			t.Parallel()
 			root := &cobra.Command{Use: "root"}
 			group := &cobra.Command{Use: test.group, Run: func(*cobra.Command, []string) {}}
-			group.AddCommand(binaryOutputCommand(&cobra.Command{
+			group.AddCommand(commandio.BinaryOutputCommand(&cobra.Command{
 				Use: "inspect",
 				Run: func(*cobra.Command, []string) {},
 			}, false))
@@ -125,8 +127,6 @@ func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
 }
 
 func commandTreeViolations(root *cobra.Command) []string {
-	const grpcCommandName = "grpc"
-
 	// Cobra's generated help/completion trees are outside npc's command grammar.
 	verbs := map[string]bool{
 		"connect":  true,
@@ -164,31 +164,31 @@ func commandTreeViolations(root *cobra.Command) []string {
 			} else {
 				isTransportVerb := command.Name() == "connect" || command.Name() == "listen"
 				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
-				isRootUtility := command == root && ((child.Name() == httpCommandName && commandHasShape(child, httpRequestShape)) ||
-					(child.Name() == dnsCommandName && commandHasShape(child, dnsQueryShape)) ||
-					(child.Name() == grpcCommandName && commandHasShape(child, grpcRequestShape)))
+				isRootUtility := command == root && ((child.Name() == "http" && commandio.HasShape(child, "http-request")) ||
+					(child.Name() == "dns" && commandio.HasShape(child, "dns-query")) ||
+					(child.Name() == "grpc" && commandio.HasShape(child, "grpc-request")))
 				isHashAlgorithm := command.Name() == "hash" && command.Parent() == root && hashAlgorithmLeaves[child.Name()]
 				if !verbs[child.Name()] && !isTransport && !isRootUtility && !isHashAlgorithm {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}
-				binary := commandHasShape(child, binaryOutputShape)
-				structured := commandHasShape(child, structuredOutputShape)
+				binary := commandio.HasShape(child, "binary-output")
+				structured := commandio.HasShape(child, "structured-output")
 				switch {
 				case !binary && !structured:
 					violations = append(violations, fmt.Sprintf("leaf command %q has no output shape", child.CommandPath()))
 				case binary && structured:
 					violations = append(violations, fmt.Sprintf("leaf command %q has conflicting output shapes", child.CommandPath()))
-				case binary && child.Flag(encodingFlagName) == nil:
+				case binary && child.Flag("encoding") == nil:
 					violations = append(violations, fmt.Sprintf("binary command %q has no --encoding flag", child.CommandPath()))
-				case structured && child.Flag(formatFlagName) == nil:
+				case structured && child.Flag("format") == nil:
 					violations = append(violations, fmt.Sprintf("structured command %q has no --format flag", child.CommandPath()))
 				}
 			}
 
-			if commandHasShape(child, networkShape) && child.Flag("timeout") == nil {
+			if commandio.HasShape(child, "network") && child.Flag("timeout") == nil {
 				violations = append(violations, fmt.Sprintf("network command %q has no --timeout flag", child.CommandPath()))
 			}
-			if commandHasShape(child, sensitiveOutputShape) && !commandHasShape(child, binaryOutputShape) {
+			if commandio.HasShape(child, "sensitive-output") && !commandio.HasShape(child, "binary-output") {
 				violations = append(violations, fmt.Sprintf("sensitive command %q must have binary output", child.CommandPath()))
 			}
 			if child.Flags().Lookup("output-format") != nil {

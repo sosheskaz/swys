@@ -8,43 +8,10 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const sharedBase64Encoding = "base64"
-
-var byteEncodingDescriptions = map[string]string{
-	byteEncodingRaw:      "unencoded bytes",
-	byteEncodingHex:      "hexadecimal",
-	sharedBase64Encoding: "standard Base64 with padding",
-	"b64":                "alias for base64",
-	"base64url":          "URL-safe Base64 (unpadded output)",
-	"base32":             "standard Base32 with padding",
-}
-
-var structuredFormatDescriptions = map[string]string{
-	httpFormatText: "human-readable text",
-	"long":         "detailed human-readable text",
-	httpFormatJSON: "structured JSON",
-	"pem":          "certificate PEM",
-	"chain":        "issuer certificates as PEM, excluding the leaf",
-	"fullchain":    "leaf and chain certificates as PEM",
-}
-
 var outputModeCompletions = []string{
 	cobra.CompletionWithDesc("0600", "owner read/write"),
 	cobra.CompletionWithDesc("0640", "owner read/write and group read"),
 	cobra.CompletionWithDesc("0644", "owner read/write and group/world read"),
-}
-
-func completionsWithDescriptions(values []string, descriptions map[string]string) []string {
-	completions := make([]string, 0, len(values))
-	for _, value := range values {
-		description := descriptions[value]
-		if description == "" {
-			completions = append(completions, value)
-			continue
-		}
-		completions = append(completions, cobra.CompletionWithDesc(value, description))
-	}
-	return completions
 }
 
 func registerSharedCompletions(root *cobra.Command) {

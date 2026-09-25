@@ -38,16 +38,24 @@ Inline code, hard line breaks, nested or multi-paragraph list items, level-three
 
 ## Page layout and file mapping
 
-Files under cmd/guides mirror canonical Cobra paths:
+Each command family embeds guides beside its constructor. `root.md` names the
+family command; child filenames mirror canonical paths relative to that family.
+The root embeds its own and generated-command guides:
 
 ```text
-cmd/guides/root.md                 npc help
-cmd/guides/net.md                  npc help net
-cmd/guides/net/connect.md          npc help net connect
-cmd/guides/net/listen.md           npc help net listen
+cmd/guides/root.md                               npc help
+cmd/guides/help.md                               npc help help
+cmd/guides/completion/bash.md                    npc help completion bash
+cmd/internal/commands/net/guides/root.md         npc help net
+cmd/internal/commands/net/guides/connect.md      npc help net connect
+cmd/internal/commands/net/guides/listen.md       npc help net listen
 ```
 
-The embedded filesystem path is the canonical mapping. Do not create an alias registry or an alias-named file. Resolution walks the initialized Cobra tree, accepts aliases at every level, and selects the file for the resulting canonical path.
+The constructor registers its embedded guides on its command subtree; the root
+registers its guides after creating generated commands. The relative filesystem
+path is the canonical mapping. Do not create an alias registry or an
+alias-named file. Resolution walks the initialized Cobra tree, accepts aliases
+at every level, and selects the source for the resulting canonical path.
 
 Use this page order unless a shorter page remains clearer:
 
@@ -83,7 +91,7 @@ While paging, the pager handles terminal interrupts such as Ctrl-C. NPC stays al
 ## Add or update a guide
 
 1. Initialize the command in the normal Cobra tree and decide whether it is a root, branch, or leaf page.
-2. Add the canonical Markdown file under cmd/guides and follow the corresponding editorial contract.
+2. Add the canonical Markdown file under `cmd/guides/` or the owning `cmd/internal/commands/<family>/guides/` and follow the corresponding editorial contract.
 3. Add or update consumer-facing examples and manually exercised documented workflows.
 4. Update rendering goldens when an intentional presentation change affects them.
 5. Run focused command tests, both plain and rich rendering tests, the full public-tree coverage test, mise run check, and race tests for pager or process-lifecycle changes.
