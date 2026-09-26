@@ -18,7 +18,7 @@ For the certificate and path-validation model, see [RFC 5280](https://www.rfc-ed
 Generate a private key, issue a self-signed test certificate for it, then inspect the certificate's names and validity.
 
 ```sh
-npc key generate ed25519 --output server-key.pem
+npc cert keygen --output server-key.pem
 npc cert create --key server-key.pem --dns localhost --output server-cert.pem
 npc cert inspect --input server-cert.pem --format long
 ```

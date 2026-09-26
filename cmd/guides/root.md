@@ -9,8 +9,8 @@ Use NPC to inspect network services, exchange bytes, and work with keys and cert
 - **http** makes an HTTP request and writes its response body.
 - **net** sends or receives raw bytes over TCP, TLS, or UDP.
 - **cert** inspects certificates or creates test identities.
-- **key** generates, inspects, or converts cryptographic keys.
-- **aes** encrypts or decrypts a message using an existing symmetric key.
+- **key** inspects or converts cryptographic keys.
+- **aes** generates keys and encrypts or decrypts messages.
 - **hash** computes a digest of a file or stdin for comparison.
 
 ## Try an offline workflow
@@ -18,7 +18,7 @@ Use NPC to inspect network services, exchange bytes, and work with keys and cert
 Create a key and a certificate for a local test service, then inspect their metadata without printing the private material.
 
 ```sh
-npc key generate ed25519 --output private.pem
+npc cert keygen --output private.pem
 npc key inspect --input private.pem
 npc cert create --key private.pem --dns localhost --output localhost.pem
 npc cert inspect --input localhost.pem

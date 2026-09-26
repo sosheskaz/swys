@@ -23,7 +23,7 @@ func TestKeyPublicTargetsAcrossSupportedAlgorithmsAndInputKinds(t *testing.T) {
 	t.Parallel()
 	inputs := map[string][]byte{}
 	for _, algorithm := range []string{"ed25519", "p256", "p384", "rsa2048"} {
-		privatePEM, _, err := executeRootStreams(t, "key", "generate", algorithm)
+		privatePEM, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", algorithm)
 		require.NoError(t, err)
 		inputs[algorithm] = []byte(privatePEM)
 	}
@@ -83,7 +83,7 @@ func TestKeyPublicTargetsAcrossSupportedAlgorithmsAndInputKinds(t *testing.T) {
 
 func TestKeyConvertPreservesKeyKind(t *testing.T) {
 	t.Parallel()
-	privatePEM, _, err := executeRootStreams(t, "key", "generate", "ed25519")
+	privatePEM, _, err := executeRootStreams(t, "cert", "keygen")
 	require.NoError(t, err)
 	privateKey, err := asym.ParseKey([]byte(privatePEM))
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestKeyConvertPreservesKeyKind(t *testing.T) {
 
 func TestKeyConvertAllowsSameKindCanonicalization(t *testing.T) {
 	t.Parallel()
-	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256")
+	privatePEM, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", "p256")
 	require.NoError(t, err)
 	privateKey, err := asym.ParseKey([]byte(privatePEM))
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestKeyConvertAllowsSameKindCanonicalization(t *testing.T) {
 
 func TestKeyConvertRejectsAlgorithmIncompatiblePrivateTarget(t *testing.T) {
 	t.Parallel()
-	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256")
+	privatePEM, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", "p256")
 	require.NoError(t, err)
 	_, _, err = executeRootStreamsWithInput(
 		t,
@@ -156,7 +156,7 @@ func TestKeyConvertRejectsAlgorithmIncompatiblePrivateTarget(t *testing.T) {
 
 func TestKeyPreparationFailuresPreserveDestination(t *testing.T) {
 	t.Parallel()
-	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p256")
+	privatePEM, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", "p256")
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name  string
@@ -251,7 +251,7 @@ func TestPreparedKeyOutputIsClearedAcrossCommandReuse(t *testing.T) {
 	t.Parallel()
 	root := newRootCmd()
 	firstKey := generateExampleEd25519Key(t)
-	secondPEM, _, err := executeRootStreams(t, "key", "generate", "p256")
+	secondPEM, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", "p256")
 	require.NoError(t, err)
 
 	var first bytes.Buffer
@@ -338,7 +338,7 @@ func TestPreparedKeyConvertUsesCurrentInheritedRootStreams(t *testing.T) {
 	t.Parallel()
 	root := newRootCmd()
 	privateEd25519 := generateExampleEd25519Key(t)
-	privateP256, _, err := executeRootStreams(t, "key", "generate", "p256")
+	privateP256, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", "p256")
 	require.NoError(t, err)
 	publicInputs := make([][]byte, 0, 2)
 	for _, privateInput := range [][]byte{privateEd25519, []byte(privateP256)} {

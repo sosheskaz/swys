@@ -203,8 +203,7 @@ func TestAES192IsRejectedAcrossCLI(t *testing.T) {
 		{name: "stream", args: []string{"aes", "encrypt", "payload", "--key", key}},
 		{name: "raw", args: []string{"aes", "encrypt", "payload", "--raw", "--key", key}},
 		{name: "CBC", args: []string{"aes", "encrypt", "payload", "--cipher-mode", "cbc", "--key", key}},
-		{name: "short generator name", args: []string{"key", "generate", "aes192"}},
-		{name: "long generator name", args: []string{"key", "generate", "aes-192"}},
+		{name: "unsupported key size", args: []string{"aes", "keygen", "--bits", "192"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -215,11 +214,11 @@ func TestAES192IsRejectedAcrossCLI(t *testing.T) {
 		})
 	}
 
-	completion := completeRoot(t, "key", "generate", "aes")
+	completion := completeRoot(t, "aes", "keygen", "--bits", "")
 	if strings.Contains(completion, "aes192") || strings.Contains(completion, "aes-192") {
 		t.Fatalf("key completion retains AES-192: %q", completion)
 	}
-	help, err := executeRoot(t, "key", "generate", "--help")
+	help, err := executeRoot(t, "aes", "keygen", "--help")
 	require.NoError(t, err)
 	if strings.Contains(help, "AES-192") || strings.Contains(help, "aes192") || strings.Contains(help, "aes-192") {
 		t.Fatalf("key generation help retains AES-192:\n%s", help)

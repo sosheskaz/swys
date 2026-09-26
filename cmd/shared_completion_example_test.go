@@ -7,7 +7,7 @@ import (
 
 func TestExampleSharedPermissionCompletion(t *testing.T) {
 	t.Parallel()
-	output := executeSharedCompletion(t, "__complete", "key", "generate", "aes256", "--mode", "06")
+	output := executeSharedCompletion(t, "__complete", "aes", "keygen", "--mode", "06")
 	for _, candidate := range []string{"0600\towner read/write", "0640\towner read/write and group read", "0644\towner read/write and group/world read"} {
 		if !strings.Contains(output, candidate+"\n") {
 			t.Errorf("completion = %q, want %q", output, candidate)

@@ -62,7 +62,7 @@ func TestIndependentCommandCompletion(t *testing.T) {
 			if stdout != "cbc\tcompatibility mode\ngcm\tauthenticated default\n:4\n" {
 				t.Fatalf("completion = %q, want values and no-file directive", stdout)
 			}
-			stdout, _, err = executeRootStreams(t, "__complete", "key", "generate", "ed25519", "")
+			stdout, _, err = executeRootStreams(t, "__complete", "cert", "keygen", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,11 +119,11 @@ func TestExecuteBuildsFreshTreeEachTime(t *testing.T) { //nolint:paralleltest //
 	t.Cleanup(func() { os.Args = originalArgs })
 	first := filepath.Join(t.TempDir(), "encoded.key")
 	second := filepath.Join(t.TempDir(), "raw.key")
-	os.Args = []string{"npc", "key", "generate", "aes128", "--encoding", "hex", "--output", first}
+	os.Args = []string{"npc", "aes", "keygen", "--bits", "128", "--encoding", "hex", "--output", first}
 	if err := Execute(); err != nil {
 		t.Fatal(err)
 	}
-	os.Args = []string{"npc", "key", "generate", "aes128", "--output", second}
+	os.Args = []string{"npc", "aes", "keygen", "--bits", "128", "--output", second}
 	if err := Execute(); err != nil {
 		t.Fatal(err)
 	}

@@ -238,7 +238,7 @@ func TestCertCreateBindsEitherIssuerArtifactToStdin(t *testing.T) {
 
 func TestCertCSRRoundTripsWrappedStdinKey(t *testing.T) {
 	t.Parallel()
-	privatePEM, _, err := executeRootStreams(t, "key", "generate", "p384")
+	privatePEM, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", "p384")
 	require.NoError(t, err)
 	dir := t.TempDir()
 	wrappedPath := filepath.Join(dir, "key.b64")
@@ -269,7 +269,7 @@ func TestCertCSRDefaultsToLocalhostSAN(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
-	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", keyPath); err != nil {
+	if _, _, err := executeRootStreams(t, "cert", "keygen", "--output", keyPath); err != nil {
 		t.Fatal(err)
 	}
 	output, _, err := executeRootStreams(t, "cert", "csr", "--key", keyPath)
@@ -359,7 +359,7 @@ func TestCertCreateDefersMissingOutputParentToOutputOpen(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
-	if _, _, err := executeRootStreams(t, "key", "generate", "ed25519", "--output", keyPath); err != nil {
+	if _, _, err := executeRootStreams(t, "cert", "keygen", "--output", keyPath); err != nil {
 		t.Fatal(err)
 	}
 	outputPath := filepath.Join(dir, "missing", "cert.pem")
@@ -522,7 +522,7 @@ func readSingleCertificate(t *testing.T, path string) *x509.Certificate {
 
 func generateTestKey(t *testing.T, algorithm, path string) {
 	t.Helper()
-	if _, _, err := executeRootStreams(t, "key", "generate", algorithm, "--output", path); err != nil {
+	if _, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", algorithm, "--output", path); err != nil {
 		t.Fatalf("generate %s key: %v", algorithm, err)
 	}
 }

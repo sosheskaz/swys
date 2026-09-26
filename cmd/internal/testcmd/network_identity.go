@@ -11,11 +11,10 @@ import (
 const (
 	identityOutputFlag = "--output"
 	identityKeyFlag    = "--key"
-	identityKeyNoun    = "key"
+	identityKeyNoun    = "cert"
 	identityCertNoun   = "cert"
-	identityGenerate   = "generate"
+	identityGenerate   = "keygen"
 	identityCreate     = "create"
-	identityAlgorithm  = "ed25519"
 )
 
 // NetworkIdentity names certificate and key fixtures created through the CLI.
@@ -40,9 +39,9 @@ func CreateNetworkIdentity(tb testing.TB, newRoot func() *cobra.Command) Network
 	}
 	caKey := filepath.Join(directory, "ca.key")
 	commands := [][]string{
-		{identityKeyNoun, identityGenerate, identityAlgorithm, identityOutputFlag, caKey},
-		{identityKeyNoun, identityGenerate, identityAlgorithm, identityOutputFlag, identity.ServerKey},
-		{identityKeyNoun, identityGenerate, identityAlgorithm, identityOutputFlag, identity.ClientKey},
+		{identityKeyNoun, identityGenerate, identityOutputFlag, caKey},
+		{identityKeyNoun, identityGenerate, identityOutputFlag, identity.ServerKey},
+		{identityKeyNoun, identityGenerate, identityOutputFlag, identity.ClientKey},
 		{identityCertNoun, identityCreate, "--ca", "--subject", "CN=test-ca", identityKeyFlag, caKey, identityOutputFlag, identity.CACert},
 		{
 			identityCertNoun, identityCreate, "--dns", "localhost", "--server-only", identityKeyFlag, identity.ServerKey,

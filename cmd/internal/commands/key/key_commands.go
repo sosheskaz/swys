@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -221,10 +220,6 @@ func isPublicKeyFormat(format asym.KeyFormat) bool {
 	return false
 }
 
-func keyPublicFormatFromCommand(cmd *cobra.Command) (asym.KeyFormat, error) {
-	return keyPublicTargetFromCommand(cmd, "public-format")
-}
-
 func keyPublicTargetFromCommand(cmd *cobra.Command, flagName string) (asym.KeyFormat, error) {
 	name, err := cmd.Flags().GetString(flagName)
 	if err != nil {
@@ -325,64 +320,4 @@ func prepareKeyConversionOutput(cmd *cobra.Command, input io.Reader) ([]byte, er
 		return nil, fmt.Errorf("serialize key as %s: %w", target, err)
 	}
 	return encoded, nil
-}
-
-func validateKeyGenerateFlags(cmd *cobra.Command) error {
-	publicOut, err := cmd.Flags().GetString("public-out")
-	if err != nil {
-		return fmt.Errorf("read public-out flag: %w", err)
-	}
-	if publicOut == "" {
-		return validateMissingKeyPublicOutput(cmd)
-	}
-	if publicOut == "-" {
-		return fmt.Errorf("%w: --public-out must name a file path, not -", errInvalidKeyGenerateFlags)
-	}
-	return validateKeyPublicOutput(cmd, publicOut)
-}
-
-func validateMissingKeyPublicOutput(cmd *cobra.Command) error {
-	if cmd.Flags().Changed("public-out") {
-		return fmt.Errorf("%w: --public-out must name a file path", errInvalidKeyGenerateFlags)
-	}
-	if cmd.Flags().Changed("public-format") {
-		return fmt.Errorf("%w: --public-format requires --public-out", errInvalidKeyGenerateFlags)
-	}
-	return nil
-}
-
-func validateKeyPublicOutput(cmd *cobra.Command, publicOut string) error {
-	algorithm, err := keyAlgorithmFromName(cmd.Flags().Arg(0))
-	if err != nil {
-		return err
-	}
-	if algorithm.aesBits != 0 {
-		return fmt.Errorf("%w: --public-out is only valid for asymmetric keys", errInvalidKeyGenerateFlags)
-	}
-	if _, err := keyPublicFormatFromCommand(cmd); err != nil {
-		return err
-	}
-
-	output, err := cmd.Flags().GetString("output")
-	if err != nil {
-		return fmt.Errorf("read output flag: %w", err)
-	}
-	if output != "" {
-		same, err := artifact.SamePath(output, publicOut)
-		if err != nil {
-			return fmt.Errorf("compare private and public key outputs: %w", err)
-		}
-		if same {
-			return fmt.Errorf("%w: --output %q and --public-out %q", ErrKeyOutputCollision, output, publicOut)
-		}
-	}
-
-	info, err := os.Stat(publicOut)
-	if err == nil && info.IsDir() {
-		return fmt.Errorf("--public-out %q: %w", publicOut, commandio.ErrOutputIsDirectory)
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("inspect --public-out %q: %w", publicOut, err)
-	}
-	return nil
 }

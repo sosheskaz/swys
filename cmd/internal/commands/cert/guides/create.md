@@ -5,7 +5,7 @@ Create a minimum-viable X.509 certificate for local tests and development. Suppl
 ## Create a localhost identity
 
 ```sh
-npc key generate ed25519 --output leaf-key.pem
+npc cert keygen --output leaf-key.pem
 npc cert create --key leaf-key.pem --dns localhost --output leaf-cert.pem
 npc cert inspect --input leaf-cert.pem
 ```
@@ -15,7 +15,7 @@ npc cert inspect --input leaf-cert.pem
 Use the leaf key above, then create a separate CA key and certificate. The leaf names localhost; the CA signs that identity without taking ownership of its private key.
 
 ```sh
-npc key generate ed25519 --output ca-key.pem
+npc cert keygen --output ca-key.pem
 npc cert create --ca --key ca-key.pem --subject 'CN=Local Test CA' --output ca.pem
 npc cert create --key leaf-key.pem --dns localhost --issuer-cert ca.pem --issuer-key ca-key.pem --output signed-leaf.pem
 npc cert inspect --input signed-leaf.pem --format long
@@ -28,7 +28,7 @@ Keep both private keys out of shared fixtures and source control. Share ca.pem w
 ## Related guides
 
 ```sh
-npc help key generate
+npc help cert keygen
 npc help cert inspect
 npc cert create --help
 ```

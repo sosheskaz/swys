@@ -7,7 +7,7 @@ Convert a supported key to another standard container without changing whether i
 Use an existing id_ed25519.pub, or generate the example files first.
 
 ```sh
-npc key generate ed25519 --output private.pem --public-out id_ed25519.pub --public-format openssh
+npc cert keygen --output private.pem --public-out id_ed25519.pub --public-format openssh
 npc key convert --input id_ed25519.pub --to pkix-pem --output public.pem
 ```
 

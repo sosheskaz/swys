@@ -26,7 +26,7 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 				algorithm = "rsa2048"
 			}
 			input := filepath.Join(t.TempDir(), "input.pem")
-			if _, err := executeRoot(t, "key", "generate", algorithm, "--output", input); err != nil {
+			if _, err := executeRoot(t, "cert", "keygen", "--algorithm", algorithm, "--output", input); err != nil {
 				t.Fatal(err)
 			}
 			public := strings.HasPrefix(target, "pkix-") || target == "openssh"

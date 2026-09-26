@@ -126,14 +126,14 @@ func (panicCertificateReader) Read([]byte) (int, error) {
 
 func TestKeyGenerateRequiresAlgorithm(t *testing.T) {
 	t.Parallel()
-	if _, err := executeRoot(t, "key", "generate"); err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s), received 0") {
-		t.Fatalf("missing algorithm error = %v, want exact-args error", err)
+	if _, err := executeRoot(t, "cert", "keygen", "--algorithm", "missing"); err == nil {
+		t.Fatalf("invalid algorithm accepted")
 	}
-	if _, err := executeRoot(t, "key", "generate", "ed25519", "rsa2048"); err == nil || !strings.Contains(err.Error(), "received 2") {
+	if _, err := executeRoot(t, "cert", "keygen", "rsa2048"); err == nil || !strings.Contains(err.Error(), "unknown command") {
 		t.Fatalf("extra algorithm error = %v, want exact-args error", err)
 	}
 
-	canonical, err := executeRoot(t, "key", "generate", "ed25519")
+	canonical, err := executeRoot(t, "cert", "keygen")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestKeyGenerateRequiresAlgorithm(t *testing.T) {
 func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
 	t.Parallel()
 	tests := [][]string{
-		{"key", "generate", "ed25519", "--format", "base64"},
+		{"cert", "keygen", "--format", "base64"},
 		{"cert", "inspect", "--output-format", "json"},
 	}
 	for _, args := range tests {
@@ -212,7 +212,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 
 func TestBase64URLEncodingIsUnpadded(t *testing.T) {
 	t.Parallel()
-	output, err := executeRoot(t, "key", "generate", "aes-128", "--encoding", "base64url")
+	output, err := executeRoot(t, "aes", "keygen", "--bits", "128", "--encoding", "base64url")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestCertConnectHelpDocumentsZeroTimeout(t *testing.T) {
 func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
 	t.Parallel()
 	root := NewCommand()
-	for _, path := range [][]string{{"key", "generate"}} {
+	for _, path := range [][]string{{"cert", "keygen"}, {"aes", "keygen"}} {
 		command, _, err := root.Find(path)
 		if err != nil {
 			t.Fatal(err)

@@ -11,7 +11,7 @@ func TestCertificateInspectEscapesCommonName(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
 	certPath := filepath.Join(dir, "cert.pem")
-	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", keyPath); err != nil {
+	if _, err := executeRoot(t, "cert", "keygen", "--output", keyPath); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := executeRoot(t, "cert", "create", "--key", keyPath, "--subject", "CN=demo\x1b[2J", "--output", certPath); err != nil {

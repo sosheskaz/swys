@@ -42,7 +42,7 @@ both TLS server and client authentication unless narrowed.
 
 --ca creates a self-signed mini-CA valid for 365 days. --issuer-cert and
 --issuer-key create a CA-signed leaf. Use --key to select existing private
-material, including a key created with npc key generate.
+material, including a key created with npc cert keygen.
 
 npc never installs generated authorities into a trust store. Trust a generated
 CA only in an explicitly selected test store, never system-wide.`,

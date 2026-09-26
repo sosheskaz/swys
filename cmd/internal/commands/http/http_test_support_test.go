@@ -40,7 +40,7 @@ func createNetworkTestIdentity(t *testing.T) networkTestIdentity {
 
 func generateTestKey(t *testing.T, algorithm, path string) {
 	t.Helper()
-	_, _, err := executeRootStreams(t, "key", "generate", algorithm, "--output", path)
+	_, _, err := executeRootStreams(t, "cert", "keygen", "--algorithm", algorithm, "--output", path)
 	require.NoError(t, err, "generate %s key: %v", algorithm, err)
 }
 

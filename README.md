@@ -35,7 +35,7 @@ Run these examples in a scratch directory with new output paths. Generate and
 inspect a key without printing its private bytes:
 
 ```fish
-npc key generate ed25519 --output private.pem --public-out public.pem
+npc cert keygen --output private.pem --public-out public.pem
 npc key inspect --input public.pem --format json
 ```
 
@@ -52,7 +52,7 @@ Encrypt and decrypt a small message with the default authenticated AES-GCM
 mode. Keep `aes.key` private:
 
 ```fish
-npc key generate aes256 --output aes.key
+npc aes keygen --output aes.key
 printf 'hello\n' | npc aes encrypt --keyfile aes.key --output message.gcm
 npc aes decrypt --keyfile aes.key --input message.gcm
 ```
@@ -109,7 +109,8 @@ Contributors should follow the [help guide authoring standard](docs/help-authori
 
 ```
 npc aes encrypt|decrypt            # AES-GCM default; explicit AES-CBC compatibility
-npc key generate <algorithm>       # generate a key with an explicit algorithm
+npc aes keygen [--bits 128|256]     # generate an AES key (default 256 bits)
+npc cert keygen [--algorithm NAME]  # generate a certificate key (default Ed25519)
 npc key public|inspect|convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
@@ -613,7 +614,7 @@ PKIX PEM with one command, then inspect the private key's safe metadata without
 printing private bytes:
 
 ```fish
-npc key generate ed25519 \
+npc cert keygen \
     --output private.pem \
     --public-out public.pem
 npc key inspect --input private.pem --format json
@@ -691,16 +692,17 @@ npc key inspect --input private.der.b64 \
     --input-encoding base64 --format json
 ```
 
-Generation supports `ed25519`, `p256`, `p384`, `rsa2048`, `rsa4096`, and raw
-`aes128|aes256` keys as a required argument. These compact names are
-preferred; the descriptive aliases `ecdsa-p256`, `ecdsa-p384`, `rsa-2048`,
-`rsa-4096`, and `aes-128|aes-256` are also accepted.
+`cert keygen --algorithm/-a` supports `ed25519` (the default), `p256`,
+`p384`, `rsa2048`, and `rsa4096`. The descriptive aliases `ecdsa-p256`,
+`ecdsa-p384`, `rsa-2048`, and `rsa-4096` are also accepted. Use P-256 when
+certificate interoperability is the priority. `aes keygen --bits/-b` accepts
+128 or 256, defaulting to 256. Neither command accepts positional algorithms.
 Asymmetric private keys use PKCS#8 PEM; AES keys are raw bytes. PKCS#1 output is
 limited to RSA private keys, SEC1 to ECDSA private keys, and PKCS#8 to supported
 private-key algorithms. PKIX and OpenSSH targets contain only public material.
 
-`key generate` treats regular output files as sensitive. A new destination is
-created owner-only. Without an explicit Unix
+`cert keygen` and `aes keygen` treat regular output files as sensitive. A new
+destination is created owner-only. Without an explicit Unix
 `--mode`, an existing destination must be owned by the effective user and grant
 no group or other permissions. macOS additionally suppresses inherited ACLs on
 creation and rejects any extended ACL on an existing file. On Windows, the
@@ -754,27 +756,25 @@ The key noun and lifecycle verbs also have composable Cobra aliases for
 interactive use:
 
 ```fish
-npc k g ed25519                            # npc key generate ed25519
 npc k p --input private.pem --to openssh   # npc key public
 npc k i --input private.pem                # npc key inspect
 npc k c --input private.pem --to pkcs8-der # npc key convert
 ```
 
-The longer verb aliases are `gen`, `pub`, `ins`, and `conv`.
+The longer key verb aliases are `pub`, `ins`, and `conv`.
 
-Shell completion describes key algorithms and output containers. Selecting
-`--public-out` or `--public-format` limits algorithm suggestions to asymmetric
-keys; selecting an AES algorithm omits the public-output options. Key material
-and output paths are never inspected to infer compatible formats.
+Shell completion describes `cert keygen --algorithm` choices, AES key sizes,
+and output containers. Only certificate key generation exposes public-output
+options. Key material and output paths are never inspected to infer compatible
+formats.
 
 ### Certificate creation walkthrough
 
-Create a private key and a self-signed test CA. Certificate commands consume
-private keys but never generate them, so key algorithm and output handling stay
-under the `key generate` contract.
+Create a private key and a self-signed test CA. `cert keygen` generates the
+private key; `cert create` consumes it to issue a certificate.
 
 ```fish
-npc key generate ed25519 --output ca.key
+npc cert keygen --output ca.key
 npc cert create \
     --ca \
     --subject "CN=test-ca" \
@@ -790,7 +790,7 @@ its issuer and must use a short enough `--days` value to expire no later than it
 issuer.
 
 ```fish
-npc key generate ed25519 --output server.key
+npc cert keygen --output server.key
 npc cert create \
     --dns localhost \
     --ip 127.0.0.1 \
@@ -800,7 +800,7 @@ npc cert create \
     --issuer-key ca.key \
     --output server.crt
 
-npc key generate ed25519 --output client.key
+npc cert keygen --output client.key
 npc cert create \
     --subject "CN=client" \
     --client-only \
@@ -823,7 +823,7 @@ keypair. Existing private keys may also be read from stdin by using `--key -`;
 only one key or issuer flag can own stdin in a single invocation.
 
 ```fish
-npc key generate p256 --output alternate-server.key
+npc cert keygen --algorithm p256 --output alternate-server.key
 npc cert create \
     --dns localhost \
     --key alternate-server.key \
@@ -874,7 +874,7 @@ explicitly overridden.
 These certificates and CAs are for test and development loops. npc never
 installs trust roots; trust `ca.crt` only in an explicitly selected test store,
 never system-wide. Direct `cert create` and `cert csr` generation require an
-existing private key via `--key`; generate it separately with `key generate`.
+existing private key via `--key`; generate it separately with `cert keygen`.
 `cert create --csr` instead uses the requester's public key from the CSR and the
 issuer private key supplied by `--issuer-key`.
 
@@ -884,7 +884,7 @@ Generate a new 256-bit key. `--output` writes the raw key bytes to `aes.key`, so
 keep this file secret.
 
 ```fish
-npc key generate aes256 --output aes.key
+npc aes keygen --output aes.key
 ```
 
 Encrypt a file with the default authenticated AES-GCM mode:
@@ -912,7 +912,7 @@ For a small value or pipeline, encode the key and ciphertext as base64 so they
 are safe to pass as text:
 
 ```fish
-set key (npc key generate aes256 --encoding base64 | string trim)
+set key (npc aes keygen --encoding base64 | string trim)
 set ciphertext (npc aes encrypt "secret message" --key "$key" --encoding base64)
 
 npc aes decrypt "$ciphertext" --key "$key" --input-encoding base64
@@ -965,8 +965,9 @@ old binary `--format/-f` axis and structured `--output-format/-F` axis; for
 example, `cert connect -f hex` must be replaced with an applicable structured
 format rather than a byte encoding.
 
-Generate AES keys through `key generate aes128|aes256`; bare `key
-generate` reports the required algorithm.
+Generate AES keys with `aes keygen` (256 bits) or `aes keygen --bits 128`.
+The former `key generate <algorithm>` command and its `gen`/`g` aliases have
+been removed. Use `cert keygen --algorithm NAME` for asymmetric keys.
 
 `x509`, `certificate`, and `x.509` are ordinary aliases for `cert`:
 `npc x509 inspect` is equivalent to `npc cert inspect`. Bare aliases show help
@@ -1141,7 +1142,7 @@ are bugs, and where possible they are enforced by tests rather than review.
 
 3. **Universal I/O contract.** Every command reads stdin/`--input`, writes
    data to stdout/`--output`, and diagnostics to stderr. Commands compose:
-   `npc key generate ed25519 | npc key public | npc encode base64`.
+   `npc cert keygen | npc key public --encoding base64`.
 
 4. **`--format json` everywhere** structured output exists, for `jq`.
 

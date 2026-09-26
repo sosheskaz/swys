@@ -5,7 +5,7 @@ Create a PKCS #10 request from an existing private key. The request contains the
 ## Request a server identity
 
 ```sh
-npc key generate ed25519 --output server-key.pem
+npc cert keygen --output server-key.pem
 npc cert csr --key server-key.pem --dns service.example.test --output server.csr
 ```
 

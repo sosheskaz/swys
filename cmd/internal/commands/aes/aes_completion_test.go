@@ -95,3 +95,11 @@ func TestAESGenkeyIsRemoved(t *testing.T) {
 		t.Fatalf("aes genkey --bits error = %v, want removed flag", err)
 	}
 }
+
+func TestAESKeygenBitsCompletion(t *testing.T) {
+	t.Parallel()
+	output := completeRoot(t, "aes", "keygen", "--bits", "")
+	assertCompletionLine(t, output, "128")
+	assertCompletionLine(t, output, "256")
+	assertCompletionDirective(t, output, ":4")
+}

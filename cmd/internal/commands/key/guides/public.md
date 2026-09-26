@@ -7,7 +7,7 @@ Read a private key and emit its public component, or read an existing public key
 Start with an existing private.pem, or generate one as shown here. Both output forms below refer to the same key.
 
 ```sh
-npc key generate ed25519 --output private.pem
+npc cert keygen --output private.pem
 npc key public --input private.pem --output public.pem
 ```
 

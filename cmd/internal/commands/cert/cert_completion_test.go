@@ -298,3 +298,24 @@ func completionContainsFlag(values []string, want string) bool {
 		return strings.SplitN(value, "\t", 2)[0] == want
 	})
 }
+
+func TestCertKeygenCompletion(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		want      string
+		args      []string
+		directive cobra.ShellCompDirective
+	}{
+		{args: []string{"cert", "keygen", "--algorithm", ""}, want: "ed25519\tEd25519 signing key", directive: cobra.ShellCompDirectiveNoFileComp},
+		{args: []string{"cert", "keygen", "--algorithm", ""}, want: "ecdsa-p256\tECDSA key on NIST P-256", directive: cobra.ShellCompDirectiveNoFileComp},
+		{args: []string{"cert", "keygen", "--public-format", ""}, want: "openssh\tOpenSSH public key", directive: cobra.ShellCompDirectiveNoFileComp},
+		{args: []string{"cert", "keygen", "--public-out", ""}, directive: cobra.ShellCompDirectiveDefault},
+		{args: []string{"cert", "keygen", ""}, directive: cobra.ShellCompDirectiveNoFileComp},
+	} {
+		values, directive := executeCertificateCompletion(t, test.args...)
+		require.Equal(t, test.directive, directive, "completion %v", test.args)
+		if test.want != "" {
+			require.Contains(t, values, test.want, "completion %v", test.args)
+		}
+	}
+}

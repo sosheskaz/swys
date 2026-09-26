@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"bytes"
@@ -9,18 +9,18 @@ import (
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
 
-func Example_keyCompletion() {
+func Example_certKeygenCompletion() {
 	root := rootcmd.NewCommand()
 	var stdout bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"__complete", "key", "generate", "--public-out", "public.pem", ""})
+	root.SetArgs([]string{"__complete", "cert", "keygen", "--algorithm", ""})
 	err := commandio.Execute(root)
 	if err != nil {
 		panic(err)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
-		if strings.HasPrefix(line, "ed25519") || strings.HasPrefix(line, "aes128") {
+		if strings.HasPrefix(line, "ed25519") {
 			fmt.Println(line)
 		}
 	}

@@ -14,9 +14,7 @@ import (
 )
 
 var (
-	errKeyOutputCollision         = key.ErrKeyOutputCollision
 	errOutputModeUnsupported      = commandio.ErrOutputModeUnsupported
-	errUnknownKeyAlgorithm        = key.ErrUnknownKeyAlgorithm
 	errUnknownKeyConversionTarget = key.ErrUnknownKeyConversionTarget
 	errUnknownKeyFormat           = key.ErrUnknownKeyFormat
 )

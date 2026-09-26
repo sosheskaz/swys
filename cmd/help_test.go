@@ -38,7 +38,7 @@ func TestHelpAliasesSelectCanonicalGuides(t *testing.T) {
 		{name: "punctuated-certificate", args: []string{"x.509", "c"}, wantHeading: "Inspect a TLS server's certificates"},
 		{name: "network-family", args: []string{"nc", "connect"}, wantHeading: "Connect to a network endpoint"},
 		{name: "network-long-alias", args: []string{"netcat", "listen"}, wantHeading: "Listen for one network exchange"},
-		{name: "key-family-and-leaf", args: []string{"k", "gen"}, wantHeading: "Generate a cryptographic key"},
+		{name: "key-family-and-leaf", args: []string{"cert", "keygen"}, wantHeading: "Generate a certificate private key"},
 		{name: "key-leaf", args: []string{"key", "p"}, wantHeading: "Derive or canonicalize a public key"},
 		{name: "aes-encrypt", args: []string{"aes", "enc"}, wantHeading: "Encrypt a message with AES"},
 		{name: "aes-decrypt", args: []string{"aes", "d"}, wantHeading: "Decrypt an AES message"},
@@ -278,7 +278,7 @@ func TestDocumentedRootGuideKeyWorkflow(t *testing.T) {
 	t.Parallel()
 
 	privateKey := filepath.Join(t.TempDir(), "private.pem")
-	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", privateKey); err != nil {
+	if _, err := executeRoot(t, "cert", "keygen", "--output", privateKey); err != nil {
 		t.Fatalf("documented generate Command: %v", err)
 	}
 	output, err := executeRoot(t, "key", "inspect", "--input", privateKey)

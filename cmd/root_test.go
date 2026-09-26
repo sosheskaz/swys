@@ -43,7 +43,7 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			output, err := executeRoot(t, "key", "generate", "aes128", "--encoding", tt.format)
+			output, err := executeRoot(t, "aes", "keygen", "--bits", "128", "--encoding", tt.format)
 			if err != nil {
 				t.Fatalf("execute command: %v", err)
 			}
@@ -75,7 +75,7 @@ func TestUnknownOutputEncodingFails(t *testing.T) {
 	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := executeRoot(t, "key", "generate", "ed25519", "--encoding", "rot13", "--output", path)
+	_, err := executeRoot(t, "cert", "keygen", "--encoding", "rot13", "--output", path)
 	if err == nil || !errors.Is(err, byteencoding.ErrUnknownOutputEncoding) {
 		t.Fatalf("error = %v, want unknown output encoding", err)
 	}
@@ -163,7 +163,7 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := executeRoot(t, "key", "generate", "ed25519", "--input", path, "--output", path)
+	_, err := executeRoot(t, "cert", "keygen", "--input", path, "--output", path)
 	if !errors.Is(err, commandio.ErrSameInputOutput) {
 		t.Fatalf("error = %v, want errSameInputOutput", err)
 	}
@@ -206,7 +206,7 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 	t.Parallel()
-	commands := [][]string{{"key", "generate", "aes256"}}
+	commands := [][]string{{"aes", "keygen"}}
 	for _, command := range commands {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Parallel()
@@ -229,7 +229,7 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 
 func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 	t.Parallel()
-	commands := [][]string{{"key", "generate", "aes256"}}
+	commands := [][]string{{"aes", "keygen"}}
 	for _, command := range commands {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Parallel()
@@ -269,7 +269,7 @@ func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, runErr := executeRoot(t, "key", "generate", "aes256", "--output", path, "--mode", "0640")
+	_, runErr := executeRoot(t, "aes", "keygen", "--output", path, "--mode", "0640")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, path, "old contents")
 		return
@@ -339,7 +339,7 @@ func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
 		t.Skipf("create hard link: %v", err)
 	}
 
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", path); err != nil {
+	if _, err := executeRoot(t, "aes", "keygen", "--output", path); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(alias)
@@ -365,7 +365,7 @@ func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 	if statErr != nil {
 		t.Fatal(statErr)
 	}
-	if _, err := executeRoot(t, "key", "generate", "ed25519", "--output", path); err == nil {
+	if _, err := executeRoot(t, "cert", "keygen", "--output", path); err == nil {
 		t.Fatal("execute command succeeded, want output-open error")
 	}
 	info, err := os.Stat(path)
@@ -401,7 +401,7 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 		t.Run(tt.modeText, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "key")
-			_, runErr := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.modeText)
+			_, runErr := executeRoot(t, "cert", "keygen", "--output", path, "--mode", tt.modeText)
 			if runtime.GOOS == "windows" {
 				assertWindowsModeRejection(t, runErr, path, "")
 				return
@@ -426,7 +426,7 @@ func TestOutputModeOverridesExistingPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, runErr := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", "0400")
+	_, runErr := executeRoot(t, "cert", "keygen", "--output", path, "--mode", "0400")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, path, "old contents")
 		return
@@ -462,7 +462,7 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, err := executeRoot(t, "key", "generate", "ed25519", "--output", path, "--mode", tt.mode)
+			_, err := executeRoot(t, "cert", "keygen", "--output", path, "--mode", tt.mode)
 			wantErr := commandio.ErrInvalidOutputMode
 			if runtime.GOOS == "windows" {
 				wantErr = commandio.ErrOutputModeUnsupported
@@ -483,7 +483,7 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 
 func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
 	t.Parallel()
-	_, err := executeRoot(t, "key", "generate", "ed25519", "--mode", "0640")
+	_, err := executeRoot(t, "cert", "keygen", "--mode", "0640")
 	wantErr := commandio.ErrModeRequiresRegularOutput
 	if runtime.GOOS == "windows" {
 		wantErr = commandio.ErrOutputModeUnsupported
@@ -506,7 +506,7 @@ func TestModeFlagRegisteredOnRoot(t *testing.T) {
 
 func TestNonRegularOutputStreamsDirectly(t *testing.T) {
 	t.Parallel()
-	output, err := executeRoot(t, "key", "generate", "ed25519", "--output", os.DevNull)
+	output, err := executeRoot(t, "cert", "keygen", "--output", os.DevNull)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 				t.Skipf("create symlink: %v", err)
 			}
 
-			args := append([]string{"key", "generate", "aes256", "--output", linkPath}, tt.modeArgs...)
+			args := append([]string{"aes", "keygen", "--output", linkPath}, tt.modeArgs...)
 			_, runErr := executeRoot(t, args...)
 			if runtime.GOOS == "windows" && len(tt.modeArgs) > 0 {
 				assertWindowsModeRejection(t, runErr, targetPath, "preserve")
@@ -584,7 +584,7 @@ func TestSensitiveOutputRejectsInsecureSymlinkTarget(t *testing.T) {
 	if err := os.Symlink(targetPath, linkPath); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", linkPath); !errors.Is(err, securefile.ErrNotOwnerOnly) {
+	if _, err := executeRoot(t, "aes", "keygen", "--output", linkPath); !errors.Is(err, securefile.ErrNotOwnerOnly) {
 		t.Fatalf("error = %v, want owner-only rejection", err)
 	}
 	data, err := os.ReadFile(targetPath)
@@ -612,7 +612,7 @@ func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	_, runErr := executeRoot(t, "key", "generate", "aes256", "--output", linkPath, "--mode", "0640")
+	_, runErr := executeRoot(t, "aes", "keygen", "--output", linkPath, "--mode", "0640")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, targetPath, "")
 		return
@@ -655,12 +655,12 @@ func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	_, directErr := executeRoot(t, "key", "generate", "ed25519", "--output", targetDir)
+	_, directErr := executeRoot(t, "cert", "keygen", "--output", targetDir)
 	if directErr == nil || !strings.Contains(directErr.Error(), "is a directory") {
 		t.Fatalf("direct directory error = %v, want directory rejection", directErr)
 	}
 
-	_, symlinkErr := executeRoot(t, "key", "generate", "ed25519", "--output", linkPath)
+	_, symlinkErr := executeRoot(t, "cert", "keygen", "--output", linkPath)
 	if symlinkErr == nil || !strings.Contains(symlinkErr.Error(), "is a directory") {
 		t.Fatalf("symlinked directory error = %v, want directory rejection", symlinkErr)
 	}

@@ -32,7 +32,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	csr := newCertCSRCmd()
 	verify := newCertVerifyCmd()
 	match := newCertMatchCmd()
-	certCmd.AddCommand(inspect, connect, create, csr, verify, match)
+	keygen := newCertKeygenCmd()
+	certCmd.AddCommand(inspect, connect, create, csr, verify, match, keygen)
+	lifecycle.Register(keygen, commandio.Behavior{Validate: validateCertificateFlags(validateCertKeygenFlags)})
 	lifecycle.Register(inspect, commandio.Behavior{})
 	lifecycle.Register(connect, commandio.Behavior{Validate: func(cmd *cobra.Command) error {
 		if err := commandio.ValidateNetworkTimeout(cmd); err != nil {

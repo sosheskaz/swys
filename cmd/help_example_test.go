@@ -104,12 +104,12 @@ func TestExampleHelpKeyCertificateWorkflow(t *testing.T) {
 	caCertificate := filepath.Join(directory, "ca.pem")
 	signedCertificate := filepath.Join(directory, "signed-leaf.pem")
 	commands := [][]string{
-		{"key", "generate", "ed25519", "--output", privateKey, "--public-out", publicKey, "--public-format", "openssh"},
+		{"cert", "keygen", "-o", privateKey, "-P", publicKey, "--public-format", "openssh"},
 		{"key", "inspect", "--input", privateKey},
 		{"key", "convert", "--input", publicKey, "--to", "pkix-pem", "--output", filepath.Join(directory, "public.pem")},
 		{"key", "convert", "--input", privateKey, "--to", "pkcs8-der", "--output", convertedKey},
 		{"cert", "create", "--key", convertedKey, "--dns", "localhost", "--output", certificate},
-		{"key", "generate", "ed25519", "--output", caKey},
+		{"cert", "keygen", "--output", caKey},
 		{"cert", "create", "--ca", "--key", caKey, "--subject", "CN=Local Test CA", "--output", caCertificate},
 		{
 			"cert", "create", "--key", privateKey, "--dns", "localhost",
@@ -140,7 +140,7 @@ func TestExampleHelpKeyAESWorkflow(t *testing.T) {
 	directory := t.TempDir()
 	key := filepath.Join(directory, "key.bin")
 	ciphertext := filepath.Join(directory, "message.gcm")
-	if _, err := executeRoot(t, "key", "generate", "aes256", "--output", key); err != nil {
+	if _, err := executeRoot(t, "aes", "keygen", "--output", key); err != nil {
 		t.Fatal(err)
 	}
 	root := newRootCmd()

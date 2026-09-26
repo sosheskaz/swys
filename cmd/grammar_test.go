@@ -133,6 +133,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 		"decrypt":  true,
 		"encrypt":  true,
 		"generate": true,
+		"keygen":   true,
 		"inspect":  true,
 		"listen":   true,
 		"match":    true,
@@ -157,8 +158,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 				isRunnableRootHash := command == root && child.Name() == "hash"
 				// AES is technically runnable so Cobra validates removed nested commands;
 				// its argument contract returns help before I/O for the bare noun.
-				isHelpOnlyAES := command == root && child.Name() == "aes"
-				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash && !isHelpOnlyAES {
+				isHelpOnlyParent := command == root && (child.Name() == "aes" || child.Name() == "key")
+				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash && !isHelpOnlyParent {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}
 			} else {

@@ -7,7 +7,7 @@ Encrypt plaintext with AES-GCM-HKDF streaming by default. Supply a base64 key di
 Create the key once, then protect a message.
 
 ```sh
-npc key generate aes256 --output key.bin
+npc aes keygen --output key.bin
 printf 'deploy at 09:00' | npc aes encrypt --keyfile key.bin --output message.gcm
 ```
 

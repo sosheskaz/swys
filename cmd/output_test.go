@@ -15,7 +15,7 @@ import (
 
 func TestKeyPublicMalformedBase64PreservesExistingOutput(t *testing.T) {
 	t.Parallel()
-	privatePEM, _, err := executeRootStreams(t, "key", "generate", "ed25519")
+	privatePEM, _, err := executeRootStreams(t, "cert", "keygen")
 	if err != nil {
 		t.Fatal(err)
 	}
