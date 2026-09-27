@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,17 +15,27 @@ import (
 func newAESKeygenCmd() *cobra.Command {
 	cmd := commandio.SensitiveBinaryOutputCommand(&cobra.Command{
 		Use:   "keygen",
-		Short: "Generate a raw AES key",
+		Short: "Generate a raw AES key or Tink keyset",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			bits, err := cmd.Flags().GetInt("bits")
+			prepared, output, err := commandio.TakePrepared(cmd)
 			if err != nil {
-				return fmt.Errorf("read bits flag: %w", err)
+				return err
 			}
-			return generateAESKey(bits, cmd.OutOrStdout())
+			n, err := output.Write(prepared)
+			if err != nil {
+				return fmt.Errorf("write AES key: %w", err)
+			}
+			if n != len(prepared) {
+				return fmt.Errorf("write AES key: %w", io.ErrShortWrite)
+			}
+			return nil
 		},
 	}, false)
 	cmd.Flags().IntP("bits", "b", 256, "AES key size in bits (128 or 256)")
+	cmd.Flags().String("key-format", "raw", "key format ("+strings.Join(keyFormatNames(), ", ")+")")
+	addTinkParameterFlags(cmd)
+	commandio.RegisterFlagCompletion(cmd, "key-format", keyFormatNames)
 	if err := cmd.RegisterFlagCompletionFunc("bits", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return []string{"128", "256"}, cobra.ShellCompDirectiveNoFileComp
 	}); err != nil {
@@ -39,7 +50,15 @@ func validateAESKeygenFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read bits flag: %w", err)
 	}
-	return validateAESKeySize(bits)
+	if err := validateAESKeySize(bits); err != nil {
+		return err
+	}
+	format, err := keyFormatFlag(cmd, "key-format")
+	if err != nil {
+		return err
+	}
+	_, err = tinkParamsFromCommand(cmd, format, bits)
+	return err
 }
 
 func generateAESKey(bits int, output io.Writer) error {

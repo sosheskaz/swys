@@ -169,7 +169,9 @@ func commandTreeViolations(root *cobra.Command) []string {
 					(child.Name() == "dns" && commandio.HasShape(child, "dns-query")) ||
 					(child.Name() == "grpc" && commandio.HasShape(child, "grpc-request")))
 				isHashAlgorithm := command.Name() == "hash" && command.Parent() == root && hashAlgorithmLeaves[child.Name()]
-				if !verbs[child.Name()] && !isTransport && !isRootUtility && !isHashAlgorithm {
+				isAESKeyVerb := command.Name() == "aes" && command.Parent() == root &&
+					(child.Name() == "key-convert" || child.Name() == "key-inspect")
+				if !verbs[child.Name()] && !isTransport && !isRootUtility && !isHashAlgorithm && !isAESKeyVerb {
 					violations = append(violations, fmt.Sprintf("leaf command %q is not an allowed verb", child.CommandPath()))
 				}
 				binary := commandio.HasShape(child, "binary-output")

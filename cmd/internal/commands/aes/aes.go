@@ -62,8 +62,21 @@ The length of the key implicitly determines the AES variant used (128 or 256 bit
 	encrypt := newEncryptCmd()
 	decrypt := newDecryptCmd()
 	keygen := newAESKeygenCmd()
-	aesCmd.AddCommand(encrypt, decrypt, keygen)
-	lifecycle.Register(keygen, commandio.Behavior{Validate: validateAESKeygenFlags})
+	convert := newAESKeyConvertCmd()
+	inspect := newAESKeyInspectCmd()
+	aesCmd.AddCommand(encrypt, decrypt, keygen, convert, inspect)
+	lifecycle.Register(keygen, commandio.Behavior{
+		Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput,
+		PreparesOutput: func(*cobra.Command) bool { return true },
+	})
+	lifecycle.Register(convert, commandio.Behavior{
+		Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion,
+		PreparesOutput: func(*cobra.Command) bool { return true },
+	})
+	lifecycle.Register(inspect, commandio.Behavior{
+		Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection,
+		PreparesOutput: func(*cobra.Command) bool { return true },
+	})
 	for _, command := range []*cobra.Command{encrypt, decrypt} {
 		lifecycle.Register(command, commandio.Behavior{
 			Validate: func(cmd *cobra.Command) error {

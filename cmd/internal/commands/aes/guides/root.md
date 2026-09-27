@@ -4,7 +4,9 @@ Use the AES family to generate keys or work with a 128-bit or 256-bit symmetric 
 
 ## Choose an operation
 
-- **keygen** creates a raw AES key.
+- **keygen** creates a raw AES key or cleartext Tink streaming keyset.
+- **key-convert** converts raw keys and Tink JSON or binary keysets.
+- **key-inspect** shows key metadata without revealing material.
 - **encrypt** protects plaintext with a supplied key.
 - **decrypt** opens ciphertext made with the same mode, key, and additional data.
 
@@ -28,5 +30,7 @@ AES-192 keys are not supported because NPC's Tink AES-GCM-HKDF streaming primiti
 npc help aes encrypt
 npc help aes decrypt
 npc help aes keygen
+npc help aes key-convert
+npc help aes key-inspect
 npc aes --help
 ```
