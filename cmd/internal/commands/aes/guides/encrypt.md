@@ -1,25 +1,23 @@
 # Encrypt a message with AES
 
-Encrypt plaintext with AES-GCM-HKDF streaming by default. Supply a base64 key directly or read raw key bytes from a file. Binary ciphertext goes to stdout unless an output file or encoding is selected.
+Encryption defaults to binary, uncompressed OpenPGP RFC 9580 AES-GCM. Supply a raw AES key as base64 with --key or from a file with --keyfile. Use --key-format tink-json or tink-binary for a cleartext Tink keyset.
 
-## Encrypt with a key file
-
-Create the key once, then protect a message.
+## Encrypt with a raw key file
 
 ```sh
 npc aes keygen --output key.bin
-printf 'deploy at 09:00' | npc aes encrypt --keyfile key.bin --output message.gcm
+printf 'deploy at 09:00' | npc aes encrypt --keyfile key.bin --output message.pgp
 ```
 
-The default --chunk-size is 1M, meaning at most 1,048,576 plaintext bytes per segment. Sizes from 64 bytes through 64 MiB are accepted. K, M, and G use binary multiples; KB, MB, and GB use decimal multiples. KiB, MiB, and GiB also use binary multiples. A decimal fraction is accepted when the result is a whole byte, such as 1.5KB. Encryption buffers a segment with lookahead and does not promise interactive flush timing.
+OpenPGP accepts power-of-two --chunk-size values from 64 bytes through 4 MiB, defaulting to 1 MiB. When using a Tink keyset with OpenPGP, provide --key-id to select an enabled key. OpenPGP does not use external --aad or Tink HKDF flags.
 
-Additional authenticated data is checked during decryption but is not stored in the ciphertext. The decrypting side must supply the same value.
+## Encrypt in Tink format
+
+Tink uses the exact --aad bytes supplied by the user. Raw keys default to 1 MiB ciphertext segments, SHA-256 HKDF, and a derived AES key matching the raw key size. A Tink keyset supplies its own parameters and primary encryption key.
 
 ```sh
-printf 'payload' | npc aes encrypt --keyfile key.bin --aad production --output payload.gcm
+printf 'payload' | npc aes encrypt --wire-format tink --keyfile key.bin --aad production --output payload.tink
 ```
-
-For the legacy single-message GCM format, select --raw explicitly. It retains a 64 MiB plaintext limit. Use CBC only for an existing compatibility requirement. CBC does not authenticate ciphertext. AES-192 keys are no longer supported.
 
 ## Reference
 

@@ -1,7 +1,13 @@
 codeberg.org/miekg/dns v0.6.109 h1:B2lA6b6n/FuUTdECFU9HCunwxLRaR71d+UFV5EP44gg=
 codeberg.org/miekg/dns v0.6.109/go.mod h1:vbidSyLJl5JcDUL2LrXCUjRYSFa5tJweseQox0GOrTk=
+github.com/ProtonMail/go-crypto v1.4.1 h1:9RfcZHqEQUvP8RzecWEUafnZVtEvrBVL9BiF67IQOfM=
+github.com/ProtonMail/go-crypto v1.4.1/go.mod h1:e1OaTyu5SYVrO9gKOEhTc+5UcXtTUa+P3uLudwcgPqo=
+github.com/ProtonMail/gopenpgp/v3 v3.4.1 h1:K7uUhSHSJxORZ+RuHpilTT6S4MA2whCRlXNwLqd0+ys=
+github.com/ProtonMail/gopenpgp/v3 v3.4.1/go.mod h1:bGdV9f6edhmd581wzXsQCTKdH8bXBbyhkgDKPjwPc6U=
 github.com/c2sp/wycheproof v0.0.0-20260105152342-fca0d3ba9f12 h1:C34LW7dhWgjAaAOdNB8z2UCyJsXDjC6UTILljHuqOlI=
 github.com/c2sp/wycheproof v0.0.0-20260105152342-fca0d3ba9f12/go.mod h1:U1QjrC6KepOmtVmJn3QsKOTd9HliGr/da5afPEhLRnk=
+github.com/cloudflare/circl v1.6.3 h1:9GPOhQGF9MCYUeXyMYlqTR6a5gTrgR/fBLXvUgtVcg8=
+github.com/cloudflare/circl v1.6.3/go.mod h1:2eXP6Qfat4O/Yhh8BznvKnJ+uzEoTQ6jVKJRn81BiS4=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=

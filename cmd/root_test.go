@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"crypto/aes"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/internal/crypter"
 	"github.com/sosheskaz-systems/npc/internal/securefile"
 )
 
@@ -55,17 +53,6 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 				t.Fatalf("decoded key length = %d, want 16", len(decoded))
 			}
 		})
-	}
-}
-
-func TestEncryptPreservesInvalidIVErrorIdentity(t *testing.T) {
-	t.Parallel()
-	key := base64.StdEncoding.EncodeToString(make([]byte, 16))
-	iv := base64.StdEncoding.EncodeToString(make([]byte, aes.BlockSize-1))
-
-	_, err := executeRoot(t, "aes", "encrypt", "plaintext", "--cipher-mode", "cbc", "--key", key, "--iv", iv)
-	if !errors.Is(err, crypter.ErrInvalidIVLength) {
-		t.Fatalf("error = %v, want crypter.ErrInvalidIVLength", err)
 	}
 }
 
@@ -105,53 +92,6 @@ func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
 	}
 	if string(data) != "preserve" {
 		t.Fatalf("failed command replaced output with %q", data)
-	}
-}
-
-func TestDecryptFailureLeavesStreamedPlaintext(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	plaintextPath := filepath.Join(dir, "plaintext")
-	ciphertextPath := filepath.Join(dir, "ciphertext")
-	outputPath := filepath.Join(dir, "output")
-	plaintext := bytes.Repeat([]byte("A"), 64*1024+1)
-	if err := os.WriteFile(plaintextPath, plaintext, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
-	ciphertext, err := executeRoot(
-		t,
-		"aes", "encrypt", "--cipher-mode", "cbc", "--key", key, "--iv", iv, "--input", plaintextPath,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	corrupted := []byte(ciphertext)
-	corrupted[len(corrupted)-aes.BlockSize-1] ^= 1
-	if err := os.WriteFile(ciphertextPath, corrupted, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = executeRoot(
-		t,
-		"aes", "decrypt", "--cipher-mode", "cbc", "--key", key, "--input", ciphertextPath, "--output", outputPath,
-	)
-	if err == nil || !strings.Contains(err.Error(), "invalid PKCS#7 padding") {
-		t.Fatalf("error = %v, want invalid padding", err)
-	}
-	output, readErr := os.ReadFile(outputPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if len(output) != 64*1024 {
-		t.Fatalf("failed decrypt output length = %d, want %d streamed bytes", len(output), 64*1024)
-	}
-	if !bytes.Equal(output[:len(output)-aes.BlockSize], plaintext[:len(output)-aes.BlockSize]) {
-		t.Fatal("failed decrypt did not preserve the valid streamed plaintext prefix")
 	}
 }
 

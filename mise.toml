@@ -34,6 +34,11 @@ run = "go test -run='^$' -bench=. -benchmem ./..."
 description = "Run all local validation (lint + test)"
 depends = ["lint:go", "lint:platforms", "test:coverage-report", "test:unit"]
 
+[tasks."test:interop:openpgp"]
+description = "Run manual OpenPGP interoperability checks"
+depends = ["build:dev"]
+run = "tests/interop/openpgp/manual.sh ./npc"
+
 [tasks."clean:artifacts"]
 description = "Remove build artifacts and coverage/profile output"
 run = "rm -f npc cryptool *.prof *.test coverage.out coverage-base.out"

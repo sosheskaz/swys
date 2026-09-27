@@ -108,7 +108,7 @@ Contributors should follow the [help guide authoring standard](docs/help-authori
 ## Commands today
 
 ```
-npc aes encrypt|decrypt            # AES-GCM default; explicit AES-CBC compatibility
+npc aes encrypt|decrypt            # OpenPGP default; native Tink optional
 npc aes keygen [--bits 128|256]     # generate an AES key (default 256 bits)
 npc cert keygen [--algorithm NAME]  # generate a certificate key (default Ed25519)
 npc key public|inspect|convert     # consume a self-describing key
@@ -918,45 +918,37 @@ set ciphertext (npc aes encrypt "secret message" --key "$key" --encoding base64)
 npc aes decrypt "$ciphertext" --key "$key" --input-encoding base64
 ```
 
-If the ciphertext needs to be bound to context, use the same `--aad` value when
+For Tink ciphertext bound to context, use the same `--aad` value when
 encrypting and decrypting:
 
 ```fish
-npc aes encrypt --keyfile aes.key --aad "customer=42;format=v1" \
+npc aes encrypt --wire-format tink --keyfile aes.key --aad "customer=42;format=v1" \
     --input document.txt --output document.txt.gcm
-npc aes decrypt --keyfile aes.key --aad "customer=42;format=v1" \
+npc aes decrypt --wire-format tink --keyfile aes.key --aad "customer=42;format=v1" \
     --input document.txt.gcm --output recovered.txt
 ```
 
-`aes encrypt` and `aes decrypt` default to authenticated AES-GCM-HKDF streaming.
-The [version 1 wire format](docs/aes-stream-v1.md) has a 16-byte NPC header
-followed by a Tink stream. Encryption uses `--chunk-size 1M` by default; any
-integral byte count from 64 through 64 MiB is accepted. Suffixes K/M/G and
-KiB/MiB/GiB are binary, while KB/MB/GB are decimal. Fractions are accepted
-only when they yield whole bytes (for example, `1.5KB`). Decryption reads the
-chunk size from the stream. Input is buffered by segment with lookahead, so
-this mode is suited to files and pipelines rather than interactive flushing.
-A stream has Tink's finite segment-count limit.
+`aes encrypt` and `aes decrypt` default to binary, uncompressed OpenPGP RFC
+9580 AES-GCM streams. OpenPGP records the plaintext chunk size in its packet;
+`--chunk-size` accepts powers of two from 64 bytes through 4 MiB and defaults
+to 1 MiB. It has no external `--aad`. Decryption also accepts ZIP, ZLIB, and
+BZip2 compressed messages up to four nested layers. Before opening output, it
+looks for the literal data header in about 4 MiB of decrypted data and of each
+decompressed layer, with ciphertext rounded up to whole chunks, and rejects
+messages that need more.
 
-Existing single-message GCM ciphertext requires `aes decrypt --raw`; use
-`aes encrypt --raw` to create that legacy wire format,
-`[12-byte nonce][ciphertext][16-byte tag]`. Raw mode retains the 64 MiB
-message limit and releases plaintext only after whole-message authentication.
-There is no automatic format detection. Both formats accept `--aad`; its exact
-bytes are authenticated but are not stored in the ciphertext. A failed later
-stream segment leaves previously authenticated plaintext in stdout or the
-output file, along with a nonzero exit status. No plaintext from the failing
-segment is released. AES-192 keys are no longer supported.
+`--wire-format tink` selects native Tink AES-GCM-HKDF ciphertext. A raw AES key
+uses 1 MiB ciphertext segments, SHA-256 HKDF, and a matching derived key size
+by default. A Tink keyset supplies its own parameters and primary encryption
+key; enabled keys can decrypt. Use `--key-format tink-json` or `tink-binary`
+with `--keyfile`. OpenPGP use of a keyset requires `--key-id` to choose an
+enabled key. Tink authenticates the exact user-supplied `--aad` bytes.
 
-Use `--cipher-mode cbc` only for compatibility. CBC retains its existing wire
-format, `[16-byte IV][PKCS#7-padded CBC ciphertext]`, and streams input and
-output. `aes encrypt --cipher-mode cbc` generates a random IV when `--iv` is
-omitted; `--iv` is not valid for GCM, and `--aad` is not valid for CBC. CBC is
-unauthenticated: it cannot reliably detect tampering, a wrong key, or a wrong
-mode, and successful decryption does not prove authenticity.
-
-A single GCM key must encrypt no more than 2^32 messages in total across all
-processes and machines that share it. Rotate well before that limit.
+Authentication is per chunk. Earlier verified plaintext may remain after a
+later failure, but success requires the final tag and end of input. There is no
+format fallback. Historical NPC v1/v2 streams, single-message raw GCM, and CBC
+ciphertext need an older NPC binary for recovery; see the archived
+[version 1 format](docs/aes-stream-v1.md).
 
 Binary input and output use `--input-encoding` and `--encoding/-e` with
 `raw`, `hex`, `base64` (or the compatibility alias `b64`), `base64url`, or

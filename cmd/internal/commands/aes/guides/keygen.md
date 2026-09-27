@@ -2,7 +2,7 @@
 
 Generate a 256-bit raw key by default. Use --bits 128 for AES-128, or choose a cleartext Tink keyset with --key-format.
 
-AES-192 is excluded because the Tink AES-GCM-HKDF streaming primitive used by NPC supports only 128-bit and 256-bit derived AES keys. NPC uses matching key sizes for key generation, streaming, raw GCM, and CBC so generated keys work across its AES modes. Go's standard AES implementation supports 192-bit keys; the common size restriction is an NPC compatibility choice.
+AES-192 is excluded because the Tink AES-GCM-HKDF streaming primitive used by NPC supports only 128-bit and 256-bit derived AES keys. NPC supports raw 128-bit and 256-bit keys for its OpenPGP and Tink streaming formats.
 
 ```sh
 npc aes keygen --output key.bin

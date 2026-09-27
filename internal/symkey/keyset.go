@@ -223,6 +223,28 @@ func Raw(handle *keyset.Handle, id *uint32) ([]byte, error) {
 	return nil, errMissing
 }
 
+// PrimaryParameters returns the enabled primary key's streaming parameters.
+func PrimaryParameters(handle *keyset.Handle) (Parameters, error) {
+	material := insecurecleartextkeyset.KeysetMaterial(handle)
+	for _, entry := range material.Key {
+		if entry.KeyId != material.PrimaryKeyId {
+			continue
+		}
+		if entry.Status != tinkpb.KeyStatusType_ENABLED {
+			return Parameters{}, errDisabled
+		}
+		key, err := parseKey(entry)
+		if err != nil {
+			return Parameters{}, err
+		}
+		return Parameters{
+			SegmentSize: key.Params.CiphertextSegmentSize,
+			Hash:        key.Params.HkdfHashType, DerivedKeyBits: int(key.Params.DerivedKeySize) * 8,
+		}, nil
+	}
+	return Parameters{}, errMissing
+}
+
 // Inspect returns keyset metadata without key bytes.
 func Inspect(handle *keyset.Handle) (Info, error) {
 	material := insecurecleartextkeyset.KeysetMaterial(handle)

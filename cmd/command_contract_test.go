@@ -167,7 +167,6 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 	t.Parallel()
 	const plaintext = "encoding round trip"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
 	plainPath := filepath.Join(t.TempDir(), "plain")
 	if err := os.WriteFile(plainPath, []byte(plaintext), 0o600); err != nil {
 		t.Fatal(err)
@@ -179,9 +178,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 			ciphertext, err := executeRoot(
 				t,
 				"aes", "encrypt",
-				"--cipher-mode", "cbc",
 				"--key", key,
-				"--iv", iv,
 				"--input", plainPath,
 				"--encoding", encoding,
 			)
@@ -195,7 +192,6 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 			output, err := executeRoot(
 				t,
 				"aes", "decrypt",
-				"--cipher-mode", "cbc",
 				"--key", key,
 				"--input", cipherPath,
 				"--input-encoding", encoding,
@@ -225,8 +221,7 @@ func TestBase64URLInputAcceptsPadding(t *testing.T) {
 	t.Parallel()
 	const plaintext = "padded base64url"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
-	rawCiphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--cipher-mode", "cbc", "--key", key, "--iv", iv)
+	rawCiphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key", key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +232,7 @@ func TestBase64URLInputAcceptsPadding(t *testing.T) {
 	}
 	output, err := executeRoot(
 		t,
-		"aes", "decrypt", "--cipher-mode", "cbc", "--key", key,
+		"aes", "decrypt", "--key", key,
 		"--input", path,
 		"--input-encoding", "base64url",
 	)
@@ -253,8 +248,7 @@ func TestHexInputAcceptsTrailingNewline(t *testing.T) {
 	t.Parallel()
 	const plaintext = "trailing newline"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	iv := base64.StdEncoding.EncodeToString([]byte("abcdef0123456789"))
-	ciphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--cipher-mode", "cbc", "--key", key, "--iv", iv, "--encoding", "hex")
+	ciphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key", key, "--encoding", "hex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +258,7 @@ func TestHexInputAcceptsTrailingNewline(t *testing.T) {
 	}
 	output, err := executeRoot(
 		t,
-		"aes", "decrypt", "--cipher-mode", "cbc", "--key", key,
+		"aes", "decrypt", "--key", key,
 		"--input", path,
 		"--input-encoding", "hex",
 	)

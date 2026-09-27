@@ -107,26 +107,25 @@ certificate verification, TLS capture) is accompanied by tests that assume
 hostile input — written **ahead of** or alongside the implementation, not
 retrofitted:
 
-- **Tampering**: for authenticated or signed constructions such as GCM,
-  flipping any single bit in every component (nonce, body, tag, associated
-  data) must fail cleanly with **zero plaintext bytes reaching the output
-  writer** — check the writer, not just the error. CBC is unauthenticated;
-  test its structural and compatibility contracts without claiming universal
-  tamper detection.
-- **Truncation and structure attacks**: truncated IV/nonce/tag, non-block-
-  multiple ciphertext, empty input, and inputs whose framing lies about
-  their length are all explicit table cases.
-- **Padding**: invalid, zero-length, over-length, and inconsistent padding
-  variants are rejected without oracle-friendly behavioral differences.
+- **Tampering**: for authenticated or signed constructions, flipping bits in
+  headers, ciphertext, tags, or associated data must fail cleanly. OpenPGP and
+  Tink streams release only authenticated chunks: the failing chunk emits no
+  plaintext, but earlier authenticated plaintext may remain. Check the output
+  writer and error, including failure of the final authentication tag.
+- **Truncation and structure attacks**: truncated headers, ciphertext, and
+  final tags; empty input; invalid declared parameters; and trailing packets
+  or bytes are explicit table cases.
+- **Padding**: for constructions that use padding, invalid, zero-length,
+  over-length, and inconsistent variants are rejected without oracle-friendly
+  behavioral differences.
 - **Known-answer tests**: where an algorithm has published vectors (NIST
   CAVP, RFC test vectors), wire them in as table-driven tests. Vectors are
   the ground truth that separates "round-trips with itself" from "actually
   implements the algorithm" — a round-trip test alone proves nothing about
   correctness.
-- **Wrong-key / wrong-mode**: authenticated GCM decryption with the wrong key,
-  AAD, or mode fails with a clear error and emits nothing. CBC is
-  unauthenticated and has no universal wrong-key or wrong-mode failure
-  guarantee; test only its structural and compatibility contracts.
+- **Wrong-key / wrong-format**: OpenPGP and Tink decryption with the wrong key,
+  selected wire format, or Tink AAD fails with a clear error. No plaintext from
+  an unauthenticated chunk reaches output, and no format fallback occurs.
 - **Certificate chains**: expired, name-mismatched, self-signed-in-chain,
   wrong-intermediate, and comma/escaping edge cases in distinguished names
   are regression-pinned behaviors.
@@ -150,14 +149,10 @@ A package must carry benchmarks when any of these hold:
 ### How
 
 - Always `-benchmem`. Report `B/op` and `allocs/op`, not just ns/op.
-- **Unbounded-input code must demonstrate bounded memory**: benchmark across
-  a size sweep (e.g. 4KB → 64MB) and confirm `B/op` and `allocs/op` stay
-  ~flat as input grows — that is the streaming guarantee made measurable.
-  Allocation counts that scale with input size are a bug, both for memory
-  and for the GC pressure they generate; per-chunk work must not allocate
-  per iteration. The default AES-GCM-HKDF stream uses bounded segments; report
-  cumulative allocation separately from peak memory. Raw GCM remains
-  single-message with a 64 MiB limit and whole-message authentication.
+- **Unbounded-input code must demonstrate bounded peak memory**: benchmark
+  across a size sweep (e.g. 4KB → 64MB), and measure peak memory separately
+  from cumulative `B/op` and `allocs/op`. OpenPGP and Tink streams use bounded
+  segments; explain any per-segment allocation that scales with input size.
 - Performance claims require evidence: `mise run bench` before and after,
   compared with `benchstat`, numbers included in the PR description. No
   claim without a comparison.
@@ -219,9 +214,7 @@ mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzParseHTT
 mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzWriteHTTPJSONResponse$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzWriteHTTPHead$' -fuzztime=30s -parallel=2
 mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzHTTPTraceText$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESCBCDecrypt$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESGCMDecrypt$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzUnpadPKCS7$' -fuzztime=30s -parallel=2
+mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESWireDecryptBounded$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagram$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagramInputFailure$' -fuzztime=30s -parallel=2
 mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesBidirectionalBytes$' -fuzztime=30s -parallel=2
@@ -237,11 +230,10 @@ returning buffered artifact bytes.
 These targets bound generated input sizes and check key identity, certificate
 order and DER preservation, base64url acceptance against the standard library
 (including one-byte reads), and authenticated decryption against an independent
-standard-library wire decoder. Authentication and structure failures in
-authenticated modes must emit no plaintext. The unauthenticated CBC
-compatibility mode may emit previously decrypted buffer prefixes before a later
-structure or padding failure; its target checks that streamed prefix against
-independent CBC decryption. Parser round trips cover successfully parsed
+standard-library wire decoder. The bounded AES wire target exercises OpenPGP
+and Tink framing, malformed inputs, and authenticated decryption. A failing
+chunk emits no plaintext; earlier authenticated chunks may remain after a later
+failure. Parser round trips cover successfully parsed
 artifacts; they do not prove rejection of every invalid input. The ALPN target
 uses an independently structured delimiter oracle to check ordered opaque
 protocol bytes, empty elements, surrounding Unicode whitespace, and the TLS

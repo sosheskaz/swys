@@ -1,11 +1,6 @@
 package aes
 
 import (
-	"crypto/aes"
-	"crypto/rand"
-	"fmt"
-	"io"
-
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
@@ -13,104 +8,26 @@ import (
 )
 
 func newEncryptCmd() *cobra.Command {
-	encryptCmd := commandio.BinaryOutputCommand(&cobra.Command{
-		Use:     "encrypt [plaintext]",
-		Short:   "Encrypt with AES-GCM by default or AES-CBC explicitly",
+	cmd := commandio.BinaryOutputCommand(&cobra.Command{
+		Use: "encrypt [plaintext]", Short: "Encrypt using OpenPGP or Tink streaming AES",
 		Aliases: []string{"enc", "e"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input, err := commandio.CommandInput(cmd, args)
 			if err != nil {
 				return err
 			}
-
-			key, err := getKey(cmd)
-			if err != nil {
-				return err
+			op, ok := cmd.Context().Value(aesOperationContextKey{}).(*aesOperation)
+			if !ok {
+				return errAESOperation
 			}
-			mode, err := aesCipherModeFromCommand(cmd)
-			if err != nil {
-				return err
+			if op.wire == wireOpenPGP {
+				return crypter.EncryptOpenPGP(op.key, op.chunk, input, cmd.OutOrStdout())
 			}
-			switch mode {
-			case aesCipherModeGCM:
-				return encryptGCM(cmd, key, input)
-			case aesCipherModeCBC:
-				cipher, err := crypter.NewAESCrypter(key)
-				if err != nil {
-					return err
-				}
-				iv, err := getIV(cmd, aes.BlockSize)
-				if err != nil {
-					return err
-				}
-				return cipher.Encrypt(iv, input, cmd.OutOrStdout())
-			default:
-				return fmt.Errorf("%w %q", ErrUnknownAESCipherMode, mode)
-			}
+			return crypter.EncryptTink(op.primitive, input, cmd.OutOrStdout(), op.aad)
 		},
 	}, true)
-	addKeyFlags(encryptCmd)
-	addAESCipherFlags(encryptCmd)
-	encryptCmd.Flags().Bool("raw", false, "use legacy single-message AES-GCM format (64 MiB limit)")
-	encryptCmd.Flags().String("chunk-size", "1M", "maximum plaintext bytes per stream segment (64 through 64MiB)")
-	registerAESNoFileFlagCompletion(encryptCmd, "chunk-size")
-	encryptCmd.Flags().BytesBase64("iv", nil, "CBC initialization vector as base64; random when omitted")
-	registerAESNoFileFlagCompletion(encryptCmd, "iv")
-	encryptCmd.ValidArgsFunction = cobra.NoFileCompletions
-	return encryptCmd
-}
-
-func getIV(cmd *cobra.Command, blockSize int) ([]byte, error) {
-	ivFlag := cmd.Flags().Lookup("iv")
-	if !ivFlag.Changed {
-		return generateIV(blockSize)
-	}
-
-	iv, err := cmd.Flags().GetBytesBase64("iv")
-	if err != nil {
-		return nil, fmt.Errorf("read IV flag: %w", err)
-	}
-	if len(iv) != blockSize {
-		return nil, fmt.Errorf("%w: must be %d bytes, got %d", crypter.ErrInvalidIVLength, blockSize, len(iv))
-	}
-	return iv, nil
-}
-
-func generateIV(blockSize int) ([]byte, error) {
-	iv := make([]byte, blockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, fmt.Errorf("generate IV: %w", err)
-	}
-	return iv, nil
-}
-
-func encryptGCM(cmd *cobra.Command, key []byte, input io.Reader) error {
-	raw, err := cmd.Flags().GetBool("raw")
-	if err != nil {
-		return fmt.Errorf("read raw flag: %w", err)
-	}
-	aad, err := aesAADFromCommand(cmd)
-	if err != nil {
-		return err
-	}
-	if raw {
-		cipher, err := crypter.NewAESGCMCrypter(key)
-		if err != nil {
-			return err
-		}
-		return cipher.Encrypt(input, cmd.OutOrStdout(), aad)
-	}
-	stream, err := crypter.NewAESStreamingCrypter(key)
-	if err != nil {
-		return err
-	}
-	chunkText, err := cmd.Flags().GetString("chunk-size")
-	if err != nil {
-		return fmt.Errorf("read chunk-size flag: %w", err)
-	}
-	chunkSize, err := parseAESChunkSize(chunkText)
-	if err != nil {
-		return err
-	}
-	return stream.Encrypt(input, cmd.OutOrStdout(), aad, chunkSize)
+	addKeyFlags(cmd)
+	addAESWireFlags(cmd)
+	cmd.ValidArgsFunction = cobra.NoFileCompletions
+	return cmd
 }

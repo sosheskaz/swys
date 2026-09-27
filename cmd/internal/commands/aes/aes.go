@@ -2,98 +2,77 @@
 package aes
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"embed"
+	"errors"
 	"fmt"
-	"maps"
-	"slices"
-	"strings"
+	"io"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/tink-crypto/tink-go/v2/keyset"
+	commonpb "github.com/tink-crypto/tink-go/v2/proto/common_go_proto"
+	"github.com/tink-crypto/tink-go/v2/streamingaead"
+	"github.com/tink-crypto/tink-go/v2/streamingaead/subtle"
+	"github.com/tink-crypto/tink-go/v2/tink"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 	"github.com/sosheskaz-systems/npc/internal/crypter"
+	"github.com/sosheskaz-systems/npc/internal/symkey"
+)
+
+const (
+	wireOpenPGP     = "openpgp"
+	wireTink        = "tink"
+	flagDerivedBits = "derived-key-bits"
+	flagHKDFHash    = "hkdf-hash"
+	commandDecrypt  = "decrypt"
+	hashSHA256      = "sha256"
+	hashSHA512      = "sha512"
 )
 
 //go:embed guides
 var aesGuideFiles embed.FS
 
-type aesCipherMode string
-
-const (
-	aesCipherModeCBC aesCipherMode = "cbc"
-	aesCipherModeGCM aesCipherMode = "gcm"
-)
-
-var aesCipherModes = map[string]aesCipherMode{
-	string(aesCipherModeCBC): aesCipherModeCBC,
-	string(aesCipherModeGCM): aesCipherModeGCM,
+type aesOperation struct {
+	pgp        *crypter.OpenPGPReader
+	input      io.Reader
+	tinkReader io.Reader
+	primitive  tink.StreamingAEAD
+	wire       string
+	key        []byte
+	aad        []byte
+	chunk      uint32
 }
-
-var aesCipherModeDescriptions = map[aesCipherMode]string{
-	aesCipherModeCBC: "compatibility mode",
-	aesCipherModeGCM: "authenticated default",
-}
+type aesOperationContextKey struct{}
 
 // NewCommand constructs the AES command family for one root lifecycle.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	aesCmd := &cobra.Command{
-		Use:   "aes",
-		Short: "AES encryption and decryption",
-		// Cobra only validates Args for runnable commands. ErrHelp preserves the
-		// bare noun's help-before-I/O behavior while rejecting removed children.
+		Use: "aes", Short: "AES encryption and decryption",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return pflag.ErrHelp
 			}
 			return cobra.NoArgs(cmd, args)
 		},
-		RunE: func(*cobra.Command, []string) error {
-			return nil
-		},
-		Long: `Perform AES encryption and decryption using a specified key.
-AES-GCM is the authenticated default; select AES-CBC explicitly for compatibility.
-The length of the key implicitly determines the AES variant used (128 or 256 bits).`,
+		RunE: func(*cobra.Command, []string) error { return nil },
+		Long: "Encrypt and decrypt using standard OpenPGP or Tink streaming AES formats.",
 	}
-	encrypt := newEncryptCmd()
-	decrypt := newDecryptCmd()
-	keygen := newAESKeygenCmd()
-	convert := newAESKeyConvertCmd()
-	inspect := newAESKeyInspectCmd()
+	encrypt, decrypt := newEncryptCmd(), newDecryptCmd()
+	keygen, convert, inspect := newAESKeygenCmd(), newAESKeyConvertCmd(), newAESKeyInspectCmd()
 	aesCmd.AddCommand(encrypt, decrypt, keygen, convert, inspect)
-	lifecycle.Register(keygen, commandio.Behavior{
-		Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput,
-		PreparesOutput: func(*cobra.Command) bool { return true },
-	})
-	lifecycle.Register(convert, commandio.Behavior{
-		Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion,
-		PreparesOutput: func(*cobra.Command) bool { return true },
-	})
-	lifecycle.Register(inspect, commandio.Behavior{
-		Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection,
-		PreparesOutput: func(*cobra.Command) bool { return true },
-	})
+	prepared := func(*cobra.Command) bool { return true }
+	lifecycle.Register(keygen, commandio.Behavior{Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput, PreparesOutput: prepared})
+	lifecycle.Register(convert, commandio.Behavior{Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion, PreparesOutput: prepared})
+	lifecycle.Register(inspect, commandio.Behavior{Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection, PreparesOutput: prepared})
 	for _, command := range []*cobra.Command{encrypt, decrypt} {
-		lifecycle.Register(command, commandio.Behavior{
-			Validate: func(cmd *cobra.Command) error {
-				if err := validateAESFlagsBeforeIO(cmd); err != nil {
-					return fmt.Errorf("validate AES flags: %w", err)
-				}
-				return nil
-			},
-			PrepareInput: func(cmd *cobra.Command) error {
-				key, err := prepareAESKeyBeforeIO(cmd)
-				if err != nil {
-					return fmt.Errorf("validate AES key: %w", err)
-				}
-				cmd.SetContext(context.WithValue(cmd.Context(), aesPreparedKeyContextKey{}, key))
-				return nil
-			},
-		})
+		lifecycle.Register(command, commandio.Behavior{Validate: validateAESFlagsBeforeIO, PrepareInput: prepareAESOperation})
 	}
 	lifecycle.RegisterCompletion(prepareAESCompletion)
 	if err := help.RegisterGuides(aesCmd, aesGuideFiles); err != nil {
@@ -103,162 +82,342 @@ The length of the key implicitly determines the AES variant used (128 or 256 bit
 }
 
 func addKeyFlags(cmd *cobra.Command) {
-	cmd.Flags().BytesBase64P("key", "k", nil, "key as a base64-encoded argument")
-	cmd.Flags().StringP("keyfile", "K", "", "read the raw key from this file")
+	cmd.Flags().BytesBase64P("key", "k", nil, "raw AES key as base64")
+	cmd.Flags().StringP("keyfile", "K", "", "read the AES key or Tink keyset from this file")
+	cmd.Flags().String("key-format", keyFormatRaw, "keyfile format (raw, tink-json, tink-binary)")
+	cmd.Flags().String("key-id", "", "decimal Tink key ID for OpenPGP")
 	if err := cmd.MarkFlagFilename("keyfile"); err != nil {
 		panic(err)
 	}
 	cmd.MarkFlagsMutuallyExclusive("key", "keyfile")
 	cmd.MarkFlagsOneRequired("key", "keyfile")
+	commandio.RegisterFlagCompletion(cmd, "key-format", keyFormatNames)
 }
 
-func addAESCipherFlags(cmd *cobra.Command) {
-	cmd.Flags().String(
-		"cipher-mode",
-		string(aesCipherModeGCM),
-		"AES cipher mode ("+strings.Join(aesCipherModeNames(), ", ")+")",
-	)
-	if err := cmd.RegisterFlagCompletionFunc("cipher-mode", completeAESCipherModes); err != nil {
-		panic(err)
-	}
-	cmd.Flags().String("aad", "", "additional authenticated data for GCM")
+func addAESWireFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP("wire-format", "F", wireOpenPGP, "wire format (openpgp or tink)")
+	cmd.Flags().String("aad", "", "Tink additional authenticated data")
+	cmd.Flags().String("chunk-size", "1MiB", "OpenPGP plaintext chunk or Tink ciphertext segment size")
+	cmd.Flags().String(flagHKDFHash, hashSHA256, "Tink HKDF hash (sha256 or sha512)")
+	cmd.Flags().Int(flagDerivedBits, 0, "Tink derived AES bits (default matches input key)")
+	commandio.RegisterFlagCompletion(cmd, "wire-format", func() []string { return []string{wireOpenPGP, wireTink} })
 	registerAESNoFileFlagCompletion(cmd, "key")
 	registerAESNoFileFlagCompletion(cmd, "aad")
+	registerAESNoFileFlagCompletion(cmd, "chunk-size")
+	commandio.RegisterFlagCompletion(cmd, flagHKDFHash, func() []string { return []string{hashSHA256, hashSHA512} })
 }
 
-func aesCipherModeNames() []string {
-	return slices.Sorted(maps.Keys(aesCipherModes))
-}
-
-func aesCipherModeFromCommand(cmd *cobra.Command) (aesCipherMode, error) {
-	name, err := cmd.Flags().GetString("cipher-mode")
+func getAESString(cmd *cobra.Command, name string) (string, error) {
+	value, err := cmd.Flags().GetString(name)
 	if err != nil {
-		return "", fmt.Errorf("read cipher-mode flag: %w", err)
+		return "", fmt.Errorf("read --%s: %w", name, err)
 	}
-	mode, ok := aesCipherModes[name]
-	if !ok {
-		return "", fmt.Errorf("%w %q (valid: %s)", ErrUnknownAESCipherMode, name, strings.Join(aesCipherModeNames(), ", "))
-	}
-	return mode, nil
+	return value, nil
 }
 
-func aesAADFromCommand(cmd *cobra.Command) ([]byte, error) {
-	aad, err := cmd.Flags().GetString("aad")
+func getAESInt(cmd *cobra.Command, name string) (int, error) {
+	value, err := cmd.Flags().GetInt(name)
 	if err != nil {
-		return nil, fmt.Errorf("read AAD flag: %w", err)
+		return 0, fmt.Errorf("read --%s: %w", name, err)
 	}
-	return []byte(aad), nil
+	return value, nil
 }
 
 func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
-	if cmd.Flags().Lookup("cipher-mode") == nil {
+	wire, err := getAESString(cmd, "wire-format")
+	if err != nil {
+		return err
+	}
+	if wire != wireOpenPGP && wire != wireTink {
+		return fmt.Errorf("%w %q", errAESWireFormat, wire)
+	}
+	format, err := keyFormatFlag(cmd, "key-format")
+	if err != nil {
+		return err
+	}
+	if err := validateAESFormatFlags(cmd, wire, format); err != nil {
+		return err
+	}
+	if err := validateAESChunkFlag(cmd, wire); err != nil {
+		return err
+	}
+	return validateAESKeyOutputCollision(cmd)
+}
+
+func validateAESFormatFlags(cmd *cobra.Command, wire, format string) error {
+	if cmd.Flags().Changed("key") && format != keyFormatRaw {
+		return fmt.Errorf("%w: --key is always raw; --key-format applies to --keyfile", errAESWireFlag)
+	}
+	if cmd.Flags().Changed("key-id") && format == keyFormatRaw {
+		return fmt.Errorf("%w: --key-id requires a Tink keyset", errAESWireFlag)
+	}
+	if wire == wireTink {
+		if cmd.Flags().Changed("key-id") {
+			return fmt.Errorf("%w: --key-id requires OpenPGP", errAESWireFlag)
+		}
 		return nil
 	}
-	mode, err := aesCipherModeFromCommand(cmd)
-	if err != nil {
-		return err
-	}
-	if mode == aesCipherModeCBC && cmd.Flags().Changed("aad") {
-		return ErrAADCipherMode
-	}
-	if mode == aesCipherModeGCM && cmd.Flags().Changed("iv") {
-		return ErrIVCipherMode
-	}
-	if err := validateAESStreamFlags(cmd, mode); err != nil {
-		return err
-	}
-	keyfile, err := cmd.Flags().GetString("keyfile")
-	if err != nil {
-		return fmt.Errorf("read keyfile flag: %w", err)
-	}
-	output, err := cmd.Flags().GetString("output")
-	if err != nil {
-		return fmt.Errorf("read output flag: %w", err)
-	}
-	if keyfile != "" && output != "" {
-		same, err := artifact.SamePath(keyfile, output)
-		if err != nil {
-			return err
+	for _, name := range []string{"aad", flagHKDFHash, flagDerivedBits} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("%w: --%s requires Tink", errAESWireFlag, name)
 		}
-		if same {
-			return fmt.Errorf("%w: --keyfile %q and --output %q", ErrAESKeyOutputCollision, keyfile, output)
-		}
+	}
+	if format != keyFormatRaw && !cmd.Flags().Changed("key-id") {
+		return fmt.Errorf("%w: OpenPGP keyset use requires --key-id", errAESWireFlag)
+	}
+	if cmd.Name() == commandDecrypt && cmd.Flags().Changed("chunk-size") {
+		return fmt.Errorf("%w: OpenPGP decryption reads --chunk-size from the packet", errAESWireFlag)
 	}
 	return nil
 }
 
-func getKey(cmd *cobra.Command) ([]byte, error) {
-	if key, ok := cmd.Context().Value(aesPreparedKeyContextKey{}).([]byte); ok {
-		return key, nil
+func validateAESChunkFlag(cmd *cobra.Command, wire string) error {
+	value, err := getAESString(cmd, "chunk-size")
+	if err != nil {
+		return err
 	}
-	return readAESKey(cmd)
+	chunk, err := parseAESChunkSize(value)
+	if err != nil {
+		return err
+	}
+	if wire == wireOpenPGP && (chunk > crypter.MaxOpenPGPChunkSize || chunk&(chunk-1) != 0) {
+		return fmt.Errorf("%w: OpenPGP chunk size must be a power of two from 64B through 4MiB", errAESWireFlag)
+	}
+	return nil
 }
 
-type aesPreparedKeyContextKey struct{}
-
-func prepareAESKeyBeforeIO(cmd *cobra.Command) ([]byte, error) {
-	if !isAESOperation(cmd) {
-		return nil, nil
-	}
-	key, err := readAESKey(cmd)
+func validateAESKeyOutputCollision(cmd *cobra.Command) error {
+	keyfile, err := getAESString(cmd, "keyfile")
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if len(key) != 16 && len(key) != 32 {
-		return nil, fmt.Errorf("%w: %w", crypter.ErrInvalidAESKeySize, aes.KeySizeError(len(key)))
-	}
-	return key, nil
-}
-
-func readAESKey(cmd *cobra.Command) ([]byte, error) {
-	keyFlag := cmd.Flags().Lookup("key")
-	keyFileFlag := cmd.Flags().Lookup("keyfile")
-	if keyFlag.Changed == keyFileFlag.Changed {
-		return nil, errKeySelection
-	}
-
-	if keyFlag.Changed {
-		key, err := cmd.Flags().GetBytesBase64("key")
-		if err != nil {
-			return nil, fmt.Errorf("read key flag: %w", err)
-		}
-		return key, nil
-	}
-
-	keyFilePath, err := cmd.Flags().GetString("keyfile")
+	output, err := getAESString(cmd, "output")
 	if err != nil {
-		return nil, fmt.Errorf("read keyfile flag: %w", err)
+		return err
 	}
-	// The path is intentionally supplied by the CLI user.
-	key, err := artifact.ReadFile(keyFilePath, artifact.MaxAESKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("read keyfile %q: %w", keyFilePath, err)
-	}
-	return key, nil
-}
-
-func validateAESStreamFlags(cmd *cobra.Command, mode aesCipherMode) error {
-	if rawFlag := cmd.Flags().Lookup("raw"); rawFlag != nil && rawFlag.Changed && mode == aesCipherModeCBC {
-		return errRawCipherMode
-	}
-	chunkFlag := cmd.Flags().Lookup("chunk-size")
-	if chunkFlag == nil {
+	if keyfile == "" || output == "" {
 		return nil
 	}
-	if chunkFlag.Changed && mode == aesCipherModeCBC {
-		return errChunkCipherMode
-	}
-	raw, err := cmd.Flags().GetBool("raw")
+	same, err := artifact.SamePath(keyfile, output)
 	if err != nil {
-		return fmt.Errorf("read raw flag: %w", err)
+		return err
 	}
-	if chunkFlag.Changed && raw {
-		return errRawChunkSize
+	if same {
+		return fmt.Errorf("%w: --keyfile %q and --output %q", ErrAESKeyOutputCollision, keyfile, output)
 	}
-	value, err := cmd.Flags().GetString("chunk-size")
+	return nil
+}
+
+func prepareAESOperation(cmd *cobra.Command) error {
+	wire, err := getAESString(cmd, "wire-format")
 	if err != nil {
-		return fmt.Errorf("read chunk-size flag: %w", err)
+		return err
 	}
-	_, err = parseAESChunkSize(value)
-	return err
+	chunkText, err := getAESString(cmd, "chunk-size")
+	if err != nil {
+		return err
+	}
+	chunk, err := parseAESChunkSize(chunkText)
+	if err != nil {
+		return err
+	}
+	aadText, err := getAESString(cmd, "aad")
+	if err != nil {
+		return err
+	}
+	op := &aesOperation{wire: wire, chunk: chunk, aad: []byte(aadText)}
+	key, handle, err := readAESOperationKey(cmd)
+	if err != nil {
+		return err
+	}
+	if err := prepareAESPrimitive(cmd, op, key, handle); err != nil {
+		return err
+	}
+	if cmd.Name() == commandDecrypt {
+		if err := prepareAESDecryptInput(cmd, op); err != nil {
+			return err
+		}
+	}
+	cmd.SetContext(context.WithValue(cmd.Context(), aesOperationContextKey{}, op))
+	return nil
+}
+
+func readAESOperationKey(cmd *cobra.Command) ([]byte, *keyset.Handle, error) {
+	if cmd.Flags().Changed("key") {
+		key, err := cmd.Flags().GetBytesBase64("key")
+		if err != nil {
+			return nil, nil, fmt.Errorf("read --key: %w", err)
+		}
+		return key, nil, nil
+	}
+	path, err := getAESString(cmd, "keyfile")
+	if err != nil {
+		return nil, nil, err
+	}
+	format, err := keyFormatFlag(cmd, "key-format")
+	if err != nil {
+		return nil, nil, err
+	}
+	limit := artifact.MaxAESKeyBytes
+	if format != keyFormatRaw {
+		limit = artifact.MaxKeyBytes
+	}
+	data, err := artifact.ReadFile(path, limit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read AES keyfile %q: %w", path, err)
+	}
+	if format == keyFormatRaw {
+		return data, nil, nil
+	}
+	handle, err := symkey.Read(data, format)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, handle, nil
+}
+
+func prepareAESPrimitive(cmd *cobra.Command, op *aesOperation, key []byte, handle *keyset.Handle) error {
+	if handle != nil {
+		if op.wire == wireTink {
+			return prepareTinkKeyset(cmd, op, handle)
+		}
+		idText, err := getAESString(cmd, "key-id")
+		if err != nil {
+			return err
+		}
+		id, err := strconv.ParseUint(idText, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid decimal key ID %q: %w", idText, err)
+		}
+		selected := uint32(id)
+		key, err = symkey.Raw(handle, &selected)
+		if err != nil {
+			return err
+		}
+	}
+	if len(key) != 16 && len(key) != 32 {
+		return fmt.Errorf("%w: %w", crypter.ErrInvalidAESKeySize, aes.KeySizeError(len(key)))
+	}
+	op.key = key
+	if op.wire == wireTink {
+		return prepareRawTink(cmd, op)
+	}
+	return nil
+}
+
+func prepareTinkKeyset(cmd *cobra.Command, op *aesOperation, handle *keyset.Handle) error {
+	params, err := symkey.PrimaryParameters(handle)
+	if err != nil {
+		return err
+	}
+	if err := checkTinkKeysetFlags(cmd, params); err != nil {
+		return err
+	}
+	op.primitive, err = streamingaead.New(handle)
+	if err != nil {
+		return fmt.Errorf("prepare Tink keyset: %w", err)
+	}
+	return nil
+}
+
+func prepareRawTink(cmd *cobra.Command, op *aesOperation) error {
+	params, err := tinkRawParams(cmd, op.chunk, len(op.key)*8)
+	if err != nil {
+		return err
+	}
+	hash := "SHA256"
+	if params.Hash == commonpb.HashType_SHA512 {
+		hash = "SHA512"
+	}
+	op.primitive, err = subtle.NewAESGCMHKDF(op.key, hash, params.DerivedKeyBits/8, int(params.SegmentSize), 0)
+	if err != nil {
+		return fmt.Errorf("prepare Tink key: %w", err)
+	}
+	return nil
+}
+
+func prepareAESDecryptInput(cmd *cobra.Command, op *aesOperation) error {
+	input, err := commandio.CommandInput(cmd, cmd.Flags().Args())
+	if err != nil {
+		return err
+	}
+	op.input = input
+	if op.wire == wireOpenPGP {
+		op.pgp, err = crypter.PrepareOpenPGP(op.key, input)
+		return err
+	}
+	reader, err := op.primitive.NewDecryptingReader(input, op.aad)
+	if err != nil {
+		return fmt.Errorf("read Tink header: %w", err)
+	}
+	// Keysets match a key on the first read, which also authenticates the first
+	// segment, so perform it before output is opened and replay its bytes.
+	first := make([]byte, 512)
+	n, err := reader.Read(first)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("decrypt Tink stream: %w", err)
+	}
+	op.tinkReader = io.MultiReader(bytes.NewReader(first[:n]), reader)
+	return nil
+}
+
+func tinkRawParams(cmd *cobra.Command, chunk uint32, bits int) (symkey.Parameters, error) {
+	hashName, err := getAESString(cmd, flagHKDFHash)
+	if err != nil {
+		return symkey.Parameters{}, err
+	}
+	hash, err := parseTinkHash(hashName)
+	if err != nil {
+		return symkey.Parameters{}, err
+	}
+	derived, err := getAESInt(cmd, flagDerivedBits)
+	if err != nil {
+		return symkey.Parameters{}, err
+	}
+	if derived == 0 {
+		derived = bits
+	}
+	if err := validateTinkDerived(derived, bits, chunk); err != nil {
+		return symkey.Parameters{}, err
+	}
+	return symkey.Parameters{SegmentSize: chunk, Hash: hash, DerivedKeyBits: derived}, nil
+}
+
+func checkTinkKeysetFlags(cmd *cobra.Command, params symkey.Parameters) error {
+	if cmd.Flags().Changed("chunk-size") {
+		text, err := getAESString(cmd, "chunk-size")
+		if err != nil {
+			return err
+		}
+		size, err := parseAESChunkSize(text)
+		if err != nil {
+			return err
+		}
+		if size != params.SegmentSize {
+			return fmt.Errorf("%w: --chunk-size conflicts with Tink keyset", errAESWireFlag)
+		}
+	}
+	if cmd.Flags().Changed(flagHKDFHash) {
+		text, err := getAESString(cmd, flagHKDFHash)
+		if err != nil {
+			return err
+		}
+		hash, err := parseTinkHash(text)
+		if err != nil {
+			return err
+		}
+		if hash != params.Hash {
+			return fmt.Errorf("%w: --hkdf-hash conflicts with Tink keyset", errAESWireFlag)
+		}
+	}
+	if cmd.Flags().Changed(flagDerivedBits) {
+		bits, err := getAESInt(cmd, flagDerivedBits)
+		if err != nil {
+			return err
+		}
+		if bits != params.DerivedKeyBits {
+			return fmt.Errorf("%w: --derived-key-bits conflicts with Tink keyset", errAESWireFlag)
+		}
+	}
+	return nil
 }

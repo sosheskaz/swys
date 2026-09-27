@@ -17,7 +17,7 @@ It uses Cobra; `mise.toml` defines the toolchain and task configuration.
 - `cmd/internal/testcmd/` contains test-only command harnesses and is not a
   production dependency.
   External test packages may use `cmd.NewCommand` to exercise the full CLI.
-- `internal/crypter/` implements AES streaming, raw GCM, and CBC.
+- `internal/crypter/` implements standard OpenPGP and Tink AES streaming.
 - `internal/asym/` handles asymmetric keys and X.509 parsing, creation,
   verification, and formatting.
 - `internal/netconn/` provides connection setup and stream/datagram transport;
@@ -67,15 +67,11 @@ and race tests for concurrency or subprocess work.
 
 ## Cryptographic and I/O contracts
 
-- Default AES encryption uses the versioned AES-GCM-HKDF stream documented in
-  [docs/aes-stream-v1.md](docs/aes-stream-v1.md). Authentication is per segment;
-  earlier authenticated plaintext may remain after a later failure. Test that
-  unauthenticated segments emit no plaintext; do not require whole-stream
-  rollback of authenticated output.
-- `--raw` selects legacy single-message GCM, with a 64 MiB plaintext limit and
-  whole-message authentication before plaintext output.
-- CBC is an explicit, unauthenticated compatibility mode. Keep its I/O
-  streaming and preserve its wire-format and padding behavior.
+- Default AES encryption uses binary OpenPGP RFC 9580 AES-GCM. `--wire-format
+tink` selects native Tink AES-GCM-HKDF. Decryption requires explicit format
+  selection and verifies final authentication and EOF. Earlier authenticated
+  plaintext may remain after a later failure.
+- Historical NPC v1/v2, raw GCM, and CBC ciphertext require an older binary.
 - Preserve the distinction between borrowed and owned inputs in
   `internal/contextio/`: cancellation must not close a borrowed input.
 - Support performance claims with representative before-and-after benchmarks.

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	rootcmd "github.com/sosheskaz-systems/npc/cmd"
+	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 )
 
 func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
@@ -20,18 +21,12 @@ func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
 		unwanted string
 		args     []string
 	}{
-		{name: "CBC hides AAD", args: []string{"aes", "encrypt", "--key", "AA==", "--cipher-mode", "cbc", "--"}, want: "--iv", unwanted: "--aad"},
-		{name: "GCM hides IV", args: []string{"aes", "encrypt", "--key", "AA==", "--cipher-mode", "gcm", "--"}, want: "--aad", unwanted: "--iv"},
-		{name: "default GCM hides IV", args: []string{"aes", "encrypt", "--key", "AA==", "--"}, want: "--aad", unwanted: "--iv"},
-		{name: "empty AAD before mode hides IV", args: []string{"aes", "e", "--key", "AA==", "--aad=", "--"}, want: "--cipher-mode", unwanted: "--iv"},
-		{name: "empty IV before mode hides AAD", args: []string{"aes", "enc", "--key", "AA==", "--iv=", "--"}, want: "--cipher-mode", unwanted: "--aad"},
+		{name: "default OpenPGP hides external AAD", args: []string{"aes", "encrypt", "--key", "AA==", "--"}, want: "--key-id", unwanted: "--aad"},
 		{
-			name:     "last repeated mode wins",
-			want:     "--iv",
-			unwanted: "--aad",
-			args:     []string{"aes", "encrypt", "--key", "AA==", "--cipher-mode", "gcm", "--cipher-mode", "cbc", "--"},
+			name: "Tink hides OpenPGP key selection", want: "--aad", unwanted: "--key-id",
+			args: []string{"aes", "encrypt", "--key", "AA==", "--wire-format", "tink", "--"},
 		},
-		{name: "decrypt CBC hides AAD", args: []string{"aes", "dec", "--cipher-mode", "cbc", "--"}, want: "--key", unwanted: "--aad"},
+		{name: "decryption offers wire selection", args: []string{"aes", "decrypt", "--key", "AA==", "--"}, want: "--wire-format", unwanted: "--hkdf-hash"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -58,7 +53,7 @@ func TestAESCompletionSuppressesFilesForLiteralValues(t *testing.T) {
 		{name: "ciphertext", args: []string{"aes", "decrypt", "--key", "AA==", "cipher"}},
 		{name: "key", args: []string{"aes", "encrypt", "--key", ""}},
 		{name: "AAD", args: []string{"aes", "decrypt", "--aad", ""}},
-		{name: "IV", args: []string{"aes", "encrypt", "--cipher-mode", "cbc", "--iv", ""}},
+		{name: "wire format", args: []string{"aes", "encrypt", "--wire-format", ""}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,4 +97,29 @@ func TestAESKeygenBitsCompletion(t *testing.T) {
 	assertCompletionLine(t, output, "128")
 	assertCompletionLine(t, output, "256")
 	assertCompletionDirective(t, output, ":4")
+}
+
+func completeRoot(t *testing.T, args ...string) string {
+	t.Helper()
+	output, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, append([]string{"__complete"}, args...)...)
+	require.NoError(t, err)
+	return string(output)
+}
+
+func assertCompletionLine(t *testing.T, output, want string) {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		if line == want {
+			return
+		}
+	}
+	t.Fatalf("completion output %q does not contain line %q", output, want)
+}
+
+func assertCompletionDirective(t *testing.T, output, want string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) == 0 || lines[len(lines)-1] != want {
+		t.Fatalf("completion output %q has no directive %q", output, want)
+	}
 }

@@ -1,3 +1,5 @@
+> Historical format: current NPC AES commands no longer read or write this format. Use an older NPC binary for recovery.
+
 # NPC AES stream format, version 1
 
 The default `npc aes encrypt` output is a 16-byte NPC envelope header followed

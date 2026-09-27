@@ -21,7 +21,10 @@ import (
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
 
-const aesKeyfileOrderProcessEnv = "NPC_AES_KEYFILE_ORDER_PROCESS"
+const (
+	aesKeyfileOrderProcessEnv = "NPC_AES_KEYFILE_ORDER_PROCESS"
+	testPreservedOutput       = "preserve this output"
+)
 
 func TestAESValidKeyfileFIFOIsReadOnce(t *testing.T) {
 	t.Parallel()

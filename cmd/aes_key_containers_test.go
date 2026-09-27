@@ -90,7 +90,7 @@ func TestAESKeyContainerPreservesMultipleKeysAndRequiresSelectionForRawExport(t 
 	require.NoError(t, err)
 	_, err = streamingaead.New(fixtureHandle)
 	require.NoError(t, err, "test fixture must instantiate Tink's native streaming primitive")
-	input := writeAESKeysetFixture(t, ks, "tink-json")
+	input := writeAESKeysetFixture(t, ks)
 	binaryPath := filepath.Join(t.TempDir(), "converted.bin")
 	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-convert", "--from", "tink-json", "--to", "tink-binary", "--input", input, "--output", binaryPath)
@@ -259,7 +259,7 @@ func TestAESKeyInspectionOmitsSecretAndUsesNormalFormats(t *testing.T) {
 	t.Parallel()
 	material := bytes.Repeat([]byte("private!"), 4)
 	ks := &tink_go_proto.Keyset{PrimaryKeyId: 101, Key: []*tink_go_proto.Keyset_Key{fixtureAESKey(t, 101, material, tink_go_proto.KeyStatusType_ENABLED)}}
-	input := writeAESKeysetFixture(t, ks, "tink-json")
+	input := writeAESKeysetFixture(t, ks)
 	for _, format := range []string{"text", "json"} {
 		t.Run(format, func(t *testing.T) {
 			t.Parallel()
@@ -375,21 +375,10 @@ func jsonAESFixture(t *testing.T, ks *tink_go_proto.Keyset) []byte {
 	return data
 }
 
-func writeAESKeysetFixture(t *testing.T, ks *tink_go_proto.Keyset, format string) string {
+func writeAESKeysetFixture(t *testing.T, ks *tink_go_proto.Keyset) string {
 	t.Helper()
-	var data []byte
-	var err error
-	switch format {
-	case "tink-json":
-		data = jsonAESFixture(t, ks)
-	case "tink-binary":
-		data, err = proto.Marshal(ks)
-	default:
-		t.Fatalf("unknown fixture format %q", format)
-	}
-	require.NoError(t, err)
-	path := filepath.Join(t.TempDir(), "keyset-"+format)
-	require.NoError(t, os.WriteFile(path, data, 0o600))
+	path := filepath.Join(t.TempDir(), "keyset.json")
+	require.NoError(t, os.WriteFile(path, jsonAESFixture(t, ks), 0o600))
 	return path
 }
 

@@ -55,11 +55,11 @@ func TestIndependentCommandCompletion(t *testing.T) {
 	for range 8 {
 		t.Run("completion", func(t *testing.T) {
 			t.Parallel()
-			stdout, _, err := executeRootStreams(t, "__complete", "aes", "encrypt", "--cipher-mode", "")
+			stdout, _, err := executeRootStreams(t, "__complete", "aes", "encrypt", "--wire-format", "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if stdout != "cbc\tcompatibility mode\ngcm\tauthenticated default\n:4\n" {
+			if !strings.Contains(stdout, "openpgp") || !strings.Contains(stdout, "tink") || !strings.HasSuffix(stdout, ":4\n") {
 				t.Fatalf("completion = %q, want values and no-file directive", stdout)
 			}
 			stdout, _, err = executeRootStreams(t, "__complete", "cert", "keygen", "")

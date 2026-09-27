@@ -1,36 +1,29 @@
 # Encrypt and decrypt with AES
 
-Use the AES family to generate keys or work with a 128-bit or 256-bit symmetric key. AES-GCM-HKDF streaming is the authenticated default. AES-CBC remains available for compatibility with systems that require it.
+Use a raw 128-bit or 256-bit AES key or a cleartext Tink streaming keyset. Encryption defaults to binary OpenPGP RFC 9580 AES-GCM. Select --wire-format tink for native Tink AES-GCM-HKDF streams.
 
 ## Choose an operation
 
-- **keygen** creates a raw AES key or cleartext Tink streaming keyset.
+- **keygen** creates a raw AES key or cleartext Tink keyset.
 - **key-convert** converts raw keys and Tink JSON or binary keysets.
-- **key-inspect** shows key metadata without revealing material.
-- **encrypt** protects plaintext with a supplied key.
-- **decrypt** opens ciphertext made with the same mode, key, and additional data.
+- **key-inspect** shows key metadata without revealing key material.
+- **encrypt** protects plaintext in the selected standard wire format.
+- **decrypt** opens ciphertext in the explicitly selected wire format.
 
-## Start with an authenticated stream
+## Start with a raw key
 
 ```sh
 npc aes keygen --output key.bin
-printf 'secret message' | npc aes encrypt --keyfile key.bin --output message.gcm
-npc aes decrypt --keyfile key.bin --input message.gcm
+printf 'secret message' | npc aes encrypt --keyfile key.bin --output message.pgp
+npc aes decrypt --keyfile key.bin --input message.pgp
 ```
 
-Keep the key separate from ciphertext. Encryption uses a fresh Tink stream header. The default maximum plaintext chunk is 1 MiB; use --chunk-size on encryption to change it. Decryption reads that size from the stream. Streams have a finite segment-count limit and buffer segments with lookahead, so they do not provide interactive flush timing.
+OpenPGP records a power-of-two chunk size from 64 bytes through 4 MiB; the default is 1 MiB. Tink uses ciphertext segments from 64 bytes through 64 MiB. Tink keyset parameters are authoritative. An explicit conflicting override is rejected.
 
-Existing single-message GCM ciphertext requires --raw on decryption. Use --raw on encryption to create that legacy format. Raw mode retains a 64 MiB message limit.
+Historical NPC v1/v2 streams, raw GCM messages, and CBC ciphertext require an older NPC binary. There is no format detection or authentication-failure fallback.
 
-AES-192 keys are not supported because NPC's Tink AES-GCM-HKDF streaming primitive supports only 128-bit and 256-bit derived AES keys. NPC uses matching key sizes for streaming and applies those sizes to key generation, raw GCM, and CBC as well, keeping keys usable across its AES modes. Go's standard AES implementation supports 192-bit keys; the common size restriction is an NPC compatibility choice.
-
-## Next steps
+## Reference
 
 ```sh
-npc help aes encrypt
-npc help aes decrypt
-npc help aes keygen
-npc help aes key-convert
-npc help aes key-inspect
 npc aes --help
 ```
