@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,9 +22,7 @@ func TestGRPCCompletionUsesSeparateTwoSecondDeadline(t *testing.T) {
 	values, directive := completeGRPCCommand(t, address, "--plaintext", "--timeout", "50ms", "")
 	elapsed := time.Since(started)
 
-	if len(values) != 0 {
-		t.Fatalf("timed-out completion = %q, want no candidates", values)
-	}
+	require.Empty(t, values)
 	assertGRPCCompletionDirective(t, directive)
 	if elapsed < 1500*time.Millisecond || elapsed > 3*time.Second {
 		t.Fatalf("completion elapsed = %v, want separate two-second deadline", elapsed)
@@ -57,9 +54,7 @@ func TestGRPCCompletionHonorsEarlierParentCancellation(t *testing.T) {
 	elapsed := time.Since(started)
 	<-cancelDone
 
-	if len(values) != 0 {
-		t.Fatalf("canceled completion = %q, want no candidates", values)
-	}
+	require.Empty(t, values)
 	assertGRPCCompletionDirective(t, directive)
 	if elapsed > time.Second {
 		t.Fatalf("parent-canceled completion elapsed = %v, want under one second", elapsed)
@@ -97,9 +92,7 @@ func TestGRPCCompletionFailuresAreQuiet(t *testing.T) {
 				"--plaintext",
 				"fixture.",
 			)
-			if len(values) != 0 {
-				t.Fatalf("failed completion = %q, want no candidates", values)
-			}
+			require.Empty(t, values)
 			assertGRPCCompletionDirective(t, directive)
 			assertQuietGRPCCompletionFailure(t, stderr)
 		})
@@ -127,12 +120,8 @@ func TestGRPCCompletionReusesTLSAndAuthentication(t *testing.T) {
 		t.Fatalf("run authenticated discovery command: %v", err)
 	}
 	_, _, commandMetadata := commandRecord.snapshot()
-	if got := commandMetadata.Get("authorization"); !slices.Equal(got, []string{authorization}) {
-		t.Fatalf("command authorization = %q, want one metadata value", got)
-	}
-	if got := commandMetadata.Get("x-completion-test"); !slices.Equal(got, []string{"one", "two"}) {
-		t.Fatalf("command repeated metadata = %q, want both values once and in order", got)
-	}
+	require.Equal(t, []string{authorization}, commandMetadata.Get("authorization"))
+	require.Equal(t, []string{"one", "two"}, commandMetadata.Get("x-completion-test"))
 
 	address, caPath, record := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 	flags := []string{
@@ -146,26 +135,16 @@ func TestGRPCCompletionReusesTLSAndAuthentication(t *testing.T) {
 	services, _ := completeGRPCCommand(t, append(serviceArgs, "fixture.v1.E")...)
 	assertGRPCCompletion(t, services, grpcFixtureServiceName+"/")
 	_, _, listMetadata := record.snapshot()
-	if got := listMetadata.Get("authorization"); !slices.Equal(got, []string{authorization}) {
-		t.Fatalf("list reflection authorization = %q, want propagated metadata", got)
-	}
-	if got := listMetadata.Get("x-completion-test"); !slices.Equal(got, []string{"one", "two"}) {
-		t.Fatalf("list reflection repeated metadata = %q, want both values once and in order", got)
-	}
+	require.Equal(t, []string{authorization}, listMetadata.Get("authorization"))
+	require.Equal(t, []string{"one", "two"}, listMetadata.Get("x-completion-test"))
 
 	methodArgs := append([]string{address}, flags...)
 	methods, _ := completeGRPCCommand(t, append(methodArgs, grpcFixtureServiceName+"/E")...)
 	assertGRPCCompletion(t, methods, grpcFixtureMethodName)
 	calls, _, descriptorMetadata := record.snapshot()
-	if got := descriptorMetadata.Get("authorization"); !slices.Equal(got, []string{authorization}) {
-		t.Fatalf("descriptor reflection authorization = %q, want propagated metadata", got)
-	}
-	if got := descriptorMetadata.Get("x-completion-test"); !slices.Equal(got, []string{"one", "two"}) {
-		t.Fatalf("descriptor reflection repeated metadata = %q, want both values once and in order", got)
-	}
-	if calls != 0 {
-		t.Fatalf("authenticated completion invoked %d application RPCs, want none", calls)
-	}
+	require.Equal(t, []string{authorization}, descriptorMetadata.Get("authorization"))
+	require.Equal(t, []string{"one", "two"}, descriptorMetadata.Get("x-completion-test"))
+	require.Equal(t, 0, calls, "application RPC calls")
 	if v1Calls, alphaCalls := record.reflectionCounts(); v1Calls != 3 || alphaCalls != 0 {
 		t.Fatalf("reflection calls v1=%d v1alpha=%d, want three TLS v1 requests", v1Calls, alphaCalls)
 	}
@@ -189,9 +168,7 @@ func TestGRPCCompletionRejectsUntrustedServiceNames(t *testing.T) {
 	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionUntrustedNamesV1, false)
 	values, directive := completeGRPCCommand(t, address, "--plaintext", "")
 	assertGRPCCompletionDirective(t, directive)
-	if !slices.Equal(values, []string{grpcFixtureServiceName + "/"}) {
-		t.Fatalf("completion from untrusted service names = %q, want only the valid service", values)
-	}
+	require.Equal(t, []string{grpcFixtureServiceName + "/"}, values)
 }
 
 func TestGRPCCompletionDoesNotPrepareCommandIO(t *testing.T) {
@@ -216,16 +193,12 @@ func TestGRPCCompletionDoesNotPrepareCommandIO(t *testing.T) {
 	)
 	assertGRPCCompletion(t, values, grpcFixtureMethodName)
 	assertGRPCCompletionDirective(t, directive)
-	if reads := input.reads.Load(); reads != 0 {
-		t.Fatalf("completion read stdin %d times, want none", reads)
-	}
+	require.Zero(t, input.reads.Load(), "stdin reads")
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatalf("completion prepared output file: %v", err)
 	}
 	calls, _, _ := record.snapshot()
-	if calls != 0 {
-		t.Fatalf("completion invoked %d application RPCs, want none", calls)
-	}
+	require.Equal(t, 0, calls, "application RPC calls")
 }
 
 func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
@@ -280,16 +253,12 @@ func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
 			)
 
 			values, directive, stderr := completeGRPCCommandWithRoot(t, root, args...)
-			if len(values) != 0 {
-				t.Errorf("invalid TLS completion = %q, want no candidates", values)
-			}
+			assert.Empty(t, values)
 			if directive&cobra.ShellCompDirectiveNoFileComp == 0 {
 				t.Errorf("completion directive = %v, want no filename fallback", directive)
 			}
 			assertQuietGRPCCompletionFailure(t, stderr)
-			if reads := input.reads.Load(); reads != 0 {
-				t.Errorf("invalid TLS completion read stdin %d times", reads)
-			}
+			assert.Zero(t, input.reads.Load(), "stdin reads")
 			if _, err := os.Stat(output); !os.IsNotExist(err) {
 				t.Errorf("invalid TLS completion prepared output file: %v", err)
 			}

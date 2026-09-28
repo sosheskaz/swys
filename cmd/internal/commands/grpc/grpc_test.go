@@ -94,9 +94,7 @@ func TestGRPCDiscoverySelectors(t *testing.T) {
 				}
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			for _, value := range test.want {
 				assert.Contains(t, stdout, value)
 			}
@@ -146,9 +144,9 @@ func TestGRPCCommandContract(t *testing.T) {
 	t.Parallel()
 	root := newRootCmd()
 	command, _, err := root.Find([]string{"grpc"})
-	if err != nil || command == nil || command.Name() != "grpc" {
-		t.Fatalf("find grpc command: command=%v error=%v", command, err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, command)
+	require.Equal(t, "grpc", command.Name())
 	for _, test := range []struct {
 		name      string
 		shorthand string
@@ -164,14 +162,10 @@ func TestGRPCCommandContract(t *testing.T) {
 		if flag == nil {
 			flag = command.PersistentFlags().Lookup(test.name)
 		}
-		if flag == nil {
-			t.Fatalf("--%s is missing", test.name)
-		}
-		if flag.Shorthand != test.shorthand {
-			t.Fatalf("--%s shorthand = %q, want %q", test.name, flag.Shorthand, test.shorthand)
-		}
-		if test.value != "" && flag.DefValue != test.value {
-			t.Fatalf("--%s default = %q, want %q", test.name, flag.DefValue, test.value)
+		require.NotNil(t, flag, "--%s", test.name)
+		require.Equal(t, test.shorthand, flag.Shorthand, "--%s shorthand", test.name)
+		if test.value != "" {
+			require.Equal(t, test.value, flag.DefValue, "--%s default", test.name)
 		}
 	}
 }
@@ -369,13 +363,9 @@ func TestGRPCRequestJSONIsStrictAndNeverInvokesOnInvalidInput(t *testing.T) {
 			t.Parallel()
 			address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
 			_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "-d", test.json)
-			if err == nil {
-				t.Fatal("invalid request succeeded")
-			}
+			require.Error(t, err, "invalid request succeeded")
 			calls, _, _ := record.snapshot()
-			if calls != 0 {
-				t.Fatalf("invalid request invoked service %d times", calls)
-			}
+			require.Equal(t, 0, calls, "application RPC calls")
 		})
 	}
 }
@@ -400,16 +390,12 @@ func TestGRPCEmptyInputMeansEmptyObject(t *testing.T) {
 				args = append(args, "-d", "")
 			}
 			stdout, _, err := executeRootCommandStreams(t, root, args...)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if strings.TrimSpace(stdout) != "{}" {
 				t.Fatalf("response = %q, want empty protobuf JSON object", stdout)
 			}
 			calls, _, _ := record.snapshot()
-			if calls != 1 {
-				t.Fatalf("calls = %d, want one", calls)
-			}
+			require.Equal(t, 1, calls, "application RPC calls")
 		})
 	}
 }
@@ -447,9 +433,7 @@ func TestGRPCImplicitTerminalInputMeansEmptyObject(t *testing.T) {
 				args = append(args, "--input", "-")
 			}
 			stdout, _, err := executeRootCommandStreams(t, root, args...)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if test.wantText == "" {
 				if strings.TrimSpace(stdout) != "{}" {
 					t.Fatalf("implicit terminal response = %q, want empty protobuf JSON object", stdout)
@@ -458,9 +442,7 @@ func TestGRPCImplicitTerminalInputMeansEmptyObject(t *testing.T) {
 				assert.Contains(t, stdout, test.wantText)
 			}
 			calls, _, _ := record.snapshot()
-			if calls != 1 {
-				t.Fatalf("calls = %d, want one", calls)
-			}
+			require.Equal(t, 1, calls, "application RPC calls")
 		})
 	}
 }
@@ -558,9 +540,7 @@ func TestGRPCReflectionCancellationReturnsParentContextError(t *testing.T) {
 		t.Fatal("parent cancellation did not reach reflection stream")
 	}
 	calls, _, _ := record.snapshot()
-	if calls != 0 {
-		t.Fatalf("parent cancellation invoked unary service %d times", calls)
-	}
+	require.Equal(t, 0, calls, "application RPC calls")
 }
 
 func TestGRPCReflectionEOFWithLiveContextRemainsEOF(t *testing.T) {
@@ -576,9 +556,7 @@ func TestGRPCReflectionEOFWithLiveContextRemainsEOF(t *testing.T) {
 		t.Fatalf("live reflection stream error = %v, do not want %v", err, context.Canceled)
 	}
 	calls, _, _ := record.snapshot()
-	if calls != 0 {
-		t.Fatalf("live reflection EOF invoked unary service %d times", calls)
-	}
+	require.Equal(t, 0, calls, "application RPC calls")
 }
 
 func TestGRPCRequestInputHonorsParentCancellationCauseWithoutClosingBorrowedReader(t *testing.T) {
@@ -640,9 +618,7 @@ func TestGRPCRequestInputHonorsParentCancellationCauseWithoutClosingBorrowedRead
 	}
 	content, err := os.ReadFile(output)
 	require.NoError(t, err)
-	if string(content) != "preserve" {
-		t.Fatalf("canceled input changed output to %q", content)
-	}
+	require.Equal(t, "preserve", string(content), "preserved file content")
 }
 
 func TestDialGRPCCanonicalTargetUsesDNSNamespaceForHostPort(t *testing.T) {
@@ -688,9 +664,7 @@ func TestGRPCInvokesUnaryMethodOverIPv6(t *testing.T) {
 	require.NoError(t, err, "invoke gRPC fixture over IPv6: %v", err)
 	assert.Contains(t, stdout, "IPv6")
 	calls, _, _ := record.snapshot()
-	if calls != 1 {
-		t.Fatalf("IPv6 fixture calls = %d, want one", calls)
-	}
+	require.Equal(t, 1, calls, "application RPC calls")
 }
 
 func TestGRPCReflectionDetailsReadsTrailersOnlyAfterReceiveError(t *testing.T) {
@@ -811,9 +785,7 @@ func TestGRPCEndpointRejectsControlCharacters(t *testing.T) {
 				}
 				return
 			}
-			if !errors.Is(err, errInvalidGRPCOptions) {
-				t.Fatalf("endpoint %q error = %v, want errInvalidGRPCOptions", test.endpoint, err)
-			}
+			require.ErrorIs(t, err, errInvalidGRPCOptions)
 		})
 	}
 }
@@ -853,14 +825,10 @@ func TestGRPCReadsRequestFromStdinOrInputFile(t *testing.T) {
 			args := []string{"grpc", address, grpcFixtureMethodName, "--plaintext"}
 			args = append(args, test.configure(t, root)...)
 			stdout, _, err := executeRootCommandStreams(t, root, args...)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assert.Contains(t, stdout, test.want)
 			calls, _, _ := record.snapshot()
-			if calls != 1 {
-				t.Fatalf("calls = %d, want one", calls)
-			}
+			require.Equal(t, 1, calls, "application RPC calls")
 		})
 	}
 }
@@ -887,14 +855,10 @@ func TestGRPCExplicitStdinWithOutputAndFileAliasValidation(t *testing.T) {
 			t.Fatalf("captured stdout=%q stderr=%q, want redirected output only", stdout, stderr)
 		}
 		content, err := os.ReadFile(output)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		assert.Contains(t, string(content), "stdin-output")
 		calls, _, _ := record.snapshot()
-		if calls != 1 {
-			t.Fatalf("service calls = %d, want one", calls)
-		}
+		require.Equal(t, 1, calls, "application RPC calls")
 	})
 
 	t.Run("actual file alias remains rejected", func(t *testing.T) {
@@ -910,13 +874,9 @@ func TestGRPCExplicitStdinWithOutputAndFileAliasValidation(t *testing.T) {
 			"grpc", address, grpcFixtureMethodName, "--plaintext",
 			"--input", input, "--output", input,
 		)
-		if err == nil {
-			t.Fatal("same input and output file succeeded")
-		}
+		require.Error(t, err, "same input and output file succeeded")
 		content, readErr := os.ReadFile(input)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
+		require.NoError(t, readErr)
 		if !bytes.Equal(content, original) {
 			t.Fatalf("input = %q, want preserved source", content)
 		}
@@ -939,14 +899,10 @@ func TestGRPCExplicitDataConflictsWithInputBeforeInvocationOrOutput(t *testing.T
 	_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "-d", `{"text":"literal"}`, "--input", input, "--output", output)
 	require.Error(t, err)
 	calls, _, _ := record.snapshot()
-	if calls != 0 {
-		t.Fatalf("service calls = %d, want zero", calls)
-	}
+	require.Equal(t, 0, calls, "application RPC calls")
 	content, readErr := os.ReadFile(output)
 	require.NoError(t, readErr)
-	if string(content) != "preserve" {
-		t.Fatalf("output = %q, want preserved content", content)
-	}
+	require.Equal(t, "preserve", string(content), "preserved file content")
 }
 
 func TestGRPCMetadataAppliesToReflectionAndCall(t *testing.T) {
@@ -1045,9 +1001,7 @@ func TestGRPCTLSDefaultsAndPlaintextOptOut(t *testing.T) {
 		t.Parallel()
 		address, caPath, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 		stdout, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--ca", caPath, "-d", `{}`)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if strings.TrimSpace(stdout) != "{}" {
 			t.Fatalf("TLS response = %q", stdout)
 		}
@@ -1057,13 +1011,9 @@ func TestGRPCTLSDefaultsAndPlaintextOptOut(t *testing.T) {
 		t.Parallel()
 		address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
 		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "-d", `{}`, "--timeout", "500ms")
-		if err == nil {
-			t.Fatal("TLS default connected to plaintext server")
-		}
+		require.Error(t, err, "TLS default connected to plaintext server")
 		calls, _, _ := record.snapshot()
-		if calls != 0 {
-			t.Fatalf("plaintext service calls = %d", calls)
-		}
+		require.Equal(t, 0, calls, "application RPC calls")
 	})
 
 	t.Run("plaintext conflicts with TLS controls", func(t *testing.T) {
@@ -1071,9 +1021,7 @@ func TestGRPCTLSDefaultsAndPlaintextOptOut(t *testing.T) {
 		address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
 		_, caPath, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 		_, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--ca", caPath)
-		if err == nil {
-			t.Fatal("--plaintext with --ca succeeded")
-		}
+		require.Error(t, err, "--plaintext with --ca succeeded")
 		calls, _, _ := record.snapshot()
 		v1Calls, alphaCalls := record.reflectionCounts()
 		if calls != 0 || v1Calls != 0 || alphaCalls != 0 {
@@ -1085,18 +1033,14 @@ func TestGRPCTLSDefaultsAndPlaintextOptOut(t *testing.T) {
 		t.Parallel()
 		address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--insecure", "-d", `{}`)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("server name and combined roots", func(t *testing.T) {
 		t.Parallel()
 		address, caPath, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--ca", caPath, "--system-ca", "--servername", "localhost", "-d", `{}`)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	})
 }
 
@@ -1107,9 +1051,7 @@ func TestGRPCMutualTLSRequiresClientCertificatePair(t *testing.T) {
 
 	t.Run("server rejects missing client certificate", func(t *testing.T) {
 		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--ca", caPath, "--timeout", "500ms", "-d", `{}`)
-		if err == nil {
-			t.Fatal("mTLS server accepted a client without a certificate pair")
-		}
+		require.Error(t, err, "mTLS server accepted a client without a certificate pair")
 		calls, _, _ := record.snapshot()
 		v1Calls, alphaCalls := record.reflectionCounts()
 		if calls != 0 || v1Calls != 0 || alphaCalls != 0 {
@@ -1119,9 +1061,7 @@ func TestGRPCMutualTLSRequiresClientCertificatePair(t *testing.T) {
 
 	t.Run("client rejects incomplete certificate pair", func(t *testing.T) {
 		_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--ca", caPath, "--cert", certPath, "--timeout", "500ms", "-d", `{}`)
-		if err == nil {
-			t.Fatal("--cert without --key succeeded")
-		}
+		require.Error(t, err, "--cert without --key succeeded")
 		calls, _, _ := record.snapshot()
 		v1Calls, alphaCalls := record.reflectionCounts()
 		if calls != 0 || v1Calls != 0 || alphaCalls != 0 {
@@ -1131,16 +1071,12 @@ func TestGRPCMutualTLSRequiresClientCertificatePair(t *testing.T) {
 
 	t.Run("client certificate pair succeeds", func(t *testing.T) {
 		stdout, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--ca", caPath, "--cert", certPath, "--key", keyPath, "-d", `{}`)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if strings.TrimSpace(stdout) != "{}" {
 			t.Fatalf("mTLS response = %q", stdout)
 		}
 		calls, _, _ := record.snapshot()
-		if calls != 1 {
-			t.Fatalf("authenticated calls = %d, want one", calls)
-		}
+		require.Equal(t, 1, calls, "application RPC calls")
 	})
 }
 
@@ -1174,9 +1110,7 @@ func TestGRPCTimeoutBoundsInvocation(t *testing.T) {
 		t.Fatal("fixture invocation did not exit after cancellation")
 	}
 	calls, _, _ := record.snapshot()
-	if calls != 1 {
-		t.Fatalf("calls = %d, want one started invocation", calls)
-	}
+	require.Equal(t, 1, calls, "application RPC calls")
 	v1Calls, alphaCalls := record.reflectionCounts()
 	if v1Calls != 0 || alphaCalls != 0 {
 		t.Fatalf("offline protoset unexpectedly used reflection: v1=%d v1alpha=%d", v1Calls, alphaCalls)
@@ -1208,9 +1142,7 @@ func TestGRPCTimeoutZeroDisablesDeadline(t *testing.T) {
 	_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--timeout", "0", "-d", `{"delayMillis":50}`)
 	require.NoError(t, err)
 	calls, _, _ := record.snapshot()
-	if calls != 1 {
-		t.Fatalf("calls = %d, want one", calls)
-	}
+	require.Equal(t, 1, calls, "application RPC calls")
 }
 
 func TestGRPCRejectsStreamingInvocation(t *testing.T) {
@@ -1220,9 +1152,7 @@ func TestGRPCRejectsStreamingInvocation(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "stream")
 	calls, _, _ := record.snapshot()
-	if calls != 0 {
-		t.Fatalf("unary fixture calls = %d, want zero", calls)
-	}
+	require.Equal(t, 0, calls, "application RPC calls")
 }
 
 func TestGRPCDoesNotRetryApplicationFailure(t *testing.T) {
@@ -1231,9 +1161,7 @@ func TestGRPCDoesNotRetryApplicationFailure(t *testing.T) {
 	_, stderr, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "-d", `{"text":"unavailable"}`)
 	require.Error(t, err)
 	calls, _, _ := record.snapshot()
-	if calls != 1 {
-		t.Fatalf("application failure invoked %d times, want exactly once", calls)
-	}
+	require.Equal(t, 1, calls, "application RPC calls")
 	diagnostic := strings.ToLower(stderr + err.Error())
 	assert.Contains(t, diagnostic, "unavailable")
 	assert.Contains(t, diagnostic, "fixture temporarily unavailable")
@@ -1249,9 +1177,7 @@ func TestGRPCVerboseReportsStatusMetadataAndTLS(t *testing.T) {
 			t,
 			"grpc", address, grpcFixtureMethodName, "--ca", caPath, "--verbose", "-d", `{}`,
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		requireGRPCDiagnosticValues(t, stderr, "OK", "fixture-header", "seen", "fixture-trailer", "done")
 		requireGRPCTLSFacts(t, stderr, true)
 	})
@@ -1263,9 +1189,7 @@ func TestGRPCVerboseReportsStatusMetadataAndTLS(t *testing.T) {
 			t,
 			"grpc", address, grpcFixtureMethodName, "--insecure", "--verbose", "-d", `{}`,
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		requireGRPCTLSFacts(t, stderr, false)
 	})
 
@@ -1273,9 +1197,7 @@ func TestGRPCVerboseReportsStatusMetadataAndTLS(t *testing.T) {
 		t.Parallel()
 		address, caPath, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 		_, stderr, err := executeRootStreams(t, "grpc", address, "--ca", caPath, "--verbose")
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		requireGRPCDiagnosticValues(
 			t,
 			stderr,
@@ -1299,9 +1221,7 @@ func TestGRPCVerboseReportsStatusMetadataAndTLS(t *testing.T) {
 		if status.Code(err) != codes.InvalidArgument {
 			t.Fatalf("error = %q, want InvalidArgument", err)
 		}
-		if stdout != "" {
-			t.Fatalf("stdout = %q, want none", stdout)
-		}
+		require.Empty(t, stdout)
 		requireGRPCDiagnosticValues(
 			t,
 			stderr,
@@ -1309,12 +1229,8 @@ func TestGRPCVerboseReportsStatusMetadataAndTLS(t *testing.T) {
 		)
 		requireGRPCTLSFacts(t, stderr, true)
 		content, readErr := os.ReadFile(output)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if string(content) != "preserve" {
-			t.Fatalf("failed RPC output = %q, want preserved content", content)
-		}
+		require.NoError(t, readErr)
+		require.Equal(t, "preserve", string(content), "preserved file content")
 	})
 
 	t.Run("offline discovery does not fabricate TLS", func(t *testing.T) {
@@ -1325,9 +1241,7 @@ func TestGRPCVerboseReportsStatusMetadataAndTLS(t *testing.T) {
 			t,
 			"grpc", "127.0.0.1:1", "--protoset", protoset, "--verbose",
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		requireGRPCDiagnosticValues(t, stderr, "OK")
 		lower := strings.ToLower(stderr)
 		for _, unavailable := range []string{"version", "cipher", "verified"} {
@@ -1433,15 +1347,11 @@ func TestGRPCStatusMessagesPreserveSafeLineBreaks(t *testing.T) {
 			cause := rpcStatus.Err()
 			gotError := grpccommand.ExportStatusError("invoke gRPC method", cause).Error()
 			wantError := "invoke gRPC method: Unknown: " + test.wantMessage
-			if gotError != wantError {
-				t.Errorf("error = %q, want %q", gotError, wantError)
-			}
+			assert.Equal(t, wantError, gotError)
 
 			gotDiagnostics := string(grpccommand.ExportDiagnostics("fixture.protoset", rpcStatus))
 			wantDiagnostics := "gRPC status: Unknown: " + test.wantMessage + "\n"
-			if gotDiagnostics != wantDiagnostics {
-				t.Errorf("diagnostics = %q, want %q", gotDiagnostics, wantDiagnostics)
-			}
+			assert.Equal(t, wantDiagnostics, gotDiagnostics)
 		})
 	}
 }
@@ -1484,15 +1394,11 @@ func TestGRPCStatusMessagesPreserveBytesAndNormalizeCRLF(t *testing.T) {
 
 			gotError := grpccommand.ExportStatusError("invoke gRPC method", rpcStatus.Err()).Error()
 			wantError := "invoke gRPC method: Unknown: " + wantMessage
-			if gotError != wantError {
-				t.Errorf("error = %q, want %q", gotError, wantError)
-			}
+			assert.Equal(t, wantError, gotError)
 
 			gotDiagnostics := string(grpccommand.ExportDiagnostics("fixture.protoset", rpcStatus))
 			wantDiagnostics := "gRPC status: Unknown: " + wantMessage + "\n"
-			if gotDiagnostics != wantDiagnostics {
-				t.Errorf("diagnostics = %q, want %q", gotDiagnostics, wantDiagnostics)
-			}
+			assert.Equal(t, wantDiagnostics, gotDiagnostics)
 		})
 	}
 }
@@ -1621,9 +1527,7 @@ func TestGRPCOutputFailureCanFollowRemoteExecution(t *testing.T) {
 	err := commandio.Execute(root)
 	require.ErrorIs(t, err, errGRPCFixtureOutput)
 	calls, _, _ := record.snapshot()
-	if calls != 1 {
-		t.Fatalf("calls = %d, want remote execution before output failure", calls)
-	}
+	require.Equal(t, 1, calls, "application RPC calls")
 }
 
 func grpcFixtureJSONForWireSize(t *testing.T, descriptor protoreflect.MessageDescriptor, size int) string {
@@ -1773,9 +1677,7 @@ func TestGRPCReceiveMessageLimitExactBoundary(t *testing.T) {
 			request := fmt.Sprintf(`{"replyBytes":%d}`, replyBytes)
 			_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--protoset", protoset, "--max-message-size", "64", "-d", request)
 			calls, _, _ := record.snapshot()
-			if calls != 1 {
-				t.Fatalf("calls = %d, want one", calls)
-			}
+			require.Equal(t, 1, calls, "application RPC calls")
 			if size == 64 && err != nil {
 				t.Fatalf("exact limit failed: %v", err)
 			}

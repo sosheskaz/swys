@@ -71,9 +71,7 @@ func TestGRPCProtosetOutputAliasPreservesSourceWithoutNetwork(t *testing.T) {
 			_, set, _ := grpcFixtureSchema(t)
 			protoset := writeGRPCFixtureProtoset(t, set)
 			before, err := os.ReadFile(protoset)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			output := test.outputPath(t, protoset)
 
 			_, _, commandErr := executeRootStreams(
@@ -81,9 +79,7 @@ func TestGRPCProtosetOutputAliasPreservesSourceWithoutNetwork(t *testing.T) {
 				"grpc", address, "--protoset", protoset, "--output", output,
 			)
 			after, readErr := os.ReadFile(protoset)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
+			require.NoError(t, readErr)
 			calls, _, _ := record.snapshot()
 			v1Calls, alphaCalls := record.reflectionCounts()
 			if !errors.Is(commandErr, errSameInputOutput) || !bytes.Equal(after, before) ||
@@ -212,9 +208,7 @@ func TestGRPCMalformedProtosetPreservesOutput(t *testing.T) {
 	require.Error(t, err)
 	content, readErr := os.ReadFile(output)
 	require.NoError(t, readErr)
-	if string(content) != "preserve" {
-		t.Fatalf("output = %q, want preserved content", content)
-	}
+	require.Equal(t, "preserve", string(content), "preserved file content")
 }
 
 func minimalGRPCFixtureFile(name, packageName, messageName string) *descriptorpb.FileDescriptorProto {

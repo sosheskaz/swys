@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -38,12 +37,8 @@ func TestGRPCReflectionSendEOFUsesTerminalStatusForV1Fallback(t *testing.T) {
 
 	services, err := grpccommand.ExportReflectSchema(t.Context(), connection)
 	require.NoError(t, err, "recover v1 terminal status and fall back to v1alpha: %v", err)
-	if !slices.Contains(services, grpcFixtureServiceName) {
-		t.Fatalf("fallback services = %q, missing %q", services, grpcFixtureServiceName)
-	}
-	if calls := receiveCalls.Load(); calls != 1 {
-		t.Fatalf("v1 receives after Send EOF = %d, want one terminal-status receive", calls)
-	}
+	require.Contains(t, services, grpcFixtureServiceName)
+	require.Equal(t, int32(1), receiveCalls.Load(), "reflection receives")
 	if _, alphaCalls := record.reflectionCounts(); alphaCalls != 1 {
 		t.Fatalf("v1alpha fallback calls = %d, want one", alphaCalls)
 	}
@@ -65,12 +60,9 @@ func TestGRPCReflectionPreservesNonEOFSendError(t *testing.T) {
 
 	set, services, err := grpccommand.ExportReflectV1(t.Context(), connection)
 	require.ErrorIs(t, err, errGRPCTestReflectionSend)
-	if set != nil || services != nil {
-		t.Fatalf("v1 non-EOF send error returned descriptors=%v services=%q", set, services)
-	}
-	if calls := receiveCalls.Load(); calls != 0 {
-		t.Fatalf("v1 receives after non-EOF send error = %d, want none", calls)
-	}
+	require.Nil(t, set)
+	require.Nil(t, services)
+	require.Equal(t, int32(0), receiveCalls.Load(), "reflection receives")
 }
 
 func TestGRPCReflectionV1AlphaSendEOFUsesTerminalStatus(t *testing.T) {
@@ -88,18 +80,10 @@ func TestGRPCReflectionV1AlphaSendEOFUsesTerminalStatus(t *testing.T) {
 	)
 
 	reflectionStatus, err := grpccommand.ExportReflectV1Alpha(t.Context(), connection)
-	if code := status.Code(err); code != codes.Unimplemented {
-		t.Fatalf("v1alpha terminal status = %v, want %v; error=%v", code, codes.Unimplemented, err)
-	}
-	if code := reflectionStatus.Code(); code != codes.Unimplemented {
-		t.Fatalf("v1alpha recorded status = %v, want %v", code, codes.Unimplemented)
-	}
-	if errors.Is(err, io.EOF) {
-		t.Fatalf("v1alpha error = %v, terminal status was masked by Send EOF", err)
-	}
-	if calls := receiveCalls.Load(); calls != 1 {
-		t.Fatalf("v1alpha receives after Send EOF = %d, want one terminal-status receive", calls)
-	}
+	require.Equal(t, codes.Unimplemented, status.Code(err), "v1alpha terminal status: %v", err)
+	require.Equal(t, codes.Unimplemented, reflectionStatus.Code(), "v1alpha recorded status")
+	require.NotErrorIs(t, err, io.EOF, "terminal status must not be masked by Send EOF")
+	require.Equal(t, int32(1), receiveCalls.Load(), "reflection receives")
 }
 
 type grpcSendOverrideStream struct {
