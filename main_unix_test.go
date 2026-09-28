@@ -4,7 +4,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -12,6 +11,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const runAsNPCEnvironment = "NPC_TEST_RUN_AS_NPC"
@@ -44,37 +46,26 @@ func TestSignalsEndTheProcessWithTheShellStatus(t *testing.T) {
 			process := exec.CommandContext(t.Context(), os.Args[0])
 			process.Env = append(os.Environ(), runAsNPCEnvironment+"=net listen 127.0.0.1:0 --verbose")
 			stderr, err := process.StderrPipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := process.Start(); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
+			require.NoError(t, process.Start())
 			watchdog := time.AfterFunc(20*time.Second, func() { _ = process.Process.Kill() }) //nolint:errcheck // the process may already have exited
 			defer watchdog.Stop()
 
 			// The listening diagnostic proves main installed its handler and
 			// is now waiting for a peer.
 			reader := bufio.NewReader(stderr)
-			if line, err := reader.ReadString('\n'); err != nil || !strings.HasPrefix(line, "listening tcp ") {
-				t.Fatalf("first stderr line = %q, %v, want listening diagnostic", line, err)
-			}
-			if err := process.Process.Signal(test.signal); err != nil {
-				t.Fatal(err)
-			}
+			line, err := reader.ReadString('\n')
+			require.NoError(t, err)
+			require.True(t, strings.HasPrefix(line, "listening tcp "), "first stderr line: %q", line)
+			require.NoError(t, process.Process.Signal(test.signal))
 			remaining, err := io.ReadAll(reader)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			waitErr := process.Wait()
 
 			var exitErr *exec.ExitError
-			if !errors.As(waitErr, &exitErr) || exitErr.ExitCode() != test.status {
-				t.Fatalf("wait error = %v, want exit status %d", waitErr, test.status)
-			}
-			if got := strings.TrimSpace(string(remaining)); got != test.message {
-				t.Fatalf("stderr after signal = %q, want %q", got, test.message)
-			}
+			require.ErrorAs(t, waitErr, &exitErr)
+			require.Equal(t, test.status, exitErr.ExitCode())
+			assert.Equal(t, test.message, strings.TrimSpace(string(remaining)), "stderr after signal")
 		})
 	}
 }
