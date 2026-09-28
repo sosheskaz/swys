@@ -4,14 +4,13 @@ package interrupt
 
 import (
 	"os"
-	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInterruptSignalsArePortable(t *testing.T) {
 	t.Parallel()
 	want := []os.Signal{os.Interrupt}
-	if got := interruptSignals(); !slices.Equal(got, want) {
-		t.Fatalf("interrupt signals = %v, want %v", got, want)
-	}
+	assert.Equal(t, want, interruptSignals())
 }

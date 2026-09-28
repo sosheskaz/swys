@@ -4,9 +4,10 @@ package interrupt
 
 import (
 	"os"
-	"slices"
 	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // SIGPIPE must stay out of the set: notifying it would turn a closed stdout
@@ -14,7 +15,5 @@ import (
 func TestInterruptSignalsLeaveSIGPIPEAndSIGQUITAlone(t *testing.T) {
 	t.Parallel()
 	want := []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
-	if got := interruptSignals(); !slices.Equal(got, want) {
-		t.Fatalf("interrupt signals = %v, want %v", got, want)
-	}
+	assert.Equal(t, want, interruptSignals())
 }

@@ -13,6 +13,9 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var errTestInterruptCause = errors.New("test cancellation cause")
@@ -46,20 +49,13 @@ func TestInterruptContextCancelsWithSignalCause(t *testing.T) {
 			waitForContext(ctx, t)
 
 			cause := context.Cause(ctx)
-			if cause == nil || cause.Error() != test.message {
-				t.Fatalf("cause = %v, want %q", cause, test.message)
-			}
-			if got := ExitCode(cause); got != test.code {
-				t.Fatalf("exit code = %d, want %d", got, test.code)
-			}
-			if !errors.Is(cause, context.Canceled) || !errors.Is(ctx.Err(), context.Canceled) {
-				t.Fatalf("cause %v and error %v must both report cancellation", cause, ctx.Err())
-			}
+			require.EqualError(t, cause, test.message)
+			require.Equal(t, test.code, ExitCode(cause))
+			require.ErrorIs(t, cause, context.Canceled)
+			require.ErrorIs(t, ctx.Err(), context.Canceled)
 			// A second signal must already get the prior disposition once
 			// the cancellation is visible.
-			if got := releases.Load(); got != 1 {
-				t.Fatalf("notification releases = %d, want 1 before cancellation is observable", got)
-			}
+			assert.Equal(t, int32(1), releases.Load(), "notification released before cancellation is observable")
 		})
 	}
 }
@@ -73,12 +69,10 @@ func TestInterruptContextStopReleasesNotificationOnce(t *testing.T) {
 	stop()
 
 	waitForContext(ctx, t)
-	if got := releases.Load(); got != 1 {
-		t.Fatalf("notification releases = %d, want 1", got)
-	}
-	if cause := context.Cause(ctx); !errors.Is(cause, context.Canceled) || ExitCode(cause) != 1 {
-		t.Fatalf("cause = %v, want plain cancellation without an interrupt status", cause)
-	}
+	require.Equal(t, int32(1), releases.Load(), "notification releases")
+	cause := context.Cause(ctx)
+	require.ErrorIs(t, cause, context.Canceled)
+	assert.Equal(t, 1, ExitCode(cause), "plain cancellation without an interrupt status")
 }
 
 func TestInterruptContextFollowsParentCancellation(t *testing.T) {
@@ -91,9 +85,7 @@ func TestInterruptContextFollowsParentCancellation(t *testing.T) {
 	cancelParent(errTestInterruptCause)
 
 	waitForContext(ctx, t)
-	if cause := context.Cause(ctx); !errors.Is(cause, errTestInterruptCause) {
-		t.Fatalf("cause = %v, want the parent's cause", cause)
-	}
+	require.ErrorIs(t, context.Cause(ctx), errTestInterruptCause)
 	select {
 	case <-released:
 	case <-time.After(10 * time.Second):
@@ -118,9 +110,7 @@ func TestExitCode(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if got := ExitCode(test.err); got != test.want {
-				t.Fatalf("ExitCode(%v) = %d, want %d", test.err, got, test.want)
-			}
+			assert.Equal(t, test.want, ExitCode(test.err), "ExitCode(%v)", test.err)
 		})
 	}
 }
@@ -136,9 +126,7 @@ func TestAttributeInterrupt(t *testing.T) {
 
 	t.Run("a run that succeeded stays successful", func(t *testing.T) {
 		t.Parallel()
-		if err := attributeInterrupt(interrupted, nil); err != nil {
-			t.Fatalf("error = %v, want nil", err)
-		}
+		assert.NoError(t, attributeInterrupt(interrupted, nil))
 	})
 
 	t.Run("a failure without a signal is untouched", func(t *testing.T) {
@@ -147,9 +135,8 @@ func TestAttributeInterrupt(t *testing.T) {
 			"live context":     attributeInterrupt(live, errTestInterruptCause),
 			"canceled context": attributeInterrupt(canceled, errTestInterruptCause),
 		} {
-			if !errors.Is(err, errTestInterruptCause) || ExitCode(err) != 1 {
-				t.Fatalf("%s: error = %v, want the original failure", name, err)
-			}
+			require.ErrorIs(t, err, errTestInterruptCause, name)
+			require.Equal(t, 1, ExitCode(err), name)
 		}
 	})
 
@@ -157,9 +144,8 @@ func TestAttributeInterrupt(t *testing.T) {
 		t.Parallel()
 		// Teardown fallout, such as a closed connection, need not mention cancellation.
 		err := attributeInterrupt(interrupted, errTestInterruptCause)
-		if err == nil || err.Error() != "terminated" || ExitCode(err) != 143 {
-			t.Fatalf("error = %v, exit code %d, want terminated with exit code 143", err, ExitCode(err))
-		}
+		require.EqualError(t, err, "terminated")
+		assert.Equal(t, 143, ExitCode(err))
 	})
 }
 
@@ -171,13 +157,9 @@ func TestInterruptOf(t *testing.T) {
 	plain, cancelPlain := context.WithCancelCause(t.Context())
 	cancelPlain(errTestInterruptCause)
 
-	if got := interruptOf(interrupted); got != want {
-		t.Fatalf("interruptOf(interrupted) = %v, want the cancellation cause", got)
-	}
+	require.Same(t, want, interruptOf(interrupted))
 	for name, ctx := range map[string]context.Context{"live": t.Context(), "canceled for another reason": plain} {
-		if got := interruptOf(ctx); got != nil {
-			t.Fatalf("interruptOf(%s context) = %v, want nil", name, got)
-		}
+		assert.Nil(t, interruptOf(ctx), "%s context", name)
 	}
 }
 
@@ -198,14 +180,10 @@ func TestInterruptContextArmsBackstopOnFirstSignal(t *testing.T) {
 	if got := <-armed; got != interruptOf(ctx) || got.signal != syscall.SIGTERM || got.backstop != recorded {
 		t.Fatalf("armed for %v, want the first signal's interruption carrying the backstop", got)
 	}
-	if recorded.isStopped() {
-		t.Fatal("backstop stopped before the run finished")
-	}
+	require.False(t, recorded.isStopped(), "backstop stopped before the run finished")
 	stop()
 	waitUntil(t, recorded.isStopped, "finishing the run did not stop the backstop")
-	if len(armed) != 0 {
-		t.Fatal("a later signal armed a second backstop")
-	}
+	assert.Empty(t, armed, "a later signal armed a second backstop")
 }
 
 func TestInterruptContextDoesNotArmBackstopWithoutSignal(t *testing.T) {
@@ -222,9 +200,7 @@ func TestInterruptContextDoesNotArmBackstopWithoutSignal(t *testing.T) {
 	waitForContext(ctx, t)
 	stop()
 
-	if got := armed.Load(); got != 0 {
-		t.Fatalf("backstop armed %d times without a signal", got)
-	}
+	assert.Zero(t, armed.Load(), "backstop armed without a signal")
 }
 
 func TestBackstopEndsARunThatOutlivesItsGrace(t *testing.T) {
@@ -245,15 +221,11 @@ func TestBackstopEndsARunThatOutlivesItsGrace(t *testing.T) {
 		synctest.Sleep(time.Nanosecond)
 		select {
 		case code := <-exited:
-			if code != 143 {
-				t.Fatalf("exit code = %d, want 143", code)
-			}
+			require.Equal(t, 143, code)
 		default:
 			t.Fatal("backstop did not exit after its grace period")
 		}
-		if got, want := stderr.String(), "npc: terminated (forced exit after 10ms)\n"; got != want {
-			t.Fatalf("stderr = %q, want %q", got, want)
-		}
+		assert.Equal(t, "npc: terminated (forced exit after 10ms)\n", stderr.String())
 	})
 }
 
@@ -303,9 +275,7 @@ func TestBackstopIsPausedWhileHeldAndRestartedWhenLetGo(t *testing.T) {
 		synctest.Sleep(time.Nanosecond)
 		select {
 		case code := <-exited:
-			if code != 130 {
-				t.Fatalf("exit code = %d, want 130", code)
-			}
+			require.Equal(t, 130, code)
 		default:
 			t.Fatal("backstop did not exit after its grace period")
 		}
@@ -342,9 +312,7 @@ func TestBackstopStaysPausedUntilEveryHolderLetsGo(t *testing.T) {
 		synctest.Sleep(time.Nanosecond)
 		select {
 		case code := <-exited:
-			if code != 130 {
-				t.Fatalf("exit code = %d, want 130", code)
-			}
+			require.Equal(t, 130, code)
 		default:
 			t.Fatal("backstop did not exit after its grace period")
 		}
@@ -397,9 +365,7 @@ func TestBackstopExitsEvenWhenTheNoteCannotBeWritten(t *testing.T) {
 		synctest.Sleep(time.Nanosecond)
 		select {
 		case code := <-exited:
-			if code != 130 {
-				t.Fatalf("exit code = %d, want 130", code)
-			}
+			require.Equal(t, 130, code)
 		default:
 			t.Fatal("backstop did not exit after waiting for stalled stderr")
 		}
