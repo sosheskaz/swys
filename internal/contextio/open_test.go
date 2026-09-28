@@ -47,17 +47,14 @@ func TestOpenFileRefusesToStartWhenCanceled(t *testing.T) {
 		return nil, nil //nolint:nilnil // the test fails before the result is used
 	})
 
-	if file != nil || !errors.Is(err, errCause) {
-		t.Fatalf("OpenFile = (%v, %v), want the cancellation cause", file, err)
-	}
+	assert.Nil(t, file)
+	assert.ErrorIs(t, err, errCause)
 }
 
 func TestOpenFileStopsWaitingAndClosesTheLateFile(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "input")
-	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))
 	ctx, cancel := context.WithCancelCause(t.Context())
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -79,9 +76,7 @@ func TestOpenFileStopsWaitingAndClosesTheLateFile(t *testing.T) {
 
 	select {
 	case err := <-result:
-		if !errors.Is(err, errCause) {
-			t.Fatalf("error = %v, want the cancellation cause", err)
-		}
+		require.ErrorIs(t, err, errCause)
 	case <-time.After(10 * time.Second):
 		t.Fatal("OpenFile stayed blocked after cancellation")
 	}
@@ -113,17 +108,11 @@ func TestOpenFileCancellationLeavesOneWorkerForBlockedOpen(t *testing.T) {
 		})
 		<-entered
 		cancel(errCause)
-		if err := <-result; !errors.Is(err, errCause) {
-			t.Fatalf("error = %v, want the cancellation cause", err)
-		}
+		require.ErrorIs(t, <-result, errCause)
 
 		synctest.Wait()
 		var profile bytes.Buffer
-		if err := pprof.Lookup("goroutine").WriteTo(&profile, 1); err != nil {
-			t.Fatalf("write goroutine profile: %v", err)
-		}
-		if got := strings.Count(profile.String(), labelValue); got != 1 {
-			t.Fatalf("workers retained by canceled blocked open = %d, want 1", got)
-		}
+		require.NoError(t, pprof.Lookup("goroutine").WriteTo(&profile, 1), "write goroutine profile")
+		assert.Equal(t, 1, strings.Count(profile.String(), labelValue), "workers retained by canceled blocked open")
 	})
 }

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -31,9 +32,7 @@ func TestOwnedFileReaderRestoresSharedNonblockingFlagOnClose(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			original, writer, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			t.Cleanup(func() {
 				_ = original.Close() //nolint:errcheck // test cleanup is best effort
 				_ = writer.Close()   //nolint:errcheck // test cleanup is best effort
@@ -42,13 +41,9 @@ func TestOwnedFileReaderRestoresSharedNonblockingFlagOnClose(t *testing.T) {
 
 			fd := ownedTestDescriptor(t, original)
 			alias, err := os.Open("/dev/fd/" + strconv.FormatUint(uint64(fd), 10))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			t.Cleanup(func() { _ = alias.Close() }) //nolint:errcheck // ownership may already have closed it
-			if got := ownedTestNonblocking(t, original); got != test.initialNonblocking {
-				t.Fatalf("opening descriptor alias changed O_NONBLOCK to %t, want %t", got, test.initialNonblocking)
-			}
+			require.Equal(t, test.initialNonblocking, ownedTestNonblocking(t, original), "opening descriptor alias preserves O_NONBLOCK")
 
 			ctx := context.WithoutCancel(t.Context())
 			cancel := func() {}
@@ -57,9 +52,7 @@ func TestOwnedFileReaderRestoresSharedNonblockingFlagOnClose(t *testing.T) {
 			}
 			t.Cleanup(cancel)
 			reader, err := NewOwnedFileReader(ctx, alias)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			t.Cleanup(func() { _ = reader.Close() }) //nolint:errcheck // test cleanup is best effort
 			setOwnedTestAppend(t, original)
 
@@ -73,9 +66,7 @@ func TestOwnedFileReaderRestoresSharedNonblockingFlagOnClose(t *testing.T) {
 				t.Fatalf("close owned descriptor alias: %v", err)
 			}
 
-			if got := ownedTestNonblocking(t, original); got != test.initialNonblocking {
-				t.Fatalf("O_NONBLOCK after owned alias close = %t, want original state %t", got, test.initialNonblocking)
-			}
+			require.Equal(t, test.initialNonblocking, ownedTestNonblocking(t, original), "closing owned alias restores O_NONBLOCK")
 			if flags := ownedTestStatusFlags(t, original); flags&unix.O_APPEND == 0 {
 				t.Fatalf("file status flags after owned alias close = %#x, want unrelated O_APPEND preserved", flags)
 			}
@@ -102,9 +93,7 @@ func TestOwnedFileReaderCloseReleasesEnteredDarwinFIFORead(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			input, writer, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			ctx := context.WithoutCancel(t.Context())
 			cancel := func() {}
 			if test.cancel {
@@ -142,9 +131,7 @@ func TestOwnedFileReaderCloseReleasesEnteredDarwinFIFORead(t *testing.T) {
 				select {
 				case closeErr := <-closeDone:
 					closeFinished = true
-					if closeErr != nil {
-						t.Fatalf("Close runtime-poll reader: %v", closeErr)
-					}
+					require.NoError(t, closeErr, "Close runtime-poll reader")
 				case <-time.After(2 * time.Second):
 					timedOut = true
 				}
@@ -177,11 +164,10 @@ func TestOwnedFileReaderCloseReleasesEnteredDarwinFIFORead(t *testing.T) {
 				t.Fatal("owned reader cleanup did not release a runtime-poll Read")
 			}
 
-			if result.n != 0 || result.err == nil {
-				t.Fatalf("released runtime-poll Read = (%d, %v), want (0, non-nil error)", result.n, result.err)
-			}
-			if test.cancel && !errors.Is(result.err, context.Canceled) {
-				t.Fatalf("canceled runtime-poll Read error = %v, want context.Canceled", result.err)
+			require.Zero(t, result.n)
+			require.Error(t, result.err)
+			if test.cancel {
+				require.ErrorIs(t, result.err, context.Canceled)
 			}
 			waitUntil(t, func() bool {
 				_, statErr := input.Stat()
@@ -221,13 +207,9 @@ func waitForLabeledDarwinFIFORead(t *testing.T, labelValue string) {
 func ownedTestDescriptor(t *testing.T, file *os.File) uintptr {
 	t.Helper()
 	raw, err := file.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var descriptor uintptr
-	if err := raw.Control(func(fd uintptr) { descriptor = fd }); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, raw.Control(func(fd uintptr) { descriptor = fd }))
 	return descriptor
 }
 
@@ -239,9 +221,7 @@ func ownedTestNonblocking(t *testing.T, file *os.File) bool {
 func ownedTestStatusFlags(t *testing.T, file *os.File) int {
 	t.Helper()
 	raw, err := file.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var flags int
 	var controlErr error
 	if err := raw.Control(func(fd uintptr) {
@@ -249,35 +229,27 @@ func ownedTestStatusFlags(t *testing.T, file *os.File) int {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if controlErr != nil {
-		t.Fatal(controlErr)
-	}
+	require.NoError(t, controlErr)
 	return flags
 }
 
 func setOwnedTestNonblocking(t *testing.T, file *os.File, enabled bool) {
 	t.Helper()
 	raw, err := file.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var controlErr error
 	if err := raw.Control(func(fd uintptr) {
 		controlErr = unix.SetNonblock(int(fd), enabled)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if controlErr != nil {
-		t.Fatal(controlErr)
-	}
+	require.NoError(t, controlErr)
 }
 
 func setOwnedTestAppend(t *testing.T, file *os.File) {
 	t.Helper()
 	raw, err := file.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var controlErr error
 	if err := raw.Control(func(fd uintptr) {
 		flags, flagErr := unix.FcntlInt(fd, unix.F_GETFL, 0)
@@ -289,9 +261,7 @@ func setOwnedTestAppend(t *testing.T, file *os.File) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if controlErr != nil {
-		t.Fatal(controlErr)
-	}
+	require.NoError(t, controlErr)
 	if flags := ownedTestStatusFlags(t, file); flags&unix.O_APPEND == 0 {
 		t.Fatalf("set O_APPEND: status flags = %#x, want O_APPEND", flags)
 	}

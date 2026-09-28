@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestOwnedFileReaderFIFOStreamsToEOF(t *testing.T) {
@@ -51,15 +53,10 @@ func TestOwnedFileReaderFIFOStreamsToEOF(t *testing.T) {
 				}
 				t.Fatal("FIFO writer did not finish after the reader reached EOF")
 			}
-			if readErr != nil || writeErr != nil {
-				t.Fatalf("FIFO transfer errors = (read %v, write %v)", readErr, writeErr)
-			}
-			if !bytes.Equal(data, payload) {
-				t.Fatalf("FIFO data length/content = %d/%t, want %d/true", len(data), bytes.Equal(data, payload), len(payload))
-			}
-			if err := reader.Close(); err != nil {
-				t.Fatalf("close FIFO reader: %v", err)
-			}
+			require.NoError(t, readErr, "FIFO read")
+			require.NoError(t, writeErr, "FIFO write")
+			require.Equal(t, string(payload), string(data), "FIFO bytes")
+			require.NoError(t, reader.Close(), "close FIFO reader")
 		})
 	}
 }
@@ -103,9 +100,8 @@ func TestOwnedFileReaderFIFOCancellationClosesInput(t *testing.T) {
 		}
 		t.Fatal("FIFO read stayed blocked after context cancellation")
 	}
-	if result.n != 0 || !errors.Is(result.err, errOwnedFileCanceled) {
-		t.Fatalf("canceled FIFO Read = (%d, %v), want (0, cancellation cause)", result.n, result.err)
-	}
+	require.Zero(t, result.n)
+	require.ErrorIs(t, result.err, errOwnedFileCanceled)
 	waitUntil(t, func() bool {
 		_, err := input.Stat()
 		return errors.Is(err, os.ErrClosed)
@@ -138,9 +134,8 @@ func TestOwnedFileReaderCloseReleasesBlockedFIFORead(t *testing.T) {
 
 	select {
 	case result := <-readDone:
-		if result.n != 0 || result.err == nil {
-			t.Fatalf("Read released by Close = (%d, %v), want (0, non-nil error)", result.n, result.err)
-		}
+		require.Zero(t, result.n)
+		require.Error(t, result.err)
 	case <-time.After(2 * time.Second):
 		if err := writer.Close(); err != nil {
 			t.Fatalf("close FIFO writer during cleanup: %v", err)
@@ -152,12 +147,8 @@ func TestOwnedFileReaderCloseReleasesBlockedFIFORead(t *testing.T) {
 		}
 		t.Fatal("Close did not release the blocked FIFO read")
 	}
-	if firstErr != nil {
-		t.Fatalf("first Close = %v, want nil", firstErr)
-	}
-	if secondErr := reader.Close(); secondErr != nil {
-		t.Fatalf("second Close = %v, want nil like the first Close", secondErr)
-	}
+	require.NoError(t, firstErr, "first Close")
+	require.NoError(t, reader.Close(), "second Close")
 	if _, err := input.Stat(); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("owned FIFO Stat after Close = %v, want os.ErrClosed", err)
 	}
@@ -171,9 +162,7 @@ type fifoReadResult struct {
 func openOwnedTestFIFO(ctx context.Context, t *testing.T) (io.ReadCloser, *os.File, *os.File) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "input.fifo")
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Mkfifo(path, 0o600))
 	// A temporary read/write peer lets both real endpoints open synchronously;
 	// it is gone before the test observes EOF, cancellation, or descriptor state.
 	peer, err := os.OpenFile(path, os.O_RDWR|syscall.O_NONBLOCK, 0)

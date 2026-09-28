@@ -35,23 +35,15 @@ func readerKinds() []readerKind {
 func openFileReader(ctx context.Context, t *testing.T, content []byte) (io.Reader, func() int) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "input")
-	if err := os.WriteFile(path, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, content, 0o600))
 	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = file.Close() }) //nolint:errcheck // test cleanup is best effort
 	reader := NewReader(ctx, file)
-	if _, ok := reader.(*checkedReader); !ok {
-		t.Fatalf("regular file wrapped as %T, want a reader that never starts a goroutine", reader)
-	}
+	require.IsType(t, (*checkedReader)(nil), reader, "regular files never start a goroutine")
 	return reader, func() int {
 		offset, err := file.Seek(0, io.SeekCurrent)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		return int(offset)
 	}
 }
@@ -131,12 +123,9 @@ func TestReaderRefusesReadsAfterCancellation(t *testing.T) {
 
 			n, err := reader.Read(make([]byte, 4))
 
-			if n != 0 || !errors.Is(err, errCause) {
-				t.Fatalf("Read = (%d, %v), want (0, cancellation cause)", n, err)
-			}
-			if got := consumed(); got != 0 {
-				t.Fatalf("source consumed %d bytes after cancellation, want 0", got)
-			}
+			require.Zero(t, n)
+			require.ErrorIs(t, err, errCause)
+			assert.Zero(t, consumed(), "source bytes consumed after cancellation")
 		})
 	}
 }
@@ -179,18 +168,14 @@ func TestReaderReleasesBlockedRead(t *testing.T) {
 
 	select {
 	case err := <-result:
-		if !errors.Is(err, errCause) {
-			t.Fatalf("Read error = %v, want cancellation cause", err)
-		}
+		require.ErrorIs(t, err, errCause)
 	case <-time.After(10 * time.Second):
 		t.Fatal("Read stayed blocked after cancellation")
 	}
 	// The abandoned source read completes later; it must not reach the caller.
 	close(source.release)
 	waitForSignal(t, source.finished, "source read did not finish")
-	if !bytes.Equal(buffer, make([]byte, len(buffer))) {
-		t.Fatalf("abandoned read wrote %q into the caller's buffer", buffer)
-	}
+	assert.Equal(t, make([]byte, len(buffer)), buffer, "abandoned read must not change caller buffer")
 }
 
 func TestReaderReadsOnlyWhatTheCallerRequests(t *testing.T) {
@@ -216,32 +201,23 @@ func TestReaderPreservesSourceErrors(t *testing.T) {
 		reader := NewReader(t.Context(), source)
 
 		got, err := io.ReadAll(reader)
-		if string(got) != "ab" || !errors.Is(err, errCause) {
-			t.Fatalf("ReadAll = (%q, %v), want data then the source error", got, err)
-		}
+		require.Equal(t, "ab", string(got))
+		require.ErrorIs(t, err, errCause)
 		reads := source.reads
 		if _, err := reader.Read(make([]byte, 1)); !errors.Is(err, errCause) {
 			t.Fatalf("Read after failure = %v, want the same source error", err)
 		}
-		if source.reads != reads {
-			t.Fatal("a failed reader consulted the source again")
-		}
+		assert.Equal(t, reads, source.reads, "a failed reader must not consult the source again")
 	})
 
 	t.Run("regular file errors pass through", func(t *testing.T) {
 		t.Parallel()
 		path := filepath.Join(t.TempDir(), "input")
-		if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))
 		file, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		reader := NewReader(t.Context(), file)
-		if err := file.Close(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, file.Close())
 
 		if _, err := reader.Read(make([]byte, 4)); !errors.Is(err, os.ErrClosed) {
 			t.Fatalf("Read error = %v, want the file's closed error", err)
@@ -254,12 +230,10 @@ func TestReaderZeroLengthReadLeavesSourceAlone(t *testing.T) {
 	source := &recordingReader{reader: strings.NewReader("data")}
 	reader := NewReader(t.Context(), source)
 
-	if n, err := reader.Read(nil); n != 0 || err != nil {
-		t.Fatalf("Read(nil) = (%d, %v), want (0, nil)", n, err)
-	}
-	if source.reads != 0 {
-		t.Fatalf("zero-length read reached the source %d times", source.reads)
-	}
+	n, err := reader.Read(nil)
+	require.Zero(t, n)
+	require.NoError(t, err)
+	assert.Zero(t, source.reads, "zero-length read leaves source alone")
 }
 
 // gatedReader blocks its first Read until released, then yields its bytes.

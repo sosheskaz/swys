@@ -49,12 +49,9 @@ func TestOwnedFileReaderRefusesReadAfterCancellation(t *testing.T) {
 	cancel(errOwnedFileCanceled)
 	n, err := reader.Read(buffer)
 
-	if n != 0 || !errors.Is(err, errOwnedFileCanceled) {
-		t.Fatalf("Read after cancellation = (%d, %v), want (0, cancellation cause)", n, err)
-	}
-	if !bytes.Equal(buffer, bytes.Repeat([]byte{0xa5}, len(buffer))) {
-		t.Fatalf("Read after cancellation changed the caller buffer to %x", buffer)
-	}
+	require.Zero(t, n)
+	require.ErrorIs(t, err, errOwnedFileCanceled)
+	assert.Equal(t, bytes.Repeat([]byte{0xa5}, len(buffer)), buffer, "caller buffer after cancellation")
 }
 
 func TestOwnedFileReaderStreamsRegularFilesWithoutReadAhead(t *testing.T) {
@@ -68,34 +65,24 @@ func TestOwnedFileReaderStreamsRegularFilesWithoutReadAhead(t *testing.T) {
 			}
 			file := openOwnedTestFile(t, content)
 			reader, err := NewOwnedFileReader(nil, file) //nolint:staticcheck // nil context is an explicit supported input
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			t.Cleanup(func() { _ = reader.Close() }) //nolint:errcheck // test cleanup is best effort
 
 			buffer := make([]byte, size)
 			n, err := reader.Read(buffer)
-			if n != size || err != nil || !bytes.Equal(buffer[:n], content[:size]) {
-				t.Fatalf("Read(%d bytes) = (%d, %v), want unchanged requested bytes", size, n, err)
-			}
+			require.Equal(t, size, n, "requested byte count")
+			require.NoError(t, err)
+			require.Equal(t, content[:size], buffer[:n])
 			offset, err := file.Seek(0, io.SeekCurrent)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if offset != int64(size) {
-				t.Fatalf("file offset = %d, want %d so no bytes were read ahead", offset, size)
-			}
+			require.NoError(t, err)
+			require.Equal(t, int64(size), offset, "no bytes read ahead")
 
 			remainder, err := io.ReadAll(reader)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(remainder, content[size:]) {
-				t.Fatalf("remaining data = %x, want %x", remainder, content[size:])
-			}
-			if endN, endErr := reader.Read(make([]byte, 1)); endN != 0 || !errors.Is(endErr, io.EOF) {
-				t.Fatalf("Read after EOF = (%d, %v), want (0, io.EOF)", endN, endErr)
-			}
+			require.NoError(t, err)
+			require.Equal(t, content[size:], remainder)
+			endN, endErr := reader.Read(make([]byte, 1))
+			assert.Zero(t, endN, "Read after EOF")
+			assert.ErrorIs(t, endErr, io.EOF)
 		})
 	}
 }
@@ -143,9 +130,8 @@ func TestOwnedFileReaderCancellationReleasesEnteredRead(t *testing.T) {
 		}
 		t.Fatal("cancellation did not release an entered delegated Read")
 	}
-	if result.n != 0 || !errors.Is(result.err, errOwnedFileCanceled) {
-		t.Fatalf("canceled entered Read = (%d, %v), want (0, cancellation cause)", result.n, result.err)
-	}
+	require.Zero(t, result.n)
+	require.ErrorIs(t, result.err, errOwnedFileCanceled)
 	waitUntil(t, func() bool {
 		_, err := input.Stat()
 		return errors.Is(err, os.ErrClosed)
@@ -167,9 +153,8 @@ func TestOwnedFileReaderCloseReleasesEnteredRead(t *testing.T) {
 	}
 	select {
 	case result := <-readDone:
-		if result.n != 0 || result.err == nil {
-			t.Fatalf("entered Read released by Close = (%d, %v), want (0, non-nil error)", result.n, result.err)
-		}
+		require.Zero(t, result.n)
+		require.Error(t, result.err)
 	case <-time.After(2 * time.Second):
 		_ = writer.Close() //nolint:errcheck // release the delegated pipe read before failing
 		select {
@@ -206,9 +191,7 @@ func newEnteredOwnedFileReader(
 ) (*ownedFileReader, *os.File, *os.File, <-chan struct{}) {
 	t.Helper()
 	input, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	entered := make(chan struct{})
 	reader := &ownedFileReader{
 		ctx:    ctx,
@@ -229,13 +212,9 @@ func newEnteredOwnedFileReader(
 func openOwnedTestFile(t *testing.T, content []byte) *os.File {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "input")
-	if err := os.WriteFile(path, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, content, 0o600))
 	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = file.Close() }) //nolint:errcheck // ownership tests may already have closed it
 	return file
 }
