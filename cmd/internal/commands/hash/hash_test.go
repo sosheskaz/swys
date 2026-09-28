@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	rootcmd "github.com/sosheskaz-systems/npc/cmd"
@@ -62,9 +63,7 @@ func TestHashKnownVectors(t *testing.T) {
 			t.Parallel()
 			output, err := executeHashCommand(t, strings.NewReader(test.input), "hash", test.algorithm)
 			require.NoError(t, err)
-			if string(output) != test.want {
-				t.Fatalf("output = %q, want %q", output, test.want)
-			}
+			assert.Equal(t, test.want, string(output))
 		})
 	}
 }
@@ -95,9 +94,7 @@ func TestHashOutputEncodingRegistry(t *testing.T) {
 				"hash", "sha256", "--encoding", test.name,
 			)
 			require.NoError(t, err)
-			if !bytes.Equal(output, test.want) {
-				t.Fatalf("output = %q, want %q", output, test.want)
-			}
+			assert.Equal(t, test.want, output)
 		})
 	}
 }
@@ -110,9 +107,7 @@ func TestHashRawDigestSizes(t *testing.T) {
 			t.Parallel()
 			output, err := executeHashCommand(t, bytes.NewReader(nil), "hash", algorithm, "-e", "raw")
 			require.NoError(t, err)
-			if len(output) != size {
-				t.Fatalf("raw digest length = %d, want %d", len(output), size)
-			}
+			assert.Len(t, output, size, "raw digest")
 		})
 	}
 }
@@ -144,9 +139,7 @@ func TestHashInputEncodingRegistry(t *testing.T) {
 				"hash", "sha256", "--input-encoding", test.name,
 			)
 			require.NoError(t, err)
-			if string(output) != want {
-				t.Fatalf("output = %q, want %q", output, want)
-			}
+			assert.Equal(t, want, string(output))
 		})
 	}
 }
@@ -158,13 +151,9 @@ func TestHashRawInputNewlineChangesDigest(t *testing.T) {
 	require.NoError(t, err)
 	withNewline, err := executeHashCommand(t, strings.NewReader("abc\n"), "hash", "sha256")
 	require.NoError(t, err)
-	if bytes.Equal(withoutNewline, withNewline) {
-		t.Fatalf("raw input newline did not change digest: %q", withNewline)
-	}
+	assert.NotEqual(t, withoutNewline, withNewline, "raw input newline did not change digest")
 	const wantWithNewline = "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb\n"
-	if string(withNewline) != wantWithNewline {
-		t.Fatalf("newline digest = %q, want %q", withNewline, wantWithNewline)
-	}
+	assert.Equal(t, wantWithNewline, string(withNewline), "newline digest")
 }
 
 func TestHashBareCommandShowsAlgorithmHelp(t *testing.T) {
@@ -172,22 +161,16 @@ func TestHashBareCommandShowsAlgorithmHelp(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "output")
 	const original = "preserve without an explicit algorithm"
-	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
 	output, err := executeHashCommand(t, hashPanicReader{}, "hash", "--output", path)
 	require.NoError(t, err)
 	help := string(output)
 	for _, text := range []string{"Usage:", "sha256", "sha512", "sha1", "md5"} {
-		if !strings.Contains(help, text) {
-			t.Fatalf("bare hash help does not contain %q:\n%s", text, help)
-		}
+		assert.Contains(t, help, text, "bare hash help")
 	}
 	contents, err := os.ReadFile(path)
 	require.NoError(t, err)
-	if string(contents) != original {
-		t.Fatalf("bare hash command changed output to %q, want preserved contents", contents)
-	}
+	assert.Equal(t, original, string(contents), "bare hash command changed output")
 }
 
 func TestHashCompatibilityAlgorithmsSaySoInHelp(t *testing.T) {
@@ -198,9 +181,7 @@ func TestHashCompatibilityAlgorithmsSaySoInHelp(t *testing.T) {
 			t.Parallel()
 			output, err := executeHashCommand(t, bytes.NewReader(nil), "hash", algorithm, "--help")
 			require.NoError(t, err)
-			if !strings.Contains(strings.ToLower(string(output)), "compatib") {
-				t.Fatalf("%s help does not identify its compatibility purpose:\n%s", algorithm, output)
-			}
+			assert.Contains(t, strings.ToLower(string(output)), "compatib", "%s help", algorithm)
 		})
 	}
 }
@@ -212,12 +193,8 @@ func TestHashRejectsOperands(t *testing.T) {
 		t.Run(algorithm, func(t *testing.T) {
 			t.Parallel()
 			output, err := executeHashCommand(t, strings.NewReader("stdin"), "hash", algorithm, "operand")
-			if err == nil {
-				t.Fatal("command accepted an operand, want stdin/--input only")
-			}
-			if len(output) != 0 {
-				t.Fatalf("failed command output = %q, want none", output)
-			}
+			require.Error(t, err, "command accepted an operand, want stdin/--input only")
+			assert.Empty(t, output, "failed command output")
 		})
 	}
 }
@@ -238,24 +215,18 @@ func TestHashInputOutputFlagsAndShorthands(t *testing.T) {
 			directory := t.TempDir()
 			inputPath := filepath.Join(directory, "input")
 			outputPath := filepath.Join(directory, "output")
-			if err := os.WriteFile(inputPath, []byte("flag input"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(inputPath, []byte("flag input"), 0o600))
 			stdout, err := executeHashCommand(
 				t,
 				strings.NewReader("ignored stdin"),
 				"hash", "sha512", flags.input, inputPath, flags.output, outputPath,
 			)
 			require.NoError(t, err)
-			if len(stdout) != 0 {
-				t.Fatalf("stdout = %q, want redirected output", stdout)
-			}
+			assert.Empty(t, stdout, "redirected output")
 			output, err := os.ReadFile(outputPath)
 			require.NoError(t, err)
 			want := encodeHashDigest("sha512", []byte("flag input"), "hex")
-			if !bytes.Equal(output, want) {
-				t.Fatalf("output file = %q, want %q", output, want)
-			}
+			assert.Equal(t, want, output, "output file")
 		})
 	}
 }
@@ -288,9 +259,7 @@ func TestHashStreamingBoundaries(t *testing.T) {
 					)
 					require.NoError(t, err)
 					want := encodeHashDigest(test.algorithm, payload, "hex")
-					if !bytes.Equal(output, want) {
-						t.Fatalf("chunk %d output = %q, want %q", chunkSize, output, want)
-					}
+					assert.Equal(t, want, output, "chunk %d", chunkSize)
 				}
 			})
 		}
@@ -349,27 +318,17 @@ func TestHashInputFailuresPreserveExistingOutput(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "output")
 			const original = "preserve existing output"
-			if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
 			args := append(append([]string(nil), test.args...), "--output", path)
 			output, err := executeHashCommand(t, test.input, args...)
-			if err == nil {
-				t.Fatal("command succeeded, want input/encoding error")
+			require.Error(t, err, "command succeeded, want input/encoding error")
+			if test.isErr != nil {
+				require.ErrorIs(t, err, test.isErr)
 			}
-			if test.isErr != nil && !errors.Is(err, test.isErr) {
-				t.Fatalf("error = %v, want %v", err, test.isErr)
-			}
-			if len(output) != 0 {
-				t.Fatalf("stdout = %q, want none", output)
-			}
+			assert.Empty(t, output, "stdout after failed command")
 			contents, readErr := os.ReadFile(path)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if string(contents) != original {
-				t.Fatalf("output file = %q, want preserved contents", contents)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, original, string(contents), "output file after failed command")
 		})
 	}
 }
@@ -381,33 +340,23 @@ func TestHashMissingInputPreservesExistingOutput(t *testing.T) {
 	inputPath := filepath.Join(directory, "missing")
 	outputPath := filepath.Join(directory, "output")
 	const original = "preserve existing output"
-	if err := os.WriteFile(outputPath, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(outputPath, []byte(original), 0o600))
 	_, err := executeHashCommand(
 		t,
 		bytes.NewReader(nil),
 		"hash", "sha256", "--input", inputPath, "--output", outputPath,
 	)
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("error = %v, want missing input error", err)
-	}
+	require.ErrorIs(t, err, os.ErrNotExist)
 	contents, readErr := os.ReadFile(outputPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(contents) != original {
-		t.Fatalf("output file = %q, want preserved contents", contents)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, original, string(contents), "output file after missing input")
 }
 
 func TestHashReportsOutputWriteFailure(t *testing.T) {
 	t.Parallel()
 
 	err := runHashCommand(t, strings.NewReader("payload"), hashFailingWriter{err: errHashTestWrite}, "hash", "sha256")
-	if !errors.Is(err, errHashTestWrite) {
-		t.Fatalf("error = %v, want output write failure", err)
-	}
+	assert.ErrorIs(t, err, errHashTestWrite)
 }
 
 func TestHashReportsShortWrites(t *testing.T) {
@@ -416,18 +365,14 @@ func TestHashReportsShortWrites(t *testing.T) {
 	t.Run("raw digest", func(t *testing.T) {
 		t.Parallel()
 		err := runHashCommand(t, strings.NewReader("payload"), hashShortDigestWriter{}, "hash", "sha256", "--encoding", "raw")
-		if !errors.Is(err, io.ErrShortWrite) {
-			t.Fatalf("error = %v, want io.ErrShortWrite", err)
-		}
+		require.ErrorIs(t, err, io.ErrShortWrite)
 	})
 
 	t.Run("text newline", func(t *testing.T) {
 		t.Parallel()
 		output := &hashShortNewlineWriter{}
 		err := runHashCommand(t, strings.NewReader("payload"), output, "hash", "sha256")
-		if !errors.Is(err, io.ErrShortWrite) {
-			t.Fatalf("error = %v, want io.ErrShortWrite", err)
-		}
+		require.ErrorIs(t, err, io.ErrShortWrite)
 		if bytes.HasSuffix(output.data, []byte{'\n'}) {
 			t.Fatalf("short newline write unexpectedly produced complete text output %q", output.data)
 		}
@@ -437,24 +382,16 @@ func TestHashReportsShortWrites(t *testing.T) {
 		t.Parallel()
 		output := &hashShortFirstEncodedWriter{}
 		err := runHashCommand(t, strings.NewReader("payload"), output, "hash", "sha256", "--encoding", "base64")
-		if !errors.Is(err, io.ErrShortWrite) {
-			t.Fatalf("error = %v, want io.ErrShortWrite", err)
-		}
-		if !output.shortened {
-			t.Fatal("writer did not observe an encoded digest group")
-		}
+		require.ErrorIs(t, err, io.ErrShortWrite)
+		assert.True(t, output.shortened, "writer did not observe an encoded digest group")
 	})
 
 	t.Run("base32 final padded group", func(t *testing.T) {
 		t.Parallel()
 		output := &hashShortPaddingWriter{}
 		err := runHashCommand(t, strings.NewReader("payload"), output, "hash", "sha256", "--encoding", "base32")
-		if !errors.Is(err, io.ErrShortWrite) {
-			t.Fatalf("error = %v, want io.ErrShortWrite", err)
-		}
-		if !output.shortened {
-			t.Fatal("writer did not observe the final padded group")
-		}
+		require.ErrorIs(t, err, io.ErrShortWrite)
+		assert.True(t, output.shortened, "writer did not observe the final padded group")
 		if bytes.HasSuffix(output.data, []byte{'\n'}) {
 			t.Fatalf("short encoder finalization unexpectedly wrote a newline: %q", output.data)
 		}
@@ -466,12 +403,8 @@ func TestHashReportsEncoderFinalizationFailureBeforeTextNewline(t *testing.T) {
 
 	output := &hashPaddingFailWriter{}
 	err := runHashCommand(t, strings.NewReader("payload"), output, "hash", "sha256", "--encoding", "base32")
-	if !errors.Is(err, errHashTestFinalize) {
-		t.Fatalf("error = %v, want encoder finalization failure", err)
-	}
-	if len(output.data) == 0 {
-		t.Fatal("encoder wrote no complete groups before its final padded group")
-	}
+	require.ErrorIs(t, err, errHashTestFinalize)
+	assert.NotEmpty(t, output.data, "encoder wrote no complete groups before its final padded group")
 	if bytes.ContainsAny(output.data, "=\n") {
 		t.Fatalf("failed finalization output = %q, want only complete unpadded groups and no newline", output.data)
 	}
