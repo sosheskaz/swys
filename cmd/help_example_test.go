@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
@@ -24,18 +25,10 @@ func TestExampleHelpSelectsCanonicalGuideThroughAlias(t *testing.T) {
 		},
 	})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "x509", "connect", "--plain")
-	if err != nil {
-		t.Fatalf("npc help x509 connect --plain: %v", err)
-	}
-	if !strings.HasPrefix(stdout, "Inspect a TLS server's certificates\n") {
-		t.Fatalf("stdout = %q, want the canonical cert connect guide", stdout)
-	}
-	if !strings.Contains(stdout, "npc cert connect --help") {
-		t.Fatalf("stdout does not point to canonical reference help: %q", stdout)
-	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want no diagnostics", stderr)
-	}
+	require.NoError(t, err, "npc help x509 connect --plain")
+	assert.True(t, strings.HasPrefix(stdout, "Inspect a TLS server's certificates\n"), "canonical cert connect guide: %q", stdout)
+	assert.Contains(t, stdout, "npc cert connect --help", "canonical reference help")
+	assert.Empty(t, stderr, "want no diagnostics")
 }
 
 func readSingleCertificate(t *testing.T, path string) *x509.Certificate {
@@ -52,24 +45,16 @@ func TestExampleReferenceHelpRemainsGenerated(t *testing.T) {
 	t.Parallel()
 
 	stdout, stderr, err := executeRootStreams(t, "cert", "connect", "--help")
-	if err != nil {
-		t.Fatalf("npc cert connect --help: %v", err)
-	}
+	require.NoError(t, err, "npc cert connect --help")
 	for _, want := range []string{
 		"Usage:\n  npc cert connect host:port [flags]",
 		"--chain",
 		"For a usage guide, run 'npc help cert connect'.",
 	} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("stdout does not contain %q:\n%s", want, stdout)
-		}
+		assert.Contains(t, stdout, want)
 	}
-	if strings.Contains(stdout, "Inspect a TLS server's certificates\n") {
-		t.Fatalf("reference output unexpectedly contains the curated guide:\n%s", stdout)
-	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want no diagnostics", stderr)
-	}
+	assert.NotContains(t, stdout, "Inspect a TLS server's certificates\n", "reference output contains curated guide")
+	assert.Empty(t, stderr, "want no diagnostics")
 }
 
 func TestExampleCertificateGuideUsesClickableLabelsInRichOutput(t *testing.T) {

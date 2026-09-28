@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
@@ -42,16 +44,10 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			output, err := executeRoot(t, "aes", "keygen", "--bits", "128", "--encoding", tt.format)
-			if err != nil {
-				t.Fatalf("execute command: %v", err)
-			}
+			require.NoError(t, err, "execute command")
 			decoded, err := tt.decode(strings.TrimSpace(output))
-			if err != nil {
-				t.Fatalf("decode output %q: %v", output, err)
-			}
-			if len(decoded) != 16 {
-				t.Fatalf("decoded key length = %d, want 16", len(decoded))
-			}
+			require.NoError(t, err, "decode output %q", output)
+			assert.Len(t, decoded, 16, "decoded key")
 		})
 	}
 }
@@ -59,61 +55,37 @@ func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 func TestUnknownOutputEncodingFails(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 	_, err := executeRoot(t, "cert", "keygen", "--encoding", "rot13", "--output", path)
-	if err == nil || !errors.Is(err, byteencoding.ErrUnknownOutputEncoding) {
-		t.Fatalf("error = %v, want unknown output encoding", err)
-	}
+	require.ErrorIs(t, err, byteencoding.ErrUnknownOutputEncoding)
 	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("invalid format truncated output file: %q", data)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserve", string(data), "output after invalid format")
 }
 
 func TestFlagGroupValidationDoesNotTruncateOutput(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "precious.dat")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 
 	_, err := executeRoot(t, "aes", "encrypt", "hello", "--output", path)
-	if err == nil || !strings.Contains(err.Error(), "at least one of the flags") {
-		t.Fatalf("error = %v, want missing key flag-group error", err)
-	}
+	require.ErrorContains(t, err, "at least one of the flags", "missing key flag group")
 	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("failed command replaced output with %q", data)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserve", string(data), "output after failed command")
 }
 
 func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "data")
 	const original = "keep me"
-	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
 
 	_, err := executeRoot(t, "cert", "keygen", "--input", path, "--output", path)
-	if !errors.Is(err, commandio.ErrSameInputOutput) {
-		t.Fatalf("error = %v, want errSameInputOutput", err)
-	}
+	require.ErrorIs(t, err, commandio.ErrSameInputOutput)
 	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(data) != original {
-		t.Fatalf("file content = %q, want %q", data, original)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, original, string(data), "file content")
 }
 
 func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
@@ -121,9 +93,7 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 	dir := t.TempDir()
 	inputPath := filepath.Join(dir, "missing")
 	outputPath := filepath.Join(dir, "output")
-	if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 
 	_, err := executeRoot(
@@ -132,16 +102,10 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 		"--input", inputPath,
 		"--output", outputPath,
 	)
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("error = %v, want missing-input error", err)
-	}
+	require.ErrorIs(t, err, os.ErrNotExist)
 	data, readErr := os.ReadFile(outputPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("output = %q, want preserved contents", data)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserve", string(data), "output after missing input")
 }
 
 func TestOutputFileUsesPrivatePermissions(t *testing.T) {
@@ -152,16 +116,11 @@ func TestOutputFileUsesPrivatePermissions(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "key")
 			args := append(append([]string{}, command...), "--output", path)
-			if _, err := executeRoot(t, args...); err != nil {
-				t.Fatal(err)
-			}
+			_, err := executeRoot(t, args...)
+			require.NoError(t, err)
 			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(data) != 32 {
-				t.Fatalf("output length = %d, want 32-byte replacement", len(data))
-			}
+			require.NoError(t, err)
+			assert.Len(t, data, 32, "output key")
 			assertPrivateOutput(t, path)
 		})
 	}
@@ -174,31 +133,18 @@ func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "key")
-			if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(path, []byte("old contents"), 0o644))
 			before, statErr := os.Stat(path)
-			if statErr != nil {
-				t.Fatal(statErr)
-			}
+			require.NoError(t, statErr)
 			args := append(append([]string{}, command...), "--output", path)
-			if _, err := executeRoot(t, args...); !errors.Is(err, securefile.ErrNotOwnerOnly) {
-				t.Fatalf("error = %v, want owner-only rejection", err)
-			}
+			_, err := executeRoot(t, args...)
+			require.ErrorIs(t, err, securefile.ErrNotOwnerOnly)
 			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(data) != "old contents" {
-				t.Fatalf("output = %q, want original contents", data)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, "old contents", string(data), "existing output")
 			info, err := os.Stat(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := info.Mode().Perm(); got != before.Mode().Perm() {
-				t.Fatalf("output permissions = %04o, want unchanged %04o", got, before.Mode().Perm())
-			}
+			require.NoError(t, err)
+			assert.Equal(t, before.Mode().Perm(), info.Mode().Perm(), "output permissions")
 		})
 	}
 }
@@ -206,31 +152,19 @@ func TestSensitiveOutputRejectsInsecureExistingFile(t *testing.T) {
 func TestSensitiveOutputModeExplicitlyOverridesPolicy(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("old contents"), 0o644))
 	_, runErr := executeRoot(t, "aes", "keygen", "--output", path, "--mode", "0640")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, path, "old contents")
 		return
 	}
-	if err := runErr; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, runErr)
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(data) != 32 {
-		t.Fatalf("output length = %d, want 32-byte replacement", len(data))
-	}
+	require.NoError(t, err)
+	assert.Len(t, data, 32, "output key")
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o640 {
-		t.Fatalf("output permissions = %04o, want explicit 0640", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(), "explicit output permissions")
 }
 
 func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
@@ -250,23 +184,14 @@ func TestOrdinaryOutputKeepsExistingPermissions(t *testing.T) {
 	rootCmd.AddCommand(command)
 
 	path := filepath.Join(t.TempDir(), "output")
-	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("old contents"), 0o644))
 	before, statErr := os.Stat(path)
-	if statErr != nil {
-		t.Fatal(statErr)
-	}
-	if _, err := executeRootCommand(t, rootCmd, "ordinary-output-test", "--output", path); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, statErr)
+	_, err := executeRootCommand(t, rootCmd, "ordinary-output-test", "--output", path)
+	require.NoError(t, err)
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != before.Mode().Perm() {
-		t.Fatalf("output permissions = %04o, want preserved %04o", got, before.Mode().Perm())
-	}
+	require.NoError(t, err)
+	assert.Equal(t, before.Mode().Perm(), info.Mode().Perm(), "preserved output permissions")
 }
 
 func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
@@ -279,16 +204,11 @@ func TestOutputFileOverwriteKeepsExistingInode(t *testing.T) {
 		t.Skipf("create hard link: %v", err)
 	}
 
-	if _, err := executeRoot(t, "aes", "keygen", "--output", path); err != nil {
-		t.Fatal(err)
-	}
+	_, err := executeRoot(t, "aes", "keygen", "--output", path)
+	require.NoError(t, err)
 	data, err := os.ReadFile(alias)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(data) != 32 {
-		t.Fatalf("hard-linked output length = %d, want 32", len(data))
-	}
+	require.NoError(t, err)
+	assert.Len(t, data, 32, "hard-linked output")
 }
 
 func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
@@ -298,33 +218,18 @@ func TestOutputFileOverwriteRequiresWritePermission(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "key")
 	writeOwnerOnlyFixture(t, path, "old contents")
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chmod(path, 0o000))
 	before, statErr := os.Stat(path)
-	if statErr != nil {
-		t.Fatal(statErr)
-	}
-	if _, err := executeRoot(t, "cert", "keygen", "--output", path); err == nil {
-		t.Fatal("execute command succeeded, want output-open error")
-	}
+	require.NoError(t, statErr)
+	_, err := executeRoot(t, "cert", "keygen", "--output", path)
+	require.Error(t, err, "want output-open error")
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != before.Mode().Perm() {
-		t.Fatalf("output permissions = %04o, want unchanged %04o", got, before.Mode().Perm())
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, before.Mode().Perm(), info.Mode().Perm(), "unchanged output permissions")
+	require.NoError(t, os.Chmod(path, 0o600))
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "old contents" {
-		t.Fatalf("output = %q, want original contents", data)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "old contents", string(data), "existing output")
 }
 
 func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
@@ -346,16 +251,10 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 				assertWindowsModeRejection(t, runErr, path, "")
 				return
 			}
-			if err := runErr; err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, runErr)
 			info, err := os.Stat(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := info.Mode().Perm(); got != tt.want {
-				t.Fatalf("output permissions = %04o, want %04o", got, tt.want)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, info.Mode().Perm(), "output permissions")
 		})
 	}
 }
@@ -363,24 +262,16 @@ func TestOutputModeSetsPermissionsOnNewFile(t *testing.T) {
 func TestOutputModeOverridesExistingPermissions(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte("old contents"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("old contents"), 0o644))
 	_, runErr := executeRoot(t, "cert", "keygen", "--output", path, "--mode", "0400")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, path, "old contents")
 		return
 	}
-	if err := runErr; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, runErr)
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o400 {
-		t.Fatalf("output permissions = %04o, want 0400 override", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o400), info.Mode().Perm(), "override output permissions")
 }
 
 func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
@@ -399,24 +290,16 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "existing")
-			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 			_, err := executeRoot(t, "cert", "keygen", "--output", path, "--mode", tt.mode)
 			wantErr := commandio.ErrInvalidOutputMode
 			if runtime.GOOS == "windows" {
 				wantErr = commandio.ErrOutputModeUnsupported
 			}
-			if !errors.Is(err, wantErr) {
-				t.Fatalf("error = %v, want %v", err, wantErr)
-			}
+			require.ErrorIs(t, err, wantErr)
 			data, readErr := os.ReadFile(path)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if string(data) != "preserve" {
-				t.Fatalf("output = %q, want preserved content", data)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(data), "output after invalid mode")
 		})
 	}
 }
@@ -428,31 +311,21 @@ func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		wantErr = commandio.ErrOutputModeUnsupported
 	}
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("error = %v, want %v", err, wantErr)
-	}
+	assert.ErrorIs(t, err, wantErr)
 }
 
 func TestModeFlagRegisteredOnRoot(t *testing.T) {
 	t.Parallel()
 	flag := newRootCmd().PersistentFlags().Lookup("mode")
-	if flag == nil {
-		t.Fatal("mode flag not registered")
-	}
-	if flag.DefValue != "" {
-		t.Fatalf("mode default = %q, want empty (no override)", flag.DefValue)
-	}
+	require.NotNil(t, flag, "mode flag")
+	assert.Empty(t, flag.DefValue, "mode default")
 }
 
 func TestNonRegularOutputStreamsDirectly(t *testing.T) {
 	t.Parallel()
 	output, err := executeRoot(t, "cert", "keygen", "--output", os.DevNull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output != "" {
-		t.Fatalf("stdout = %q, want output redirected to %s", output, os.DevNull)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, output, "stdout redirected to %s", os.DevNull)
 }
 
 func TestSymlinkOutputFollowsTarget(t *testing.T) {
@@ -482,32 +355,20 @@ func TestSymlinkOutputFollowsTarget(t *testing.T) {
 				assertWindowsModeRejection(t, runErr, targetPath, "preserve")
 				return
 			}
-			if err := runErr; err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, runErr)
 			target, err := os.ReadFile(targetPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(target) != 32 {
-				t.Fatalf("symlink target length = %d, want 32", len(target))
-			}
+			require.NoError(t, err)
+			assert.Len(t, target, 32, "symlink target")
 			info, err := os.Lstat(linkPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if info.Mode()&os.ModeSymlink == 0 {
-				t.Fatal("output path is no longer a symlink")
-			}
+			require.NoError(t, err)
+			assert.NotZero(t, info.Mode()&os.ModeSymlink, "output path is no longer a symlink")
 			if runtime.GOOS == "windows" {
 				assertPrivateOutput(t, targetPath)
 			}
 			targetInfo, err := os.Stat(targetPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := targetInfo.Mode().Perm(); runtime.GOOS != "windows" && got != tt.wantMode {
-				t.Fatalf("output permissions = %04o, want %04o", got, tt.wantMode)
+			require.NoError(t, err)
+			if runtime.GOOS != "windows" {
+				assert.Equal(t, tt.wantMode, targetInfo.Mode().Perm(), "output permissions")
 			}
 		})
 	}
@@ -518,29 +379,18 @@ func TestSensitiveOutputRejectsInsecureSymlinkTarget(t *testing.T) {
 	dir := t.TempDir()
 	targetPath := filepath.Join(dir, "target")
 	linkPath := filepath.Join(dir, "link")
-	if err := os.WriteFile(targetPath, []byte("preserve"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(targetPath, []byte("preserve"), 0o644))
 	if err := os.Symlink(targetPath, linkPath); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
-	if _, err := executeRoot(t, "aes", "keygen", "--output", linkPath); !errors.Is(err, securefile.ErrNotOwnerOnly) {
-		t.Fatalf("error = %v, want owner-only rejection", err)
-	}
+	_, err := executeRoot(t, "aes", "keygen", "--output", linkPath)
+	require.ErrorIs(t, err, securefile.ErrNotOwnerOnly)
 	data, err := os.ReadFile(targetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "preserve" {
-		t.Fatalf("target contents = %q, want preserved", data)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data), "symlink target contents")
 	info, err := os.Lstat(linkPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("output path is no longer a symlink")
-	}
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "output path is no longer a symlink")
 }
 
 func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
@@ -557,30 +407,16 @@ func TestOutputModeFollowsDanglingSymlink(t *testing.T) {
 		assertWindowsModeRejection(t, runErr, targetPath, "")
 		return
 	}
-	if err := runErr; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, runErr)
 	target, err := os.ReadFile(targetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(target) != 32 {
-		t.Fatalf("symlink target length = %d, want 32", len(target))
-	}
+	require.NoError(t, err)
+	assert.Len(t, target, 32, "symlink target")
 	info, err := os.Lstat(linkPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("output path is no longer a symlink")
-	}
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "output path is no longer a symlink")
 	targetInfo, err := os.Stat(targetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := targetInfo.Mode().Perm(); got != 0o640 {
-		t.Fatalf("output permissions = %04o, want 0640", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), targetInfo.Mode().Perm(), "output permissions")
 }
 
 func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
@@ -588,25 +424,17 @@ func TestSymlinkOutputToDirectoryFailsLikeDirectDirectoryOutput(t *testing.T) {
 	dir := t.TempDir()
 	targetDir := filepath.Join(dir, "target-dir")
 	linkPath := filepath.Join(dir, "link")
-	if err := os.Mkdir(targetDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(targetDir, 0o700))
 	if err := os.Symlink(targetDir, linkPath); err != nil {
 		t.Skipf("create symlink: %v", err)
 	}
 
 	_, directErr := executeRoot(t, "cert", "keygen", "--output", targetDir)
-	if directErr == nil || !strings.Contains(directErr.Error(), "is a directory") {
-		t.Fatalf("direct directory error = %v, want directory rejection", directErr)
-	}
+	require.ErrorContains(t, directErr, "is a directory", "direct directory rejection")
 
 	_, symlinkErr := executeRoot(t, "cert", "keygen", "--output", linkPath)
-	if symlinkErr == nil || !strings.Contains(symlinkErr.Error(), "is a directory") {
-		t.Fatalf("symlinked directory error = %v, want directory rejection", symlinkErr)
-	}
-	if directErr.Error() != strings.ReplaceAll(symlinkErr.Error(), strconv.Quote(linkPath), strconv.Quote(targetDir)) {
-		t.Fatalf("error messages diverge: direct=%q symlink=%q", directErr, symlinkErr)
-	}
+	require.ErrorContains(t, symlinkErr, "is a directory", "symlinked directory rejection")
+	assert.Equal(t, directErr.Error(), strings.ReplaceAll(symlinkErr.Error(), strconv.Quote(linkPath), strconv.Quote(targetDir)), "directory errors")
 }
 
 func TestPersistentIOHooksApplyToNewCommands(t *testing.T) {
@@ -625,12 +453,8 @@ func TestPersistentIOHooksApplyToNewCommands(t *testing.T) {
 	rootCmd.AddCommand(command)
 
 	output, err := executeRootCommand(t, rootCmd, "hook-test", "--encoding", "hex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output != "41" {
-		t.Fatalf("encoded output = %q, want 41", output)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "41", output, "encoded output")
 }
 
 // Cobra runs only the nearest persistent hook unless traversal is enabled, so a
@@ -661,29 +485,21 @@ func TestDescendantPersistentHooksDoNotShadowRootIO(t *testing.T) {
 	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
 
-	if _, err := executeRootCommand(t, rootCmd, "shadow-hook-test", "--encoding", "hex", "--output", outputPath); err != nil {
-		t.Fatal(err)
-	}
-	if !childPreRan || !childPostRan {
-		t.Fatalf("descendant hooks did not run: pre=%v post=%v", childPreRan, childPostRan)
-	}
+	_, err := executeRootCommand(t, rootCmd, "shadow-hook-test", "--encoding", "hex", "--output", outputPath)
+	require.NoError(t, err)
+	assert.True(t, childPreRan, "descendant pre-hook")
+	assert.True(t, childPostRan, "descendant post-hook")
 
 	// The root PersistentPreRunE owns --output and --encoding.
 	data, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("root hooks did not apply --output: %v", err)
-	}
-	if string(data) != "41" {
-		t.Fatalf("output = %q, want %q from the root hook's hex encoder", data, "41")
-	}
+	require.NoError(t, err, "root hooks apply --output")
+	assert.Equal(t, "41", string(data), "root hex output encoder")
 }
 
 func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
-	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("old contents"), 0o600))
 
 	var observed []byte
 	command := commandio.BinaryOutputCommand(&cobra.Command{
@@ -704,20 +520,15 @@ func TestOutputFileIsWrittenDuringCommand(t *testing.T) {
 	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
 
-	if _, err := executeRootCommand(t, rootCmd, "live-output-test", "--output", path); err != nil {
-		t.Fatal(err)
-	}
-	if string(observed) != "live" {
-		t.Fatalf("output observed during command = %q, want live data", observed)
-	}
+	_, err := executeRootCommand(t, rootCmd, "live-output-test", "--output", path)
+	require.NoError(t, err)
+	assert.Equal(t, "live", string(observed), "output observed during command")
 }
 
 func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
-	if err := os.WriteFile(path, []byte("old contents"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("old contents"), 0o600))
 
 	var observed os.FileMode
 	command := commandio.BinaryOutputCommand(&cobra.Command{
@@ -742,17 +553,11 @@ func TestOutputModeIsAppliedBeforeCommand(t *testing.T) {
 	_, runErr := executeRootCommand(t, rootCmd, "output-mode-test", "--output", path, "--mode", "0640")
 	if runtime.GOOS == "windows" {
 		assertWindowsModeRejection(t, runErr, path, "old contents")
-		if observed != 0 {
-			t.Fatalf("command observed mode %04o, want rejection before command execution", observed)
-		}
+		assert.Zero(t, observed, "command observed mode after rejection")
 		return
 	}
-	if err := runErr; err != nil {
-		t.Fatal(err)
-	}
-	if observed != 0o640 {
-		t.Fatalf("output permissions during command = %04o, want 0640", observed)
-	}
+	require.NoError(t, runErr)
+	assert.Equal(t, os.FileMode(0o640), observed, "output permissions during command")
 }
 
 func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
@@ -784,12 +589,8 @@ func TestCommandErrorStillFlushesOutputEncoder(t *testing.T) {
 			rootCmd.AddCommand(command)
 
 			output, err := executeRootCommand(t, rootCmd, "hook-error-test", "--encoding", tt.encoding)
-			if !errors.Is(err, runErr) {
-				t.Fatalf("error = %v, want command failure", err)
-			}
-			if output != tt.want {
-				t.Fatalf("encoded output = %q, want %q", output, tt.want)
-			}
+			require.ErrorIs(t, err, runErr)
+			assert.Equal(t, tt.want, output, "encoded output")
 		})
 	}
 }
@@ -811,20 +612,12 @@ func TestCommandErrorLeavesWrittenOutputFile(t *testing.T) {
 	rootCmd.AddCommand(command)
 
 	path := filepath.Join(t.TempDir(), "existing")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 	_, err := executeRootCommand(t, rootCmd, "output-error-test", "--output", path, "--encoding", "base64")
-	if !errors.Is(err, runErr) {
-		t.Fatalf("error = %v, want command failure", err)
-	}
+	require.ErrorIs(t, err, runErr)
 	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(data) != "cmVwbGFjZW1lbnQ=" {
-		t.Fatalf("failed command output = %q, want flushed streamed data", data)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, "cmVwbGFjZW1lbnQ=", string(data), "flushed output after command error")
 }
 
 func executeRoot(t *testing.T, args ...string) (string, error) {

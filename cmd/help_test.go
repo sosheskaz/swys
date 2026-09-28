@@ -50,15 +50,9 @@ func TestHelpAliasesSelectCanonicalGuides(t *testing.T) {
 			args := append([]string{"help"}, test.args...)
 			args = append(args, "--plain", "--no-pager")
 			stdout, stderr, err := executeRootCommandStreams(t, newGuideTestRoot(), args...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.HasPrefix(stdout, test.wantHeading+"\n") {
-				t.Fatalf("stdout = %q, want heading %q", stdout, test.wantHeading)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q, want no diagnostics", stderr)
-			}
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(stdout, test.wantHeading+"\n"), "stdout = %q, want heading %q", stdout, test.wantHeading)
+			assert.Empty(t, stderr, "want no diagnostics")
 		})
 	}
 }
@@ -79,12 +73,8 @@ func TestHelpRejectsUnknownAndSurplusPathComponents(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			stdout, _, err := executeRootCommandStreams(t, newGuideTestRoot(), test.args...)
-			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Fatalf("error = %v, want diagnostic containing %q", err, test.wantErr)
-			}
-			if stdout != "" {
-				t.Fatalf("stdout = %q, want no fallback guide", stdout)
-			}
+			require.ErrorContains(t, err, test.wantErr)
+			assert.Empty(t, stdout, "want no fallback guide")
 		})
 	}
 }
@@ -94,9 +84,7 @@ func TestHelpDoesNotRunTargetHooksOrHandlers(t *testing.T) {
 
 	root := newGuideTestRoot()
 	target, _, err := root.Find([]string{"cert", "connect"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	preRunCalled := false
 	runCalled := false
 	target.PreRunE = func(*cobra.Command, []string) error {
@@ -109,15 +97,11 @@ func TestHelpDoesNotRunTargetHooksOrHandlers(t *testing.T) {
 	}
 	root.SetIn(guidePanicReader{})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "x509", "connect", "--plain")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if preRunCalled || runCalled {
-		t.Fatalf("target lifecycle ran: pre-run=%t handler=%t", preRunCalled, runCalled)
-	}
-	if stdout == "" || stderr != "" {
-		t.Fatalf("stdout length = %d, stderr = %q", len(stdout), stderr)
-	}
+	require.NoError(t, err)
+	assert.False(t, preRunCalled, "target pre-run executed")
+	assert.False(t, runCalled, "target handler executed")
+	assert.NotEmpty(t, stdout, "guide output")
+	assert.Empty(t, stderr, "guide diagnostics")
 }
 
 func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
@@ -138,25 +122,16 @@ func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
 			t.Parallel()
 
 			stdout, stderr, err := executeRootStreams(t, test.args...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(stdout, test.want) || !strings.Contains(stdout, "For a usage guide, run '") {
-				t.Fatalf("stdout does not preserve reference output and guide pointer:\n%s", stdout)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q", stderr)
-			}
+			require.NoError(t, err)
+			assert.Contains(t, stdout, test.want, "reference output")
+			assert.Contains(t, stdout, "For a usage guide, run '", "guide pointer")
+			assert.Empty(t, stderr)
 		})
 	}
 
 	stdout, _, err := executeRootCommandStreams(t, newGuideTestRoot(), "net", "connect", "--tls")
-	if err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s), received 0") {
-		t.Fatalf("missing operational argument error = %v", err)
-	}
-	if strings.Contains(stdout, "Exchange bytes over verified TLS") {
-		t.Fatalf("runnable leaf unexpectedly fell back to guide: %q", stdout)
-	}
+	require.ErrorContains(t, err, "accepts 1 arg(s), received 0")
+	assert.NotContains(t, stdout, "Exchange bytes over verified TLS", "runnable leaf unexpectedly fell back to guide")
 }
 
 func TestReferenceGuidePointerUsesStdoutWithDefaultStreams(t *testing.T) {

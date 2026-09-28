@@ -1,14 +1,15 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/base64"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
@@ -16,26 +17,20 @@ import (
 func TestKeyPublicMalformedBase64PreservesExistingOutput(t *testing.T) {
 	t.Parallel()
 	privatePEM, _, err := executeRootStreams(t, "cert", "keygen")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	privateBytes := []byte(privatePEM)
 	for len(privateBytes)%3 == 0 {
 		privateBytes = append(privateBytes, '\n')
 	}
 	encodedPrivate := base64.StdEncoding.EncodeToString(privateBytes)
-	if !strings.HasSuffix(encodedPrivate, "=") {
-		t.Fatalf("test setup produced unpadded base64 input %q", encodedPrivate)
-	}
+	require.True(t, strings.HasSuffix(encodedPrivate, "="), "test setup produced unpadded base64 input %q", encodedPrivate)
 
 	rootCmd := newRootCmd()
 	// A second padded segment decodes to whitespace, so the key parser accepts
 	// it if the shared decoder mistakenly treats padding as a chunk delimiter.
 	rootCmd.SetIn(&sequenceReader{chunks: [][]byte{[]byte(encodedPrivate), []byte("Cg==")}})
 	outputPath := filepath.Join(t.TempDir(), "public.pem")
-	if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
 	_, _, err = executeRootCommandStreams(
 		t,
 		rootCmd,
@@ -45,12 +40,8 @@ func TestKeyPublicMalformedBase64PreservesExistingOutput(t *testing.T) {
 		t.Error("cert key-public accepted base64 data after terminal padding")
 	}
 	got, readErr := os.ReadFile(outputPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(got) != "preserve" {
-		t.Fatalf("output after malformed input = %q, want preserved contents", got)
-	}
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserve", string(got), "output after malformed input")
 }
 
 type sequenceReader struct {
@@ -84,9 +75,7 @@ func TestHashRejectsSameFileAndHardLinkWithoutTruncation(t *testing.T) {
 			inputPath := filepath.Join(directory, "input")
 			outputPath := inputPath
 			original := []byte("do not truncate")
-			if err := os.WriteFile(inputPath, original, 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(inputPath, original, 0o600))
 			if hardLink {
 				outputPath = filepath.Join(directory, "alias")
 				if err := os.Link(inputPath, outputPath); err != nil {
@@ -94,16 +83,10 @@ func TestHashRejectsSameFileAndHardLinkWithoutTruncation(t *testing.T) {
 				}
 			}
 			_, _, err := executeRootStreams(t, "hash", "sha256", "--input", inputPath, "--output", outputPath)
-			if !errors.Is(err, commandio.ErrSameInputOutput) {
-				t.Fatalf("error = %v, want errSameInputOutput", err)
-			}
+			require.ErrorIs(t, err, commandio.ErrSameInputOutput)
 			contents, readErr := os.ReadFile(inputPath)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if !bytes.Equal(contents, original) {
-				t.Fatalf("input = %q, want preserved contents", contents)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, original, contents, "input contents after rejection")
 		})
 	}
 }

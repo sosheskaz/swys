@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCertificateInspectEscapesCommonName(t *testing.T) {
@@ -11,19 +13,14 @@ func TestCertificateInspectEscapesCommonName(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "key.pem")
 	certPath := filepath.Join(dir, "cert.pem")
-	if _, err := executeRoot(t, "cert", "keygen", "--output", keyPath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := executeRoot(t, "cert", "create", "--key", keyPath, "--subject", "CN=demo\x1b[2J", "--output", certPath); err != nil {
-		t.Fatal(err)
-	}
+	_, err := executeRoot(t, "cert", "keygen", "--output", keyPath)
+	require.NoError(t, err)
+	_, err = executeRoot(t, "cert", "create", "--key", keyPath, "--subject", "CN=demo\x1b[2J", "--output", certPath)
+	require.NoError(t, err)
 	for _, format := range []string{"text", "long"} {
 		output, err := executeRoot(t, "cert", "inspect", "--input", certPath, "--format", format)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(output, "\x1b") || !strings.Contains(output, `demo\x1b[2J`) {
-			t.Fatalf("unsafe certificate output: %q", output)
-		}
+		require.NoError(t, err)
+		assert.NotContains(t, output, "\x1b", "unsafe certificate output")
+		assert.Contains(t, output, `demo\x1b[2J`, "escaped common name")
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
@@ -21,33 +23,19 @@ func TestCommandTreesOwnFlagsAndAnnotations(t *testing.T) {
 	first := newRootCmd()
 	second := newRootCmd()
 	firstLeaf, _, err := first.Find([]string{"cert", "create"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	secondLeaf, _, err := second.Find([]string{"cert", "create"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstLeaf == secondLeaf {
-		t.Fatal("command trees share a leaf")
-	}
-	if err := firstLeaf.Flags().Set("dns", "first.test"); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.PersistentFlags().Set("output", "first.pem"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	assert.NotSame(t, firstLeaf, secondLeaf, "command trees share a leaf")
+	require.NoError(t, firstLeaf.Flags().Set("dns", "first.test"))
+	require.NoError(t, first.PersistentFlags().Set("output", "first.pem"))
 	commandio.AddShape(firstLeaf, "test-only")
 	secondDNS, err := secondLeaf.Flags().GetStringArray("dns")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(secondDNS) != 0 || secondLeaf.Flags().Changed("dns") || second.PersistentFlags().Changed("output") {
-		t.Fatal("flags leaked between command trees")
-	}
-	if commandio.HasShape(secondLeaf, "test-only") {
-		t.Fatal("annotations leaked between command trees")
-	}
+	require.NoError(t, err)
+	assert.Empty(t, secondDNS, "DNS flag leaked between command trees")
+	assert.False(t, secondLeaf.Flags().Changed("dns"), "DNS flag changed in second command tree")
+	assert.False(t, second.PersistentFlags().Changed("output"), "output flag changed in second command tree")
+	assert.False(t, commandio.HasShape(secondLeaf, "test-only"), "annotations leaked between command trees")
 }
 
 func TestIndependentCommandCompletion(t *testing.T) {
@@ -56,19 +44,13 @@ func TestIndependentCommandCompletion(t *testing.T) {
 		t.Run("completion", func(t *testing.T) {
 			t.Parallel()
 			stdout, _, err := executeRootStreams(t, "__complete", "aes", "encrypt", "--wire-format", "")
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if !strings.Contains(stdout, "openpgp") || !strings.Contains(stdout, "tink") || !strings.HasSuffix(stdout, ":4\n") {
 				t.Fatalf("completion = %q, want values and no-file directive", stdout)
 			}
 			stdout, _, err = executeRootStreams(t, "__complete", "cert", "keygen", "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stdout != ":4\n" {
-				t.Fatalf("completed key argument = %q, want only no-file directive", stdout)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, ":4\n", stdout, "completed key argument")
 		})
 	}
 }
@@ -104,9 +86,7 @@ func TestCommandExecutionRestoresStreamsAndContext(t *testing.T) {
 			if fail && !errors.Is(err, errTestCommandFailed) || !fail && err != nil {
 				t.Fatalf("execute error = %v, failing command = %v", err, fail)
 			}
-			if output.String() != "QQ==" {
-				t.Fatalf("output = %q, want flushed encoder", output.String())
-			}
+			assert.Equal(t, "QQ==", output.String(), "flushed encoder")
 			if command.Context() != originalContext || command.InOrStdin() != input || command.OutOrStdout() != &output {
 				t.Fatal("execution did not restore its original context and streams")
 			}
