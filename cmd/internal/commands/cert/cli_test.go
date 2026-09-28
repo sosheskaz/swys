@@ -18,11 +18,14 @@ import (
 const certificatePEMType = certinput.PEMType
 
 var (
-	errCertificateInputSelection = cert.ErrCertificateInputSelection
-	errCertificatePathCollision  = certinput.ErrPathCollision
-	errCertificateReportNegative = cert.ErrCertificateReportNegative
-	errTrailingCertificateData   = certinput.ErrTrailingData
-	errUnexpectedPEMType         = certinput.ErrUnexpectedPEMType
+	errCertificateInputSelection  = cert.ErrCertificateInputSelection
+	errCertificatePathCollision   = certinput.ErrPathCollision
+	errCertificateReportNegative  = cert.ErrCertificateReportNegative
+	errTrailingCertificateData    = certinput.ErrTrailingData
+	errUnexpectedPEMType          = certinput.ErrUnexpectedPEMType
+	errOutputModeUnsupported      = commandio.ErrOutputModeUnsupported
+	errUnknownKeyConversionTarget = cert.ErrUnknownKeyConversionTarget
+	errUnknownKeyFormat           = cert.ErrUnknownKeyFormat
 )
 
 func newRootCmd() *cobra.Command { return rootcmd.NewCommand() }
@@ -61,3 +64,13 @@ func executeRootCommandStreams(t *testing.T, root *cobra.Command, args ...string
 	err := commandio.Execute(root)
 	return stdout.String(), stderr.String(), err
 }
+
+func keyLeaf(t *testing.T, name string) *cobra.Command {
+	t.Helper()
+	command, _, err := rootcmd.NewCommand().Find([]string{"cert", "key-" + name})
+	require.NoError(t, err)
+	require.Equal(t, "key-"+name, command.Name())
+	return command
+}
+
+func executeCommand(root *cobra.Command) error { return commandio.Execute(root) }

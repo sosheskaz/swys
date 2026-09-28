@@ -35,11 +35,11 @@ func TestHelpAliasesSelectCanonicalGuides(t *testing.T) {
 	}{
 		{name: "certificate-family", args: []string{"x509", "connect"}, wantHeading: "Inspect a TLS server's certificates"},
 		{name: "certificate-leaf", args: []string{"certificate", "conn"}, wantHeading: "Inspect a TLS server's certificates"},
-		{name: "punctuated-certificate", args: []string{"x.509", "c"}, wantHeading: "Inspect a TLS server's certificates"},
+		{name: "punctuated-certificate", args: []string{"x.509", "connect"}, wantHeading: "Inspect a TLS server's certificates"},
 		{name: "network-family", args: []string{"nc", "connect"}, wantHeading: "Connect to a network endpoint"},
 		{name: "network-long-alias", args: []string{"netcat", "listen"}, wantHeading: "Listen for one network exchange"},
 		{name: "key-family-and-leaf", args: []string{"cert", "keygen"}, wantHeading: "Generate a certificate private key"},
-		{name: "key-leaf", args: []string{"key", "p"}, wantHeading: "Derive or canonicalize a public key"},
+		{name: "cert-key-leaf", args: []string{"cert", "key-public"}, wantHeading: "Derive or canonicalize a public key"},
 		{name: "aes-encrypt", args: []string{"aes", "enc"}, wantHeading: "Encrypt a message with AES"},
 		{name: "aes-decrypt", args: []string{"aes", "d"}, wantHeading: "Decrypt an AES message"},
 		{name: "dns", args: []string{"dig"}, wantHeading: "Resolve DNS names and records"},
@@ -281,7 +281,7 @@ func TestDocumentedRootGuideKeyWorkflow(t *testing.T) {
 	if _, err := executeRoot(t, "cert", "keygen", "--output", privateKey); err != nil {
 		t.Fatalf("documented generate Command: %v", err)
 	}
-	output, err := executeRoot(t, "key", "inspect", "--input", privateKey)
+	output, err := executeRoot(t, "cert", "key-inspect", "--input", privateKey)
 	if err != nil {
 		t.Fatalf("documented inspect Command: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestRootGuideHighlightsCommandKeywords(t *testing.T) {
 
 	output, _, err := executeRootCommandStreams(t, newGuideTestRoot(), "help", "--rich")
 	require.NoError(t, err)
-	for _, keyword := range []string{"dns", "http", "net", "cert", "key", "aes", "hash"} {
+	for _, keyword := range []string{"dns", "http", "net", "cert", "aes", "hash"} {
 		assert.Contains(t, output, "• \x1b[1m"+keyword+"\x1b[0m ", "command keyword %q styling", keyword)
 	}
 }

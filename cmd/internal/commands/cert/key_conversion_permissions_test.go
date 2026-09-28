@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"errors"
@@ -32,7 +32,7 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 			public := strings.HasPrefix(target, "pkix-") || target == "openssh"
 			if public {
 				publicInput := filepath.Join(t.TempDir(), "public.pem")
-				if _, err := executeRoot(t, "key", "public", "--input", input, "--output", publicInput); err != nil {
+				if _, err := executeRoot(t, "cert", "key-public", "--input", input, "--output", publicInput); err != nil {
 					t.Fatal(err)
 				}
 				input = publicInput
@@ -45,7 +45,7 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 					}
 					output := filepath.Join(t.TempDir(), "output")
 					prepareConversionOutput(t, output, scenario)
-					args := []string{"key", "convert", "--to", target, "--input", input, "--output", output}
+					args := []string{"cert", "key-convert", "--to", target, "--input", input, "--output", output}
 					if scenario == "override" {
 						args = append(args, "--mode", "0640")
 					}

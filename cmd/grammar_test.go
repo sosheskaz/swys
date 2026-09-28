@@ -129,19 +129,22 @@ func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
 func commandTreeViolations(root *cobra.Command) []string {
 	// Cobra's generated help/completion trees are outside npc's command grammar.
 	verbs := map[string]bool{
-		"connect":  true,
-		"decrypt":  true,
-		"encrypt":  true,
-		"generate": true,
-		"keygen":   true,
-		"inspect":  true,
-		"listen":   true,
-		"match":    true,
-		"public":   true,
-		"verify":   true,
-		"convert":  true,
-		"create":   true,
-		"csr":      true,
+		"connect":     true,
+		"decrypt":     true,
+		"encrypt":     true,
+		"generate":    true,
+		"keygen":      true,
+		"key-public":  true,
+		"key-inspect": true,
+		"key-convert": true,
+		"inspect":     true,
+		"listen":      true,
+		"match":       true,
+		"public":      true,
+		"verify":      true,
+		"convert":     true,
+		"create":      true,
+		"csr":         true,
 	}
 	transportLeaves := map[string]bool{"tcp": true, "tls": true, "udp": true}
 	hashAlgorithmLeaves := map[string]bool{"md5": true, "sha1": true, "sha256": true, "sha512": true}
@@ -158,7 +161,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 				isRunnableRootHash := command == root && child.Name() == "hash"
 				// AES is technically runnable so Cobra validates removed nested commands;
 				// its argument contract returns help before I/O for the bare noun.
-				isHelpOnlyParent := command == root && (child.Name() == "aes" || child.Name() == "key")
+				isHelpOnlyParent := command == root && child.Name() == "aes"
 				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash && !isHelpOnlyParent {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}

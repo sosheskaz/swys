@@ -23,7 +23,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	certCmd := &cobra.Command{
 		Aliases: []string{"x509", "certificate", "x.509"},
 		Use:     "cert",
-		Short:   "Create, inspect, and retrieve X.509 certificates",
+		Short:   "Manage X.509 certificates and asymmetric keys",
 		Args:    cobra.NoArgs,
 	}
 	inspect := newCertInspectCmd()
@@ -33,8 +33,41 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	verify := newCertVerifyCmd()
 	match := newCertMatchCmd()
 	keygen := newCertKeygenCmd()
-	certCmd.AddCommand(inspect, connect, create, csr, verify, match, keygen)
+	keyPublic := newKeyPublicCmd()
+	keyInspect := newKeyInspectCmd()
+	keyConvert := newKeyConvertCmd()
+	certCmd.AddCommand(inspect, connect, create, csr, verify, match, keygen, keyPublic, keyInspect, keyConvert)
 	lifecycle.Register(keygen, commandio.Behavior{Validate: validateCertificateFlags(validateCertKeygenFlags)})
+	lifecycle.Register(keyPublic, commandio.Behavior{
+		Validate: func(cmd *cobra.Command) error {
+			_, err := keyPublicTargetFromCommand(cmd, "to")
+			if err != nil {
+				return fmt.Errorf("validate key flags: %w", err)
+			}
+			return nil
+		},
+		Prepare:        prepareKeyPublicOutput,
+		PreparesOutput: func(*cobra.Command) bool { return true },
+	})
+	lifecycle.Register(keyInspect, commandio.Behavior{})
+	lifecycle.Register(keyConvert, commandio.Behavior{
+		Validate: func(cmd *cobra.Command) error {
+			_, err := keyConversionTargetFromCommand(cmd)
+			if err != nil {
+				return fmt.Errorf("validate key flags: %w", err)
+			}
+			return nil
+		},
+		Prepare:        prepareKeyConversionOutput,
+		PreparesOutput: func(*cobra.Command) bool { return true },
+		Sensitive: func(cmd *cobra.Command) (bool, error) {
+			target, err := keyConversionTargetFromCommand(cmd)
+			if err != nil {
+				return false, err
+			}
+			return !isPublicKeyFormat(target), nil
+		},
+	})
 	lifecycle.Register(inspect, commandio.Behavior{})
 	lifecycle.Register(connect, commandio.Behavior{Validate: func(cmd *cobra.Command) error {
 		if err := commandio.ValidateNetworkTimeout(cmd); err != nil {

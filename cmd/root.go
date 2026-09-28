@@ -15,7 +15,6 @@ import (
 	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
 	"github.com/sosheskaz-systems/npc/cmd/internal/commands/hash"
 	"github.com/sosheskaz-systems/npc/cmd/internal/commands/http"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/key"
 	"github.com/sosheskaz-systems/npc/cmd/internal/commands/net"
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 	"github.com/sosheskaz-systems/npc/internal/version"
@@ -62,7 +61,7 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps he
 	commandio.AddRootFlags(rootCmd)
 	httpCmd := http.NewCommand(lifecycle)
 	rootCmd.AddCommand(
-		aes.NewCommand(lifecycle), key.NewCommand(lifecycle), cert.NewCommand(lifecycle),
+		aes.NewCommand(lifecycle), cert.NewCommand(lifecycle),
 		hash.NewCommand(lifecycle), net.NewCommand(lifecycle), httpCmd,
 		dns.NewCommand(lifecycle, dnsDeps), grpccommand.NewCommand(lifecycle),
 	)

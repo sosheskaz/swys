@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"bytes"
@@ -49,7 +49,7 @@ func TestKeyPublicTargetsAcrossSupportedAlgorithmsAndInputKinds(t *testing.T) {
 						output, _, err := executeRootStreamsWithInput(
 							t,
 							bytes.NewReader(input),
-							"key", "public", "--to", target,
+							"cert", "key-public", "--to", target,
 						)
 						require.NoError(t, err)
 						outputKey, err := asym.ParseKey([]byte(output))
@@ -96,12 +96,12 @@ func TestKeyConvertPreservesKeyKind(t *testing.T) {
 		target   string
 		guidance string
 	}{
-		{name: "private to public", input: []byte(privatePEM), target: "openssh", guidance: "use npc key public --to openssh"},
+		{name: "private to public", input: []byte(privatePEM), target: "openssh", guidance: "use npc cert key-public --to openssh"},
 		{name: "public to private", input: publicPEM, target: "pkcs8-pem"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			_, _, err := executeRootStreamsWithInput(t, bytes.NewReader(test.input), "key", "convert", "--to", test.target)
+			_, _, err := executeRootStreamsWithInput(t, bytes.NewReader(test.input), "cert", "key-convert", "--to", test.target)
 			require.ErrorIs(t, err, asym.ErrInvalidKeyConversion, "error = %v, want ErrInvalidKeyConversion", err)
 			if test.guidance != "" && !strings.Contains(err.Error(), test.guidance) {
 				t.Fatalf("error = %v, want guidance %q", err, test.guidance)
@@ -131,7 +131,7 @@ func TestKeyConvertAllowsSameKindCanonicalization(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			output, _, err := executeRootStreamsWithInput(t, bytes.NewReader(test.input), "key", "convert", "--to", test.target)
+			output, _, err := executeRootStreamsWithInput(t, bytes.NewReader(test.input), "cert", "key-convert", "--to", test.target)
 			require.NoError(t, err)
 			key, err := asym.ParseKey([]byte(output))
 			require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestKeyConvertRejectsAlgorithmIncompatiblePrivateTarget(t *testing.T) {
 	_, _, err = executeRootStreamsWithInput(
 		t,
 		strings.NewReader(privatePEM),
-		"key", "convert", "--to", "pkcs1-pem",
+		"cert", "key-convert", "--to", "pkcs1-pem",
 	)
 	require.ErrorIs(t, err, asym.ErrInvalidKeyConversion, "error = %v, want ErrInvalidKeyConversion", err)
 }
@@ -163,10 +163,10 @@ func TestKeyPreparationFailuresPreserveDestination(t *testing.T) {
 		input []byte
 		args  []string
 	}{
-		{name: "public parse", input: []byte("not a key"), args: []string{"key", "public"}},
-		{name: "convert parse", input: []byte("not a key"), args: []string{"key", "convert", "--to", "pkcs8-pem"}},
-		{name: "kind mismatch", input: []byte(privatePEM), args: []string{"key", "convert", "--to", "pkix-pem"}},
-		{name: "algorithm mismatch", input: []byte(privatePEM), args: []string{"key", "convert", "--to", "pkcs1-pem"}},
+		{name: "public parse", input: []byte("not a key"), args: []string{"cert", "key-public"}},
+		{name: "convert parse", input: []byte("not a key"), args: []string{"cert", "key-convert", "--to", "pkcs8-pem"}},
+		{name: "kind mismatch", input: []byte(privatePEM), args: []string{"cert", "key-convert", "--to", "pkix-pem"}},
+		{name: "algorithm mismatch", input: []byte(privatePEM), args: []string{"cert", "key-convert", "--to", "pkcs1-pem"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -199,10 +199,10 @@ func TestKeyPreparationFailuresPreserveDestination(t *testing.T) {
 func TestKeyTargetsValidateBeforeReadingStdin(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"key", "public", "--unknown"},
-		{"key", "public", "--to", "missing"},
-		{"key", "public", "--to", "pkcs8-pem"},
-		{"key", "convert", "--to", "missing"},
+		{"cert", "key-public", "--unknown"},
+		{"cert", "key-public", "--to", "missing"},
+		{"cert", "key-public", "--to", "pkcs8-pem"},
+		{"cert", "key-convert", "--to", "missing"},
 	} {
 		_, _, err := executeRootStreamsWithInput(t, keyFailingReader{err: errKeyTestReadFailed}, args...)
 		if err == nil || errors.Is(err, errKeyTestReadFailed) {
@@ -222,7 +222,7 @@ func TestKeyPublicDiscardsOpenSSHOptionsAndComments(t *testing.T) {
 	output, _, err := executeRootStreamsWithInput(
 		t,
 		bytes.NewReader(input),
-		"key", "public", "--to", "openssh",
+		"cert", "key-public", "--to", "openssh",
 	)
 	require.NoError(t, err)
 	if !bytes.Equal([]byte(output), canonical) {
@@ -242,7 +242,7 @@ func TestKeyPublicTargetHelpAndDefault(t *testing.T) {
 			t.Fatalf("--to help = %q, want %q", flag.Usage, text)
 		}
 	}
-	if !strings.Contains(keyLeaf(t, "convert").Long, "Use key public") {
+	if !strings.Contains(keyLeaf(t, "convert").Long, "Use cert key-public") {
 		t.Fatalf("key convert help = %q", keyLeaf(t, "convert").Long)
 	}
 }
@@ -257,7 +257,7 @@ func TestPreparedKeyOutputIsClearedAcrossCommandReuse(t *testing.T) {
 	var first bytes.Buffer
 	root.SetIn(keyReaderFunc(bytes.NewReader(firstKey).Read))
 	root.SetOut(&first)
-	root.SetArgs([]string{"key", "public", "--to", "openssh"})
+	root.SetArgs([]string{"cert", "key-public", "--to", "openssh"})
 	require.NoError(t, executeCommand(root))
 	if first.Len() == 0 {
 		t.Fatal("first execution emitted no output")
@@ -266,7 +266,7 @@ func TestPreparedKeyOutputIsClearedAcrossCommandReuse(t *testing.T) {
 	var second bytes.Buffer
 	root.SetIn(keyReaderFunc(strings.NewReader(secondPEM).Read))
 	root.SetOut(&second)
-	root.SetArgs([]string{"key", "public", "--to", "pkix-pem"})
+	root.SetArgs([]string{"cert", "key-public", "--to", "pkix-pem"})
 	require.NoError(t, executeCommand(root))
 	secondKey, err := asym.ParseKey(second.Bytes())
 	require.NoError(t, err)
@@ -279,7 +279,7 @@ func TestPreparedKeyOutputIsClearedAcrossCommandReuse(t *testing.T) {
 	var third bytes.Buffer
 	root.SetIn(strings.NewReader("not a key"))
 	root.SetOut(&third)
-	root.SetArgs([]string{"key", "public", "--to", "openssh"})
+	root.SetArgs([]string{"cert", "key-public", "--to", "openssh"})
 	if err := executeCommand(root); err == nil {
 		t.Fatal("third execution accepted invalid key")
 	}
@@ -288,7 +288,7 @@ func TestPreparedKeyOutputIsClearedAcrossCommandReuse(t *testing.T) {
 	var fourth bytes.Buffer
 	root.SetIn(keyReaderFunc(bytes.NewReader(firstKey).Read))
 	root.SetOut(&fourth)
-	root.SetArgs([]string{"key", "public", "--to", "pkix-pem"})
+	root.SetArgs([]string{"cert", "key-public", "--to", "pkix-pem"})
 	require.NoError(t, executeCommand(root))
 	if block, _ := pem.Decode(fourth.Bytes()); block == nil || block.Type != "PUBLIC KEY" {
 		t.Fatalf("fourth execution output = %q", fourth.String())
@@ -308,8 +308,8 @@ func TestPreparedKeyCommandsPreserveExplicitChildStreams(t *testing.T) {
 		args  []string
 		input []byte
 	}{
-		{name: "public", path: []string{"key", "public"}, args: []string{"key", "public"}, input: privateKey},
-		{name: "convert", path: []string{"key", "convert"}, args: []string{"key", "convert", "--to", "openssh"}, input: publicKey},
+		{name: "public", path: []string{"cert", "key-public"}, args: []string{"cert", "key-public"}, input: privateKey},
+		{name: "convert", path: []string{"cert", "key-convert"}, args: []string{"cert", "key-convert", "--to", "openssh"}, input: publicKey},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -353,7 +353,7 @@ func TestPreparedKeyConvertUsesCurrentInheritedRootStreams(t *testing.T) {
 		var output bytes.Buffer
 		root.SetIn(keyReaderFunc(bytes.NewReader(input).Read))
 		root.SetOut(&output)
-		root.SetArgs([]string{"key", "convert", "--to", "pkix-pem"})
+		root.SetArgs([]string{"cert", "key-convert", "--to", "pkix-pem"})
 		require.NoError(t, executeCommand(root))
 		key, err := asym.ParseKey(output.Bytes())
 		require.NoError(t, err)

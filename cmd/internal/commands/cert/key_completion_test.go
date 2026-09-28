@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"slices"
@@ -11,18 +11,15 @@ import (
 func TestKeyTargetCompletionDescriptions(t *testing.T) {
 	t.Parallel()
 
-	public := keyCompletionLines(t, "key", "public", "--to", "")
-	for _, want := range []string{
+	public := keyCompletionLines(t, "cert", "key-public", "--to", "")
+	require.Equal(t, []string{
 		"openssh\tOpenSSH public key",
 		"pkix-der\tPKIX public key in binary DER",
 		"pkix-pem\tPKIX public key in PEM",
-	} {
-		if !slices.Contains(public, want) {
-			t.Fatalf("public target completions = %q, want %q", public, want)
-		}
-	}
+		":4",
+	}, public)
 
-	convert := keyCompletionLines(t, "key", "convert", "--to", "")
+	convert := keyCompletionLines(t, "cert", "key-convert", "--to", "")
 	for _, want := range []string{
 		"pkcs8-pem\tPKCS #8 private key in PEM",
 		"sec1-der\tSEC 1 EC private key in binary DER",
@@ -37,9 +34,9 @@ func TestKeyCompletionFileDirectives(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range [][]string{
-		{"key", "public", ""},
-		{"k", "i", ""},
-		{"key", "convert", ""},
+		{"cert", "key-public", ""},
+		{"cert", "key-inspect", ""},
+		{"cert", "key-convert", ""},
 	} {
 		lines := keyCompletionLines(t, path...)
 		if lines[len(lines)-1] != ":4" {
@@ -48,8 +45,8 @@ func TestKeyCompletionFileDirectives(t *testing.T) {
 	}
 
 	for _, path := range [][]string{
-		{"key", "public", "--input", ""},
-		{"key", "public", "--output", ""},
+		{"cert", "key-public", "--input", ""},
+		{"cert", "key-public", "--output", ""},
 	} {
 		lines := keyCompletionLines(t, path...)
 		if lines[len(lines)-1] != ":0" {

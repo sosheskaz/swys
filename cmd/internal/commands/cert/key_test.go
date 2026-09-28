@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"bytes"
@@ -18,24 +18,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	keycommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/key"
 	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 	"github.com/sosheskaz-systems/npc/internal/asym"
 )
 
 var errKeyTestReadFailed = errors.New("read failed")
 
-func TestKeyCommandAliasesCompose(t *testing.T) {
+func TestCertKeyCommandsUseCanonicalNames(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		command *cobra.Command
 		want    []string
 	}{
-		{command: keyCommand(t), want: []string{"k"}},
-
-		{command: keyLeaf(t, "public"), want: []string{"pub", "p"}},
-		{command: keyLeaf(t, "inspect"), want: []string{"ins", "i"}},
-		{command: keyLeaf(t, "convert"), want: []string{"conv", "c"}},
+		{command: keyLeaf(t, "public"), want: nil},
+		{command: keyLeaf(t, "inspect"), want: nil},
+		{command: keyLeaf(t, "convert"), want: nil},
 	}
 	for _, test := range tests {
 		if !slices.Equal(test.command.Aliases, test.want) {
@@ -48,7 +45,7 @@ func TestKeyCommandAliasesCompose(t *testing.T) {
 	privatePath := filepath.Join(t.TempDir(), "private.pem")
 	require.NoError(t, os.WriteFile(privatePath, []byte(privatePEM), 0o600))
 
-	publicPEM, _, err := executeRootStreams(t, "k", "p", "--input", privatePath)
+	publicPEM, _, err := executeRootStreams(t, "cert", "key-public", "--input", privatePath)
 	require.NoError(t, err)
 	if block, _ := pem.Decode([]byte(publicPEM)); block == nil || block.Type != "PUBLIC KEY" {
 		t.Fatalf("public alias output = %q, want PKIX PEM", publicPEM)
@@ -56,22 +53,22 @@ func TestKeyCommandAliasesCompose(t *testing.T) {
 	publicPath := filepath.Join(t.TempDir(), "public.pem")
 	require.NoError(t, os.WriteFile(publicPath, []byte(publicPEM), 0o600))
 
-	inspected, _, err := executeRootStreams(t, "k", "i", "--input", privatePath, "--format", "json")
+	inspected, _, err := executeRootStreams(t, "cert", "key-inspect", "--input", privatePath, "--format", "json")
 	require.NoError(t, err)
 	if info := decodeKeyInfo(t, inspected); info.Algorithm != "ed25519" || info.KeyType != asym.KeyTypePrivate {
 		t.Fatalf("inspect alias output = %+v", info)
 	}
 
-	openSSH, _, err := executeRootStreams(t, "k", "c", "--input", publicPath, "--to", "openssh")
+	openSSH, _, err := executeRootStreams(t, "cert", "key-convert", "--input", publicPath, "--to", "openssh")
 	require.NoError(t, err)
 	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(openSSH)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestRemovedKeyGenerateSyntax(t *testing.T) {
+func TestRemovedTopLevelKeyCommands(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{{"key", "generate", "ed25519"}, {"key", "gen", "ed25519"}, {"key", "g", "ed25519"}, {"k", "g", "ed25519"}} {
+	for _, args := range [][]string{{"key"}, {"k"}, {"key", "public"}, {"key", "convert"}, {"key", "inspect"}} {
 		_, _, err := executeRootStreams(t, args...)
 		require.Error(t, err, "removed command %v", args)
 	}
@@ -85,7 +82,7 @@ func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
 	privatePath := filepath.Join(directory, "private.pem")
 	require.NoError(t, os.WriteFile(privatePath, []byte(privatePEM), 0o600))
 
-	publicPEM, _, err := executeRootStreams(t, "key", "public", "--input", privatePath)
+	publicPEM, _, err := executeRootStreams(t, "cert", "key-public", "--input", privatePath)
 	require.NoError(t, err)
 	block, rest := pem.Decode([]byte(publicPEM))
 	if block == nil || block.Type != "PUBLIC KEY" || len(bytes.TrimSpace(rest)) != 0 {
@@ -97,9 +94,9 @@ func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
 	publicPath := filepath.Join(directory, "public.pem")
 	require.NoError(t, os.WriteFile(publicPath, []byte(publicPEM), 0o600))
 
-	privateJSON, _, err := executeRootStreams(t, "key", "inspect", "--input", privatePath, "--format", "json")
+	privateJSON, _, err := executeRootStreams(t, "cert", "key-inspect", "--input", privatePath, "--format", "json")
 	require.NoError(t, err)
-	publicJSON, _, err := executeRootStreams(t, "key", "inspect", "--input", publicPath, "--format", "json")
+	publicJSON, _, err := executeRootStreams(t, "cert", "key-inspect", "--input", publicPath, "--format", "json")
 	require.NoError(t, err)
 	privateInfo := decodeKeyInfo(t, privateJSON)
 	publicInfo := decodeKeyInfo(t, publicJSON)
@@ -113,7 +110,7 @@ func TestKeyLifecycleComposesAcrossCommands(t *testing.T) {
 		t.Fatalf("inspect output leaked private key: %q", privateJSON)
 	}
 
-	openSSH, _, err := executeRootStreams(t, "key", "public", "--input", privatePath, "--to", "openssh")
+	openSSH, _, err := executeRootStreams(t, "cert", "key-public", "--input", privatePath, "--to", "openssh")
 	require.NoError(t, err)
 	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(openSSH)); err != nil {
 		t.Fatal(err)
@@ -131,7 +128,7 @@ func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
 
 	encodedPublic, _, err := executeRootStreams(
 		t,
-		"key", "public", "--input", encodedPath, "--input-encoding", "base64", "--encoding", "base64",
+		"cert", "key-public", "--input", encodedPath, "--input-encoding", "base64", "--encoding", "base64",
 	)
 	require.NoError(t, err)
 	publicPEM, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedPublic))
@@ -143,7 +140,7 @@ func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
 
 	encodedDER, _, err := executeRootStreams(
 		t,
-		"key", "public", "--input", encodedPath, "--input-encoding", "base64", "--to", "pkix-der", "--encoding", "base64",
+		"cert", "key-public", "--input", encodedPath, "--input-encoding", "base64", "--to", "pkix-der", "--encoding", "base64",
 	)
 	require.NoError(t, err)
 	publicDER, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedDER))
@@ -154,7 +151,7 @@ func TestKeyConsumersHonorEncodingAxes(t *testing.T) {
 
 	inspected, _, err := executeRootStreams(
 		t,
-		"key", "inspect", "--input", encodedPath, "--input-encoding", "base64", "--format", "json",
+		"cert", "key-inspect", "--input", encodedPath, "--input-encoding", "base64", "--format", "json",
 	)
 	require.NoError(t, err)
 	if info := decodeKeyInfo(t, inspected); info.Algorithm != "ecdsa" || info.Curve != "P-256" {
@@ -168,19 +165,17 @@ func TestKeyRegistriesDriveFlagsErrorsAndCompletion(t *testing.T) {
 	assertFlagCompletionContains(t, keyLeaf(t, "convert"), "to", "openssh")
 	assertFlagCompletionContains(t, keyLeaf(t, "inspect"), "format", "json")
 	assertFlagCompletionContains(t, keyLeaf(t, "inspect"), "input-encoding", "base64")
-	if got, want := keycommand.PublicFormatNamesForTest(), []string{"openssh", "pkix-der", "pkix-pem"}; !slices.Equal(got, want) {
-		t.Fatalf("public formats = %v, want %v", got, want)
-	}
-	_, _, err := executeRootStreams(t, "key", "convert", "--to", "missing")
+
+	_, _, err := executeRootStreams(t, "cert", "key-convert", "--to", "missing")
 	require.ErrorIs(t, err, errUnknownKeyConversionTarget)
-	_, _, err = executeRootStreams(t, "key", "inspect", "--format", "missing")
+	_, _, err = executeRootStreams(t, "cert", "key-inspect", "--format", "missing")
 	require.ErrorIs(t, err, errUnknownKeyFormat)
 }
 
 func TestKeyEnumValidationPrecedesOutputOpen(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"key", "convert", "--to", "missing"},
+		{"cert", "key-convert", "--to", "missing"},
 	} {
 		path := filepath.Join(t.TempDir(), "existing")
 		require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
@@ -201,9 +196,9 @@ func TestKeyCommandsRejectCertificateInput(t *testing.T) {
 	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate})
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 	for _, args := range [][]string{
-		{"key", "public", "--input", path},
-		{"key", "inspect", "--input", path},
-		{"key", "convert", "--input", path, "--to", "pkix-pem"},
+		{"cert", "key-public", "--input", path},
+		{"cert", "key-inspect", "--input", path},
+		{"cert", "key-convert", "--input", path, "--to", "pkix-pem"},
 	} {
 		if _, _, err := executeRootStreams(t, args...); !errors.Is(err, asym.ErrUnexpectedKeyPEMType) {
 			t.Fatalf("execute %v error = %v", args, err)

@@ -105,9 +105,9 @@ func TestExampleHelpKeyCertificateWorkflow(t *testing.T) {
 	signedCertificate := filepath.Join(directory, "signed-leaf.pem")
 	commands := [][]string{
 		{"cert", "keygen", "-o", privateKey, "-P", publicKey, "--public-format", "openssh"},
-		{"key", "inspect", "--input", privateKey},
-		{"key", "convert", "--input", publicKey, "--to", "pkix-pem", "--output", filepath.Join(directory, "public.pem")},
-		{"key", "convert", "--input", privateKey, "--to", "pkcs8-der", "--output", convertedKey},
+		{"cert", "key-inspect", "--input", privateKey},
+		{"cert", "key-convert", "--input", publicKey, "--to", "pkix-pem", "--output", filepath.Join(directory, "public.pem")},
+		{"cert", "key-convert", "--input", privateKey, "--to", "pkcs8-der", "--output", convertedKey},
 		{"cert", "create", "--key", convertedKey, "--dns", "localhost", "--output", certificate},
 		{"cert", "keygen", "--output", caKey},
 		{"cert", "create", "--ca", "--key", caKey, "--subject", "CN=Local Test CA", "--output", caCertificate},

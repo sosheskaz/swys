@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ func TestExampleKeyPublicDerivesOpenSSH(t *testing.T) {
 	output, _, err := executeRootStreamsWithInput(
 		t,
 		bytes.NewReader(privateKey),
-		"key", "public", "--to", "openssh",
+		"cert", "key-public", "--to", "openssh",
 	)
 	require.NoError(t, err)
 	publicKey, comment, options, rest, err := ssh.ParseAuthorizedKey([]byte(output))
@@ -38,7 +38,7 @@ func TestExampleKeyPublicDefaultsToPKIXPEM(t *testing.T) {
 	output, _, err := executeRootStreamsWithInput(
 		t,
 		bytes.NewReader(generateExampleEd25519Key(t)),
-		"key", "public",
+		"cert", "key-public",
 	)
 	require.NoError(t, err)
 	block, rest := pem.Decode([]byte(output))
@@ -59,7 +59,7 @@ func TestExampleKeyConvertReserializesPublicKey(t *testing.T) {
 	output, _, err := executeRootStreamsWithInput(
 		t,
 		bytes.NewReader(openSSH),
-		"key", "convert", "--to", "pkix-pem",
+		"cert", "key-convert", "--to", "pkix-pem",
 	)
 	require.NoError(t, err)
 	converted, err := asym.ParseKey([]byte(output))

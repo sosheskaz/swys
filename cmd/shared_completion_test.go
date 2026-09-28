@@ -18,7 +18,7 @@ func TestSharedEncodingAndFormatDescriptions(t *testing.T) {
 		{args: []string{"http", "--format", ""}, want: "json\tstructured JSON"},
 		{args: []string{"dns", "--format", ""}, want: "json\tstructured JSON"},
 		{args: []string{"certificate", "inspect", "-f", ""}, want: "chain\tissuer certificates as PEM, excluding the leaf"},
-		{args: []string{"key", "inspect", "--format", ""}, want: "text\thuman-readable text"},
+		{args: []string{"cert", "key-inspect", "--format", ""}, want: "text\thuman-readable text"},
 		{args: []string{"nc", "connect", "tcp", "-e", ""}, want: "raw\tunencoded bytes"},
 	} {
 		output := executeSharedCompletion(t, append([]string{"__complete"}, test.args...)...)
@@ -39,7 +39,7 @@ func TestSharedBooleanValuesAndPrefixes(t *testing.T) {
 		{"dns", "--reverse="},
 		{"cert", "create", "--ca="},
 		{"net", "connect", "--tls", "--insecure="},
-		{"key", "inspect", "--help="},
+		{"cert", "key-inspect", "--help="},
 		{"completion", "bash", "--no-descriptions="},
 		{"completion", "fish", "--help="},
 		{"--version="},
@@ -58,7 +58,7 @@ func TestSharedBooleanValuesAndPrefixes(t *testing.T) {
 func TestSharedCompletionPreservesPathsAndManualModes(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--input", "--output"} {
-		output := executeSharedCompletion(t, "__complete", "key", "inspect", flag, "")
+		output := executeSharedCompletion(t, "__complete", "cert", "key-inspect", flag, "")
 		if output != ":0\n" {
 			t.Errorf("%s completion = %q, want filesystem fallback", flag, output)
 		}

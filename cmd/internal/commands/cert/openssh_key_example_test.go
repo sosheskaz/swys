@@ -1,4 +1,4 @@
-package key_test
+package cert_test
 
 import (
 	"bytes"
@@ -23,13 +23,13 @@ func TestExampleKeyCommandsConsumeOpenSSHKeys(t *testing.T) {
 	require.NoError(t, err)
 	privateData := pem.EncodeToMemory(privateBlock)
 
-	inspection, stderr, err := executeRootStreamsWithInput(t, bytes.NewReader(privateData), "key", "inspect")
+	inspection, stderr, err := executeRootStreamsWithInput(t, bytes.NewReader(privateData), "cert", "key-inspect")
 	require.NoError(t, err)
 	assert.Empty(t, stderr, "inspection stderr")
 	assert.Contains(t, inspection, "ed25519", "inspection output")
 	assert.Contains(t, inspection, "private", "inspection output")
 
-	publicPEM, _, err := executeRootStreamsWithInput(t, bytes.NewReader(privateData), "key", "public")
+	publicPEM, _, err := executeRootStreamsWithInput(t, bytes.NewReader(privateData), "cert", "key-public")
 	require.NoError(t, err)
 	public, err := asym.ParseKey([]byte(publicPEM))
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestExampleKeyCommandsConsumeOpenSSHKeys(t *testing.T) {
 	authorizedKey := append([]byte("\n# workstation key\nrestrict,no-agent-forwarding "), bytes.TrimSpace(ssh.MarshalAuthorizedKey(sshPublic))...)
 	authorizedKey = append(authorizedKey, []byte(" developer@example\n")...)
 	convertedPEM, _, err := executeRootStreamsWithInput(
-		t, bytes.NewReader(authorizedKey), "key", "convert", "--to", "pkix-pem",
+		t, bytes.NewReader(authorizedKey), "cert", "key-convert", "--to", "pkix-pem",
 	)
 	require.NoError(t, err)
 	converted, err := asym.ParseKey([]byte(convertedPEM))

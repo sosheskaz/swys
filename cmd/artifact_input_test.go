@@ -26,9 +26,9 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"key inspect", []string{"key", "inspect", "--input", keyPath}},
-		{"key public", []string{"key", "public", "--input", keyPath}},
-		{"key convert", []string{"key", "convert", "--to", "pkix-pem", "--input", keyPath}},
+		{"cert key-inspect", []string{"cert", "key-inspect", "--input", keyPath}},
+		{"cert key-public", []string{"cert", "key-public", "--input", keyPath}},
+		{"cert key-convert", []string{"cert", "key-convert", "--to", "pkix-pem", "--input", keyPath}},
 		{"cert inspect", []string{"cert", "inspect", "--input", certPath}},
 		{"cert create key", []string{"cert", "create", "--key", keyPath}},
 		{"cert csr key", []string{"cert", "csr", "--key", keyPath}},
@@ -72,7 +72,7 @@ func TestArtifactCommandsBoundStdinAndPreserveFaults(t *testing.T) {
 		args  []string
 		limit int64
 	}{
-		{"key", []string{"key", "inspect"}, artifact.MaxKeyBytes},
+		{"key", []string{"cert", "key-inspect"}, artifact.MaxKeyBytes},
 		{"certificate", []string{"cert", "inspect"}, artifact.MaxCertificateBytes},
 		{"create", []string{"cert", "create", "--key", "-"}, artifact.MaxKeyBytes},
 		{"csr", []string{"cert", "csr", "--key", "-"}, artifact.MaxKeyBytes},
@@ -110,7 +110,7 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 		args  []string
 		limit int64
 	}{
-		{"key", identity.serverKey, []string{"key", "inspect"}, artifact.MaxKeyBytes},
+		{"key", identity.serverKey, []string{"cert", "key-inspect"}, artifact.MaxKeyBytes},
 		{"certificate", identity.caCert, []string{"cert", "inspect"}, artifact.MaxCertificateBytes},
 	} {
 		t.Run(test.name, func(t *testing.T) {

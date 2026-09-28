@@ -61,7 +61,7 @@ func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
 	if !ca.IsCA || ca.Subject.CommonName != "test-ca" {
 		t.Fatalf("CA = IsCA:%t subject:%q", ca.IsCA, ca.Subject.CommonName)
 	}
-	if _, _, err := executeRootStreams(t, "key", "inspect", "--input", caKey); err != nil {
+	if _, _, err := executeRootStreams(t, "cert", "key-inspect", "--input", caKey); err != nil {
 		t.Fatalf("inspect CA key: %v", err)
 	}
 	inspected, _, err := executeRootStreams(t, "cert", "inspect", "--input", caCert)
@@ -396,7 +396,7 @@ func TestCertCreateRejectsIssuerMismatchAndTrailingCertificateData(t *testing.T)
 		t.Fatalf("certificate-as-key error = %v, want block type and ErrUnexpectedKeyPEMType", err)
 	}
 	publicKey := filepath.Join(dir, "public.key")
-	if _, _, err := executeRootStreams(t, "key", "public", "--input", caKey, "--output", publicKey); err != nil {
+	if _, _, err := executeRootStreams(t, "cert", "key-public", "--input", caKey, "--output", publicKey); err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = executeRootStreams(t, "cert", "csr", "--subject", "CN=leaf", "--key", publicKey)

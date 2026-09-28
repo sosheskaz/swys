@@ -39,10 +39,10 @@ func TestKeyPublicMalformedBase64PreservesExistingOutput(t *testing.T) {
 	_, _, err = executeRootCommandStreams(
 		t,
 		rootCmd,
-		"key", "public", "--input-encoding", "base64", "--output", outputPath,
+		"cert", "key-public", "--input-encoding", "base64", "--output", outputPath,
 	)
 	if err == nil {
-		t.Error("key public accepted base64 data after terminal padding")
+		t.Error("cert key-public accepted base64 data after terminal padding")
 	}
 	got, readErr := os.ReadFile(outputPath)
 	if readErr != nil {

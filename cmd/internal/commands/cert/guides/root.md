@@ -1,6 +1,6 @@
 # Work with X.509 certificates
 
-Use the certificate family to inspect existing certificates, retrieve a server chain, or create short-lived test identities. NPC reports certificate details but does not install trust anchors or manage a production certificate authority.
+Use the certificate family to inspect existing certificates, retrieve a server chain, create short-lived test identities, and work with asymmetric keys. NPC reports certificate details but does not install trust anchors or manage a production certificate authority.
 
 ## Choose an operation
 
@@ -9,6 +9,9 @@ Use the certificate family to inspect existing certificates, retrieve a server c
 - **create** makes a self-signed test certificate, a test CA, or a leaf signed by that CA.
 - **csr** creates a PKCS #10 signing request for an existing private key.
 - **verify** validates a leaf-first certificate chain against explicit or system trust roots.
+- **key-public** derives or canonicalizes a public key.
+- **key-convert** changes a key container without changing private or public identity.
+- **key-inspect** reports key metadata without private material.
 - **match** compares the public keys in certificates, keys, and signing requests.
 
 For the certificate and path-validation model, see [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280).

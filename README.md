@@ -36,7 +36,7 @@ inspect a key without printing its private bytes:
 
 ```fish
 npc cert keygen --output private.pem --public-out public.pem
-npc key inspect --input public.pem --format json
+npc cert key-inspect --input public.pem --format json
 ```
 
 Create and inspect a self-signed development certificate using that key:
@@ -111,7 +111,7 @@ Contributors should follow the [help guide authoring standard](docs/help-authori
 npc aes encrypt|decrypt            # OpenPGP default; native Tink optional
 npc aes keygen [--bits 128|256]     # generate an AES key (default 256 bits)
 npc cert keygen [--algorithm NAME]  # generate a certificate key (default Ed25519)
-npc key public|inspect|convert     # consume a self-describing key
+npc cert key-public|key-inspect|key-convert     # consume a self-describing key
 npc cert create|csr                # mint test identities and certificate requests
 npc cert inspect|connect           # certificate inspection and TLS probing
 npc cert verify|match              # offline trust and public-key checks
@@ -617,7 +617,7 @@ printing private bytes:
 npc cert keygen \
     --output private.pem \
     --public-out public.pem
-npc key inspect --input private.pem --format json
+npc cert key-inspect --input private.pem --format json
 ```
 
 Inspect the public key separately. The private and public inspection results
@@ -625,15 +625,15 @@ have different `key_type` values but the same
 `public_key_sha256_fingerprint`:
 
 ```fish
-npc key inspect --input public.pem --format json
+npc cert key-inspect --input public.pem --format json
 ```
 
 `--public-format` selects `pkix-pem` (the default), `pkix-der`, or `openssh`.
 It applies only to `--public-out`; `--encoding` and `--mode` continue to apply
 only to the private `--output`. The private key may go to stdout while the
 public key goes to a file, but `--public-out -` is rejected because one stdout
-stream cannot safely carry both artifacts. Use `key public` later when you need
-to derive a public key from existing private material.
+stream cannot safely carry both artifacts. Use `cert key-public` later
+when you need to derive a public key from existing private material.
 
 That fingerprint is calculated over canonical PKIX DER, so it is stable across
 key containers. `cert inspect --format json` reports the same field, making it
@@ -657,28 +657,28 @@ names, subjects, or CSR subject equality. Both commands emit text or JSON
 reports; a failed verification or mismatch writes a completed report and exits
 nonzero, while malformed input is rejected before an existing output is opened.
 
-Derive the public key in the container needed by its consumer. `key public`
+Derive the public key in the container needed by its consumer. `cert key-public`
 defaults to PKIX PEM and also supports PKIX DER and one canonical OpenSSH
 `authorized_keys` entry:
 
 ```fish
-npc key public --input private.pem --to openssh --output public.openssh
-npc key public --input private.pem --to pkix-der --output public.der
-npc key public --input private.pem --output public.pem
+npc cert key-public --input private.pem --to openssh --output public.openssh
+npc cert key-public --input private.pem --to pkix-der --output public.der
+npc cert key-public --input private.pem --output public.pem
 ```
 
-`key convert` reserializes a key while preserving whether it is private or
+`cert key-convert` reserializes a key while preserving whether it is private or
 public. Public inputs can use `pkix-pem`, `pkix-der`, or `openssh`; private
 inputs can use an algorithm-compatible PKCS#8, PKCS#1, or SEC1 target:
 
 ```fish
-npc key convert --input public.pem --to pkix-der --output public.der
-npc key convert --input private.pem --to pkcs8-der --output private.der
-npc key inspect --input public.der
+npc cert key-convert --input public.pem --to pkix-der --output public.der
+npc cert key-convert --input private.pem --to pkcs8-der --output private.der
+npc cert key-inspect --input public.der
 ```
 
 Earlier prerelease versions allowed `key convert` to derive public material
-from private input. Replace those invocations with `key public --to`; rejected
+from private input. Replace those invocations with `cert key-public --to`; rejected
 private-to-public conversions report that command directly.
 
 Binary key containers can be wrapped for text-only transport and decoded by any
@@ -686,9 +686,9 @@ key-consuming command. Encoding is not encryption; a base64-wrapped private key
 must be protected exactly like the original:
 
 ```fish
-npc key convert --input private.pem --to pkcs8-der \
+npc cert key-convert --input private.pem --to pkcs8-der \
     --encoding base64 --output private.der.b64
-npc key inspect --input private.der.b64 \
+npc cert key-inspect --input private.der.b64 \
     --input-encoding base64 --format json
 ```
 
@@ -726,7 +726,8 @@ either output. The private key is written first; if the public write fails, the
 private key is retained and the error identifies its path (or notes that it was
 already emitted to stdout).
 
-`key public`, `key inspect`, and `key convert` accept one unencrypted PKCS#8,
+`cert key-public`, `cert key-inspect`, and `cert key-convert` accept one
+unencrypted PKCS#8,
 PKCS#1, or SEC1 private key, or one PKIX public key, in PEM or DER form. They
 also accept one unencrypted OpenSSH private key or one `authorized_keys` public
 entry for Ed25519, RSA, or ECDSA P-256/P-384/P-521. Blank lines, comment lines,
@@ -735,33 +736,22 @@ malformed non-comment lines are rejected. Options/comments are not retained
 when canonicalizing a public key. Encrypted private keys are rejected without
 prompting.
 
-All three commands support `--input-encoding` for wrapped key bytes. `key
-public` and `key convert` parse, validate, and serialize their complete result
-before opening `--output`, so invalid input and incompatible conversions leave
+All three commands support `--input-encoding` for wrapped key bytes.
+`cert key-public` and `cert key-convert` parse, validate, and serialize their
+complete result before opening `--output`, so invalid input and incompatible conversions leave
 existing destinations unchanged and do not create missing destinations.
 Existing OpenSSH private keys also work with certificate creation and TLS
 client/server identity loading. OpenSSH remains a public-key-only output
 format; private-key generation and conversion keep their existing containers.
 
 ```fish
-npc key inspect --input ~/.ssh/id_ed25519 --format json
-npc key public --input ~/.ssh/id_ed25519 --to openssh --output id_ed25519.pub
-npc key convert --input ~/.ssh/id_ed25519.pub --to pkix-der --output public.der
+npc cert key-inspect --input ~/.ssh/id_ed25519 --format json
+npc cert key-public --input ~/.ssh/id_ed25519 --to openssh --output id_ed25519.pub
+npc cert key-convert --input ~/.ssh/id_ed25519.pub --to pkix-der --output public.der
 ```
 
 These examples require an unencrypted private key; passphrase-protected SSH
 keys return the encrypted-private-key error.
-
-The key noun and lifecycle verbs also have composable Cobra aliases for
-interactive use:
-
-```fish
-npc k p --input private.pem --to openssh   # npc key public
-npc k i --input private.pem                # npc key inspect
-npc k c --input private.pem --to pkcs8-der # npc key convert
-```
-
-The longer key verb aliases are `pub`, `ins`, and `conv`.
 
 Shell completion describes `cert keygen --algorithm` choices, AES key sizes,
 and output containers. Only certificate key generation exposes public-output
@@ -1073,7 +1063,7 @@ detail from the layers beneath it rather than reimplementing them:
 | Layer | Domain                           | Nouns                                      |
 | ----- | -------------------------------- | ------------------------------------------ |
 | L4    | Raw transport (netcat successor) | `net` (`tcp`, `tls`, `udp`)                |
-| L5/6  | TLS, X.509, crypto primitives    | `cert`, `key`, `aes`, `hash`, `sign`       |
+| L5/6  | TLS, X.509, crypto primitives    | `cert`, `aes`, `hash`, `sign`       |
 | L7    | Application protocols            | `http`, later `grpc`                       |
 | —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
 
@@ -1110,10 +1100,10 @@ These are product features, not style preferences. Regressions against them
 are bugs, and where possible they are enforced by tests rather than review.
 
 1. **Noun-verb grammar.** `npc <noun> <verb> [mechanism] [flags]`.
-   Nouns are resources (`cert`, `key`, `net`, `http`); verbs are actions
+   Nouns are resources (`cert`, `net`, `http`); verbs are actions
    (`inspect`, `generate`, `connect`, `listen`). Bare nouns print help — no
    implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
-   should correctly guess `key inspect`. HTTP defaults to GET when given a URL
+   should correctly guess `cert key-inspect`. HTTP defaults to GET when given a URL
    and accepts custom methods through `--method` (`-X`); bare `http` still
    shows help.
 
@@ -1138,7 +1128,7 @@ are bugs, and where possible they are enforced by tests rather than review.
 
 3. **Universal I/O contract.** Every command reads stdin/`--input`, writes
    data to stdout/`--output`, and diagnostics to stderr. Commands compose:
-   `npc cert keygen | npc key public --encoding base64`.
+   `npc cert keygen | npc cert key-public --encoding base64`.
 
 4. **`--format json` everywhere** structured output exists, for `jq`.
 

@@ -2,11 +2,13 @@
 
 Read one supported private or public key and report its algorithm, size, and public fingerprints. Private key bytes are never included in the report.
 
+Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX public key in PEM or DER, or one unencrypted OpenSSH private key or authorized_keys public entry.
+
 ## Inspect a key file
 
 ```sh
-npc key inspect --input private.pem
-npc key inspect --input public.pem --format json
+npc cert key-inspect --input private.pem
+npc cert key-inspect --input public.pem --format json
 ```
 
 Inspection accepts the supported PEM, DER, and OpenSSH public containers. It does not decrypt password-protected private keys.
@@ -14,6 +16,6 @@ Inspection accepts the supported PEM, DER, and OpenSSH public containers. It doe
 Use the public operation to emit a shareable public key rather than copying information from the inspection report.
 
 ```sh
-npc help key public
-npc key inspect --help
+npc help cert key-public
+npc cert key-inspect --help
 ```

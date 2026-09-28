@@ -42,7 +42,11 @@ func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {
 				data := strings.ReplaceAll(malformed.data, "TYPE", artifact.blockType) + artifact.valid
 				path := filepath.Join(t.TempDir(), "artifact.pem")
 				require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
-				output, err := executeRoot(t, artifact.name, "inspect", "--input", path)
+				command := "inspect"
+				if artifact.name == "key" {
+					command = "key-inspect"
+				}
+				output, err := executeRoot(t, "cert", command, "--input", path)
 				require.ErrorIs(t, err, artifact.wantErr)
 				assert.Empty(t, output)
 				if artifact.name == "cert" {

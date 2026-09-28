@@ -8,8 +8,7 @@ Use NPC to inspect network services, exchange bytes, and work with keys and cert
 - **grpc** discovers services and invokes unary RPC methods.
 - **http** makes an HTTP request and writes its response body.
 - **net** sends or receives raw bytes over TCP, TLS, or UDP.
-- **cert** inspects certificates or creates test identities.
-- **key** inspects or converts cryptographic keys.
+- **cert** manages certificates and asymmetric keys for test identities.
 - **aes** generates keys and encrypts or decrypts messages.
 - **hash** computes a digest of a file or stdin for comparison.
 
@@ -19,7 +18,7 @@ Create a key and a certificate for a local test service, then inspect their meta
 
 ```sh
 npc cert keygen --output private.pem
-npc key inspect --input private.pem
+npc cert key-inspect --input private.pem
 npc cert create --key private.pem --dns localhost --output localhost.pem
 npc cert inspect --input localhost.pem
 ```

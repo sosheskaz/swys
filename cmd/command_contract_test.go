@@ -22,7 +22,7 @@ import (
 
 func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"aes", "cert", "key", "net"} {
+	for _, name := range []string{"aes", "cert", "net"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "should-not-exist")
@@ -411,7 +411,7 @@ func TestOnlyKeyGenerationCommandsHaveSensitiveOutput(t *testing.T) {
 			t.Fatalf("%s is not marked as sensitive output", command.CommandPath())
 		}
 	}
-	for _, path := range [][]string{{"key", "public"}, {"key", "inspect"}, {"key", "convert"}, {"cert", "create"}, {"cert", "csr"}} {
+	for _, path := range [][]string{{"cert", "key-public"}, {"cert", "key-inspect"}, {"cert", "key-convert"}, {"cert", "create"}, {"cert", "csr"}} {
 		command, _, err := root.Find(path)
 		if err != nil {
 			t.Fatal(err)

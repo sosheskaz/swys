@@ -18,9 +18,9 @@ import (
 )
 
 var generatedPublicFormats = map[string]asym.KeyFormat{
-	"openssh":  asym.KeyFormatOpenSSH,
-	"pkix-der": asym.KeyFormatPKIXDER,
-	"pkix-pem": asym.KeyFormatPKIXPEM,
+	string(asym.KeyFormatOpenSSH): asym.KeyFormatOpenSSH,
+	string(asym.KeyFormatPKIXDER): asym.KeyFormatPKIXDER,
+	string(asym.KeyFormatPKIXPEM): asym.KeyFormatPKIXPEM,
 }
 
 func generatedPublicFormatFromCommand(cmd *cobra.Command) (asym.KeyFormat, error) {
@@ -35,7 +35,9 @@ func generatedPublicFormatFromCommand(cmd *cobra.Command) (asym.KeyFormat, error
 	return format, nil
 }
 
-func generatedPublicFormatNames() []string { return []string{"openssh", "pkix-der", "pkix-pem"} }
+func generatedPublicFormatNames() []string {
+	return []string{string(asym.KeyFormatOpenSSH), string(asym.KeyFormatPKIXDER), string(asym.KeyFormatPKIXPEM)}
+}
 
 func newCertKeygenCmd() *cobra.Command {
 	cmd := commandio.SensitiveBinaryOutputCommand(&cobra.Command{
@@ -47,7 +49,7 @@ func newCertKeygenCmd() *cobra.Command {
 	}, false)
 	cmd.Flags().StringP("algorithm", "a", "ed25519", "private-key algorithm ("+strings.Join(keyAlgorithmNames(), ", ")+")")
 	cmd.Flags().StringP("public-out", "P", "", "write the corresponding public key to a file")
-	cmd.Flags().String("public-format", "pkix-pem", "format for --public-out ("+strings.Join(generatedPublicFormatNames(), ", ")+")")
+	cmd.Flags().String("public-format", string(asym.KeyFormatPKIXPEM), "format for --public-out ("+strings.Join(generatedPublicFormatNames(), ", ")+")")
 	if err := cmd.MarkFlagFilename("public-out"); err != nil {
 		panic(err)
 	}
@@ -75,9 +77,9 @@ func completeCertKeyAlgorithms(_ *cobra.Command, _ []string, _ string) ([]string
 
 func completeGeneratedPublicFormats(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 	return []string{
-		cobra.CompletionWithDesc("openssh", "OpenSSH public key"),
-		cobra.CompletionWithDesc("pkix-der", "PKIX public key in binary DER"),
-		cobra.CompletionWithDesc("pkix-pem", "PKIX public key in PEM"),
+		cobra.CompletionWithDesc(string(asym.KeyFormatOpenSSH), "OpenSSH public key"),
+		cobra.CompletionWithDesc(string(asym.KeyFormatPKIXDER), "PKIX public key in binary DER"),
+		cobra.CompletionWithDesc(string(asym.KeyFormatPKIXPEM), "PKIX public key in PEM"),
 	}, cobra.ShellCompDirectiveNoFileComp
 }
 
