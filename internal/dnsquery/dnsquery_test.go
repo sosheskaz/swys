@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -248,18 +247,15 @@ func TestResolveConfiguredServersRejectsNonUDPSchemesAndUsesBareFallback(t *test
 					return replyFor(request), nil
 				},
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			validFallback := len(exchanges) == 1 &&
 				exchanges[0].transport == dnsquery.TransportUDP &&
 				exchanges[0].address == "192.0.2.53:53"
 			if !validFallback {
 				t.Fatalf("exchanges = %+v", exchanges)
 			}
-			if result.Server == nil || *result.Server != "192.0.2.53:53" {
-				t.Fatalf("server = %v", result.Server)
-			}
+			require.NotNil(t, result.Server)
+			require.Equal(t, "192.0.2.53:53", *result.Server)
 		})
 	}
 }
@@ -283,12 +279,8 @@ func TestResolveAllConfiguredNonUDPSchemesPreserveInvalidEndpoint(t *testing.T) 
 			return nil, errPlaintextExchange
 		},
 	})
-	if !errors.Is(err, dnsquery.ErrInvalidEndpoint) {
-		t.Fatalf("error = %v, want ErrInvalidEndpoint", err)
-	}
-	if exchanges != 0 {
-		t.Fatalf("plaintext exchanges = %d, want 0", exchanges)
-	}
+	require.ErrorIs(t, err, dnsquery.ErrInvalidEndpoint)
+	assert.Zero(t, exchanges, "plaintext exchanges")
 }
 
 func TestResolveRejectsMutatedEndpoint(t *testing.T) {
@@ -327,17 +319,12 @@ func TestResolveNilRDATAProducesEmptyValues(t *testing.T) {
 			return response, nil
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	wantTypes := []string{"OPT", "NXNAME", "IXFR", "AXFR", "ANY"}
-	if len(result.Answers) != len(wantTypes) {
-		t.Fatalf("answers = %+v", result.Answers)
-	}
+	require.Len(t, result.Answers, len(wantTypes))
 	for index, answer := range result.Answers {
-		if answer.Type != wantTypes[index] || answer.Value != "" {
-			t.Errorf("answer %d = %+v", index, answer)
-		}
+		assert.Equal(t, wantTypes[index], answer.Type, "answer %d", index)
+		assert.Empty(t, answer.Value, "answer %d", index)
 	}
 }
 
@@ -371,9 +358,7 @@ func TestResolveRejectsMismatchedResponses(t *testing.T) {
 					return response, nil
 				},
 			})
-			if !errors.Is(err, dnsquery.ErrResponseMismatch) {
-				t.Fatalf("error = %v, want ErrResponseMismatch", err)
-			}
+			require.ErrorIs(t, err, dnsquery.ErrResponseMismatch)
 		})
 	}
 }
@@ -411,16 +396,11 @@ func TestResolveConfiguredFailoverDividesRemainingBudget(t *testing.T) {
 				}
 			},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Server == nil || *result.Server != "192.0.2.3:53" {
-			t.Fatalf("server = %v", result.Server)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, result.Server)
+		require.Equal(t, "192.0.2.3:53", *result.Server)
 		wantRemaining := []time.Duration{4 * time.Second, 11 * time.Second / 2, 9 * time.Second}
-		if !slices.Equal(remaining, wantRemaining) {
-			t.Fatalf("attempt deadlines = %v, want %v", remaining, wantRemaining)
-		}
+		require.Equal(t, wantRemaining, remaining, "attempt deadlines")
 		assertContextsCanceled(t, contexts)
 	})
 }
@@ -447,12 +427,9 @@ func TestResolveUDPAndTCPFallbackShareAttemptBudget(t *testing.T) {
 				return response, nil
 			},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Transport == nil || *result.Transport != dnsquery.TransportTCP {
-			t.Fatalf("transport = %v", result.Transport)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, result.Transport)
+		require.Equal(t, dnsquery.TransportTCP, *result.Transport)
 		if len(deadlines) != 2 || deadlines[0] != deadlines[1] || time.Until(deadlines[0]) != 5*time.Second {
 			t.Fatalf("UDP/TCP deadlines = %v", deadlines)
 		}
@@ -481,9 +458,7 @@ func TestResolveConfiguredTimeoutLeavesBudgetForNextServer(t *testing.T) {
 				return replyFor(request), nil
 			},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if attempts != 2 || result.Server == nil || *result.Server != "192.0.2.2:53" {
 			t.Fatalf("attempts=%d server=%v", attempts, result.Server)
 		}
@@ -512,9 +487,7 @@ func TestResolveExplicitEndpointUsesWholeContextBudget(t *testing.T) {
 				return replyFor(request), nil
 			},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		assertContextsCanceled(t, []context.Context{exchangeContext})
 	})
 }
@@ -534,9 +507,7 @@ func TestResolveWithoutDeadlineDoesNotInventOne(t *testing.T) {
 			return replyFor(request), nil
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertContextsCanceled(t, []context.Context{exchangeContext})
 }
 
@@ -544,9 +515,7 @@ func TestResolvePlaintextExchangeHonorsCancellation(t *testing.T) {
 	t.Parallel()
 
 	server, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		if closeErr := server.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
 			t.Errorf("close UDP fixture: %v", closeErr)
@@ -562,9 +531,7 @@ func TestResolvePlaintextExchangeHonorsCancellation(t *testing.T) {
 	}()
 	endpoint := mustEndpoint(t, server.LocalAddr().String())
 	_, err = dnsquery.Resolve(ctx, directRequest(endpoint), dnsquery.DefaultDependencies())
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestResolveDoHRejectsRedirects(t *testing.T) {
@@ -594,12 +561,8 @@ func TestResolveDoHRejectsRedirects(t *testing.T) {
 		Type:      externalDNS.TypeA,
 		TLSConfig: config,
 	}, dnsquery.Dependencies{})
-	if err == nil {
-		t.Fatal("DoH redirect succeeded")
-	}
-	if redirectedRequests != 0 {
-		t.Fatalf("redirect target requests = %d, want 0", redirectedRequests)
-	}
+	require.Error(t, err, "DoH redirect succeeded")
+	assert.Zero(t, redirectedRequests, "redirect target requests")
 }
 
 func TestResolveClonesTLSConfigBeforeDefaultingServerName(t *testing.T) {
@@ -615,25 +578,17 @@ func TestResolveClonesTLSConfigBeforeDefaultingServerName(t *testing.T) {
 		Type:      externalDNS.TypeA,
 		TLSConfig: config,
 	}, dnsquery.Dependencies{})
-	if err == nil {
-		t.Fatal("closed DoT endpoint succeeded")
-	}
-	if config.ServerName != "" {
-		t.Fatalf("caller TLS ServerName mutated to %q", config.ServerName)
-	}
+	require.Error(t, err, "closed DoT endpoint succeeded")
+	assert.Empty(t, config.ServerName, "caller TLS ServerName must not be mutated")
 }
 
 func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
 	t.Parallel()
 
 	reservation, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	address := reservation.Addr().String()
-	if err := reservation.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, reservation.Close())
 	endpoint := mustEndpoint(t, "tls://"+address)
 	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
 	defer cancel()
@@ -646,12 +601,8 @@ func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
 		Type:      externalDNS.TypeA,
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	}, dnsquery.Dependencies{})
-	if !errors.Is(err, syscall.ECONNREFUSED) {
-		t.Fatalf("error = %v, want connection refused", err)
-	}
-	if ctx.Err() != nil {
-		t.Fatalf("DoT connection refusal exhausted the caller context: %v", ctx.Err())
-	}
+	require.ErrorIs(t, err, syscall.ECONNREFUSED)
+	assert.NoError(t, ctx.Err(), "DoT connection refusal must not exhaust caller context")
 }
 
 func TestResolveDoTPreservesCanceledContext(t *testing.T) {
@@ -668,9 +619,7 @@ func TestResolveDoTPreservesCanceledContext(t *testing.T) {
 		Type:      externalDNS.TypeA,
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	}, dnsquery.Dependencies{})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestResolveDependencyErrorsPreserveIdentity(t *testing.T) {
@@ -683,9 +632,7 @@ func TestResolveDependencyErrorsPreserveIdentity(t *testing.T) {
 			return nil, errPlaintextExchange
 		},
 	})
-	if !errors.Is(err, errPlaintextExchange) {
-		t.Fatalf("error = %v, want exchange identity", err)
-	}
+	require.ErrorIs(t, err, errPlaintextExchange)
 
 	_, err = dnsquery.Resolve(t.Context(), configuredRequest(), dnsquery.Dependencies{
 		ConfiguredServers: func() ([]string, error) { return nil, errUnexpectedConfiguredServers },
@@ -693,9 +640,7 @@ func TestResolveDependencyErrorsPreserveIdentity(t *testing.T) {
 			return nil, errPlaintextExchange
 		},
 	})
-	if !errors.Is(err, errUnexpectedConfiguredServers) {
-		t.Fatalf("error = %v, want configured-server identity", err)
-	}
+	require.ErrorIs(t, err, errUnexpectedConfiguredServers)
 }
 
 func TestCoreHasNoCobraOrCmdImports(t *testing.T) {
@@ -707,23 +652,17 @@ func TestCoreHasNoCobraOrCmdImports(t *testing.T) {
 	}
 	directory := filepath.Dir(filename)
 	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
 		path := filepath.Join(directory, entry.Name())
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		for _, spec := range file.Imports {
 			importPath, err := strconv.Unquote(spec.Path.Value)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if importPath == "github.com/spf13/cobra" || strings.HasSuffix(importPath, "/cmd") {
 				t.Errorf("%s imports %q", entry.Name(), importPath)
 			}
@@ -753,9 +692,7 @@ func configuredRequest() dnsquery.Request {
 func mustEndpoint(t *testing.T, raw string) dnsquery.Endpoint {
 	t.Helper()
 	endpoint, err := dnsquery.ParseEndpoint(raw, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return endpoint
 }
 

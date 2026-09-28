@@ -2,13 +2,15 @@ package dnsquery
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWatchDNSConnectionContextCancellationWinsDeadlineSetup(t *testing.T) {
@@ -22,22 +24,14 @@ func TestWatchDNSConnectionContextCancellationWinsDeadlineSetup(t *testing.T) {
 		conn := &deadlineRecordingConn{}
 
 		stop, err := watchDNSConnectionContext(ctx, conn)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer stop()
 		synctest.Wait()
 
 		deadline, ok := conn.lastDeadline()
-		if !ok {
-			t.Fatal("connection deadline was not set")
-		}
-		if deadline.After(time.Now()) {
-			t.Fatalf("connection deadline = %s, want cancellation deadline no later than now", deadline)
-		}
-		if !errors.Is(ctx.Err(), context.Canceled) {
-			t.Fatalf("context error = %v, want context.Canceled", ctx.Err())
-		}
+		require.True(t, ok, "connection deadline was not set")
+		assert.False(t, deadline.After(time.Now()), "cancellation deadline %s must be no later than now", deadline)
+		assert.ErrorIs(t, ctx.Err(), context.Canceled)
 	})
 }
 
@@ -51,12 +45,8 @@ func TestContextErrorAddsElapsedDeadline(t *testing.T) {
 		time.Sleep(time.Hour)
 
 		err := contextError(ctx, timeoutErr)
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("error = %v, want context.DeadlineExceeded", err)
-		}
-		if !errors.Is(err, timeoutErr) {
-			t.Fatalf("error = %v, want timeout error identity", err)
-		}
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.ErrorIs(t, err, timeoutErr)
 	})
 }
 
