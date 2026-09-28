@@ -54,11 +54,11 @@ func TestWriteHTTPJSONResponseStreamsBase64Body(t *testing.T) {
 	assert.NotContains(t, output.String(), "synthetic-password")
 	body, err := base64.StdEncoding.DecodeString(envelope.Body)
 	require.NoError(t, err)
-	invalidEnvelope := envelope.Method != http.MethodGet || envelope.StatusCode != http.StatusOK ||
-		string(body) != "\x00body\xff" || envelope.BodyEncoding != "base64" || !envelope.Complete
-	if invalidEnvelope {
-		t.Fatalf("envelope = %+v, decoded body = %q", envelope, body)
-	}
+	assert.Equal(t, http.MethodGet, envelope.Method)
+	assert.Equal(t, http.StatusOK, envelope.StatusCode)
+	assert.Equal(t, "\x00body\xff", string(body))
+	assert.Equal(t, "base64", envelope.BodyEncoding)
+	assert.True(t, envelope.Complete)
 }
 
 func TestWriteHTTPJSONResponseClosesEnvelopeAfterBodyReadFailure(t *testing.T) {
@@ -85,9 +85,8 @@ func TestWriteHTTPJSONResponseClosesEnvelopeAfterBodyReadFailure(t *testing.T) {
 		Error    string `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(output.Bytes(), &envelope), "decode response envelope %q", output.String())
-	if envelope.Complete || !strings.Contains(envelope.Error, readErr.Error()) {
-		t.Fatalf("envelope = %+v, want incomplete response error", envelope)
-	}
+	assert.False(t, envelope.Complete)
+	assert.Contains(t, envelope.Error, readErr.Error())
 }
 
 func TestWriteHTTPJSONResponseReportsConnectionFailure(t *testing.T) {
@@ -106,9 +105,9 @@ func TestWriteHTTPJSONResponseReportsConnectionFailure(t *testing.T) {
 		Error    string `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(output.Bytes(), &envelope), "decode response envelope %q", output.String())
-	if envelope.Body != "" || envelope.Complete || !strings.Contains(envelope.Error, requestErr.Error()) {
-		t.Fatalf("envelope = %+v, want empty incomplete error response", envelope)
-	}
+	assert.Empty(t, envelope.Body)
+	assert.False(t, envelope.Complete)
+	assert.Contains(t, envelope.Error, requestErr.Error())
 }
 
 func TestHTTPTracePairsSelectedConnectAttemptAndCertificateVerification(t *testing.T) {
@@ -166,9 +165,7 @@ func TestHTTPTracePairsSelectedConnectAttemptAndCertificateVerification(t *testi
 			Verified bool `json:"verified"`
 		}
 		require.NoError(t, json.Unmarshal(views[0].TLS.Certificates[i], &certificate))
-		if certificate.Verified != wantVerified {
-			t.Fatalf("certificate %d verified = %t, want %t", i, certificate.Verified, wantVerified)
-		}
+		assert.Equal(t, wantVerified, certificate.Verified, "certificate %d", i)
 	}
 }
 

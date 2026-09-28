@@ -30,12 +30,8 @@ func TestHTTPDataShortAliasPreservesExplicitEmptyData(t *testing.T) {
 
 	_, _, err := executeRootStreams(t, "http", server.URL, "-X", "POST", "-d", "")
 	require.NoError(t, err, "explicit empty -d: %v", err)
-	if method := <-requestMethod; method != http.MethodPost {
-		t.Fatalf("method = %q, want POST", method)
-	}
-	if body := <-requestBody; len(body) != 0 {
-		t.Fatalf("body = %q, want explicitly empty body", body)
-	}
+	require.Equal(t, http.MethodPost, <-requestMethod)
+	require.Empty(t, <-requestBody)
 }
 
 func TestHTTPDataShortAliasRequiresExplicitMethodLikeData(t *testing.T) {
@@ -49,15 +45,9 @@ func TestHTTPDataShortAliasRequiresExplicitMethodLikeData(t *testing.T) {
 
 	_, _, longErr := executeRootStreams(t, "http", server.URL, "--data", "")
 	_, _, shortErr := executeRootStreams(t, "http", server.URL, "-d", "")
-	if longErr == nil || shortErr == nil {
-		t.Fatalf("no-method errors: --data=%v, -d=%v; both must require -X", longErr, shortErr)
-	}
-	if longErr.Error() != shortErr.Error() {
-		t.Fatalf("no-method errors differ: --data=%q, -d=%q", longErr, shortErr)
-	}
-	if requests.Load() != 0 {
-		t.Fatalf("server received %d requests, want zero", requests.Load())
-	}
+	require.Error(t, longErr, "--data requires -X")
+	require.EqualError(t, shortErr, longErr.Error(), "-d and --data reject missing method identically")
+	require.Zero(t, requests.Load(), "requests")
 }
 
 func TestHTTPDataShortAliasConflictsWithInputBeforeRequestOrOutput(t *testing.T) {
@@ -76,31 +66,23 @@ func TestHTTPDataShortAliasConflictsWithInputBeforeRequestOrOutput(t *testing.T)
 
 	_, _, err := executeRootStreams(t, "http", server.URL, "-d", "literal", "--input", input, "--output", output)
 	require.Error(t, err)
-	if requests.Load() != 0 {
-		t.Fatalf("server received %d requests, want zero", requests.Load())
-	}
+	require.Zero(t, requests.Load(), "requests")
 	content, readErr := os.ReadFile(output)
 	require.NoError(t, readErr)
-	if string(content) != "preserve" {
-		t.Fatalf("output = %q, want preserved existing content", content)
-	}
+	require.Equal(t, "preserve", string(content), "preserved output")
 }
 
 func TestHTTPDataShortAliasIsExactDataSynonym(t *testing.T) {
 	t.Parallel()
 	root := newRootCmd()
 	command, _, err := root.Find([]string{httpCommandName})
-	if err != nil || command == nil || command.Name() != httpCommandName {
-		t.Fatalf("find HTTP command: command=%v error=%v", command, err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, command)
+	require.Equal(t, httpCommandName, command.Name())
 	data := command.Flags().Lookup("data")
 	if data == nil {
 		data = command.PersistentFlags().Lookup("data")
 	}
-	if data == nil {
-		t.Fatal("--data flag is missing")
-	}
-	if data.Shorthand != "d" {
-		t.Fatalf("--data shorthand = %q, want exact -d synonym", data.Shorthand)
-	}
+	require.NotNil(t, data, "--data flag")
+	require.Equal(t, "d", data.Shorthand)
 }

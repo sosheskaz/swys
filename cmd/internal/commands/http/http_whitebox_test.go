@@ -2,7 +2,6 @@ package http
 
 import (
 	"crypto/tls"
-	"errors"
 	"net/netip"
 	"slices"
 	"testing"
@@ -30,12 +29,8 @@ func TestHTTPDefaultURLScheme(t *testing.T) {
 			command := newHTTPCmd()
 			command.Flags().AddFlagSet(command.PersistentFlags())
 			_, address, err := httpMethodURL(command, []string{test.input})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if address.String() != test.want {
-				t.Fatalf("URL = %q, want %q", address, test.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, address.String())
 		})
 	}
 	for _, input := range []string{"", "/path", "http://", "ftp://example.com", "localhost:bad", "http:/example.com", "https:/example.com"} {
@@ -103,12 +98,8 @@ func TestParseHTTPResolvesRejectsInvalidRules(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
 			resolver, err := parseHTTPResolves([]string{value})
-			if !errors.Is(err, ErrInvalidFlags) {
-				t.Fatalf("error = %v, want invalid HTTP options", err)
-			}
-			if resolver != nil {
-				t.Fatalf("resolver = %#v, want nil", resolver)
-			}
+			require.ErrorIs(t, err, ErrInvalidFlags)
+			require.Nil(t, resolver)
 		})
 	}
 }

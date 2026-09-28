@@ -40,9 +40,7 @@ func TestHTTPAutomaticResponseCompression(t *testing.T) {
 			if err != nil {
 				t.Fatalf("HTTP gzip response: %v", err)
 			}
-			if stdout != string(payload) {
-				t.Fatalf("stdout = %q, want %q", stdout, payload)
-			}
+			require.Equal(t, string(payload), stdout)
 			if got := <-received; got != "gzip" {
 				t.Fatalf("Accept-Encoding = %q, want gzip", got)
 			}
@@ -108,9 +106,7 @@ func TestHTTPAutomaticCompressionFollowsRedirects(t *testing.T) {
 
 	stdout, _, err := executeRootStreams(t, "http", server.URL+"/start")
 	require.NoError(t, err)
-	if stdout != string(payload) {
-		t.Fatalf("stdout = %q, want %q", stdout, payload)
-	}
+	require.Equal(t, string(payload), stdout)
 	if got := []string{<-received, <-received}; !slices.Equal(got, []string{"gzip", "gzip"}) {
 		t.Fatalf("redirect Accept-Encoding values = %q", got)
 	}
@@ -133,9 +129,7 @@ func TestHTTPExplicitAcceptEncodingPreservesResponse(t *testing.T) {
 
 	stdout, _, err := executeRootStreams(t, "http", server.URL, "-H", "Accept-Encoding: gzip")
 	require.NoError(t, err)
-	if stdout != string(compressed) {
-		t.Fatalf("stdout bytes = %x, want raw compressed bytes %x", stdout, compressed)
-	}
+	require.Equal(t, string(compressed), stdout)
 }
 
 func TestHTTPAutomaticCompressionSkipsIneligibleRequests(t *testing.T) {
@@ -222,12 +216,8 @@ func TestHTTPAutomaticCompressionIgnoresBodylessResponseEncoding(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			stdout, _, err := executeRootStreams(t, "http", server.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stdout != "" {
-				t.Fatalf("stdout = %q, want empty body", stdout)
-			}
+			require.NoError(t, err)
+			require.Empty(t, stdout)
 		})
 	}
 }

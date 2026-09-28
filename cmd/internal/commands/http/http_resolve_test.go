@@ -138,14 +138,10 @@ func TestHTTPResolveRejectsInvalidRuleBeforeIO(t *testing.T) {
 		"--output", outputPath,
 	)
 	require.ErrorIs(t, err, errInvalidHTTPFlags)
-	if input.reads.Load() != 0 {
-		t.Fatal("invalid resolve rule read stdin")
-	}
+	require.Zero(t, input.reads.Load(), "invalid resolve rule read stdin")
 	contents, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
-	if string(contents) != "preserve" {
-		t.Fatalf("output = %q, want preserved contents", contents)
-	}
+	require.Equal(t, "preserve", string(contents), "preserved output")
 }
 
 func TestHTTPResolveReportsEveryFailedAddress(t *testing.T) {

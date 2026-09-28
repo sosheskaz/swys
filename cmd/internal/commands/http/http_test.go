@@ -70,21 +70,14 @@ func TestHTTPMethodRouting(t *testing.T) {
 			t.Cleanup(server.Close)
 
 			stdout, _, err := executeRootStreams(t, "http", server.URL, "--method", test.methodArg, "--stdin", "never")
-			if err != nil {
-				t.Fatalf("http %s: %v", test.methodArg, err)
-			}
-			if method := <-gotMethod; method != test.wantMethod {
-				t.Fatalf("method = %q, want %q", method, test.wantMethod)
-			}
+			require.NoError(t, err, "http %s", test.methodArg)
+			require.Equal(t, test.wantMethod, <-gotMethod, "request method")
 			if test.wantMethod == http.MethodHead {
-				if !strings.Contains(stdout, "204 No Content") || !strings.Contains(stdout, "X-Http-Test") {
-					t.Fatalf("HEAD output = %q, want status and headers", stdout)
-				}
+				assert.Contains(t, stdout, "204 No Content", "HEAD status")
+				assert.Contains(t, stdout, "X-Http-Test", "HEAD headers")
 				return
 			}
-			if stdout != "ok" {
-				t.Fatalf("stdout = %q, want response body", stdout)
-			}
+			assert.Equal(t, "ok", stdout, "response body")
 		})
 	}
 }
@@ -98,14 +91,10 @@ func TestBareHTTPShowsHelpWithoutOpeningIO(t *testing.T) {
 	stdout, _, err := executeHTTPStreamsWithInput(t, input, "http", "--output", outputPath)
 	require.NoError(t, err, "bare HTTP command: %v", err)
 	assert.Contains(t, stdout, "Make an HTTP request")
-	if input.reads.Load() != 0 {
-		t.Fatal("bare HTTP command read stdin")
-	}
+	assert.Zero(t, input.reads.Load(), "bare HTTP command read stdin")
 	contents, readErr := os.ReadFile(outputPath)
 	require.NoError(t, readErr)
-	if string(contents) != "preserve" {
-		t.Fatalf("output = %q, want preserved contents", contents)
-	}
+	assert.Equal(t, "preserve", string(contents), "existing output")
 }
 
 func TestHTTPRejectsInvalidMethodArgumentsBeforeIO(t *testing.T) {
@@ -123,22 +112,15 @@ func TestHTTPRejectsInvalidMethodArgumentsBeforeIO(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			outputPath := filepath.Join(t.TempDir(), "response")
-			if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
 			input := &countingReader{source: strings.NewReader("unread")}
 			commandArgs := append([]string{"http", server.URL, "--output", outputPath}, args...)
 			_, _, err := executeHTTPStreamsWithInput(t, input, commandArgs...)
-			if err == nil {
-				t.Fatal("invalid method arguments succeeded")
-			}
-			if called.Load() || input.reads.Load() != 0 {
-				t.Fatal("invalid method arguments performed I/O")
-			}
+			require.Error(t, err, "invalid method arguments succeeded")
+			require.False(t, called.Load() || input.reads.Load() != 0, "invalid method arguments performed I/O")
 			contents, err := os.ReadFile(outputPath)
-			if err != nil || string(contents) != "preserve" {
-				t.Fatalf("output = %q, error = %v", contents, err)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, "preserve", string(contents), "existing output")
 		})
 	}
 }
@@ -156,9 +138,7 @@ func TestHTTPMethodCompletion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			stdout, _, err := executeRootStreams(t, "__complete", "http", test.flag, test.prefix)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			for _, method := range test.want {
 				assert.Contains(t, stdout, method+"\n")
 			}
@@ -212,22 +192,12 @@ func TestHTTPRequestBodySources(t *testing.T) {
 
 			args := append([]string{"http", "-X", "POST", server.URL}, test.args...)
 			stdout, stderr, err := executeHTTPStreamsWithInput(t, strings.NewReader(test.stdin), args...)
-			if err != nil {
-				t.Fatalf("HTTP request: %v", err)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q, want no diagnostics", stderr)
-			}
-			if stdout != "received" {
-				t.Fatalf("stdout = %q, want response body", stdout)
-			}
+			require.NoError(t, err, "HTTP request")
+			require.Empty(t, stderr, "request diagnostics")
+			require.Equal(t, "received", stdout, "response body")
 			record := <-received
-			if record.body != test.wantBody {
-				t.Fatalf("request body = %q, want %q", record.body, test.wantBody)
-			}
-			if record.contentType != test.wantContentType {
-				t.Fatalf("Content-Type = %q, want %q", record.contentType, test.wantContentType)
-			}
+			assert.Equal(t, test.wantBody, record.body, "request body")
+			assert.Equal(t, test.wantContentType, record.contentType, "Content-Type")
 		})
 	}
 }
@@ -253,9 +223,7 @@ func TestHTTPInputEncodingDecodesRawBody(t *testing.T) {
 		"http", "-X", "POST", server.URL, "--input", "-", "--input-encoding", "base64",
 	)
 	require.NoError(t, err, "HTTP encoded input: %v", err)
-	if body := <-received; body != "decoded bytes" {
-		t.Fatalf("request body = %q, want decoded bytes", body)
-	}
+	assert.Equal(t, "decoded bytes", <-received, "decoded request body")
 }
 
 func TestHTTPFormAndMultipartBodies(t *testing.T) {
@@ -284,25 +252,17 @@ func TestHTTPFormAndMultipartBodies(t *testing.T) {
 			"http", "-X", "POST", server.URL,
 			"--form", "name=first", "--form", "name=second",
 		)
-		if err != nil {
-			t.Fatalf("HTTP form request: %v", err)
-		}
+		require.NoError(t, err, "HTTP form request")
 		record := <-received
-		if record.contentType != "application/x-www-form-urlencoded" {
-			t.Fatalf("Content-Type = %q, want form encoding", record.contentType)
-		}
-		if !slices.Equal(record.values, []string{"first", "second"}) {
-			t.Fatalf("form values = %q, want repeated values", record.values)
-		}
+		assert.Equal(t, "application/x-www-form-urlencoded", record.contentType, "form Content-Type")
+		assert.Equal(t, []string{"first", "second"}, record.values, "repeated form values")
 	})
 
 	t.Run("multipart file and field", func(t *testing.T) {
 		t.Parallel()
 
 		uploadPath := filepath.Join(t.TempDir(), "report.txt")
-		if err := os.WriteFile(uploadPath, []byte("report contents"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(uploadPath, []byte("report contents"), 0o600))
 		type multipartRecord struct {
 			err      error
 			field    string
@@ -336,16 +296,12 @@ func TestHTTPFormAndMultipartBodies(t *testing.T) {
 			"http", "-X", "POST", server.URL,
 			"--form", "name=demo", "--file", "attachment="+uploadPath,
 		)
-		if err != nil {
-			t.Fatalf("HTTP multipart request: %v", err)
-		}
+		require.NoError(t, err, "HTTP multipart request")
 		record := <-received
-		if record.err != nil {
-			t.Fatalf("parse multipart request: %v", record.err)
-		}
-		if record.field != "demo" || record.filename != "report.txt" || record.file != "report contents" {
-			t.Fatalf("multipart record = %+v", record)
-		}
+		require.NoError(t, record.err, "parse multipart request")
+		assert.Equal(t, "demo", record.field, "multipart field")
+		assert.Equal(t, "report.txt", record.filename, "multipart filename")
+		assert.Equal(t, "report contents", record.file, "multipart file")
 	})
 }
 
@@ -365,9 +321,7 @@ func TestHTTPHeaders(t *testing.T) {
 		"-H", "X-NPC-Test: first", "--header", "X-NPC-Test: second",
 	)
 	require.NoError(t, err, "HTTP headers: %v", err)
-	if values := <-received; !slices.Equal(values, []string{"first", "second"}) {
-		t.Fatalf("header values = %q, want repeated values", values)
-	}
+	assert.Equal(t, []string{"first", "second"}, <-received, "repeated header values")
 }
 
 func TestHTTPUserAgent(t *testing.T) {
@@ -408,9 +362,8 @@ func TestHTTPUserAgent(t *testing.T) {
 				if test.header != "" {
 					args = append(args, "-H", test.header)
 				}
-				if _, _, err := executeRootStreams(t, args...); err != nil {
-					t.Fatal(err)
-				}
+				_, _, err := executeRootStreams(t, args...)
+				require.NoError(t, err)
 				for range 2 {
 					got := <-received
 					if got.protocol != protocol || !slices.Equal(got.values, test.want) {
@@ -461,15 +414,9 @@ func TestHTTPStdinPolicy(t *testing.T) {
 				args = append(args, "--stdin", test.flag)
 			}
 			_, _, err := executeHTTPStreamsWithInput(t, input, args...)
-			if err != nil {
-				t.Fatalf("HTTP stdin policy: %v", err)
-			}
-			if body := <-received; body != test.wantBody {
-				t.Fatalf("request body = %q, want %q", body, test.wantBody)
-			}
-			if gotRead := input.reads.Load() > 0; gotRead != test.wantRead {
-				t.Fatalf("stdin read = %t, want %t", gotRead, test.wantRead)
-			}
+			require.NoError(t, err, "HTTP stdin policy")
+			assert.Equal(t, test.wantBody, <-received, "request body")
+			assert.Equal(t, test.wantRead, input.reads.Load() > 0, "stdin read")
 		})
 	}
 }
@@ -496,26 +443,16 @@ func TestHTTPBodyValidationHappensBeforeOutputIsOpened(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			outputPath := filepath.Join(t.TempDir(), "existing-output")
-			if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
 
 			args := append([]string{"http", server.URL}, test.args...)
 			args = append(args, "--output", outputPath)
 			_, _, err := executeRootStreams(t, args...)
-			if err == nil {
-				t.Fatal("invalid body selection succeeded")
-			}
-			if called.Load() {
-				t.Fatal("server received request before body validation")
-			}
+			require.Error(t, err, "invalid body selection succeeded")
+			require.False(t, called.Load(), "server received request before body validation")
 			contents, readErr := os.ReadFile(outputPath)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if string(contents) != "preserve" {
-				t.Fatalf("output = %q, want preserved contents", contents)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(contents), "existing output")
 		})
 	}
 }
@@ -536,25 +473,17 @@ func TestHTTPFileSourcesCannotBeTheirOutput(t *testing.T) {
 			t.Parallel()
 
 			path := filepath.Join(t.TempDir(), "source.txt")
-			if err := os.WriteFile(path, []byte("preserve source"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(path, []byte("preserve source"), 0o600))
 			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 			t.Cleanup(server.Close)
 
 			args := append([]string{"http", "-X", "POST", server.URL}, test.flag(path)...)
 			args = append(args, "--output", path)
 			_, _, err := executeRootStreams(t, args...)
-			if err == nil {
-				t.Fatal("source/output collision succeeded")
-			}
+			require.Error(t, err, "source/output collision succeeded")
 			contents, readErr := os.ReadFile(path)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if string(contents) != "preserve source" {
-				t.Fatalf("source = %q, want preserved contents", contents)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve source", string(contents), "source after collision")
 		})
 	}
 }
@@ -574,24 +503,18 @@ func TestHTTPJSONResponseEnvelopeAndTrace(t *testing.T) {
 	require.NoError(t, err, "HTTP JSON response: %v", err)
 	assert.Empty(t, stderr)
 	envelope := decodeHTTPEnvelope(t, stdout)
-	if envelope.Method != http.MethodGet || envelope.URL != server.URL {
-		t.Fatalf("request identity = %s %s", envelope.Method, envelope.URL)
-	}
-	if envelope.StatusCode != http.StatusOK || envelope.Status != "200 OK" {
-		t.Fatalf("status = %d %q", envelope.StatusCode, envelope.Status)
-	}
+	assert.Equal(t, http.MethodGet, envelope.Method, "request method")
+	assert.Equal(t, server.URL, envelope.URL, "request URL")
+	assert.Equal(t, http.StatusOK, envelope.StatusCode, "response status code")
+	assert.Equal(t, "200 OK", envelope.Status, "response status")
 	if !strings.HasPrefix(envelope.Protocol, "HTTP/") {
 		t.Fatalf("protocol = %q, want HTTP version", envelope.Protocol)
 	}
-	if !slices.Equal(envelope.Headers["X-Npc-Test"], []string{"first", "second"}) {
-		t.Fatalf("headers = %#v", envelope.Headers)
-	}
-	if envelope.BodyEncoding != "base64" || envelope.Body != base64.StdEncoding.EncodeToString(responseBody) {
-		t.Fatalf("body = %q (%s), want base64 response", envelope.Body, envelope.BodyEncoding)
-	}
-	if !envelope.Complete || envelope.Error != "" {
-		t.Fatalf("completion = %t error = %q", envelope.Complete, envelope.Error)
-	}
+	assert.Equal(t, []string{"first", "second"}, envelope.Headers["X-Npc-Test"], "response headers")
+	assert.Equal(t, "base64", envelope.BodyEncoding, "body encoding")
+	assert.Equal(t, base64.StdEncoding.EncodeToString(responseBody), envelope.Body, "response body")
+	assert.True(t, envelope.Complete, "response completion")
+	assert.Empty(t, envelope.Error, "response error")
 	if len(envelope.Trace) == 0 || bytes.Equal(envelope.Trace, []byte("null")) {
 		t.Fatalf("trace = %s, want embedded trace", envelope.Trace)
 	}
@@ -608,9 +531,7 @@ func TestHTTPTextTraceIsWrittenToStderr(t *testing.T) {
 	stdout, stderr, err := executeRootStreams(t, "http", server.URL, "--trace")
 	require.NoError(t, err, "HTTP text trace: %v", err)
 	assert.Equal(t, "body", stdout)
-	if strings.TrimSpace(stderr) == "" {
-		t.Fatal("stderr is empty, want trace diagnostics")
-	}
+	assert.NotEmpty(t, strings.TrimSpace(stderr), "trace diagnostics")
 }
 
 func TestHTTPIncludeAndOutputEncoding(t *testing.T) {
@@ -626,24 +547,18 @@ func TestHTTPIncludeAndOutputEncoding(t *testing.T) {
 		t.Parallel()
 
 		stdout, _, err := executeRootStreams(t, "http", server.URL, "--include")
-		if err != nil {
-			t.Fatalf("HTTP include: %v", err)
-		}
-		if !strings.Contains(stdout, "200 OK") || !strings.Contains(stdout, "X-Npc-Test: included") || !strings.HasSuffix(stdout, "abc") {
-			t.Fatalf("included output = %q", stdout)
-		}
+		require.NoError(t, err, "HTTP include")
+		assert.Contains(t, stdout, "200 OK", "included status")
+		assert.Contains(t, stdout, "X-Npc-Test: included", "included header")
+		assert.True(t, strings.HasSuffix(stdout, "abc"), "included body: %q", stdout)
 	})
 
 	t.Run("encode body only", func(t *testing.T) {
 		t.Parallel()
 
 		stdout, _, err := executeRootStreams(t, "http", server.URL, "--encoding", "base64")
-		if err != nil {
-			t.Fatalf("HTTP encoded response: %v", err)
-		}
-		if stdout != "YWJj" {
-			t.Fatalf("stdout = %q, want base64 body", stdout)
-		}
+		require.NoError(t, err, "HTTP encoded response")
+		assert.Equal(t, "YWJj", stdout, "base64 body")
 	})
 }
 
@@ -659,22 +574,14 @@ func TestHTTPRejectsEnvelopeEncodingBeforeOutput(t *testing.T) {
 			t.Parallel()
 
 			outputPath := filepath.Join(t.TempDir(), "output")
-			if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
 			args := append([]string{"http", "http://127.0.0.1:1"}, flags...)
 			args = append(args, "--output", outputPath)
 			_, _, err := executeRootStreams(t, args...)
-			if err == nil {
-				t.Fatal("incompatible output options succeeded")
-			}
+			require.Error(t, err, "incompatible output options succeeded")
 			contents, readErr := os.ReadFile(outputPath)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if string(contents) != "preserve" {
-				t.Fatalf("output = %q, want preserved contents", contents)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(contents), "existing output")
 		})
 	}
 }
@@ -722,16 +629,11 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 		t.Cleanup(server.Close)
 
 		stdout, _, err := executeRootStreams(t, "http", "-X", "POST", server.URL+"/start", "--data", "replay me")
-		if err != nil {
-			t.Fatalf("follow replayable redirect: %v", err)
-		}
-		if stdout != "final" {
-			t.Fatalf("stdout = %q, want final response", stdout)
-		}
+		require.NoError(t, err, "follow replayable redirect")
+		require.Equal(t, "final", stdout, "final response")
 		record := <-received
-		if record.method != http.MethodPost || record.body != "replay me" {
-			t.Fatalf("redirected request = %+v", record)
-		}
+		assert.Equal(t, http.MethodPost, record.method, "redirected method")
+		assert.Equal(t, "replay me", record.body, "redirected body")
 	})
 
 	t.Run("follow false returns redirect", func(t *testing.T) {
@@ -745,12 +647,8 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 		t.Cleanup(server.Close)
 
 		stdout, _, err := executeRootStreams(t, "http", server.URL, "--follow=false")
-		if err != nil {
-			t.Fatalf("HTTP --follow=false: %v", err)
-		}
-		if stdout != "redirect response" {
-			t.Fatalf("stdout = %q, want redirect response body", stdout)
-		}
+		require.NoError(t, err, "HTTP --follow=false")
+		assert.Equal(t, "redirect response", stdout, "redirect response body")
 	})
 
 	t.Run("303 JSON envelope uses final method and URL", func(t *testing.T) {
@@ -773,25 +671,18 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 			"http", "-X", "POST", server.URL+"/start",
 			"--data", "request body", "--format", "json",
 		)
-		if err != nil {
-			t.Fatalf("follow 303 redirect: %v", err)
-		}
+		require.NoError(t, err, "follow 303 redirect")
 		envelope := decodeHTTPEnvelope(t, stdout)
-		if envelope.Method != http.MethodGet || envelope.URL != server.URL+"/final" {
-			t.Fatalf("final request = %s %s, want GET %s/final", envelope.Method, envelope.URL, server.URL)
-		}
-		if method := <-finalMethod; method != http.MethodGet {
-			t.Fatalf("server received method %q, want GET", method)
-		}
+		require.Equal(t, http.MethodGet, envelope.Method, "final request method")
+		require.Equal(t, server.URL+"/final", envelope.URL, "final request URL")
+		assert.Equal(t, http.MethodGet, <-finalMethod, "server method")
 	})
 
 	t.Run("replays multipart file body", func(t *testing.T) {
 		t.Parallel()
 
 		uploadPath := filepath.Join(t.TempDir(), "report.txt")
-		if err := os.WriteFile(uploadPath, []byte("redirected upload"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(uploadPath, []byte("redirected upload"), 0o600))
 		type multipartRecord struct {
 			err   error
 			field string
@@ -832,19 +723,12 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 			"http", "-X", "POST", server.URL+"/start",
 			"--form", "name=demo", "--file", "attachment="+uploadPath,
 		)
-		if err != nil {
-			t.Fatalf("follow multipart redirect: %v", err)
-		}
-		if stdout != "final" {
-			t.Fatalf("stdout = %q, want final response", stdout)
-		}
+		require.NoError(t, err, "follow multipart redirect")
+		require.Equal(t, "final", stdout, "final response")
 		record := <-received
-		if record.err != nil {
-			t.Fatalf("parse replayed multipart request: %v", record.err)
-		}
-		if record.field != "demo" || record.file != "redirected upload" {
-			t.Fatalf("replayed multipart request = %+v", record)
-		}
+		require.NoError(t, record.err, "parse replayed multipart request")
+		assert.Equal(t, "demo", record.field, "replayed multipart field")
+		assert.Equal(t, "redirected upload", record.file, "replayed multipart file")
 	})
 
 	t.Run("non-replayable stdin preserves redirect", func(t *testing.T) {
@@ -871,15 +755,9 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 			strings.NewReader("streamed body"),
 			"http", "-X", "POST", server.URL+"/start", "--input", "-",
 		)
-		if err == nil {
-			t.Fatal("non-replayable 307 redirect succeeded")
-		}
-		if stdout != "redirect response" {
-			t.Fatalf("stdout = %q, want redirect response body", stdout)
-		}
-		if finalCalled.Load() {
-			t.Fatal("non-replayable request followed redirect")
-		}
+		require.Error(t, err, "non-replayable 307 redirect succeeded")
+		assert.Equal(t, "redirect response", stdout, "redirect response body")
+		assert.False(t, finalCalled.Load(), "non-replayable request followed redirect")
 	})
 
 	t.Run("redirect limit preserves last response", func(t *testing.T) {
@@ -902,15 +780,9 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 		t.Cleanup(server.Close)
 
 		stdout, _, err := executeRootStreams(t, "http", server.URL+"/start", "--max-redirects", "1")
-		if err == nil {
-			t.Fatal("redirect limit succeeded")
-		}
-		if stdout != "redirect limit response" {
-			t.Fatalf("stdout = %q, want last redirect response body", stdout)
-		}
-		if beyondLimitCalled.Load() {
-			t.Fatal("request exceeded redirect limit")
-		}
+		require.Error(t, err, "redirect limit succeeded")
+		assert.Equal(t, "redirect limit response", stdout, "last redirect response body")
+		assert.False(t, beyondLimitCalled.Load(), "request exceeded redirect limit")
 	})
 }
 
@@ -976,9 +848,7 @@ func TestHTTPSetupTimeoutStopsBlockedTLSHandshake(t *testing.T) {
 
 	select {
 	case requestErr := <-requestDone:
-		if requestErr == nil {
-			t.Fatal("blocked TLS handshake succeeded")
-		}
+		require.Error(t, requestErr, "blocked TLS handshake succeeded")
 		var networkErr net.Error
 		deadline := errors.Is(requestErr, context.DeadlineExceeded)
 		networkTimeout := errors.As(requestErr, &networkErr) && networkErr.Timeout()
@@ -1061,12 +931,8 @@ func TestHTTPMultipartEarlyResponseDoesNotHang(t *testing.T) {
 	}()
 	select {
 	case got := <-done:
-		if got.err == nil {
-			t.Fatal("HTTP 413 succeeded")
-		}
-		if got.stdout != "upload rejected" {
-			t.Fatalf("stdout = %q, want rejection body", got.stdout)
-		}
+		require.Error(t, got.err, "HTTP 413 succeeded")
+		assert.Equal(t, "upload rejected", got.stdout, "rejection body")
 	case <-time.After(2 * time.Second):
 		t.Fatal("multipart request hung after early response")
 	}
@@ -1095,12 +961,8 @@ func TestHTTPCommandTreeCanExecuteMoreThanOnce(t *testing.T) {
 		root.SetErr(io.Discard)
 		root.SetArgs([]string{"http", "-X", "POST", server.URL})
 		require.NoError(t, executeCommand(root), "HTTP request with %q", body)
-		if output.String() != "ok" {
-			t.Fatalf("output = %q, want ok", output.String())
-		}
-		if got := <-received; got != body {
-			t.Fatalf("request body = %q, want %q", got, body)
-		}
+		require.Equal(t, "ok", output.String(), "response body")
+		assert.Equal(t, body, <-received, "request body")
 	}
 }
 
@@ -1118,18 +980,14 @@ func TestHTTPPrivateCAAndHTTP2(t *testing.T) {
 
 	caPath := filepath.Join(t.TempDir(), "ca.pem")
 	certificate := server.Certificate()
-	if certificate == nil {
-		t.Fatal("TLS server certificate is nil")
-	}
+	require.NotNil(t, certificate, "TLS server certificate")
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw})
 	require.NoError(t, os.WriteFile(caPath, caPEM, 0o600))
 
 	stdout, _, err := executeRootStreams(t, "http", server.URL, "--ca", caPath)
 	require.NoError(t, err, "HTTP with private CA: %v", err)
 	assert.Equal(t, "secure", stdout)
-	if got := <-protocol; got != 2 {
-		t.Fatalf("HTTP protocol major = %d, want 2", got)
-	}
+	assert.Equal(t, 2, <-protocol, "HTTP protocol major")
 }
 
 func TestHTTPMutualTLS(t *testing.T) {
@@ -1141,9 +999,7 @@ func TestHTTPMutualTLS(t *testing.T) {
 	caPEM, err := os.ReadFile(identity.caCert)
 	require.NoError(t, err)
 	clientRoots := x509.NewCertPool()
-	if !clientRoots.AppendCertsFromPEM(caPEM) {
-		t.Fatal("append client CA")
-	}
+	require.True(t, clientRoots.AppendCertsFromPEM(caPEM), "append client CA")
 
 	peerCertificates := make(chan int, 1)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -1169,9 +1025,7 @@ func TestHTTPMutualTLS(t *testing.T) {
 	)
 	require.NoError(t, err, "mutual TLS HTTP request: %v", err)
 	assert.Equal(t, "mutual TLS", stdout)
-	if got := <-peerCertificates; got == 0 {
-		t.Fatal("server received no client certificate")
-	}
+	assert.NotZero(t, <-peerCertificates, "server received no client certificate")
 }
 
 func TestHTTPTruncatedResponseReportsPartialOutput(t *testing.T) {
@@ -1186,12 +1040,9 @@ func TestHTTPTruncatedResponseReportsPartialOutput(t *testing.T) {
 	stdout, _, err = executeRootStreams(t, "http", server.URL, "--format", "json")
 	require.Error(t, err)
 	envelope := decodeHTTPEnvelope(t, stdout)
-	if envelope.Complete || envelope.Error == "" {
-		t.Fatalf("completion = %t error = %q", envelope.Complete, envelope.Error)
-	}
-	if envelope.Body != base64.StdEncoding.EncodeToString([]byte("abc")) {
-		t.Fatalf("body = %q, want partial base64 response", envelope.Body)
-	}
+	assert.False(t, envelope.Complete, "truncated response completion")
+	assert.NotEmpty(t, envelope.Error, "truncated response error")
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("abc")), envelope.Body, "partial base64 response")
 }
 
 func TestHTTPOutputWriteFailureReturnsPartialOutput(t *testing.T) {
@@ -1205,9 +1056,7 @@ func TestHTTPOutputWriteFailureReturnsPartialOutput(t *testing.T) {
 	output := &failAfterWriter{err: errHTTPTestOutputFailed, remaining: 4}
 	err := executeHTTPWithWriters(t, strings.NewReader(""), output, io.Discard, "http", server.URL)
 	require.ErrorIs(t, err, output.err)
-	if output.output.String() != "resp" {
-		t.Fatalf("partial output = %q, want resp", output.output.String())
-	}
+	assert.Equal(t, "resp", output.output.String(), "partial output")
 }
 
 type httpResponseEnvelope struct {

@@ -1,11 +1,12 @@
 package http_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHTTPBodyFileOpenFailureIsReported(t *testing.T) {
@@ -14,7 +15,6 @@ func TestHTTPBodyFileOpenFailureIsReported(t *testing.T) {
 
 	_, err := executeRoot(t, "http", "-X", "POST", "--input", missing, "http://127.0.0.1:1")
 
-	if !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "open HTTP body") {
-		t.Fatalf("error = %v, want the open failure named as the HTTP body", err)
-	}
+	require.ErrorIs(t, err, os.ErrNotExist)
+	assert.ErrorContains(t, err, "open HTTP body")
 }
