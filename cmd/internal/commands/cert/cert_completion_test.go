@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,9 +23,7 @@ func TestCertificateCompletionSubjectAcrossCreateCSRAndAliases(t *testing.T) {
 				t.Errorf("%s %s subject values = %q, want CN=", command, operation, values)
 			}
 			want := cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
-			if directive != want {
-				t.Errorf("%s %s subject directive = %v, want %v", command, operation, directive, want)
-			}
+			assert.Equal(t, want, directive, "%s %s subject directive", command, operation)
 		}
 	}
 
@@ -59,9 +58,8 @@ func TestCertificateCompletionRejectsConflictingValues(t *testing.T) {
 func TestCertificateCompletionPreservesParserErrors(t *testing.T) {
 	t.Parallel()
 	_, _, err := executeRootStreams(t, "cert", "create", "--ca=maybe", "--help")
-	if err == nil || strings.Contains(err.Error(), "completion flag") {
-		t.Errorf("parser error = %v, want original flag error", err)
-	}
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "completion flag", "want original flag error")
 }
 
 func TestCertificateCompletionPreservesEmptySliceHelpDefaults(t *testing.T) {
@@ -69,14 +67,10 @@ func TestCertificateCompletionPreservesEmptySliceHelpDefaults(t *testing.T) {
 	command := certCommand(t, "create")
 	for _, name := range []string{"dns", "ip"} {
 		flag := command.Flags().Lookup(name)
-		if flag.Value.String() != "[]" {
-			t.Errorf("%s value = %q, want unchanged empty slice", name, flag.Value.String())
-		}
+		assert.Equal(t, "[]", flag.Value.String(), "%s unchanged empty slice", name)
 		values, err := command.Flags().GetStringArray(name)
 		require.NoError(t, err, "read %s: %v", name, err)
-		if len(values) != 0 {
-			t.Errorf("%s values = %q, want empty default", name, values)
-		}
+		assert.Empty(t, values, "%s empty default", name)
 	}
 
 	stdout, _, err := executeRootStreams(t, "cert", "create", "--help")
@@ -85,13 +79,9 @@ func TestCertificateCompletionPreservesEmptySliceHelpDefaults(t *testing.T) {
 		"--dns stringArray         DNS subject alternative name (repeatable)",
 		"--ip stringArray          IP subject alternative name (repeatable)",
 	} {
-		if !strings.Contains(stdout, line) {
-			t.Errorf("help missing unchanged flag usage %q:\n%s", line, stdout)
-		}
+		assert.Contains(t, stdout, line, "help missing unchanged flag usage")
 	}
-	if strings.Contains(stdout, "(default [])") {
-		t.Fatalf("help exposes empty slice implementation default:\n%s", stdout)
-	}
+	assert.NotContains(t, stdout, "(default [])", "help exposes empty slice implementation default")
 }
 
 func TestCertificateCompletionDaysHaveDescriptions(t *testing.T) {
@@ -104,17 +94,11 @@ func TestCertificateCompletionDaysHaveDescriptions(t *testing.T) {
 	}
 	joined := strings.Join(values, "\n")
 	for _, text := range []string{"default for leaf certificates", "default for certificate authorities"} {
-		if !strings.Contains(joined, text) {
-			t.Errorf("day descriptions = %q, missing %q", values, text)
-		}
+		assert.Contains(t, joined, text, "day descriptions = %q", values)
 	}
-	if certificateCompletionContains(values, "0") {
-		t.Errorf("day values include invalid explicit zero: %q", values)
-	}
+	assert.False(t, certificateCompletionContains(values, "0"), "day values include invalid explicit zero: %q", values)
 	wantDirective := cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
-	if directive != wantDirective {
-		t.Fatalf("day directive = %v, want %v", directive, wantDirective)
-	}
+	assert.Equal(t, wantDirective, directive, "day directive")
 
 	values, directive = executeCertificateCompletion(t, "cert", "create", "--days", "42")
 	if len(values) != 0 || directive&cobra.ShellCompDirectiveNoFileComp == 0 {
@@ -136,26 +120,20 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 	if !certificateCompletionContains(values, fileWithSpaces) || !certificateCompletionContains(values, subdirectory+string(filepath.Separator)) {
 		t.Fatalf("artifact completions = %q, want spaced file and directory", values)
 	}
-	if directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Fatalf("artifact directive = %v, want explicit paths with no fallback", directive)
-	}
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "artifact directive: want explicit paths with no fallback")
 
 	values, directive = executeCertificateCompletion(t, "cert", "create", "--key", subdirectory)
 	if !certificateCompletionContains(values, subdirectory+string(filepath.Separator)) {
 		t.Fatalf("directory completions = %q, want directory continuation", values)
 	}
 	wantDirectoryDirective := cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
-	if directive != wantDirectoryDirective {
-		t.Fatalf("directory directive = %v, want %v", directive, wantDirectoryDirective)
-	}
+	assert.Equal(t, wantDirectoryDirective, directive, "directory directive")
 
 	values, directive = executeCertificateCompletion(t, "cert", "create", "--key", fileWithSpaces)
 	if !certificateCompletionContains(values, fileWithSpaces) {
 		t.Fatalf("file completions = %q, want terminal file", values)
 	}
-	if directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Fatalf("file directive = %v, want terminal file completion", directive)
-	}
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "want terminal file completion")
 
 	for _, test := range []struct {
 		name string

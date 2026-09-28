@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,11 +20,7 @@ func TestCertificateCompletionDirectorySymlink(t *testing.T) {
 	link := filepath.Join(directory, "linked-directory")
 	require.NoError(t, os.Symlink(target, link))
 	values, directive := executeCertificateCompletion(t, "cert", "create", "--key", link)
-	if !certificateCompletionContains(values, link+string(filepath.Separator)) {
-		t.Fatalf("completions = %q, want directory continuation for %s", values, link)
-	}
+	assert.True(t, certificateCompletionContains(values, link+string(filepath.Separator)), "completions = %q, want directory continuation for %s", values, link)
 	wantDirective := cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
-	if directive != wantDirective {
-		t.Fatalf("directive = %v, want %v", directive, wantDirective)
-	}
+	assert.Equal(t, wantDirective, directive)
 }

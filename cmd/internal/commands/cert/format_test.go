@@ -39,15 +39,12 @@ func TestReadAndWriteKeyBytesPreserveIOErrors(t *testing.T) {
 	t.Parallel()
 	readCommand := &cobra.Command{}
 	readCommand.SetIn(keyFailingReader{err: errKeyTestReadFailed})
-	if _, err := readKey(readCommand); !errors.Is(err, errKeyTestReadFailed) {
-		t.Fatalf("read error = %v, want reader failure", err)
-	}
+	_, err := readKey(readCommand)
+	require.ErrorIs(t, err, errKeyTestReadFailed)
 
 	writeCommand := &cobra.Command{}
 	writeCommand.SetOut(keyFailingWriter{err: errTestWriteFailed})
-	if err := writeKeyBytes(writeCommand, []byte("key"), "test key"); !errors.Is(err, errTestWriteFailed) {
-		t.Fatalf("write error = %v, want writer failure", err)
-	}
+	require.ErrorIs(t, writeKeyBytes(writeCommand, []byte("key"), "test key"), errTestWriteFailed)
 }
 
 type keyFailingReader struct{ err error }

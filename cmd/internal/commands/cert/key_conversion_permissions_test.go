@@ -1,7 +1,6 @@
 package cert_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -54,13 +53,9 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 					unsupported := runtime.GOOS == "windows" && scenario == "override"
 					switch {
 					case unsupported:
-						if !errors.Is(err, errOutputModeUnsupported) {
-							t.Fatalf("error = %v, want unsupported output mode", err)
-						}
+						require.ErrorIs(t, err, errOutputModeUnsupported)
 					case rejected:
-						if !errors.Is(err, securefile.ErrNotOwnerOnly) {
-							t.Fatalf("error = %v, want owner-only rejection", err)
-						}
+						require.ErrorIs(t, err, securefile.ErrNotOwnerOnly)
 					case err != nil:
 						t.Fatal(err)
 					}
@@ -87,9 +82,7 @@ func TestKeyConvertOutputPermissions(t *testing.T) {
 						}
 						info, err := os.Stat(output)
 						require.NoError(t, err)
-						if info.Mode().Perm() != want {
-							t.Fatalf("mode = %04o, want %04o", info.Mode().Perm(), want)
-						}
+						assert.Equal(t, want, info.Mode().Perm(), "output mode")
 					}
 				})
 			}

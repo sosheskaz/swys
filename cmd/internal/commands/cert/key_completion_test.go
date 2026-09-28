@@ -1,10 +1,10 @@
 package cert_test
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,9 +24,7 @@ func TestKeyTargetCompletionDescriptions(t *testing.T) {
 		"pkcs8-pem\tPKCS #8 private key in PEM",
 		"sec1-der\tSEC 1 EC private key in binary DER",
 	} {
-		if !slices.Contains(convert, want) {
-			t.Fatalf("conversion target completions = %q, want %q", convert, want)
-		}
+		assert.Contains(t, convert, want, "conversion target completions = %q", convert)
 	}
 }
 
@@ -39,9 +37,7 @@ func TestKeyCompletionFileDirectives(t *testing.T) {
 		{"cert", "key-convert", ""},
 	} {
 		lines := keyCompletionLines(t, path...)
-		if lines[len(lines)-1] != ":4" {
-			t.Fatalf("completion %q directive = %q, want :4", path, lines[len(lines)-1])
-		}
+		assert.Equal(t, ":4", lines[len(lines)-1], "completion %q directive", path)
 	}
 
 	for _, path := range [][]string{
@@ -49,9 +45,7 @@ func TestKeyCompletionFileDirectives(t *testing.T) {
 		{"cert", "key-public", "--output", ""},
 	} {
 		lines := keyCompletionLines(t, path...)
-		if lines[len(lines)-1] != ":0" {
-			t.Fatalf("completion %q directive = %q, want :0", path, lines[len(lines)-1])
-		}
+		assert.Equal(t, ":0", lines[len(lines)-1], "completion %q directive", path)
 	}
 }
 

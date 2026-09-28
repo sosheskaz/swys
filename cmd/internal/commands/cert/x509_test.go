@@ -30,9 +30,7 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 
 	output, err := executeRoot(t, "cert", "inspect", "--input", path)
 	require.ErrorIs(t, err, errUnexpectedPEMType, "error = %v, want errUnexpectedPEMType", err)
-	if !strings.Contains(err.Error(), "PRIVATE KEY") {
-		t.Fatalf("error = %v, want the offending block type reported", err)
-	}
+	require.ErrorContains(t, err, "PRIVATE KEY", "want the offending block type reported")
 	assert.Empty(t, output, "output = %q, want no output for invalid input", output)
 }
 

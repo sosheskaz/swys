@@ -1,6 +1,10 @@
 package cert_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestCertCreateCSRCompletionRespectsSourceMode(t *testing.T) {
 	t.Parallel()
@@ -8,13 +12,9 @@ func TestCertCreateCSRCompletionRespectsSourceMode(t *testing.T) {
 	t.Run("existing key hides CSR", func(t *testing.T) {
 		t.Parallel()
 		values, _ := executeCertificateCompletion(t, "cert", "create", "--key", "key.pem", "--")
-		if completionContainsFlag(values, "--csr") {
-			t.Fatalf("completion after --key contains conflicting --csr: %q", values)
-		}
+		assert.False(t, completionContainsFlag(values, "--csr"), "completion after --key: %q", values)
 		for _, compatible := range []string{"--ca", "--issuer-cert", "--issuer-key"} {
-			if !completionContainsFlag(values, compatible) {
-				t.Fatalf("completion after --key hides compatible %s: %q", compatible, values)
-			}
+			assert.True(t, completionContainsFlag(values, compatible), "completion after --key hides compatible %s: %q", compatible, values)
 		}
 	})
 
@@ -22,14 +22,10 @@ func TestCertCreateCSRCompletionRespectsSourceMode(t *testing.T) {
 		t.Parallel()
 		values, _ := executeCertificateCompletion(t, "cert", "create", "--csr", "request.pem", "--")
 		for _, conflict := range []string{"--key", "--ca"} {
-			if completionContainsFlag(values, conflict) {
-				t.Fatalf("completion after --csr contains conflicting %s: %q", conflict, values)
-			}
+			assert.False(t, completionContainsFlag(values, conflict), "completion after --csr contains conflicting %s: %q", conflict, values)
 		}
 		for _, required := range []string{"--issuer-cert", "--issuer-key"} {
-			if !completionContainsFlag(values, required) {
-				t.Fatalf("completion after --csr hides required %s: %q", required, values)
-			}
+			assert.True(t, completionContainsFlag(values, required), "completion after --csr hides required %s: %q", required, values)
 		}
 	})
 
@@ -40,9 +36,7 @@ func TestCertCreateCSRCompletionRespectsSourceMode(t *testing.T) {
 			"cert", "create", "--issuer-cert", "ca.pem", "--issuer-key", "ca-key.pem", "--",
 		)
 		for _, choice := range []string{"--key", "--csr"} {
-			if !completionContainsFlag(values, choice) {
-				t.Fatalf("completion after issuer pair hides source choice %s: %q", choice, values)
-			}
+			assert.True(t, completionContainsFlag(values, choice), "completion after issuer pair hides source choice %s: %q", choice, values)
 		}
 	})
 }
