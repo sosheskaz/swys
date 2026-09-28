@@ -14,6 +14,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // generateTestCert creates a self-signed test certificate.
@@ -21,9 +24,7 @@ func generateTestCert(t *testing.T, opts ...func(*x509.Certificate)) *x509.Certi
 	t.Helper()
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate key: %v", err)
-	}
+	require.NoError(t, err, "failed to generate key")
 
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1234567890),
@@ -51,14 +52,10 @@ func generateTestCert(t *testing.T, opts ...func(*x509.Certificate)) *x509.Certi
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
-	if err != nil {
-		t.Fatalf("failed to create certificate: %v", err)
-	}
+	require.NoError(t, err, "failed to create certificate")
 
 	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		t.Fatalf("failed to parse certificate: %v", err)
-	}
+	require.NoError(t, err, "failed to parse certificate")
 
 	return cert
 }
@@ -69,57 +66,33 @@ func TestNewCertInfo(t *testing.T) {
 	info := NewCertInfo(cert)
 
 	// Check subject
-	if !strings.Contains(info.Subject, "test.example.com") {
-		t.Errorf("expected subject to contain 'test.example.com', got %s", info.Subject)
-	}
+	assert.Contains(t, info.Subject, "test.example.com")
 
 	// Check DNS names
-	if len(info.DNSNames) != 2 {
-		t.Errorf("expected 2 DNS names, got %d", len(info.DNSNames))
-	}
+	assert.Len(t, info.DNSNames, 2)
 
 	// Check IP addresses
-	if len(info.IPAddresses) != 1 {
-		t.Errorf("expected 1 IP address, got %d", len(info.IPAddresses))
-	}
-	if info.IPAddresses[0] != "192.168.1.1" {
-		t.Errorf("expected IP 192.168.1.1, got %s", info.IPAddresses[0])
-	}
+	require.Len(t, info.IPAddresses, 1)
+	assert.Equal(t, "192.168.1.1", info.IPAddresses[0])
 
 	// Check key usage
-	if len(info.KeyUsage) == 0 {
-		t.Error("expected key usage to be set")
-	}
+	assert.NotEmpty(t, info.KeyUsage)
 
 	// Check ext key usage
-	if len(info.ExtKeyUsage) != 2 {
-		t.Errorf("expected 2 ext key usages, got %d", len(info.ExtKeyUsage))
-	}
+	assert.Len(t, info.ExtKeyUsage, 2)
 
 	// Check fingerprint is set
-	if info.SHA256Fingerprint == "" {
-		t.Error("expected SHA256 fingerprint to be set")
-	}
+	assert.NotEmpty(t, info.SHA256Fingerprint)
 	publicKeyFingerprint, err := info.PublicKeySHA256Fingerprint()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	key, err := NewKey(cert.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	keyInfo, err := key.Info()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if publicKeyFingerprint != keyInfo.PublicKeySHA256Fingerprint {
-		t.Fatalf("certificate public-key fingerprint = %q, key fingerprint = %q", publicKeyFingerprint, keyInfo.PublicKeySHA256Fingerprint)
-	}
+	require.NoError(t, err)
+	require.Equal(t, keyInfo.PublicKeySHA256Fingerprint, publicKeyFingerprint, "certificate public-key fingerprint")
 
 	// Check RawDER is set
-	if len(info.RawDER) == 0 {
-		t.Error("expected RawDER to be set")
-	}
+	assert.NotEmpty(t, info.RawDER)
 }
 
 func TestCertInfoCommonName(t *testing.T) {
@@ -128,9 +101,7 @@ func TestCertInfoCommonName(t *testing.T) {
 	info := NewCertInfo(cert)
 
 	cn := info.CommonName()
-	if cn != "test.example.com" {
-		t.Errorf("expected CommonName 'test.example.com', got '%s'", cn)
-	}
+	assert.Equal(t, "test.example.com", cn)
 }
 
 func TestTextFormatterCompact(t *testing.T) {
@@ -142,21 +113,15 @@ func TestTextFormatterCompact(t *testing.T) {
 	formatter := &TextFormatter{Long: false}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
-	if err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, err, "Format")
 
 	output := buf.String()
 
 	// Check status indicator
-	if !strings.Contains(output, "+ test.example.com") {
-		t.Errorf("expected verified indicator '+', got:\n%s", output)
-	}
+	assert.Contains(t, output, "+ test.example.com")
 
 	// Check DNS names line (2 DNS names should not be truncated)
-	if !strings.Contains(output, "DNS: test.example.com, www.test.example.com") {
-		t.Errorf("expected DNS names in output, got:\n%s", output)
-	}
+	assert.Contains(t, output, "DNS: test.example.com, www.test.example.com")
 }
 
 func TestTextFormatterCompactManyDNS(t *testing.T) {
@@ -170,24 +135,16 @@ func TestTextFormatterCompactManyDNS(t *testing.T) {
 	formatter := &TextFormatter{Long: false}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
-	if err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, err, "Format")
 
 	output := buf.String()
 
 	// Check that DNS names are truncated with "and X more"
-	if !strings.Contains(output, "and 2 more") {
-		t.Errorf("expected truncated DNS names with 'and 2 more', got:\n%s", output)
-	}
+	assert.Contains(t, output, "and 2 more")
 	// Should show first 3
-	if !strings.Contains(output, "a.example.com, b.example.com, c.example.com") {
-		t.Errorf("expected first 3 DNS names, got:\n%s", output)
-	}
+	assert.Contains(t, output, "a.example.com, b.example.com, c.example.com")
 	// Should not show the 4th one in full
-	if strings.Contains(output, "d.example.com, e.example.com") {
-		t.Errorf("should not show all DNS names, got:\n%s", output)
-	}
+	assert.NotContains(t, output, "d.example.com, e.example.com")
 }
 
 func TestTextFormatterCompactUnverified(t *testing.T) {
@@ -200,21 +157,15 @@ func TestTextFormatterCompactUnverified(t *testing.T) {
 	formatter := &TextFormatter{Long: false}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
-	if err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, err, "Format")
 
 	output := buf.String()
 
 	// Check status indicator
-	if !strings.Contains(output, "x test.example.com") {
-		t.Errorf("expected unverified indicator 'x', got:\n%s", output)
-	}
+	assert.Contains(t, output, "x test.example.com")
 
 	// Check error message
-	if !strings.Contains(output, "Error: certificate signed by unknown authority") {
-		t.Errorf("expected error message in output, got:\n%s", output)
-	}
+	assert.Contains(t, output, "Error: certificate signed by unknown authority")
 }
 
 func TestTextFormatterLong(t *testing.T) {
@@ -232,28 +183,16 @@ func TestTextFormatterLong(t *testing.T) {
 	formatter := &TextFormatter{Long: true}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
-	if err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, err, "Format")
 
 	output := buf.String()
 
 	// Check that it includes detailed fields
-	if !strings.Contains(output, "Subject:") {
-		t.Errorf("expected Subject in long output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Serial:") {
-		t.Errorf("expected Serial in long output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "SHA256:") {
-		t.Errorf("expected SHA256 fingerprint in long output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Public Key SHA256:") {
-		t.Errorf("expected public-key SHA256 fingerprint in long output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Chains:") {
-		t.Errorf("expected Chains in long output, got:\n%s", output)
-	}
+	assert.Contains(t, output, "Subject:")
+	assert.Contains(t, output, "Serial:")
+	assert.Contains(t, output, "SHA256:")
+	assert.Contains(t, output, "Public Key SHA256:")
+	assert.Contains(t, output, "Chains:")
 }
 
 func TestTextFormatterLongHandlesUnknownPublicKeyAlgorithm(t *testing.T) {
@@ -264,12 +203,8 @@ func TestTextFormatterLongHandlesUnknownPublicKeyAlgorithm(t *testing.T) {
 	info := NewCertInfo(cert)
 
 	var buf bytes.Buffer
-	if err := (&TextFormatter{Long: true}).Format(info, &buf); err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
-	if !strings.Contains(buf.String(), "Public Key SHA256: (unavailable)") {
-		t.Fatalf("long output = %q, want unavailable public-key fingerprint", buf.String())
-	}
+	require.NoError(t, (&TextFormatter{Long: true}).Format(info, &buf), "Format")
+	require.Contains(t, buf.String(), "Public Key SHA256: (unavailable)")
 }
 
 func TestTextFormatterMultiple(t *testing.T) {
@@ -286,19 +221,13 @@ func TestTextFormatterMultiple(t *testing.T) {
 	formatter := &TextFormatter{Long: false}
 	var buf bytes.Buffer
 	err := formatter.FormatMultiple([]*CertInfo{info1, info2}, &buf)
-	if err != nil {
-		t.Fatalf("FormatMultiple failed: %v", err)
-	}
+	require.NoError(t, err, "FormatMultiple")
 
 	output := buf.String()
 
 	// Check both certs are present
-	if !strings.Contains(output, "test.example.com") {
-		t.Errorf("expected first cert in output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "other.example.com") {
-		t.Errorf("expected second cert in output, got:\n%s", output)
-	}
+	assert.Contains(t, output, "test.example.com")
+	assert.Contains(t, output, "other.example.com")
 }
 
 func TestJSONFormatter(t *testing.T) {
@@ -310,9 +239,7 @@ func TestJSONFormatter(t *testing.T) {
 	formatter := &JSONFormatter{}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
-	if err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, err, "Format")
 
 	// Verify it's valid JSON
 	var parsed CertInfo
@@ -321,23 +248,13 @@ func TestJSONFormatter(t *testing.T) {
 	}
 
 	// Check fields
-	if parsed.Subject == "" {
-		t.Error("expected subject in JSON output")
-	}
-	if len(parsed.DNSNames) != 2 {
-		t.Errorf("expected 2 DNS names in JSON, got %d", len(parsed.DNSNames))
-	}
+	assert.NotEmpty(t, parsed.Subject)
+	assert.Len(t, parsed.DNSNames, 2)
 	var fields map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &fields); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &fields))
 	wantFingerprint, err := info.PublicKeySHA256Fingerprint()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fields["public_key_sha256_fingerprint"] != wantFingerprint {
-		t.Fatalf("public_key_sha256_fingerprint = %v, want %q", fields["public_key_sha256_fingerprint"], wantFingerprint)
-	}
+	require.NoError(t, err)
+	require.Equal(t, wantFingerprint, fields["public_key_sha256_fingerprint"], "public_key_sha256_fingerprint")
 }
 
 func TestJSONFormatterMultiple(t *testing.T) {
@@ -353,9 +270,7 @@ func TestJSONFormatterMultiple(t *testing.T) {
 	formatter := &JSONFormatter{}
 	var buf bytes.Buffer
 	err := formatter.FormatMultiple([]*CertInfo{info1, info2}, &buf)
-	if err != nil {
-		t.Fatalf("FormatMultiple failed: %v", err)
-	}
+	require.NoError(t, err, "FormatMultiple")
 
 	// Verify it's valid JSON array
 	var parsed []*CertInfo
@@ -363,9 +278,7 @@ func TestJSONFormatterMultiple(t *testing.T) {
 		t.Fatalf("output is not valid JSON array: %v\nOutput:\n%s", err, buf.String())
 	}
 
-	if len(parsed) != 2 {
-		t.Errorf("expected 2 certs in JSON array, got %d", len(parsed))
-	}
+	assert.Len(t, parsed, 2)
 }
 
 func TestPEMFormatter(t *testing.T) {
@@ -376,34 +289,22 @@ func TestPEMFormatter(t *testing.T) {
 	formatter := &PEMFormatter{}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
-	if err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, err, "Format")
 
 	output := buf.String()
 
 	// Check PEM format
-	if !strings.Contains(output, "-----BEGIN CERTIFICATE-----") {
-		t.Errorf("expected PEM header, got:\n%s", output)
-	}
-	if !strings.Contains(output, "-----END CERTIFICATE-----") {
-		t.Errorf("expected PEM footer, got:\n%s", output)
-	}
+	assert.Contains(t, output, "-----BEGIN CERTIFICATE-----")
+	assert.Contains(t, output, "-----END CERTIFICATE-----")
 
 	// Verify it can be decoded
 	block, _ := pem.Decode(buf.Bytes())
-	if block == nil {
-		t.Fatal("failed to decode PEM block")
-	}
-	if block.Type != "CERTIFICATE" {
-		t.Errorf("expected CERTIFICATE type, got %s", block.Type)
-	}
+	require.NotNil(t, block, "failed to decode PEM block")
+	assert.Equal(t, "CERTIFICATE", block.Type)
 
 	// Verify DER can be parsed back
 	_, err = x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		t.Fatalf("failed to parse DER from PEM: %v", err)
-	}
+	require.NoError(t, err, "failed to parse DER from PEM")
 }
 
 func TestPEMFormatterMultiple(t *testing.T) {
@@ -417,17 +318,13 @@ func TestPEMFormatterMultiple(t *testing.T) {
 	formatter := &PEMFormatter{}
 	var buf bytes.Buffer
 	err := formatter.FormatMultiple([]*CertInfo{info1, info2}, &buf)
-	if err != nil {
-		t.Fatalf("FormatMultiple failed: %v", err)
-	}
+	require.NoError(t, err, "FormatMultiple")
 
 	output := buf.String()
 
 	// Count PEM blocks
 	count := strings.Count(output, "-----BEGIN CERTIFICATE-----")
-	if count != 2 {
-		t.Errorf("expected 2 PEM blocks, got %d", count)
-	}
+	assert.Equal(t, 2, count)
 }
 
 func TestTextFormatterLongChainCNHandlesComma(t *testing.T) {
@@ -443,14 +340,10 @@ func TestTextFormatterLongChainCNHandlesComma(t *testing.T) {
 
 	formatter := &TextFormatter{Long: true}
 	var buf bytes.Buffer
-	if err := formatter.Format(info, &buf); err != nil {
-		t.Fatalf("Format failed: %v", err)
-	}
+	require.NoError(t, formatter.Format(info, &buf), "Format")
 
 	output := buf.String()
-	if !strings.Contains(output, "foo, bar") {
-		t.Errorf("expected chain entry to show CN %q, got:\n%s", "foo, bar", output)
-	}
+	assert.Contains(t, output, "foo, bar")
 }
 
 func TestFormatDuration(t *testing.T) {
@@ -468,9 +361,7 @@ func TestFormatDuration(t *testing.T) {
 
 	for _, tt := range tests {
 		result := formatDuration(tt.duration)
-		if result != tt.expected {
-			t.Errorf("formatDuration(%v) = %s, want %s", tt.duration, result, tt.expected)
-		}
+		assert.Equal(t, tt.expected, result, "formatDuration(%v)", tt.duration)
 	}
 }
 
@@ -479,9 +370,7 @@ func TestFormatFingerprint(t *testing.T) {
 	fp := []byte{0xAB, 0xCD, 0xEF, 0x12}
 	result := formatFingerprint(fp)
 	expected := "AB:CD:EF:12"
-	if result != expected {
-		t.Errorf("formatFingerprint = %s, want %s", result, expected)
-	}
+	assert.Equal(t, expected, result)
 }
 
 func TestExpiredCertificate(t *testing.T) {
@@ -492,12 +381,8 @@ func TestExpiredCertificate(t *testing.T) {
 
 	info := NewCertInfo(cert)
 
-	if !info.IsExpired {
-		t.Error("expected IsExpired to be true")
-	}
-	if info.RemainingTime != "expired" {
-		t.Errorf("expected RemainingTime 'expired', got '%s'", info.RemainingTime)
-	}
+	assert.True(t, info.IsExpired)
+	assert.Equal(t, "expired", info.RemainingTime)
 }
 
 func TestCACertificate(t *testing.T) {
@@ -509,19 +394,8 @@ func TestCACertificate(t *testing.T) {
 
 	info := NewCertInfo(cert)
 
-	if !info.IsCA {
-		t.Error("expected IsCA to be true")
-	}
+	assert.True(t, info.IsCA)
 
 	// Check key usage includes cert sign
-	found := false
-	for _, usage := range info.KeyUsage {
-		if usage == "Certificate Sign" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected 'Certificate Sign' in KeyUsage, got %v", info.KeyUsage)
-	}
+	assert.Contains(t, info.KeyUsage, "Certificate Sign")
 }

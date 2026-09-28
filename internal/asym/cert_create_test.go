@@ -1,7 +1,6 @@
 package asym
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -41,13 +40,9 @@ func TestCreateCertificateSupportsValidatedSigningKeys(t *testing.T) {
 				ValidFor:     30 * 24 * time.Hour,
 				ExtKeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 			}, key, nil, nil, now, rand.Reader)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			cert, err := x509.ParseCertificate(der)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if cert.SerialNumber.Sign() <= 0 || cert.SerialNumber.BitLen() > 128 {
 				t.Fatalf("serial = %v, want positive value of at most 128 bits", cert.SerialNumber)
 			}
@@ -61,29 +56,17 @@ func TestCreateCertificateSupportsValidatedSigningKeys(t *testing.T) {
 			if _, ok := cert.PublicKey.(*rsa.PublicKey); ok {
 				wantUsage |= x509.KeyUsageKeyEncipherment
 			}
-			if cert.KeyUsage != wantUsage {
-				t.Fatalf("key usage = %v, want %v", cert.KeyUsage, wantUsage)
-			}
-			if len(cert.ExtKeyUsage) != 2 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || cert.ExtKeyUsage[1] != x509.ExtKeyUsageClientAuth {
-				t.Fatalf("extended key usage = %v", cert.ExtKeyUsage)
-			}
-			if err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature); err != nil {
-				t.Fatalf("check self-signature: %v", err)
-			}
+			require.Equal(t, wantUsage, cert.KeyUsage, "key usage")
+			require.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, cert.ExtKeyUsage)
+			require.NoError(t, cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature), "check self-signature")
 			if cert.SignatureAlgorithm == x509.SHA1WithRSA || cert.SignatureAlgorithm == x509.DSAWithSHA1 || cert.SignatureAlgorithm == x509.ECDSAWithSHA1 {
 				t.Fatalf("insecure signature algorithm = %s", cert.SignatureAlgorithm)
 			}
 			wantPublic, err := key.Public()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			wantDER, err := x509.MarshalPKIXPublicKey(wantPublic)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(cert.RawSubjectPublicKeyInfo, wantDER) {
-				t.Fatal("certificate public key does not match subject key")
-			}
+			require.NoError(t, err)
+			require.Equal(t, wantDER, cert.RawSubjectPublicKeyInfo, "certificate public key does not match subject key")
 		})
 	}
 }
@@ -98,19 +81,13 @@ func TestCreateCertificateBuildsVerifiableMiniCAChain(t *testing.T) {
 		ValidFor: 365 * 24 * time.Hour,
 		IsCA:     true,
 	}, caKey, nil, nil, now, rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !ca.IsCA || !ca.BasicConstraintsValid || ca.MaxPathLen != 0 || !ca.MaxPathLenZero {
 		t.Fatalf("CA constraints = IsCA:%t valid:%t pathlen:%d pathlen-zero:%t", ca.IsCA, ca.BasicConstraintsValid, ca.MaxPathLen, ca.MaxPathLenZero)
 	}
-	if ca.KeyUsage != x509.KeyUsageCertSign|x509.KeyUsageCRLSign {
-		t.Fatalf("CA key usage = %v", ca.KeyUsage)
-	}
+	require.Equal(t, x509.KeyUsageCertSign|x509.KeyUsageCRLSign, ca.KeyUsage, "CA key usage")
 
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
@@ -129,16 +106,10 @@ func TestCreateCertificateBuildsVerifiableMiniCAChain(t *testing.T) {
 				ValidFor:     30 * 24 * time.Hour,
 				ExtKeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 			}, leafKey, ca, caKey, now.Add(time.Minute), rand.Reader)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			leaf, err := x509.ParseCertificate(leafDER)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := leaf.CheckSignatureFrom(ca); err != nil {
-				t.Fatalf("check issuer signature: %v", err)
-			}
+			require.NoError(t, err)
+			require.NoError(t, leaf.CheckSignatureFrom(ca), "check issuer signature")
 			if _, err := leaf.Verify(x509.VerifyOptions{
 				Roots:       roots,
 				DNSName:     "localhost",
@@ -161,13 +132,9 @@ func TestCreateCertificateRejectsInvalidIssuer(t *testing.T) {
 		ValidFor: 365 * 24 * time.Hour,
 		IsCA:     true,
 	}, caKey, nil, nil, now, rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	leafKey := mustGenerateKey(t, KeyAlgorithmEd25519)
 	options := CertificateOptions{
 		Subject:      pkix.Name{CommonName: "leaf"},
@@ -220,13 +187,9 @@ func TestCreateCertificateEnforcesIssuerValidityBounds(t *testing.T) {
 		ValidFor: 365 * 24 * time.Hour,
 		IsCA:     true,
 	}, caKey, nil, nil, now, rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ca.NotBefore = now
 
 	leafKey := mustGenerateKey(t, KeyAlgorithmEd25519)
@@ -236,13 +199,9 @@ func TestCreateCertificateEnforcesIssuerValidityBounds(t *testing.T) {
 		ExtKeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	leafDER, err := createCertificateAt(&options, leafKey, ca, caKey, now, rand.Reader)
-	if err != nil {
-		t.Fatalf("fresh issuer error = %v, want success", err)
-	}
+	require.NoError(t, err, "fresh issuer")
 	leaf, err := x509.ParseCertificate(leafDER)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !leaf.NotBefore.Equal(ca.NotBefore) {
 		t.Fatalf("leaf NotBefore = %s, want issuer NotBefore %s", leaf.NotBefore, ca.NotBefore)
 	}
@@ -263,9 +222,7 @@ func TestCreateCertificateAcceptsCAWithoutKeyUsageExtension(t *testing.T) {
 	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
 	caKey := mustGenerateKey(t, KeyAlgorithmEd25519)
 	caSigner, err := caKey.Signer()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	caTemplate := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "no-key-usage-ca"},
@@ -275,16 +232,10 @@ func TestCreateCertificateAcceptsCAWithoutKeyUsageExtension(t *testing.T) {
 		BasicConstraintsValid: true,
 	}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caSigner.Public(), caSigner)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ca.KeyUsage != 0 {
-		t.Fatalf("CA KeyUsage = %v, want absent extension", ca.KeyUsage)
-	}
+	require.NoError(t, err)
+	require.Zero(t, ca.KeyUsage, "absent CA KeyUsage extension")
 
 	leafKey := mustGenerateKey(t, KeyAlgorithmEd25519)
 	leafDER, err := createCertificateAt(&CertificateOptions{
@@ -292,16 +243,10 @@ func TestCreateCertificateAcceptsCAWithoutKeyUsageExtension(t *testing.T) {
 		ValidFor:     time.Hour,
 		ExtKeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}, leafKey, ca, caKey, now, rand.Reader)
-	if err != nil {
-		t.Fatalf("create leaf with absent issuer KeyUsage: %v", err)
-	}
+	require.NoError(t, err, "create leaf with absent issuer KeyUsage")
 	leaf, err := x509.ParseCertificate(leafDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := leaf.CheckSignatureFrom(ca); err != nil {
-		t.Fatalf("verify leaf from absent-KeyUsage CA: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, leaf.CheckSignatureFrom(ca), "verify leaf from absent-KeyUsage CA")
 }
 
 func TestCreateCertificateRequestCarriesSubjectAndSANs(t *testing.T) {
@@ -313,19 +258,12 @@ func TestCreateCertificateRequestCarriesSubjectAndSANs(t *testing.T) {
 		DNSNames:    []string{"service.internal"},
 		IPAddresses: []net.IP{net.ParseIP("192.0.2.10")},
 	}, key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	request, err := x509.ParseCertificateRequest(der)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := request.CheckSignature(); err != nil {
-		t.Fatalf("check CSR signature: %v", err)
-	}
-	if request.Subject.CommonName != "service.internal" || len(request.DNSNames) != 1 || request.DNSNames[0] != "service.internal" {
-		t.Fatalf("CSR = subject:%q DNS:%v", request.Subject.CommonName, request.DNSNames)
-	}
+	require.NoError(t, err)
+	require.NoError(t, request.CheckSignature(), "check CSR signature")
+	require.Equal(t, "service.internal", request.Subject.CommonName)
+	require.Equal(t, []string{"service.internal"}, request.DNSNames)
 	if len(request.IPAddresses) != 1 || !request.IPAddresses[0].Equal(net.ParseIP("192.0.2.10")) {
 		t.Fatalf("CSR IP SANs = %v", request.IPAddresses)
 	}
@@ -336,16 +274,11 @@ func TestCertificateCreationRequiresPrivateKeys(t *testing.T) {
 
 	private := mustGenerateKey(t, KeyAlgorithmEd25519)
 	publicDER, err := private.Marshal(KeyFormatPKIXDER)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	public, err := ParseKey(publicDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := public.Signer(); !errors.Is(err, ErrPrivateKeyRequired) {
-		t.Fatalf("Signer error = %v, want ErrPrivateKeyRequired", err)
-	}
+	require.NoError(t, err)
+	_, err = public.Signer()
+	require.ErrorIs(t, err, ErrPrivateKeyRequired)
 	if _, err := CreateCertificateRequest(&CertificateRequestOptions{
 		Subject: pkix.Name{CommonName: "public-only"},
 	}, public); !errors.Is(err, ErrPrivateKeyRequired) {
@@ -356,12 +289,8 @@ func TestCertificateCreationRequiresPrivateKeys(t *testing.T) {
 func mustGenerateKey(t *testing.T, algorithm KeyAlgorithm) *Key {
 	t.Helper()
 	material, err := GeneratePrivateKey(algorithm)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	key, err := NewKey(material)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }

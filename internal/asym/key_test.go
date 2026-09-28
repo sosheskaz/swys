@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -43,35 +44,21 @@ func TestKeyPrivateFormatRoundTrips(t *testing.T) {
 		t.Run(string(test.algorithm), func(t *testing.T) {
 			t.Parallel()
 			privateKey, err := GeneratePrivateKey(test.algorithm)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			key, err := NewKey(privateKey)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			wantPublic := mustPublicDER(t, key)
 			wantPKCS8 := mustMarshalKey(t, key, KeyFormatPKCS8DER)
 
 			for _, format := range test.formats {
 				t.Run(string(format), func(t *testing.T) {
 					encoded, err := key.Marshal(format)
-					if err != nil {
-						t.Fatal(err)
-					}
+					require.NoError(t, err)
 					parsed, err := ParseKey(encoded)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !parsed.IsPrivate() {
-						t.Fatal("parsed key is public, want private")
-					}
-					if got := mustPublicDER(t, parsed); !bytes.Equal(got, wantPublic) {
-						t.Fatal("round-tripped public key differs")
-					}
-					if got := mustMarshalKey(t, parsed, KeyFormatPKCS8DER); !bytes.Equal(got, wantPKCS8) {
-						t.Fatal("round-tripped canonical PKCS#8 DER differs")
-					}
+					require.NoError(t, err)
+					require.True(t, parsed.IsPrivate(), "parsed key is public, want private")
+					require.Equal(t, wantPublic, mustPublicDER(t, parsed), "round-tripped public key")
+					require.Equal(t, wantPKCS8, mustMarshalKey(t, parsed, KeyFormatPKCS8DER), "round-tripped canonical PKCS#8 DER")
 				})
 			}
 		})
@@ -92,23 +79,13 @@ func TestParseKeyAcceptsOpenSSHPrivateKeys(t *testing.T) {
 		t.Run(fmt.Sprintf("%T", privateKey), func(t *testing.T) {
 			t.Parallel()
 			block, err := ssh.MarshalPrivateKey(privateKey, "generated fixture")
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			parsed, err := ParseKey(pem.EncodeToMemory(block))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !parsed.IsPrivate() {
-				t.Fatal("parsed OpenSSH key is public, want private")
-			}
+			require.NoError(t, err)
+			require.True(t, parsed.IsPrivate(), "parsed OpenSSH key is public, want private")
 			want, err := NewKey(privateKey)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(mustPublicDER(t, parsed), mustPublicDER(t, want)) {
-				t.Fatal("parsed OpenSSH public key differs")
-			}
+			require.NoError(t, err)
+			require.Equal(t, mustPublicDER(t, want), mustPublicDER(t, parsed), "parsed OpenSSH public key")
 		})
 	}
 }
@@ -129,9 +106,7 @@ func TestParseKeyAcceptsOneAuthorizedKeyEntry(t *testing.T) {
 			t.Fatalf("private key %T does not implement crypto.Signer", privateKey)
 		}
 		publicKey, err := ssh.NewPublicKey(signer.Public())
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		line := bytes.TrimSpace(ssh.MarshalAuthorizedKey(publicKey))
 		fixture := append([]byte("\n# generated fixture\nrestrict,command=\"npc test\" "), line...)
 		fixture = append(fixture, []byte(" user@example\n\n")...)
@@ -139,9 +114,7 @@ func TestParseKeyAcceptsOneAuthorizedKeyEntry(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseKey(%s): %v", publicKey.Type(), err)
 		}
-		if parsed.IsPrivate() {
-			t.Fatalf("ParseKey(%s) is private, want public", publicKey.Type())
-		}
+		require.False(t, parsed.IsPrivate(), "ParseKey(%s) is private, want public", publicKey.Type())
 	}
 }
 
@@ -154,23 +127,17 @@ func TestParseKeyRejectsInvalidOpenSSHInputs(t *testing.T) {
 		t.Fatalf("private key %T does not implement crypto.Signer", privateKey)
 	}
 	publicKey, err := ssh.NewPublicKey(signer.Public())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	publicLine := ssh.MarshalAuthorizedKey(publicKey)
 	privateBlock, err := ssh.MarshalPrivateKey(privateKey, "fixture")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	privatePEM := pem.EncodeToMemory(privateBlock)
 	privateEnvelopeTrailing := pem.EncodeToMemory(&pem.Block{
 		Type:  privateBlock.Type,
 		Bytes: append(append([]byte(nil), privateBlock.Bytes...), []byte("trailing")...),
 	})
 	encryptedBlock, err := ssh.MarshalPrivateKeyWithPassphrase(privateKey, "fixture", []byte("secret"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	tests := []struct {
 		want error
@@ -188,9 +155,7 @@ func TestParseKeyRejectsInvalidOpenSSHInputs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := ParseKey(test.data)
-			if !errors.Is(err, test.want) {
-				t.Fatalf("error = %v, want %v", err, test.want)
-			}
+			require.ErrorIs(t, err, test.want)
 			if errors.Is(test.want, ErrTrailingKeyData) && errors.Is(err, ErrMalformedKey) {
 				t.Fatalf("error = %v, trailing data must not be classified as malformed", err)
 			}
@@ -202,28 +167,18 @@ func TestParseKeyRejectsUnsupportedOpenSSHTypes(t *testing.T) {
 	t.Parallel()
 
 	var parameters dsa.Parameters
-	if err := dsa.GenerateParameters(&parameters, rand.Reader, dsa.L1024N160); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, dsa.GenerateParameters(&parameters, rand.Reader, dsa.L1024N160))
 	privateKey := &dsa.PrivateKey{PublicKey: dsa.PublicKey{Parameters: parameters}}
-	if err := dsa.GenerateKey(privateKey, rand.Reader); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, dsa.GenerateKey(privateKey, rand.Reader))
 	publicKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := ParseKey(ssh.MarshalAuthorizedKey(publicKey)); !errors.Is(err, ErrUnsupportedKeyType) || errors.Is(err, ErrMalformedKey) {
 		t.Fatalf("DSA public error = %v, want only unsupported key type", err)
 	}
 	unsupportedDERKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	publicDER, err := x509.MarshalPKIXPublicKey(unsupportedDERKey.PublicKey())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := ParseKey(publicDER); !errors.Is(err, ErrUnsupportedKeyType) || errors.Is(err, ErrMalformedKey) {
 		t.Fatalf("X25519 DER error = %v, want only unsupported key type", err)
 	}
@@ -256,31 +211,19 @@ func TestKeyPublicFormatsCanonicalizePrivateAndPublicInput(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := GeneratePrivateKey(KeyAlgorithmEd25519)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	private, err := NewKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	wantPublic := mustPublicDER(t, private)
 
 	for _, source := range []*Key{private, mustParseKey(t, mustMarshalKey(t, private, KeyFormatPKIXPEM))} {
 		for _, format := range []KeyFormat{KeyFormatPKIXPEM, KeyFormatPKIXDER} {
 			encoded, err := source.Marshal(format)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			parsed, err := ParseKey(encoded)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if parsed.IsPrivate() {
-				t.Fatal("public serialization parsed as private")
-			}
-			if got := mustPublicDER(t, parsed); !bytes.Equal(got, wantPublic) {
-				t.Fatal("canonical public key differs")
-			}
+			require.NoError(t, err)
+			require.False(t, parsed.IsPrivate(), "public serialization parsed as private")
+			require.Equal(t, wantPublic, mustPublicDER(t, parsed), "canonical public key")
 		}
 	}
 }
@@ -292,15 +235,10 @@ func TestParseKeyPreservesWhitespaceValuedDERTrailer(t *testing.T) {
 		publicKey := make(ed25519.PublicKey, ed25519.PublicKeySize)
 		publicKey[len(publicKey)-1] = trailer
 		der, err := x509.MarshalPKIXPublicKey(publicKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if der[len(der)-1] != trailer {
-			t.Fatalf("DER trailer = %#x, want %#x", der[len(der)-1], trailer)
-		}
-		if _, err := ParseKey(der); err != nil {
-			t.Fatalf("ParseKey with DER trailer %#x: %v", trailer, err)
-		}
+		require.NoError(t, err)
+		require.Equal(t, trailer, der[len(der)-1], "DER trailer")
+		_, err = ParseKey(der)
+		require.NoError(t, err, "ParseKey with DER trailer %#x", trailer)
 	}
 }
 
@@ -308,52 +246,32 @@ func TestKeyOpenSSHRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := GeneratePrivateKey(KeyAlgorithmECDSAP384)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	key, err := NewKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	encoded, err := key.Marshal(KeyFormatOpenSSH)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sshPublic, _, _, rest, err := ssh.ParseAuthorizedKey(encoded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bytes.TrimSpace(rest)) != 0 {
-		t.Fatalf("OpenSSH trailing data = %q", rest)
-	}
+	require.NoError(t, err)
+	require.Empty(t, bytes.TrimSpace(rest), "OpenSSH trailing data")
 	cryptoPublic, ok := sshPublic.(ssh.CryptoPublicKey)
 	if !ok {
 		t.Fatalf("OpenSSH key type = %T, want crypto public key", sshPublic)
 	}
 	parsed, err := NewKey(cryptoPublic.CryptoPublicKey())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(mustPublicDER(t, parsed), mustPublicDER(t, key)) {
-		t.Fatal("OpenSSH public key differs")
-	}
+	require.NoError(t, err)
+	require.Equal(t, mustPublicDER(t, key), mustPublicDER(t, parsed), "OpenSSH public key")
 }
 
 func TestKeyInfoAndFormattersContainMetadataOnly(t *testing.T) {
 	t.Parallel()
 
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	key, err := NewKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	info, err := key.Info()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if info.KeyType != KeyTypePrivate || info.Algorithm != "ed25519" || info.Bits != 256 || info.Curve != "" {
 		t.Fatalf("key info = %+v", info)
 	}
@@ -364,15 +282,11 @@ func TestKeyInfoAndFormattersContainMetadataOnly(t *testing.T) {
 	}
 
 	privateDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	privatePEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER})
 	for _, formatter := range []KeyFormatter{&KeyTextFormatter{}, &KeyJSONFormatter{Indent: true}} {
 		var output bytes.Buffer
-		if err := formatter.Format(info, &output); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, formatter.Format(info, &output))
 		if bytes.Contains(output.Bytes(), privateDER) || bytes.Contains(output.Bytes(), privatePEM) || strings.Contains(output.String(), "PRIVATE KEY") {
 			t.Fatalf("formatter %T leaked private key material: %q", formatter, output.String())
 		}
@@ -380,15 +294,9 @@ func TestKeyInfoAndFormattersContainMetadataOnly(t *testing.T) {
 
 	var decoded KeyInfo
 	var output bytes.Buffer
-	if err := (&KeyJSONFormatter{}).Format(info, &output); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded != *info {
-		t.Fatalf("decoded info = %+v, want %+v", decoded, *info)
-	}
+	require.NoError(t, (&KeyJSONFormatter{}).Format(info, &output))
+	require.NoError(t, json.Unmarshal(output.Bytes(), &decoded))
+	require.Equal(t, *info, decoded, "decoded info")
 }
 
 func TestKeyInfoCoversSupportedPublicAlgorithms(t *testing.T) {
@@ -398,25 +306,15 @@ func TestKeyInfoCoversSupportedPublicAlgorithms(t *testing.T) {
 		t.Run(string(algorithm), func(t *testing.T) {
 			t.Parallel()
 			privateMaterial, err := GeneratePrivateKey(algorithm)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			privateKey, err := NewKey(privateMaterial)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			publicMaterial, err := privateKey.Public()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			publicKey, err := NewKey(publicMaterial)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			info, err := publicKey.Info()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if info.KeyType != KeyTypePublic || info.Algorithm == "" || info.Bits == 0 {
 				t.Fatalf("public key info = %+v", info)
 			}
@@ -435,40 +333,30 @@ func TestKeyTextFormatterIncludesCurve(t *testing.T) {
 		Bits:                       256,
 	}
 	var output bytes.Buffer
-	if err := (&KeyTextFormatter{}).Format(info, &output); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, (&KeyTextFormatter{}).Format(info, &output))
 	for _, want := range []string{"Key Type: private", "Algorithm: ecdsa", "Bits: 256", "Curve: P-256", "Public Key SHA256: AA:BB"} {
-		if !strings.Contains(output.String(), want) {
-			t.Fatalf("text output = %q, want %q", output.String(), want)
-		}
+		require.Contains(t, output.String(), want, "text output")
 	}
 }
 
 func TestKeyRejectsUnknownGenerationAndMaterialTypes(t *testing.T) {
 	t.Parallel()
 
-	if _, err := GeneratePrivateKey(KeyAlgorithm("missing")); !errors.Is(err, ErrUnsupportedKeyAlgorithm) {
-		t.Fatalf("generation error = %v, want unsupported algorithm", err)
-	}
-	if _, err := NewKey(struct{}{}); !errors.Is(err, ErrUnsupportedKeyType) {
-		t.Fatalf("material error = %v, want unsupported key type", err)
-	}
-	if _, err := NewKey(ed25519.PublicKey{}); !errors.Is(err, ErrMalformedKey) {
-		t.Fatalf("public-key error = %v, want malformed key", err)
-	}
-	if _, err := NewKey(ed25519.PrivateKey{}); !errors.Is(err, ErrMalformedKey) {
-		t.Fatalf("private-key error = %v, want malformed key", err)
-	}
+	_, err := GeneratePrivateKey(KeyAlgorithm("missing"))
+	require.ErrorIs(t, err, ErrUnsupportedKeyAlgorithm)
+	_, err = NewKey(struct{}{})
+	require.ErrorIs(t, err, ErrUnsupportedKeyType)
+	_, err = NewKey(ed25519.PublicKey{})
+	require.ErrorIs(t, err, ErrMalformedKey)
+	_, err = NewKey(ed25519.PrivateKey{})
+	require.ErrorIs(t, err, ErrMalformedKey)
 }
 
 func TestKeyRejectsUnsupportedECDSACurve(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := NewKey(privateKey); !errors.Is(err, ErrUnsupportedKeyType) || errors.Is(err, ErrMalformedKey) {
 		t.Fatalf("P-224 error = %v, want only ErrUnsupportedKeyType", err)
 	}
@@ -480,13 +368,9 @@ func TestParseKeyRejectsMalformedAndUnsupportedInputs(t *testing.T) {
 	certificate := generateTestCert(t)
 	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw})
 	validPrivate, err := GeneratePrivateKey(KeyAlgorithmEd25519)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	validKey, err := NewKey(validPrivate)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	validPEM := mustMarshalKey(t, validKey, KeyFormatPKCS8PEM)
 
 	tests := []struct {
@@ -517,9 +401,7 @@ func TestParseKeyRejectsMalformedAndUnsupportedInputs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := ParseKey(test.data)
-			if !errors.Is(err, test.want) {
-				t.Fatalf("error = %v, want %v", err, test.want)
-			}
+			require.ErrorIs(t, err, test.want)
 		})
 	}
 }
@@ -528,13 +410,9 @@ func TestKeyRejectsUnsupportedConversions(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := GeneratePrivateKey(KeyAlgorithmEd25519)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	private, err := NewKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	public := mustParseKey(t, mustMarshalKey(t, private, KeyFormatPKIXPEM))
 
 	tests := []struct {
@@ -547,9 +425,8 @@ func TestKeyRejectsUnsupportedConversions(t *testing.T) {
 		{key: private, format: KeyFormat("missing")},
 	}
 	for _, test := range tests {
-		if _, err := test.key.Marshal(test.format); !errors.Is(err, ErrInvalidKeyConversion) {
-			t.Fatalf("Marshal(%q) error = %v, want invalid conversion", test.format, err)
-		}
+		_, err := test.key.Marshal(test.format)
+		require.ErrorIs(t, err, ErrInvalidKeyConversion)
 	}
 }
 
@@ -557,17 +434,12 @@ func TestParseKeyRejectsUnsupportedX25519Key(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
-	if _, err := ParseKey(data); !errors.Is(err, ErrUnsupportedKeyType) {
-		t.Fatalf("error = %v, want unsupported key type", err)
-	}
+	_, err = ParseKey(data)
+	require.ErrorIs(t, err, ErrUnsupportedKeyType)
 }
 
 func TestKeyFormattersPropagateWriterErrors(t *testing.T) {
@@ -576,9 +448,7 @@ func TestKeyFormattersPropagateWriterErrors(t *testing.T) {
 	info := &KeyInfo{KeyType: KeyTypePublic, Algorithm: "rsa", Bits: 2048, PublicKeySHA256Fingerprint: "AA:BB"}
 	want := errKeyTestWriteFailed
 	for _, formatter := range []KeyFormatter{&KeyTextFormatter{}, &KeyJSONFormatter{}} {
-		if err := formatter.Format(info, keyFailingWriter{err: want}); !errors.Is(err, want) {
-			t.Fatalf("formatter %T error = %v, want writer error", formatter, err)
-		}
+		require.ErrorIs(t, formatter.Format(info, keyFailingWriter{err: want}), want)
 	}
 }
 
@@ -609,9 +479,8 @@ func TestNewKeyRejectsMalformedECDSAKeys(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := NewKey(test.key); !errors.Is(err, ErrMalformedKey) {
-				t.Fatalf("error = %v, want malformed key", err)
-			}
+			_, err := NewKey(test.key)
+			require.ErrorIs(t, err, ErrMalformedKey)
 		})
 	}
 }
@@ -620,22 +489,17 @@ func TestNewKeyValidatesRSA(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	privateKey.Primes[0].SetInt64(3)
-	if _, err := NewKey(privateKey); !errors.Is(err, ErrMalformedKey) {
-		t.Fatalf("error = %v, want malformed key", err)
-	}
+	_, err = NewKey(privateKey)
+	require.ErrorIs(t, err, ErrMalformedKey)
 }
 
 func TestNewKeyRejectsInvalidRSAPublicParameters(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	evenModulus := new(big.Int).Sub(privateKey.N, big.NewInt(1))
 	type testCase struct {
 		key  *rsa.PublicKey
@@ -658,9 +522,8 @@ func TestNewKeyRejectsInvalidRSAPublicParameters(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := NewKey(test.key); !errors.Is(err, ErrMalformedKey) {
-				t.Fatalf("error = %v, want malformed key", err)
-			}
+			_, err := NewKey(test.key)
+			require.ErrorIs(t, err, ErrMalformedKey)
 		})
 	}
 }
@@ -669,63 +532,48 @@ func TestParseKeyRejectsEvenRSAPublicExponent(t *testing.T) {
 	t.Parallel()
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	der, err := x509.MarshalPKIXPublicKey(&rsa.PublicKey{N: privateKey.N, E: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := x509.ParsePKIXPublicKey(der); err != nil {
 		t.Fatalf("parse PKIX fixture: %v", err)
 	}
-	if _, err := ParseKey(der); !errors.Is(err, ErrMalformedKey) {
-		t.Fatalf("error = %v, want malformed key", err)
-	}
+	_, err = ParseKey(der)
+	require.ErrorIs(t, err, ErrMalformedKey)
 }
 
 func mustParseKey(t *testing.T, data []byte) *Key {
 	t.Helper()
 	key, err := ParseKey(data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }
 
 func mustMarshalKey(t *testing.T, key *Key, format KeyFormat) []byte {
 	t.Helper()
 	data, err := key.Marshal(format)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return data
 }
 
 func mustPublicDER(t *testing.T, key *Key) []byte {
 	t.Helper()
 	data, err := key.Marshal(KeyFormatPKIXDER)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return data
 }
 
 func mustGenerateOpenSSHTestKey(t *testing.T, algorithm KeyAlgorithm) crypto.PrivateKey {
 	t.Helper()
 	key, err := GeneratePrivateKey(algorithm)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }
 
 func mustGenerateECDSAKey(t *testing.T, curve elliptic.Curve) crypto.PrivateKey {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(curve, rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return key
 }
 
