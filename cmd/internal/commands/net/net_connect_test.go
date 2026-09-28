@@ -12,7 +12,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -33,9 +32,7 @@ var (
 func TestNetCommandAliases(t *testing.T) {
 	t.Parallel()
 	for _, alias := range []string{"nc", "netcat"} {
-		if !slices.Contains(newNetCmd().Aliases, alias) {
-			t.Fatalf("net aliases = %v, want %q", newNetCmd().Aliases, alias)
-		}
+		assert.Contains(t, newNetCmd().Aliases, alias)
 	}
 }
 
@@ -106,9 +103,7 @@ func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
 	assert.Empty(t, stdout)
 	output, readErr := os.ReadFile(outputPath)
 	require.NoError(t, readErr)
-	if string(output) != "partial response" {
-		t.Fatalf("partial output = %q, want preserved response prefix", output)
-	}
+	require.Equal(t, "partial response", string(output), "preserved response prefix")
 	require.NoError(t, <-serverDone)
 }
 
@@ -252,9 +247,7 @@ func TestNetConnectTLSRejectsArtifactOutputCollisionBeforeTruncation(t *testing.
 	require.ErrorIs(t, err, errCertificatePathCollision)
 	got, err := os.ReadFile(identity.clientCert)
 	require.NoError(t, err)
-	if !bytes.Equal(got, want) {
-		t.Fatal("client certificate changed after rejected output collision")
-	}
+	assert.Equal(t, want, got, "client certificate changed after rejected output collision")
 }
 
 func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
@@ -270,9 +263,7 @@ func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
 		"--input", inputPath,
 		"--servername", "localhost",
 	)
-	if err == nil || !strings.Contains(err.Error(), "failed to verify certificate") {
-		t.Fatalf("error = %v, want certificate verification failure", err)
-	}
+	require.ErrorContains(t, err, "failed to verify certificate")
 	assert.Empty(t, stdout)
 	if result := <-serverResult; result.request != "" {
 		t.Fatalf("server received %q before verification", result.request)
@@ -298,9 +289,8 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			args := append([]string{"net", "connect", "--tls", "localhost:443"}, test.args...)
-			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
-				t.Fatalf("error = %v, want errInvalidNetworkFlags", err)
-			}
+			_, _, err := executeRootStreams(t, args...)
+			require.ErrorIs(t, err, errInvalidNetworkFlags)
 		})
 	}
 }

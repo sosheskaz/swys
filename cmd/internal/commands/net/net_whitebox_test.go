@@ -10,13 +10,13 @@ import (
 	"io"
 	"math/big"
 	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
@@ -39,14 +39,10 @@ func TestNetProtocolDependentDefaultsDoNotMutate(t *testing.T) {
 		setNetTestProtocol(t, connect, test.protocol)
 		wait, err := netConnectWait(connect)
 		require.NoError(t, err)
-		if wait != test.wait {
-			t.Fatalf("%s wait = %s, want %s", test.protocol, wait, test.wait)
-		}
+		assert.Equal(t, test.wait, wait, "%s wait", test.protocol)
 		timeout, err := connect.Flags().GetDuration("timeout")
 		require.NoError(t, err)
-		if timeout != 5*time.Second {
-			t.Fatalf("%s connector timeout = %s, want 5s", test.protocol, timeout)
-		}
+		assert.Equal(t, 5*time.Second, timeout, "%s connector timeout", test.protocol)
 	}
 
 	explicitZero := newNetConnectTestCommand(t, netProtocolUDP)
@@ -55,9 +51,7 @@ func TestNetProtocolDependentDefaultsDoNotMutate(t *testing.T) {
 		setNetTestProtocol(t, explicitZero, protocol)
 		wait, err := netConnectWait(explicitZero)
 		require.NoError(t, err)
-		if wait != 0 {
-			t.Fatalf("explicit zero wait changed to %s for %s", wait, protocol)
-		}
+		assert.Zero(t, wait, "explicit zero wait for %s", protocol)
 	}
 
 	listen := newNetListenCmd(commandio.NewLifecycle())
@@ -76,9 +70,7 @@ func TestNetListenTCPDiagnosticWriteFailures(t *testing.T) {
 		}
 	})
 	want := errListenDiagnosticOutput
-	if err := writeTCPListeningDetails(failingWriter{err: want}, listener); !errors.Is(err, want) {
-		t.Fatalf("listening detail error = %v, want output failure", err)
-	}
+	require.ErrorIs(t, writeTCPListeningDetails(failingWriter{err: want}, listener), want)
 
 	accepted := make(chan net.Conn, 1)
 	acceptErr := make(chan error, 1)
@@ -92,9 +84,7 @@ func TestNetListenTCPDiagnosticWriteFailures(t *testing.T) {
 	server := <-accepted
 	require.NoError(t, <-acceptErr)
 	t.Cleanup(func() { closeListenTestTCP(t, server) })
-	if err := writeTCPAcceptedDetails(failingWriter{err: want}, server); !errors.Is(err, want) {
-		t.Fatalf("accepted detail error = %v, want output failure", err)
-	}
+	require.ErrorIs(t, writeTCPAcceptedDetails(failingWriter{err: want}, server), want)
 }
 
 func TestValidateTLSServerIdentityAcceptsPresentedOrder(t *testing.T) {
@@ -121,16 +111,12 @@ func TestRespondUDPDatagramReturnsOutputFailureBeforeSending(t *testing.T) {
 func TestUDPListenerDiagnosticsReturnOutputFailures(t *testing.T) {
 	t.Parallel()
 	listener := listenUDPTest(t)
-	if err := writeUDPListeningDetails(failingWriter{err: errUDPTestDiagnostic}, listener); !errors.Is(err, errUDPTestDiagnostic) {
-		t.Fatalf("listening diagnostic error = %v, want output failure", err)
-	}
-	if err := writeUDPReceivedDetails(
+	require.ErrorIs(t, writeUDPListeningDetails(failingWriter{err: errUDPTestDiagnostic}, listener), errUDPTestDiagnostic)
+	require.ErrorIs(t, writeUDPReceivedDetails(
 		failingWriter{err: errUDPTestDiagnostic},
 		listener.LocalAddr(),
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53},
-	); !errors.Is(err, errUDPTestDiagnostic) {
-		t.Fatalf("received diagnostic error = %v, want output failure", err)
-	}
+	), errUDPTestDiagnostic)
 }
 
 func TestExchangeUDPDatagramReturnsOutputFailure(t *testing.T) {
@@ -163,9 +149,7 @@ func TestWriteUDPConnectionDetailsReturnsOutputFailure(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { closeUDPTest(t, connection) })
 	want := errUDPTestDiagnostic
-	if err := writeUDPConnectionDetails(failingWriter{err: want}, connection); !errors.Is(err, want) {
-		t.Fatalf("error = %v, want diagnostic failure", err)
-	}
+	require.ErrorIs(t, writeUDPConnectionDetails(failingWriter{err: want}, connection), want)
 }
 
 func TestNetStreamLifecycleFlags(t *testing.T) {
@@ -203,12 +187,8 @@ func TestNetConnectUDPFlagContract(t *testing.T) {
 	require.NoError(t, netConnectUDPCmd.Flags().Set("wait", "0"))
 	options, err = networkDatagramConnectOptionsFromCommand(netConnectUDPCmd)
 	require.NoError(t, err)
-	if options.wait != 0 {
-		t.Fatalf("explicit UDP wait = %s, want 0", options.wait)
-	}
-	if flag := netConnectUDPCmd.Flags().Lookup("close-write"); flag == nil {
-		t.Fatal("net connect union has no --close-write flag")
-	}
+	assert.Zero(t, options.wait, "explicit UDP wait")
+	assert.NotNil(t, netConnectUDPCmd.Flags().Lookup("close-write"), "net connect union has no --close-write flag")
 }
 
 func newListenTestIntermediateChain(t *testing.T) ([][]byte, ed25519.PrivateKey) {
@@ -275,12 +255,12 @@ func newListenTestIntermediateChain(t *testing.T) ([][]byte, ed25519.PrivateKey)
 
 func TestNetALPNCompletionParser(t *testing.T) {
 	t.Parallel()
-	if parsed, err := parseALPN("custom-protocol"); err != nil || !slices.Equal(parsed, []string{"custom-protocol"}) {
-		t.Fatalf("custom ALPN parsed as %q, error %v", parsed, err)
-	}
-	if parsed, err := parseALPN(""); err != nil || parsed != nil {
-		t.Fatalf("empty ALPN parsed as %q, error %v", parsed, err)
-	}
+	parsed, err := parseALPN("custom-protocol")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"custom-protocol"}, parsed)
+	parsed, err = parseALPN("")
+	require.NoError(t, err)
+	assert.Nil(t, parsed)
 }
 
 func listenUDPTest(t *testing.T) *net.UDPConn {

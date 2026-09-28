@@ -4,19 +4,19 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNetProtocolCompletionContract(t *testing.T) {
 	t.Parallel()
 	for _, verb := range []string{"connect", "listen"} {
 		for _, selector := range []string{"udp", "tls"} {
-			if got := completionLines(completeCommand(t, "net", verb, "--"+selector+"=")); !slices.Equal(got, []string{"true", "false", ":4"}) {
-				t.Fatalf("%s --%s completion = %q, want boolean values", verb, selector, got)
-			}
+			got := completionLines(completeCommand(t, "net", verb, "--"+selector+"="))
+			assert.Equal(t, []string{"true", "false", ":4"}, got, "%s --%s completion", verb, selector)
 		}
-		if got := completeCommand(t, "net", verb, "--"); strings.Contains(got, "--protocol\t") {
-			t.Fatalf("%s completion still advertises --protocol: %q", verb, got)
-		}
+		assert.NotContains(t, completeCommand(t, "net", verb, "--"), "--protocol\t", "%s completion", verb)
 	}
 
 	for _, test := range []struct {
@@ -84,14 +84,10 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 			t.Parallel()
 			stdout := completeCommand(t, test.args...)
 			for _, flag := range test.shown {
-				if !strings.Contains(stdout, flag+"\t") {
-					t.Errorf("completion %q missing %s", stdout, flag)
-				}
+				assert.Contains(t, stdout, flag+"\t", "completion missing %s", flag)
 			}
 			for _, flag := range test.hidden {
-				if strings.Contains(stdout, flag+"\t") {
-					t.Errorf("completion %q unexpectedly includes %s", stdout, flag)
-				}
+				assert.NotContains(t, stdout, flag+"\t", "completion unexpectedly includes %s", flag)
 			}
 		})
 	}
@@ -147,9 +143,7 @@ func TestNetInapplicableFlagValueCompletionIsSuppressed(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if got := completionLines(completeCommand(t, args...)); !slices.Equal(got, []string{":4"}) {
-				t.Fatalf("inapplicable value completion = %q, want no values and no files", got)
-			}
+			assert.Equal(t, []string{":4"}, completionLines(completeCommand(t, args...)), "inapplicable value completion")
 		})
 	}
 }
@@ -194,9 +188,7 @@ func TestNetApplicableFlagValueCompletionRemainsAvailable(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if got := completionLines(completeCommand(t, test.args...)); !slices.Equal(got, test.want) {
-				t.Fatalf("applicable value completion = %q, want %q", got, test.want)
-			}
+			assert.Equal(t, test.want, completionLines(completeCommand(t, test.args...)), "applicable value completion")
 		})
 	}
 }
@@ -225,13 +217,9 @@ func TestNetProtocolHelpDocumentsFullFlagUnion(t *testing.T) {
 		t.Run(test.verb, func(t *testing.T) {
 			t.Parallel()
 			stdout, _, err := executeRootStreams(t, "net", test.verb, "--help")
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			_, flagsAndLater, found := strings.Cut(stdout, "\nFlags:\n")
-			if !found {
-				t.Fatalf("help missing Flags listing:\n%s", stdout)
-			}
+			require.True(t, found, "help missing Flags listing:\n%s", stdout)
 			flagsListing, _, _ := strings.Cut(flagsAndLater, "\nGlobal Flags:")
 			listedFlags := make(map[string]bool)
 			for line := range strings.SplitSeq(flagsListing, "\n") {
@@ -248,9 +236,7 @@ func TestNetProtocolHelpDocumentsFullFlagUnion(t *testing.T) {
 				}
 			}
 			for _, flag := range test.flags {
-				if !listedFlags[flag] {
-					t.Errorf("Flags listing missing %s:\n%s", flag, stdout)
-				}
+				assert.True(t, listedFlags[flag], "Flags listing missing %s:\n%s", flag, stdout)
 			}
 			if listedFlags["--protocol"] || !strings.Contains(flagsListing, "-u, --udp") || !strings.Contains(flagsListing, "-T, --tls") {
 				t.Errorf("selector flags in help = %q, want -u/--udp and -T/--tls without --protocol", flagsListing)

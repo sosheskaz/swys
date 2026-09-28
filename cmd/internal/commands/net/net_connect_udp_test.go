@@ -24,9 +24,8 @@ func TestNetConnectUDPRejectsNegativeDurations(t *testing.T) {
 		{"net", "connect", "--udp", "127.0.0.1:53", "--timeout", "-1s"},
 		{"net", "connect", "--udp", "127.0.0.1:53", "--wait", "-1s"},
 	} {
-		if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
-			t.Fatalf("args %v error = %v, want errInvalidNetworkFlags", args, err)
-		}
+		_, _, err := executeRootStreams(t, args...)
+		require.ErrorIs(t, err, errInvalidNetworkFlags, "args %v", args)
 	}
 }
 
@@ -54,9 +53,8 @@ func TestNetConnectUDPResponseTimeout(t *testing.T) {
 		"net", "connect", "--udp", listener.LocalAddr().String(),
 		"--wait", "30ms",
 	)
-	if !errors.Is(err, netconn.ErrUDPResponseTimeout) || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want UDP response and context deadline errors", err)
-	}
+	require.ErrorIs(t, err, netconn.ErrUDPResponseTimeout)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NoError(t, <-requestRead)
 }
 
@@ -139,9 +137,7 @@ func TestNetConnectUDPSendsAndReceivesZeroLengthDatagrams(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Empty(t, stdout)
-	if got := <-requestLength; got != 0 {
-		t.Fatalf("request length = %d, want zero", got)
-	}
+	require.Zero(t, <-requestLength, "request length")
 	require.NoError(t, <-serverDone)
 }
 

@@ -22,13 +22,9 @@ import (
 func TestNetListenUDPFlagAndAddressContract(t *testing.T) {
 	t.Parallel()
 	netListenUDPCmd := newNetListenTestCommand(t, "udp")
-	if got := netListenUDPCmd.Flags().Lookup("timeout").DefValue; got != "0s" {
-		t.Fatalf("timeout default = %q, want 0s", got)
-	}
+	assert.Equal(t, "0s", netListenUDPCmd.Flags().Lookup("timeout").DefValue, "timeout default")
 	for _, name := range []string{"wait", "close-write"} {
-		if flag := netListenUDPCmd.Flags().Lookup(name); flag == nil {
-			t.Fatalf("net listen union has no --%s flag", name)
-		}
+		assert.NotNil(t, netListenUDPCmd.Flags().Lookup(name), "net listen union has no --%s flag", name)
 	}
 	stdout, _, err := executeRootStreams(t, "net", "listen", "--udp", "--help")
 	require.NoError(t, err)
@@ -52,9 +48,7 @@ func TestNetListenUDPPositiveFirstDatagramTimeoutClosesSocket(t *testing.T) {
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
 	remainingStderr := drainExampleStderr(run.stderr)
-	if err := <-run.done; !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want first-datagram deadline", err)
-	}
+	require.ErrorIs(t, <-run.done, context.DeadlineExceeded)
 	<-remainingStderr
 
 	resolved, err := net.ResolveUDPAddr("udp", address)
@@ -123,9 +117,7 @@ func TestNetListenUDPBindFailure(t *testing.T) {
 		"net", "listen", "--udp", occupied.LocalAddr().String(),
 		"--timeout", "25ms",
 	)
-	if err == nil || !strings.Contains(err.Error(), "listen on UDP endpoint") {
-		t.Fatalf("error = %v, want UDP bind failure", err)
-	}
+	require.ErrorContains(t, err, "listen on UDP endpoint")
 }
 
 func TestNetListenUDPRelaysEncodedDatagrams(t *testing.T) {

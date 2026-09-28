@@ -30,12 +30,8 @@ import (
 
 func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 	t.Parallel()
-	if got := newNetListenTestCommand(t, "tcp").Flags().Lookup("timeout").DefValue; got != "0s" {
-		t.Errorf("listen timeout default = %q, want 0s", got)
-	}
-	if got := newNetConnectTestCommand(t).Flags().Lookup("timeout").DefValue; got != "5s" {
-		t.Errorf("connect timeout default = %q, want 5s", got)
-	}
+	assert.Equal(t, "0s", newNetListenTestCommand(t, "tcp").Flags().Lookup("timeout").DefValue, "listen timeout default")
+	assert.Equal(t, "5s", newNetConnectTestCommand(t).Flags().Lookup("timeout").DefValue, "connect timeout default")
 	for _, test := range []struct {
 		command *cobra.Command
 		name    string
@@ -43,18 +39,10 @@ func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 		{name: "connect TCP", command: newNetConnectTestCommand(t)},
 		{name: "listen TCP", command: newNetListenTestCommand(t, "tcp")},
 	} {
-		if got := test.command.Flags().Lookup("wait").DefValue; got != "0s" {
-			t.Errorf("%s wait default = %q, want 0s", test.name, got)
-		}
-		if got := test.command.Flags().Lookup("close-write").DefValue; got != "true" {
-			t.Errorf("%s close-write default = %q, want true", test.name, got)
-		}
-		if got := test.command.Flags().Lookup("duplex").DefValue; got != "true" {
-			t.Errorf("%s duplex default = %q, want true", test.name, got)
-		}
-		if got := test.command.Flags().Lookup("duplex").Shorthand; got != "d" {
-			t.Errorf("%s duplex shorthand = %q, want d", test.name, got)
-		}
+		assert.Equal(t, "0s", test.command.Flags().Lookup("wait").DefValue, "%s wait default", test.name)
+		assert.Equal(t, "true", test.command.Flags().Lookup("close-write").DefValue, "%s close-write default", test.name)
+		assert.Equal(t, "true", test.command.Flags().Lookup("duplex").DefValue, "%s duplex default", test.name)
+		assert.Equal(t, "d", test.command.Flags().Lookup("duplex").Shorthand, "%s duplex shorthand", test.name)
 	}
 	flag := newNetListenTestCommand(t, "tcp").Flags().Lookup("recv-only")
 	if flag == nil {
@@ -80,9 +68,8 @@ func TestNetListenTCPReceiveOnlyRejectsConflictingInputModesBeforeIO(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			args := append([]string{"net", "listen", "127.0.0.1:0"}, test.args...)
-			if _, _, err := executeRootStreams(t, args...); !errors.Is(err, errInvalidNetworkFlags) {
-				t.Fatalf("error = %v, want errInvalidNetworkFlags before input setup", err)
-			}
+			_, _, err := executeRootStreams(t, args...)
+			require.ErrorIs(t, err, errInvalidNetworkFlags, "before input setup")
 		})
 	}
 }
@@ -120,9 +107,8 @@ func TestNetListenHelpDocumentsOptionalHost(t *testing.T) {
 	t.Parallel()
 	stdout, _, err := executeRootStreams(t, "net", "listen", "--help")
 	require.NoError(t, err)
-	if !strings.Contains(stdout, "net listen [host:]port") || !strings.Contains(stdout, "Omit the host") {
-		t.Fatalf("help = %q, want optional host usage and explanation", stdout)
-	}
+	assert.Contains(t, stdout, "net listen [host:]port")
+	assert.Contains(t, stdout, "Omit the host")
 }
 
 func TestNetConnectStillRejectsMissingHost(t *testing.T) {
@@ -143,9 +129,7 @@ func TestNetListenTCPBindFailure(t *testing.T) {
 		}
 	})
 	_, _, err = executeRootStreams(t, "net", "listen", occupied.Addr().String())
-	if err == nil || !strings.Contains(err.Error(), "listen on TCP endpoint") {
-		t.Fatalf("error = %v, want TCP bind failure", err)
-	}
+	require.ErrorContains(t, err, "listen on TCP endpoint")
 }
 
 func TestNetListenTCPRelaysEncodedPayload(t *testing.T) {
