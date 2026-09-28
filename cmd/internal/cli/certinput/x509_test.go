@@ -3,9 +3,9 @@ package certinput_test
 import (
 	"bytes"
 	"encoding/pem"
-	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
@@ -43,15 +43,11 @@ func TestParsePEMCertificates(t *testing.T) {
 			t.Parallel()
 			certificates, err := certinput.ParsePEMCertificates(test.input)
 			if test.name == "malformed DER" {
-				if err == nil || !strings.Contains(err.Error(), "parse PEM certificate") {
-					t.Fatalf("error = %v, want malformed certificate error", err)
-				}
+				assert.ErrorContains(t, err, "parse PEM certificate")
 				return
 			}
 			require.ErrorIs(t, err, test.wantErr, "error = %v, want %v", err, test.wantErr)
-			if len(certificates) != test.wantCount {
-				t.Fatalf("certificate count = %d, want %d", len(certificates), test.wantCount)
-			}
+			assert.Len(t, certificates, test.wantCount)
 		})
 	}
 }
