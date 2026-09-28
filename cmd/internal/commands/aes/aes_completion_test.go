@@ -27,6 +27,8 @@ func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
 			args: []string{"aes", "encrypt", "--key", "AA==", "--wire-format", "tink", "--"},
 		},
 		{name: "decryption offers wire selection", args: []string{"aes", "decrypt", "--key", "AA==", "--"}, want: "--wire-format", unwanted: "--hkdf-hash"},
+		{name: "key hides password costs", args: []string{"aes", "encrypt", "--key", "AA==", "--"}, want: "--chunk-size", unwanted: "--kdf-memory"},
+		{name: "password hides key selection", args: []string{"aes", "encrypt", "--password-env", "NAME", "--"}, want: "--kdf-memory", unwanted: "--key-id"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

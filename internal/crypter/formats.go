@@ -128,8 +128,18 @@ func PrepareOpenPGP(key []byte, input io.Reader) (*OpenPGPReader, error) {
 	if len(key) != 16 && len(key) != 32 {
 		return nil, ErrInvalidAESKeySize
 	}
+	source, outer := newOpenPGPSource(input)
+	return prepareSEIPD(key, outer, source)
+}
+
+// newOpenPGPSource bounds everything read before the SEIPD header, including
+// any password wrappers, and preserves sticky truncation handling.
+func newOpenPGPSource(input io.Reader) (*preparationBudget, *bufio.Reader) {
 	source := &preparationBudget{reader: &inputEOF{reader: input}, remaining: 4096}
-	outer := bufio.NewReaderSize(source, 512)
+	return source, bufio.NewReaderSize(source, 512)
+}
+
+func prepareSEIPD(key []byte, outer *bufio.Reader, source *preparationBudget) (*OpenPGPReader, error) {
 	if err := expectPacketTag(outer, 18); err != nil {
 		return nil, err
 	}
@@ -219,23 +229,26 @@ func readInnerPacket(reader *bufio.Reader) (packet.Packet, error) {
 func expectPacketTag(reader *bufio.Reader, tag byte) error { return expectPacketTags(reader, tag) }
 
 func expectPacketTags(reader *bufio.Reader, allowed ...byte) error {
+	_, err := peekPacketTag(reader, allowed...)
+	return err
+}
+
+func peekPacketTag(reader *bufio.Reader, allowed ...byte) (byte, error) {
 	header, err := reader.Peek(1)
 	if err != nil {
-		return fmt.Errorf("read OpenPGP packet: %w", err)
+		return 0, fmt.Errorf("read OpenPGP packet: %w", err)
 	}
 	if header[0]&0x80 == 0 {
-		return fmt.Errorf("%w: packet header", errOpenPGPPacket)
+		return 0, fmt.Errorf("%w: packet header", errOpenPGPPacket)
 	}
 	tag := header[0] & 0x3f
 	if header[0]&0x40 == 0 {
 		tag = (header[0] >> 2) & 0x0f
 	}
-	for _, allowedTag := range allowed {
-		if tag == allowedTag {
-			return nil
-		}
+	if slices.Contains(allowed, tag) {
+		return tag, nil
 	}
-	return fmt.Errorf("%w: unexpected tag %d", errOpenPGPPacket, tag)
+	return 0, fmt.Errorf("%w: unexpected tag %d", errOpenPGPPacket, tag)
 }
 
 // CopyTo writes authenticated plaintext and verifies final tag and packet EOF.

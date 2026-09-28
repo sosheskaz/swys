@@ -31,6 +31,7 @@ const (
 	wireTink        = "tink"
 	flagDerivedBits = "derived-key-bits"
 	flagHKDFHash    = "hkdf-hash"
+	flagAAD         = "aad"
 	commandDecrypt  = "decrypt"
 	keyFormatAuto   = "auto"
 	hashSHA256      = "sha256"
@@ -44,6 +45,7 @@ type aesOperation struct {
 	pgp        *crypter.OpenPGPReader
 	input      io.Reader
 	tinkReader io.Reader
+	password   *crypter.OpenPGPPasswordEncryption
 	primitive  tink.StreamingAEAD
 	wire       string
 	key        []byte
@@ -90,20 +92,21 @@ func addKeyFlags(cmd *cobra.Command) {
 	if err := cmd.MarkFlagFilename("keyfile"); err != nil {
 		panic(err)
 	}
-	cmd.MarkFlagsMutuallyExclusive("key", "keyfile")
-	cmd.MarkFlagsOneRequired("key", "keyfile")
+	addPasswordFlags(cmd)
+	cmd.MarkFlagsMutuallyExclusive("key", "keyfile", "password", "password-command", "password-env")
+	cmd.MarkFlagsOneRequired("key", "keyfile", "password", "password-command", "password-env")
 	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 }
 
 func addAESWireFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("wire-format", "F", wireOpenPGP, "wire format (openpgp or tink)")
-	cmd.Flags().String("aad", "", "Tink additional authenticated data")
+	cmd.Flags().String(flagAAD, "", "Tink additional authenticated data")
 	cmd.Flags().String("chunk-size", "1MiB", "OpenPGP plaintext chunk or Tink ciphertext segment size")
 	cmd.Flags().String(flagHKDFHash, hashSHA256, "Tink HKDF hash (sha256 or sha512)")
 	cmd.Flags().Int(flagDerivedBits, 0, "Tink derived AES bits (default matches input key)")
 	commandio.RegisterFlagCompletion(cmd, "wire-format", func() []string { return []string{wireOpenPGP, wireTink} })
 	registerAESNoFileFlagCompletion(cmd, "key")
-	registerAESNoFileFlagCompletion(cmd, "aad")
+	registerAESNoFileFlagCompletion(cmd, flagAAD)
 	registerAESNoFileFlagCompletion(cmd, "chunk-size")
 	commandio.RegisterFlagCompletion(cmd, flagHKDFHash, func() []string { return []string{hashSHA256, hashSHA512} })
 }
@@ -136,6 +139,9 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 	if wire != wireOpenPGP && wire != wireTink {
 		return fmt.Errorf("%w %q", errAESWireFormat, wire)
 	}
+	if err := validateAESPasswordFlags(cmd); err != nil {
+		return err
+	}
 	format, err := operationKeyFormat(cmd)
 	if err != nil {
 		return err
@@ -162,7 +168,7 @@ func validateAESFormatFlags(cmd *cobra.Command, wire, format string) error {
 		}
 		return nil
 	}
-	for _, name := range []string{"aad", flagHKDFHash, flagDerivedBits} {
+	for _, name := range []string{flagAAD, flagHKDFHash, flagDerivedBits} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("%w: --%s requires Tink", errAESWireFlag, name)
 		}
@@ -223,11 +229,18 @@ func prepareAESOperation(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	aadText, err := getAESString(cmd, "aad")
+	aadText, err := getAESString(cmd, flagAAD)
 	if err != nil {
 		return err
 	}
 	op := &aesOperation{wire: wire, chunk: chunk, aad: []byte(aadText)}
+	if passwordSelected(cmd) {
+		if err := prepareAESPassword(cmd, op); err != nil {
+			return err
+		}
+		cmd.SetContext(context.WithValue(cmd.Context(), aesOperationContextKey{}, op))
+		return nil
+	}
 	key, handle, err := readAESOperationKey(cmd)
 	if err != nil {
 		return err

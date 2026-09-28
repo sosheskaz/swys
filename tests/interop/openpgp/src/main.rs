@@ -3,9 +3,12 @@ use std::fs::File;
 use std::io::{self, Write};
 
 use sequoia_openpgp as openpgp;
-use openpgp::crypto::SessionKey;
+use openpgp::crypto::{Password, SessionKey, S2K};
+use openpgp::packet::skesk::SKESK6;
+use openpgp::packet::SKESK;
 use openpgp::parse::{PacketParser, PacketParserResult, Parse};
 use openpgp::serialize::stream::{Compressor, Encryptor, LiteralWriter, Message};
+use openpgp::serialize::Serialize;
 use openpgp::types::{AEADAlgorithm, CompressionAlgorithm, DataFormat, SymmetricAlgorithm};
 use openpgp::Packet;
 
@@ -82,6 +85,62 @@ fn main() -> openpgp::Result<()> {
             }
             destination.flush()?;
         }
+        [_, command, password_path, input, output] if command == "password-encrypt" => {
+            // Sequoia's Encryptor defaults to iterated S2K, so build the Argon2 SKESK v6 here.
+            let password = Password::from(std::fs::read(password_path)?);
+            let key = SessionKey::new(32)?;
+            let mut salt = [0u8; 16];
+            openpgp::crypto::random(&mut salt)?;
+            // Cheap but multi-lane costs keep the checked-in fixture fast to open.
+            let s2k = S2K::Argon2 { salt, t: 2, p: 4, m: 10 };
+            let skesk = SKESK6::with_password(SymmetricAlgorithm::AES256, SymmetricAlgorithm::AES256,
+                                              AEADAlgorithm::GCM, s2k, &key, &password)?;
+            let mut destination = File::create(output)?;
+            Packet::SKESK(skesk.into()).serialize(&mut destination)?;
+            let encrypted = Encryptor::with_session_key(Message::new(destination), SymmetricAlgorithm::AES256, key)?
+                .aead_algo(AEADAlgorithm::GCM)
+                .build()?;
+            let mut literal = LiteralWriter::new(encrypted).build()?;
+            io::copy(&mut File::open(input)?, &mut literal)?;
+            literal.finalize()?;
+        }
+        [_, command, password_path, input, output] if command == "password-decrypt" => {
+            let password = Password::from(std::fs::read(password_path)?);
+            let mut packets = PacketParser::from_file(input)?;
+            let mut destination = File::create(output)?;
+            let mut wrappers = Vec::new();
+            let mut seip_count = 0;
+            let mut literal_count = 0;
+            while let PacketParserResult::Some(mut packet) = packets {
+                match &packet.packet {
+                    Packet::SKESK(SKESK::V6(wrapper)) => {
+                        if !matches!(wrapper.s2k(), S2K::Argon2 { .. }) {
+                            return Err(openpgp::anyhow::anyhow!("expected Argon2 S2K"));
+                        }
+                        wrappers.push(wrapper.clone());
+                    }
+                    Packet::SEIP(_) => {
+                        if packet.packet.version() != Some(2) {
+                            return Err(openpgp::anyhow::anyhow!("expected SEIPDv2"));
+                        }
+                        seip_count += 1;
+                        let key = wrappers.iter().find_map(|wrapper| wrapper.decrypt(&password).ok())
+                            .ok_or_else(|| openpgp::anyhow::anyhow!("password did not unlock a wrapper"))?;
+                        packet.decrypt(SymmetricAlgorithm::AES256, &key)?;
+                    }
+                    Packet::Literal(_) => {
+                        literal_count += 1;
+                        io::copy(&mut packet, &mut destination)?;
+                    }
+                    _ => return Err(openpgp::anyhow::anyhow!("unexpected OpenPGP packet")),
+                }
+                packets = packet.recurse()?.1;
+            }
+            if wrappers.is_empty() || seip_count != 1 || literal_count != 1 {
+                return Err(openpgp::anyhow::anyhow!("expected SKESK v6, one SEIPDv2, and one literal packet"));
+            }
+            destination.flush()?;
+        }
         [_, command, input] if command == "inspect" => {
             let mut packets = PacketParser::from_file(input)?;
             while let PacketParserResult::Some(packet) = packets {
@@ -89,7 +148,7 @@ fn main() -> openpgp::Result<()> {
                 packets = packet.next()?.1;
             }
         }
-        _ => return Err(openpgp::anyhow::anyhow!("usage: encrypt|encrypt-text|encrypt-compressed|encrypt-two-literals|decrypt KEY INPUT OUTPUT; inspect INPUT")),
+        _ => return Err(openpgp::anyhow::anyhow!("usage: encrypt|encrypt-text|encrypt-compressed|encrypt-two-literals|decrypt KEY INPUT OUTPUT; password-encrypt|password-decrypt PASSWORD_FILE INPUT OUTPUT; inspect INPUT")),
     }
     Ok(())
 }

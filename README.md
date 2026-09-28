@@ -927,6 +927,34 @@ looks for the literal data header in about 4 MiB of decrypted data and of each
 decompressed layer, with ciphertext rounded up to whole chunks, and rejects
 messages that need more.
 
+For a password, use a hidden terminal prompt. The prompt reads the
+controlling terminal even when plaintext is piped into stdin, and encryption
+asks for confirmation:
+
+```fish
+cat document.txt | npc aes encrypt --password --output document.txt.pgp
+npc aes decrypt --password --input document.txt.pgp --output recovered.txt
+```
+
+Automation can use `--password-env NAME` to read an explicitly named
+environment variable or `--password-command 'command'` to take the first stdout
+line of a shell command. Exactly one password or key source is required.
+Passwords must be nonempty and at most 64 KiB. A password produces a standard
+OpenPGP message: an AES-256 SKESK v6 password wrapper using Argon2id, followed
+by the SEIPDv2 AES-GCM stream. Encryption defaults to `--kdf-memory 64MiB`,
+`--kdf-passes 3`, and `--kdf-parallelism 4`; memory must be a power of two of
+at least 8 KiB per lane. Encryption and decryption both refuse Argon2 memory
+above 256 MiB, more than 10 passes, or more than 16 lanes. Decryption also
+refuses more than 16 password wrappers, or wrappers whose combined memory times
+passes exceeds 256 MiB times 10. It checks these stored costs before asking for
+the password or opening output, and there is no override. Decryption accepts
+only Argon2 wrappers, so messages using Sequoia's default iterated and salted
+S2K are rejected. A wrong password fails before output is opened.
+
+On macOS, Linux, and FreeBSD, Ctrl-Z while an interactive password command
+reads the terminal cancels password acquisition, ends the supplier process
+group, and restores the terminal.
+
 `--wire-format tink` selects native Tink AES-GCM-HKDF ciphertext. A raw AES key
 uses 1 MiB ciphertext segments, SHA-256 HKDF, and a matching derived key size
 by default. A Tink keyset supplies its own parameters and primary encryption
@@ -1063,7 +1091,7 @@ detail from the layers beneath it rather than reimplementing them:
 | Layer | Domain                           | Nouns                                      |
 | ----- | -------------------------------- | ------------------------------------------ |
 | L4    | Raw transport (netcat successor) | `net` (`tcp`, `tls`, `udp`)                |
-| L5/6  | TLS, X.509, crypto primitives    | `cert`, `aes`, `hash`, `sign`       |
+| L5/6  | TLS, X.509, crypto primitives    | `cert`, `aes`, `hash`, `sign`              |
 | L7    | Application protocols            | `http`, later `grpc`                       |
 | —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
 

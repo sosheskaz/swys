@@ -20,6 +20,9 @@ func newEncryptCmd() *cobra.Command {
 			if !ok {
 				return errAESOperation
 			}
+			if op.password != nil {
+				return op.password.Encrypt(op.chunk, input, cmd.OutOrStdout())
+			}
 			if op.wire == wireOpenPGP {
 				return crypter.EncryptOpenPGP(op.key, op.chunk, input, cmd.OutOrStdout())
 			}
@@ -27,6 +30,7 @@ func newEncryptCmd() *cobra.Command {
 		},
 	}, true)
 	addKeyFlags(cmd)
+	addPasswordCostFlags(cmd)
 	addAESWireFlags(cmd)
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd

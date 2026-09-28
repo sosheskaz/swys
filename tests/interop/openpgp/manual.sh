@@ -31,3 +31,20 @@ for bits in 128 256; do
 
   printf 'AES-%s Sequoia/NPC bidirectional interoperability passed\n' "$bits"
 done
+
+# Synthetic password: generated per run, kept in scratch, passed to NPC by environment.
+password_dir="$scratch_dir/password"
+mkdir "$password_dir"
+head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$password_dir/password"
+printf '\000password\n\377' >"$password_dir/plain"
+NPC_INTEROP_PASSWORD="$(cat "$password_dir/password")" "$npc_bin" aes encrypt \
+  --password-env NPC_INTEROP_PASSWORD --input "$password_dir/plain" --output "$password_dir/npc-wire"
+NPC_INTEROP_SCRATCH="$scratch_dir" "$interop_dir/run.sh" \
+  password-decrypt /scratch/password/password /scratch/password/npc-wire /scratch/password/sequoia-opened
+cmp "$password_dir/plain" "$password_dir/sequoia-opened"
+NPC_INTEROP_SCRATCH="$scratch_dir" "$interop_dir/run.sh" \
+  password-encrypt /scratch/password/password /scratch/password/plain /scratch/password/sequoia-wire
+NPC_INTEROP_PASSWORD="$(cat "$password_dir/password")" "$npc_bin" aes decrypt \
+  --password-env NPC_INTEROP_PASSWORD --input "$password_dir/sequoia-wire" --output "$password_dir/npc-opened"
+cmp "$password_dir/plain" "$password_dir/npc-opened"
+printf 'AES-256 Argon2 password Sequoia/NPC bidirectional interoperability passed\n'

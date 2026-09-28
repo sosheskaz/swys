@@ -156,6 +156,19 @@ func TestAESOpenPGPRejectsUnauthenticatedAndExtraPackets(t *testing.T) {
 	}
 }
 
+func TestAESPasswordOpensSequoiaArgon2Fixture(t *testing.T) {
+	t.Setenv("NPC_TEST_FIXTURE_PASSWORD", "npc synthetic fixture password")
+	t.Setenv("NPC_TEST_WRONG_PASSWORD", "npc synthetic wrong password")
+	wire := readSequoiaFixture(t, "sequoia-password-argon2.pgp")
+	opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
+		"aes", "decrypt", "--password-env", "NPC_TEST_FIXTURE_PASSWORD")
+	require.NoError(t, err)
+	require.Equal(t, []byte{0, 'O', 'p', 'e', 'n', 'P', 'G', 'P', '\n', 0xff}, opened)
+	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
+		"aes", "decrypt", "--password-env", "NPC_TEST_WRONG_PASSWORD")
+	require.ErrorContains(t, err, "password does not match")
+}
+
 func readSequoiaFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	wire, err := os.ReadFile(filepath.Join("..", "tests", "interop", "openpgp", "testdata", name))

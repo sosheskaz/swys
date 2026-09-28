@@ -14,7 +14,8 @@ func registerAESNoFileFlagCompletion(cmd *cobra.Command, name string) {
 	}
 }
 
-// prepareAESCompletion hides flags incompatible with the selected wire format.
+// prepareAESCompletion hides flags incompatible with the selected credential
+// and wire format.
 func prepareAESCompletion(completionCmd *cobra.Command, args []string) {
 	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
 		return
@@ -32,17 +33,31 @@ func prepareAESCompletion(completionCmd *cobra.Command, args []string) {
 	if err != nil || !isAESOperation(actual) {
 		return
 	}
+	hideIncompatibleAESFlags(parsed, actual)
+}
+
+func hideIncompatibleAESFlags(parsed, actual *cobra.Command) {
+	hide := func(names ...string) {
+		for _, name := range names {
+			if flag := actual.Flags().Lookup(name); flag != nil {
+				flag.Hidden = true
+			}
+		}
+	}
+	if passwordSelected(parsed) {
+		hide("key-format", "key-id", flagAAD, flagHKDFHash, flagDerivedBits)
+		return
+	}
+	hide(kdfMemoryFlag, kdfPassesFlag, kdfParallelismFlag)
 	wire, err := getAESString(parsed, "wire-format")
 	if err != nil {
 		return
 	}
 	if wire == wireOpenPGP {
-		for _, name := range []string{"aad", flagHKDFHash, flagDerivedBits} {
-			actual.Flags().Lookup(name).Hidden = true
-		}
+		hide(flagAAD, flagHKDFHash, flagDerivedBits)
 	}
 	if wire == wireTink {
-		actual.Flags().Lookup("key-id").Hidden = true
+		hide("key-id")
 	}
 }
 

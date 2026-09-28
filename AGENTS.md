@@ -72,6 +72,10 @@ tink` selects native Tink AES-GCM-HKDF. Decryption requires explicit format
   selection and verifies final authentication and EOF. Earlier authenticated
   plaintext may remain after a later failure.
 - Historical NPC v1/v2, raw GCM, and CBC ciphertext require an older binary.
+- Passwords use native OpenPGP AES-256 SKESK v6 with Argon2id and the SEIPDv2
+  reader. Check stored KDF costs, per wrapper and cumulatively, before asking
+  for a password, deriving, or opening output; there is no override. Password
+  acquisition must not consume payload stdin or write secrets to output.
 - Preserve the distinction between borrowed and owned inputs in
   `internal/contextio/`: cancellation must not close a borrowed input.
 - Support performance claims with representative before-and-after benchmarks.
