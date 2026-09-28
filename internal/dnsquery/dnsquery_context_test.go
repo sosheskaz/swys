@@ -9,9 +9,45 @@ import (
 	"testing/synctest"
 	"time"
 
+	externalDNS "codeberg.org/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPlaintextCancellationCannotBeOverwrittenByReadDeadline(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		client, server := net.Pipe()
+		defer func() { assert.NoError(t, client.Close()) }()
+		defer func() { assert.NoError(t, server.Close()) }()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		conn := &cancelBeforeReadDeadlineConn{Conn: client, cancel: cancel}
+		go func() {
+			_, err := io.Copy(io.Discard, server) // Drain the query without answering.
+			assert.NoError(t, err)
+		}()
+
+		started := time.Now()
+		_, err := exchangePlaintextConn(ctx, &externalDNS.Msg{}, conn, time.Hour)
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Zero(t, time.Since(started), "cancellation must finish without waiting for the replacement read deadline")
+	})
+}
+
+type cancelBeforeReadDeadlineConn struct {
+	net.Conn
+	cancel context.CancelFunc
+}
+
+func (conn *cancelBeforeReadDeadlineConn) SetReadDeadline(deadline time.Time) error {
+	// Force cancellation after the DNS client checks ctx.Err(), but before it
+	// installs its read deadline: the ordering from the CI hang.
+	conn.cancel()
+	synctest.Wait()
+	return conn.Conn.SetReadDeadline(deadline) //nolint:wrapcheck // Preserve the wrapped connection behavior.
+}
 
 func TestWatchDNSConnectionContextCancellationWinsDeadlineSetup(t *testing.T) {
 	t.Parallel()

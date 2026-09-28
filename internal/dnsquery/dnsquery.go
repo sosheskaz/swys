@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	externalDNS "codeberg.org/miekg/dns"
@@ -638,20 +639,22 @@ func exchangePlaintext(ctx context.Context, q *externalDNS.Msg, t Transport, add
 	if err != nil {
 		return nil, fmt.Errorf("dial DNS server: %w", err)
 	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = conn.SetDeadline(time.Now()) //nolint:errcheck // Cancellation best-effort unblocks pending I/O.
-		case <-done:
-		}
-	}()
+	return exchangePlaintextConn(ctx, q, conn, timeout)
+}
+
+func exchangePlaintextConn(ctx context.Context, q *externalDNS.Msg, conn net.Conn, timeout time.Duration) (*externalDNS.Msg, error) {
+	// The DNS client installs its own deadlines, which could overwrite a
+	// cancellation deadline. Closing this owned connection cannot be undone.
+	closeConn := sync.OnceValue(conn.Close)
+	stop := context.AfterFunc(ctx, func() {
+		_ = closeConn() //nolint:errcheck // The close result is joined below.
+	})
 	client := externalDNS.NewClient()
 	client.ReadTimeout = timeout
 	client.WriteTimeout = timeout
 	r, _, xerr := client.ExchangeWithConn(ctx, q, conn)
-	close(done)
-	err = errors.Join(xerr, conn.Close())
+	stop()
+	err := errors.Join(xerr, closeConn())
 	if err != nil {
 		if ce := ctx.Err(); ce != nil {
 			return nil, errors.Join(ce, err)
