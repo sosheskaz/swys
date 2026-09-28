@@ -10,11 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	rootcmd "github.com/sosheskaz-systems/npc/cmd"
@@ -54,17 +54,14 @@ func TestAESValidKeyfileFIFOIsReadOnce(t *testing.T) {
 
 	select {
 	case result := <-commandDone:
-		if result.err != nil || result.stdout == "" {
-			t.Fatalf("single-read FIFO encryption = %d bytes, error %v", len(result.stdout), result.err)
-		}
+		require.NoError(t, result.err, "single-read FIFO encryption")
+		require.NotEmpty(t, result.stdout, "single-read FIFO encryption")
 	case <-time.After(5 * time.Second):
 		t.Fatal("AES command did not finish after one FIFO key write; keyfile may have been read more than once")
 	}
 	select {
 	case err := <-writerDone:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out writing one AES key to FIFO")
 	}
@@ -121,14 +118,11 @@ func TestAESInvalidInputPrecedesUnreadKeyfileFIFO(t *testing.T) {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				t.Fatalf("command blocked opening unused key FIFO instead of reporting %s", test.want)
 			}
-			if err == nil || !strings.Contains(stderr.String(), test.want) {
-				t.Fatalf("command error = %v, stderr = %q; want prompt %q error", err, stderr.String(), test.want)
-			}
+			require.Error(t, err, "command must report prompt %q error", test.want)
+			require.Contains(t, stderr.String(), test.want, "prompt error")
 			data, readErr := os.ReadFile(output)
 			require.NoError(t, readErr)
-			if string(data) != testPreservedOutput {
-				t.Fatalf("invalid input changed output to %q", data)
-			}
+			assert.Equal(t, testPreservedOutput, string(data), "invalid input changed output")
 		})
 	}
 }

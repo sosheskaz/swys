@@ -35,13 +35,11 @@ func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest
 						if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) { // ERROR_PRIVILEGE_NOT_HELD
 							t.Skipf("symlink creation requires privileges: %v", err)
 						}
-						t.Fatalf("create symlink: %v", err)
+						require.NoError(t, err, "create symlink")
 					}
 				case "hard link":
 					output = filepath.Join(dir, "alias")
-					if err := os.Link(keyfile, output); err != nil {
-						t.Fatalf("create hard link: %v", err)
-					}
+					require.NoError(t, os.Link(keyfile, output), "create hard link")
 				}
 				_, err := executeRoot(t, "aes", leaf, "payload", "--keyfile", keyfile, "--output", output)
 				if err == nil {
@@ -49,9 +47,7 @@ func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest
 				}
 				got, readErr := os.ReadFile(keyfile)
 				require.NoError(t, readErr)
-				if !bytes.Equal(got, key) {
-					t.Errorf("keyfile changed: got %x, want %x", got, key)
-				}
+				assert.Equal(t, key, got, "keyfile changed")
 				if err != nil && !errors.Is(err, aescommand.ErrAESKeyOutputCollision) {
 					t.Errorf("error = %v, want keyfile/output collision", err)
 				}
@@ -66,12 +62,11 @@ func TestAESKeyfileRoundTrip(t *testing.T) {
 	keyfile := filepath.Join(dir, "key")
 	encrypted := filepath.Join(dir, "encrypted")
 	require.NoError(t, os.WriteFile(keyfile, bytes.Repeat([]byte{0x42}, 32), 0o600))
-	if _, err := executeRoot(t, "aes", "encrypt", "hello", "--keyfile", keyfile, "--output", encrypted); err != nil {
-		t.Fatal(err)
-	}
+	_, err := executeRoot(t, "aes", "encrypt", "hello", "--keyfile", keyfile, "--output", encrypted)
+	require.NoError(t, err)
 	got, err := executeRoot(t, "aes", "decrypt", "--keyfile", keyfile, "--input", encrypted)
 	require.NoError(t, err)
-	assert.Equal(t, "hello", got, "plaintext = %q, want hello", got)
+	assert.Equal(t, "hello", got)
 }
 
 func TestAESKeyfilePathErrorPreservesOutput(t *testing.T) {
@@ -87,7 +82,5 @@ func TestAESKeyfilePathErrorPreservesOutput(t *testing.T) {
 	require.ErrorIs(t, err, syscall.ENOTDIR, "error = %v, want source path error", err)
 	got, err := os.ReadFile(output)
 	require.NoError(t, err)
-	if !bytes.Equal(got, original) {
-		t.Fatalf("output changed: %q", got)
-	}
+	assert.Equal(t, original, got, "output changed")
 }

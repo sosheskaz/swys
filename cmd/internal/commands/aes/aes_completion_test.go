@@ -34,12 +34,8 @@ func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			output := completeRoot(t, test.args...)
-			if !strings.Contains(output, test.want) {
-				t.Fatalf("completion %q does not contain %q", output, test.want)
-			}
-			if strings.Contains(output, test.unwanted) {
-				t.Fatalf("completion %q contains conflicting %q", output, test.unwanted)
-			}
+			assert.Contains(t, output, test.want)
+			assert.NotContains(t, output, test.unwanted)
 			assertCompletionDirective(t, output, ":4")
 		})
 	}
@@ -77,20 +73,16 @@ func TestAESGenkeyIsRemoved(t *testing.T) {
 		assert.NotEqual(t, "genkey", command.Name(), "aes genkey remains registered")
 	}
 	stdout, _, err := executeRootStreams(t, "aes", "genkey")
-	if err == nil || !strings.Contains(err.Error(), "unknown command") {
-		t.Fatalf("aes genkey error = %v, want unknown command", err)
-	}
-	require.Empty(t, stdout, "aes genkey stdout = %q, want empty", stdout)
+	require.ErrorContains(t, err, "unknown command", "aes genkey")
+	require.Empty(t, stdout)
 	outputPath := filepath.Join(t.TempDir(), "key")
-	if _, _, err := executeRootStreams(t, "aes", "genkey", "--output", outputPath); err == nil || !strings.Contains(err.Error(), "unknown command") {
-		t.Fatalf("aes genkey --output error = %v, want unknown command", err)
-	}
+	_, _, err = executeRootStreams(t, "aes", "genkey", "--output", outputPath)
+	require.ErrorContains(t, err, "unknown command", "aes genkey --output")
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
 		t.Fatalf("aes genkey --output file error = %v, want not-exist", err)
 	}
-	if _, _, err := executeRootStreams(t, "aes", "genkey", "--bits", "256"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
-		t.Fatalf("aes genkey --bits error = %v, want removed flag", err)
-	}
+	_, _, err = executeRootStreams(t, "aes", "genkey", "--bits", "256")
+	require.ErrorContains(t, err, "unknown flag", "aes genkey --bits")
 }
 
 func TestAESKeygenBitsCompletion(t *testing.T) {
