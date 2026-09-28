@@ -99,6 +99,35 @@ func TestAESKeygenBitsCompletion(t *testing.T) {
 	assertCompletionDirective(t, output, ":4")
 }
 
+func TestAESAutoKeyFormatCompletionOnlyForReaders(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		command  string
+		flag     string
+		wantAuto bool
+	}{
+		{command: "encrypt", flag: "--key-format", wantAuto: true},
+		{command: "decrypt", flag: "--key-format", wantAuto: true},
+		{command: "keygen", flag: "--key-format"},
+		{command: "key-inspect", flag: "--key-format", wantAuto: true},
+		{command: "key-convert", flag: "--from", wantAuto: true},
+		{command: "key-convert", flag: "--to"},
+	} {
+		t.Run(tc.command+"/"+tc.flag, func(t *testing.T) {
+			t.Parallel()
+			output := completeRoot(t, "aes", tc.command, tc.flag, "")
+			if tc.wantAuto {
+				assertCompletionLine(t, output, "auto")
+			} else {
+				for _, line := range strings.Split(output, "\n") {
+					require.NotEqual(t, "auto", line)
+				}
+			}
+			assertCompletionDirective(t, output, ":4")
+		})
+	}
+}
+
 func completeRoot(t *testing.T, args ...string) string {
 	t.Helper()
 	output, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, append([]string{"__complete"}, args...)...)

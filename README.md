@@ -940,9 +940,13 @@ messages that need more.
 `--wire-format tink` selects native Tink AES-GCM-HKDF ciphertext. A raw AES key
 uses 1 MiB ciphertext segments, SHA-256 HKDF, and a matching derived key size
 by default. A Tink keyset supplies its own parameters and primary encryption
-key; enabled keys can decrypt. Use `--key-format tink-json` or `tink-binary`
-with `--keyfile`. OpenPGP use of a keyset requires `--key-id` to choose an
-enabled key. Tink authenticates the exact user-supplied `--aad` bytes.
+key; enabled keys can decrypt. With `--keyfile`, encrypt and decrypt detect
+raw, Tink JSON, or Tink binary keys from their contents by default. Use
+`--key-format raw`, `tink-json`, or `tink-binary` to select a format explicitly.
+OpenPGP uses the keyset's enabled primary key for both encryption and decryption;
+`--key-id` selects another enabled key. After rotating the primary, older
+OpenPGP ciphertext may need its original `--key-id`; OpenPGP does not try other
+keys. Tink authenticates the exact user-supplied `--aad` bytes.
 
 Authentication is per chunk. Earlier verified plaintext may remain after a
 later failure, but success requires the final tag and end of input. There is no

@@ -9,11 +9,44 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tink-crypto/tink-go/v2/proto/tink_go_proto"
 	"github.com/tink-crypto/tink-go/v2/streamingaead/subtle"
 
 	rootcmd "github.com/sosheskaz-systems/npc/cmd"
 	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
 )
+
+func TestExampleAESAutodetectsKeysetFiles(t *testing.T) {
+	t.Parallel()
+	primary := bytes.Repeat([]byte{0x41}, 32)
+	fixture := &tink_go_proto.Keyset{
+		PrimaryKeyId: 101,
+		Key: []*tink_go_proto.Keyset_Key{
+			fixtureAESKey(t, 101, primary, tink_go_proto.KeyStatusType_ENABLED),
+		},
+	}
+	plaintext := []byte("encrypt with a keyset file\n")
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{name: "JSON with leading whitespace", data: append([]byte(" \n\t"), jsonAESFixture(t, fixture)...)},
+		{name: "binary", data: mustMarshalAESKeyset(t, fixture)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			keyfile := filepath.Join(t.TempDir(), "keyfile")
+			require.NoError(t, os.WriteFile(keyfile, tc.data, 0o600))
+			wire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
+				"aes", "encrypt", "-K", keyfile)
+			require.NoError(t, err)
+			opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
+				"aes", "decrypt", "-K", keyfile)
+			require.NoError(t, err)
+			require.Equal(t, plaintext, opened)
+		})
+	}
+}
 
 func TestExampleAESOpenPGPDefaultWire(t *testing.T) {
 	t.Parallel()

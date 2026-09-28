@@ -4,10 +4,10 @@ Show the size of a raw AES key or the primary ID, status, size, and streaming pa
 
 ```sh
 npc aes key-inspect --input key.bin
-npc aes key-inspect --key-format tink-json --input keyset.json --format json
+npc aes key-inspect --input keyset.json --format json
 ```
 
-Raw input is the default. Choose tink-json or tink-binary for keysets. Use --format text or --format json for the report.
+The input format is detected by default. Use --key-format raw, tink-json, or tink-binary to select one explicitly. Use --format text or --format json for the report.
 
 ## Reference
 

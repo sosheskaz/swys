@@ -34,8 +34,8 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 		{"cert csr key", []string{"cert", "csr", "--key", keyPath}},
 		{"cert issuer cert", []string{"cert", "create", "--key", identity.serverKey, "--issuer-cert", certPath, "--issuer-key", identity.serverKey}},
 		{"cert issuer key", []string{"cert", "create", "--key", identity.serverKey, "--issuer-cert", identity.caCert, "--issuer-key", keyPath}},
-		{"aes encrypt", []string{"aes", "encrypt", "hello", "--keyfile", aesPath}},
-		{"aes decrypt", []string{"aes", "decrypt", "hello", "--keyfile", aesPath}},
+		{"aes encrypt", []string{"aes", "encrypt", "hello", "--keyfile", aesPath, "--key-format", "raw"}},
+		{"aes decrypt", []string{"aes", "decrypt", "hello", "--keyfile", aesPath, "--key-format", "raw"}},
 	}
 	for _, operation := range []string{"connect", "listen"} {
 		for _, artifact := range []struct{ name, path string }{{"ca", certPath}, {"cert", certPath}, {"key", keyPath}} {

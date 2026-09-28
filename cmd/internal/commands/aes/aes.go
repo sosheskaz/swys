@@ -32,6 +32,7 @@ const (
 	flagDerivedBits = "derived-key-bits"
 	flagHKDFHash    = "hkdf-hash"
 	commandDecrypt  = "decrypt"
+	keyFormatAuto   = "auto"
 	hashSHA256      = "sha256"
 	hashSHA512      = "sha512"
 )
@@ -84,14 +85,14 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 func addKeyFlags(cmd *cobra.Command) {
 	cmd.Flags().BytesBase64P("key", "k", nil, "raw AES key as base64")
 	cmd.Flags().StringP("keyfile", "K", "", "read the AES key or Tink keyset from this file")
-	cmd.Flags().String("key-format", keyFormatRaw, "keyfile format (raw, tink-json, tink-binary)")
+	cmd.Flags().String("key-format", keyFormatAuto, "keyfile format (auto, raw, tink-json, tink-binary)")
 	cmd.Flags().String("key-id", "", "decimal Tink key ID for OpenPGP")
 	if err := cmd.MarkFlagFilename("keyfile"); err != nil {
 		panic(err)
 	}
 	cmd.MarkFlagsMutuallyExclusive("key", "keyfile")
 	cmd.MarkFlagsOneRequired("key", "keyfile")
-	commandio.RegisterFlagCompletion(cmd, "key-format", keyFormatNames)
+	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 }
 
 func addAESWireFlags(cmd *cobra.Command) {
@@ -123,6 +124,10 @@ func getAESInt(cmd *cobra.Command, name string) (int, error) {
 	return value, nil
 }
 
+func operationKeyFormat(cmd *cobra.Command) (string, error) {
+	return readerKeyFormatFlag(cmd, "key-format")
+}
+
 func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 	wire, err := getAESString(cmd, "wire-format")
 	if err != nil {
@@ -131,7 +136,7 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 	if wire != wireOpenPGP && wire != wireTink {
 		return fmt.Errorf("%w %q", errAESWireFormat, wire)
 	}
-	format, err := keyFormatFlag(cmd, "key-format")
+	format, err := operationKeyFormat(cmd)
 	if err != nil {
 		return err
 	}
@@ -145,10 +150,10 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 }
 
 func validateAESFormatFlags(cmd *cobra.Command, wire, format string) error {
-	if cmd.Flags().Changed("key") && format != keyFormatRaw {
+	if cmd.Flags().Changed("key") && cmd.Flags().Changed("key-format") && format != keyFormatRaw {
 		return fmt.Errorf("%w: --key is always raw; --key-format applies to --keyfile", errAESWireFlag)
 	}
-	if cmd.Flags().Changed("key-id") && format == keyFormatRaw {
+	if cmd.Flags().Changed("key-id") && (cmd.Flags().Changed("key") || format == keyFormatRaw) {
 		return fmt.Errorf("%w: --key-id requires a Tink keyset", errAESWireFlag)
 	}
 	if wire == wireTink {
@@ -161,9 +166,6 @@ func validateAESFormatFlags(cmd *cobra.Command, wire, format string) error {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("%w: --%s requires Tink", errAESWireFlag, name)
 		}
-	}
-	if format != keyFormatRaw && !cmd.Flags().Changed("key-id") {
-		return fmt.Errorf("%w: OpenPGP keyset use requires --key-id", errAESWireFlag)
 	}
 	if cmd.Name() == commandDecrypt && cmd.Flags().Changed("chunk-size") {
 		return fmt.Errorf("%w: OpenPGP decryption reads --chunk-size from the packet", errAESWireFlag)
@@ -254,43 +256,35 @@ func readAESOperationKey(cmd *cobra.Command) ([]byte, *keyset.Handle, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	format, err := keyFormatFlag(cmd, "key-format")
+	format, err := operationKeyFormat(cmd)
 	if err != nil {
 		return nil, nil, err
 	}
-	limit := artifact.MaxAESKeyBytes
-	if format != keyFormatRaw {
-		limit = artifact.MaxKeyBytes
-	}
-	data, err := artifact.ReadFile(path, limit)
+	data, err := artifact.ReadFile(path, aesKeyInputLimit(format))
 	if err != nil {
 		return nil, nil, fmt.Errorf("read AES keyfile %q: %w", path, err)
 	}
+	format = detectAESKeyFormat(data, format)
 	if format == keyFormatRaw {
 		return data, nil, nil
 	}
 	handle, err := symkey.Read(data, format)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("invalid AES keyfile (%s): %w", format, err)
 	}
 	return nil, handle, nil
 }
 
 func prepareAESPrimitive(cmd *cobra.Command, op *aesOperation, key []byte, handle *keyset.Handle) error {
+	if handle == nil && cmd.Flags().Changed("key-id") {
+		return fmt.Errorf("%w: --key-id requires a Tink keyset", errAESWireFlag)
+	}
 	if handle != nil {
 		if op.wire == wireTink {
 			return prepareTinkKeyset(cmd, op, handle)
 		}
-		idText, err := getAESString(cmd, "key-id")
-		if err != nil {
-			return err
-		}
-		id, err := strconv.ParseUint(idText, 10, 32)
-		if err != nil {
-			return fmt.Errorf("invalid decimal key ID %q: %w", idText, err)
-		}
-		selected := uint32(id)
-		key, err = symkey.Raw(handle, &selected)
+		var err error
+		key, err = selectOpenPGPKeysetKey(cmd, handle)
 		if err != nil {
 			return err
 		}
@@ -303,6 +297,26 @@ func prepareAESPrimitive(cmd *cobra.Command, op *aesOperation, key []byte, handl
 		return prepareRawTink(cmd, op)
 	}
 	return nil
+}
+
+func selectOpenPGPKeysetKey(cmd *cobra.Command, handle *keyset.Handle) ([]byte, error) {
+	if !cmd.Flags().Changed("key-id") {
+		info, err := symkey.Inspect(handle)
+		if err != nil {
+			return nil, err
+		}
+		return symkey.Raw(handle, &info.PrimaryKeyID)
+	}
+	idText, err := getAESString(cmd, "key-id")
+	if err != nil {
+		return nil, err
+	}
+	id, err := strconv.ParseUint(idText, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid decimal key ID %q: %w", idText, err)
+	}
+	selected := uint32(id)
+	return symkey.Raw(handle, &selected)
 }
 
 func prepareTinkKeyset(cmd *cobra.Command, op *aesOperation, handle *keyset.Handle) error {

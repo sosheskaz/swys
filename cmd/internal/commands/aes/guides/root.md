@@ -1,6 +1,6 @@
 # Encrypt and decrypt with AES
 
-Use a raw 128-bit or 256-bit AES key or a cleartext Tink streaming keyset. Encryption defaults to binary OpenPGP RFC 9580 AES-GCM. Select --wire-format tink for native Tink AES-GCM-HKDF streams.
+Use a raw 128-bit or 256-bit AES key or a cleartext Tink streaming keyset. AES commands that read keys detect their format from contents by default. Encryption defaults to binary OpenPGP RFC 9580 AES-GCM. Select --wire-format tink for native Tink AES-GCM-HKDF streams.
 
 ## Choose an operation
 

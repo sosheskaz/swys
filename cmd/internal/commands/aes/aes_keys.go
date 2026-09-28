@@ -45,6 +45,45 @@ func keyFormatFlag(cmd *cobra.Command, flag string) (string, error) {
 	return "", fmt.Errorf("%w %q", errAESKeyFormat, value)
 }
 
+func readerKeyFormatFlag(cmd *cobra.Command, flag string) (string, error) {
+	value, err := cmd.Flags().GetString(flag)
+	if err != nil {
+		return "", fmt.Errorf("read %s flag: %w", flag, err)
+	}
+	if value == keyFormatAuto {
+		return value, nil
+	}
+	return keyFormatFlag(cmd, flag)
+}
+
+func detectAESKeyFormat(data []byte, format string) string {
+	if format != keyFormatAuto {
+		return format
+	}
+	if len(data) == 16 || len(data) == 32 {
+		return keyFormatRaw
+	}
+	if trimmed := bytes.TrimLeft(data, " \t\r\n"); len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		return "tink-json"
+	}
+	return "tink-binary"
+}
+
+func aesKeyInputLimit(format string) int64 {
+	if format == keyFormatRaw {
+		return artifact.MaxAESKeyBytes
+	}
+	return artifact.MaxKeyBytes
+}
+
+func readAESKeyInput(input io.Reader, format string) ([]byte, string, error) {
+	data, err := artifact.Read(input, aesKeyInputLimit(format))
+	if err != nil {
+		return nil, "", fmt.Errorf("read AES key: %w", err)
+	}
+	return data, detectAESKeyFormat(data, format), nil
+}
+
 func addTinkParameterFlags(cmd *cobra.Command) {
 	cmd.Flags().String("chunk-size", "1MiB", "Tink ciphertext segment size (64B through 64MiB)")
 	cmd.Flags().String("hkdf-hash", "sha256", "Tink HKDF hash (sha256 or sha512)")
@@ -144,22 +183,21 @@ func newAESKeyConvertCmd() *cobra.Command {
 		Use: "key-convert", Short: "Convert raw AES keys and cleartext Tink keysets", Args: cobra.NoArgs,
 		RunE: writePreparedAESKey,
 	}, true)
-	cmd.Flags().String("from", "", "source key format (raw, tink-json, tink-binary)")
+	cmd.Flags().String("from", keyFormatAuto, "source key format (auto, raw, tink-json, tink-binary)")
 	cmd.Flags().String("to", "", "target key format (raw, tink-json, tink-binary)")
 	cmd.Flags().String("key-id", "", "decimal Tink key ID for raw export")
 	addTinkParameterFlags(cmd)
-	for _, name := range []string{"from", "to"} {
-		if err := cmd.MarkFlagRequired(name); err != nil {
-			panic(err)
-		}
-		commandio.RegisterFlagCompletion(cmd, name, keyFormatNames)
+	if err := cmd.MarkFlagRequired("to"); err != nil {
+		panic(err)
 	}
+	commandio.RegisterFlagCompletion(cmd, "from", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
+	commandio.RegisterFlagCompletion(cmd, "to", keyFormatNames)
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd
 }
 
 func validateAESKeyConvertFlags(cmd *cobra.Command) error {
-	from, err := keyFormatFlag(cmd, "from")
+	from, err := readerKeyFormatFlag(cmd, "from")
 	if err != nil {
 		return err
 	}
@@ -167,15 +205,8 @@ func validateAESKeyConvertFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	if cmd.Flags().Changed("key-id") && (from == keyFormatRaw || to != keyFormatRaw) {
-		return fmt.Errorf("%w: --key-id requires Tink source and raw target", errAESKeyID)
-	}
-	if from != keyFormatRaw {
-		for _, name := range []string{"chunk-size", "hkdf-hash", "derived-key-bits"} {
-			if cmd.Flags().Changed(name) {
-				return fmt.Errorf("%w: --%s applies only to raw key imports", errAESParameter, name)
-			}
-		}
+	if err := validateAESKeyConvertSourceFlags(cmd, from, to); err != nil {
+		return err
 	}
 	if from == keyFormatRaw {
 		_, err = tinkParamsFromCommand(cmd, to, 256)
@@ -183,11 +214,15 @@ func validateAESKeyConvertFlags(cmd *cobra.Command) error {
 			return err
 		}
 	}
+	if from == keyFormatAuto && to == keyFormatRaw {
+		_, err = tinkParamsFromCommand(cmd, to, 256)
+		return err
+	}
 	return nil
 }
 
 func prepareAESKeyConversion(cmd *cobra.Command, input io.Reader) ([]byte, error) {
-	from, err := keyFormatFlag(cmd, "from")
+	from, err := readerKeyFormatFlag(cmd, "from")
 	if err != nil {
 		return nil, err
 	}
@@ -195,13 +230,12 @@ func prepareAESKeyConversion(cmd *cobra.Command, input io.Reader) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	limit := artifact.MaxKeyBytes
-	if from == keyFormatRaw {
-		limit = artifact.MaxAESKeyBytes
-	}
-	data, err := artifact.Read(input, limit)
+	data, from, err := readAESKeyInput(input, from)
 	if err != nil {
-		return nil, fmt.Errorf("read AES key: %w", err)
+		return nil, err
+	}
+	if err := validateAESKeyConvertSourceFlags(cmd, from, to); err != nil {
+		return nil, err
 	}
 	if from == keyFormatRaw {
 		return convertRawAESKey(cmd, data, to)
@@ -227,6 +261,23 @@ func prepareAESKeyConversion(cmd *cobra.Command, input io.Reader) ([]byte, error
 		selected = &value
 	}
 	return symkey.Raw(handle, selected)
+}
+
+func validateAESKeyConvertSourceFlags(cmd *cobra.Command, from, to string) error {
+	if cmd.Flags().Changed("key-id") && (from == keyFormatRaw || to != keyFormatRaw) {
+		return fmt.Errorf("%w: --key-id requires Tink source and raw target", errAESKeyID)
+	}
+	if from == keyFormatAuto {
+		return nil
+	}
+	if from != keyFormatRaw {
+		for _, name := range []string{"chunk-size", "hkdf-hash", "derived-key-bits"} {
+			if cmd.Flags().Changed(name) {
+				return fmt.Errorf("%w: --%s applies only to raw key imports", errAESParameter, name)
+			}
+		}
+	}
+	return nil
 }
 
 func convertRawAESKey(cmd *cobra.Command, data []byte, to string) ([]byte, error) {
@@ -267,14 +318,14 @@ func newAESKeyInspectCmd() *cobra.Command {
 		Use: "key-inspect", Short: "Inspect AES key metadata without revealing key material", Args: cobra.NoArgs,
 		RunE: writePreparedAESKey,
 	}, func() []string { return []string{"text", inspectionJSON} }))
-	cmd.Flags().String("key-format", keyFormatRaw, "key format (raw, tink-json, tink-binary)")
-	commandio.RegisterFlagCompletion(cmd, "key-format", keyFormatNames)
+	cmd.Flags().String("key-format", keyFormatAuto, "key format (auto, raw, tink-json, tink-binary)")
+	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd
 }
 
 func validateAESKeyInspectFlags(cmd *cobra.Command) error {
-	if _, err := keyFormatFlag(cmd, "key-format"); err != nil {
+	if _, err := readerKeyFormatFlag(cmd, "key-format"); err != nil {
 		return err
 	}
 	format, err := cmd.Flags().GetString("format")
@@ -288,17 +339,13 @@ func validateAESKeyInspectFlags(cmd *cobra.Command) error {
 }
 
 func prepareAESKeyInspection(cmd *cobra.Command, input io.Reader) ([]byte, error) {
-	keyFormat, err := keyFormatFlag(cmd, "key-format")
+	keyFormat, err := readerKeyFormatFlag(cmd, "key-format")
 	if err != nil {
 		return nil, err
 	}
-	limit := artifact.MaxKeyBytes
-	if keyFormat == keyFormatRaw {
-		limit = artifact.MaxAESKeyBytes
-	}
-	data, err := artifact.Read(input, limit)
+	data, keyFormat, err := readAESKeyInput(input, keyFormat)
 	if err != nil {
-		return nil, fmt.Errorf("read AES key: %w", err)
+		return nil, err
 	}
 	var info symkey.Info
 	if keyFormat == keyFormatRaw {

@@ -1,6 +1,6 @@
 # Encrypt a message with AES
 
-Encryption defaults to binary, uncompressed OpenPGP RFC 9580 AES-GCM. Supply a raw AES key as base64 with --key or from a file with --keyfile. Use --key-format tink-json or tink-binary for a cleartext Tink keyset.
+Encryption defaults to binary, uncompressed OpenPGP RFC 9580 AES-GCM. Supply a raw AES key as base64 with --key or use --keyfile for a raw key or cleartext Tink JSON or binary keyset. Keyfile format is detected from its contents by default; --key-format raw, tink-json, or tink-binary selects a format explicitly.
 
 ## Encrypt with a raw key file
 
@@ -9,7 +9,7 @@ npc aes keygen --output key.bin
 printf 'deploy at 09:00' | npc aes encrypt --keyfile key.bin --output message.pgp
 ```
 
-OpenPGP accepts power-of-two --chunk-size values from 64 bytes through 4 MiB, defaulting to 1 MiB. When using a Tink keyset with OpenPGP, provide --key-id to select an enabled key. OpenPGP does not use external --aad or Tink HKDF flags.
+OpenPGP accepts power-of-two --chunk-size values from 64 bytes through 4 MiB, defaulting to 1 MiB. A Tink keyset uses its enabled primary key by default. Use --key-id to select another enabled key. OpenPGP does not use external --aad or Tink HKDF flags.
 
 ## Encrypt in Tink format
 
