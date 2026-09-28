@@ -7,6 +7,9 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
@@ -23,18 +26,12 @@ func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 		},
 	})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "dns", "example.test")
-	if err != nil {
-		t.Fatalf("npc dns example.test: %v", err)
-	}
+	require.NoError(t, err, "npc dns example.test")
 	want := ";; resolver: system\n;; server: unavailable\n" +
 		";; status: unavailable; DNS packet metadata and TTLs unavailable\n\n" +
 		"example.test.\t-\tIN\tA\t192.0.2.10\n"
-	if stdout != want {
-		t.Fatalf("stdout = %q", stdout)
-	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want no diagnostics", stderr)
-	}
+	assert.Equal(t, want, stdout)
+	assert.Empty(t, stderr, "diagnostics")
 }
 
 func TestExampleDNSShortJSON(t *testing.T) {
@@ -51,12 +48,8 @@ func TestExampleDNSShortJSON(t *testing.T) {
 		},
 	})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "AAAA", "--short", "--format", "json")
-	if err != nil {
-		t.Fatalf("npc dns example.test AAAA --short --format json: %v", err)
-	}
-	if stdout != "[\n  \"2001:db8::10\",\n  \"2001:db8::20\"\n]\n" {
-		t.Fatalf("stdout = %q", stdout)
-	}
+	require.NoError(t, err, "npc dns example.test AAAA --short --format json")
+	assert.Equal(t, "[\n  \"2001:db8::10\",\n  \"2001:db8::20\"\n]\n", stdout)
 }
 
 func TestDNSJSONSchemaIsByteStableAcrossCoreBoundary(t *testing.T) {
@@ -70,9 +63,7 @@ func TestDNSJSONSchemaIsByteStableAcrossCoreBoundary(t *testing.T) {
 		},
 	})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--format", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := "{\n" +
 		"  \"resolver\": \"system\",\n" +
 		"  \"server\": null,\n" +
@@ -94,9 +85,7 @@ func TestDNSJSONSchemaIsByteStableAcrossCoreBoundary(t *testing.T) {
 		"    }\n" +
 		"  ]\n" +
 		"}\n"
-	if stdout != want {
-		t.Fatalf("stdout = %q\nwant = %q", stdout, want)
-	}
+	assert.Equal(t, want, stdout)
 }
 
 type stubSystemResolver struct {

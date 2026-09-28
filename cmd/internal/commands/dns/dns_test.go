@@ -11,7 +11,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +18,8 @@ import (
 	"codeberg.org/miekg/dns/dnsutil"
 	"codeberg.org/miekg/dns/rdata"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
@@ -31,9 +32,7 @@ var (
 
 func TestDNSAliasesUseTheSameSyntax(t *testing.T) {
 	t.Parallel()
-	if aliases := newDNSCmd(defaultDNSDependencies()).Aliases; !slices.Equal(aliases, []string{"dig", "nslookup"}) {
-		t.Fatalf("aliases = %q", aliases)
-	}
+	assert.Equal(t, []string{"dig", "nslookup"}, newDNSCmd(defaultDNSDependencies()).Aliases)
 	for _, alias := range []string{"dns", "dig", "nslookup"} {
 		t.Run(alias, func(t *testing.T) {
 			t.Parallel()
@@ -48,9 +47,8 @@ func TestDNSAliasesUseTheSameSyntax(t *testing.T) {
 				},
 			})
 			stdout, _, err := executeRootCommandStreams(t, root, alias, "example.test", "A", "--short")
-			if err != nil || stdout != "192.0.2.1\n" {
-				t.Fatalf("output = %q, error = %v", stdout, err)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, "192.0.2.1\n", stdout)
 		})
 	}
 }
@@ -76,17 +74,13 @@ func TestDNSRejectsInvalidOptionsBeforeOpeningOutput(t *testing.T) {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "output")
-			if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 			args = append(args, "--output", path)
-			if _, _, err := executeRootStreams(t, args...); err == nil {
-				t.Fatal("expected error")
-			}
+			_, _, err := executeRootStreams(t, args...)
+			require.Error(t, err)
 			data, err := os.ReadFile(path)
-			if err != nil || string(data) != "preserve" {
-				t.Fatalf("output = %q, read error = %v", data, err)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, "preserve", string(data), "output file")
 		})
 	}
 }
@@ -100,13 +94,9 @@ func TestDNSSystemPTRAndMetadata(t *testing.T) {
 		return []string{"ptr.example.test."}, nil
 	}}})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "192.0.2.8", "-x", "--format", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var result dnsquery.Result
-	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
 	if result.Server != nil || result.Status != nil || result.Answers[0].TTL != nil || result.Answers[0].Value != "ptr.example.test." {
 		t.Fatalf("result = %+v", result)
 	}
@@ -123,9 +113,8 @@ func TestDNSSystemResolverIsInjectedPerCommand(t *testing.T) {
 				}},
 			})
 			stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--short")
-			if err != nil || stdout != address+"\n" {
-				t.Fatalf("output = %q, error = %v", stdout, err)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, address+"\n", stdout)
 		})
 	}
 }
@@ -154,24 +143,18 @@ func TestDNSDirectRetriesTruncatedUDPOverTCP(t *testing.T) {
 	}
 	root := newRootCmdWithDNSDependencies(deps)
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "@127.0.0.1", "example.test", "--port", "5353", "--format", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	wantTransports := []dnsquery.Transport{dnsquery.TransportUDP, dnsquery.TransportTCP}
-	hasTCPTransport := strings.Contains(stdout, `"transport": "tcp"`)
-	hasTTL := strings.Contains(stdout, `"ttl": 60`)
-	if !slices.Equal(transports, wantTransports) || !hasTCPTransport || !hasTTL {
-		t.Fatalf("transports = %q, output = %s", transports, stdout)
-	}
+	assert.Equal(t, wantTransports, transports)
+	assert.Contains(t, stdout, `"transport": "tcp"`)
+	assert.Contains(t, stdout, `"ttl": 60`)
 }
 
 func TestDNSDirectLocalUDPTruncationFallback(t *testing.T) {
 	t.Parallel()
 	listenConfig := net.ListenConfig{}
 	tcpListener, err := listenConfig.Listen(t.Context(), "tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	udpConn, err := listenConfig.ListenPacket(t.Context(), "udp4", tcpListener.Addr().String())
 	if err != nil {
 		if closeErr := tcpListener.Close(); closeErr != nil {
@@ -187,26 +170,15 @@ func TestDNSDirectLocalUDPTruncationFallback(t *testing.T) {
 	tcpDone := serveTCPAnswerFixture(tcpListener)
 
 	host, port, err := net.SplitHostPort(tcpListener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	root := newRootCmd()
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "@"+host, "fixture.example", "--port", port, "--format", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout, `"transport": "tcp"`) || !strings.Contains(stdout, `"value": "192.0.2.45"`) {
-		t.Fatalf("output = %s", stdout)
-	}
-	if serveErr := <-udpDone; serveErr != nil {
-		t.Fatal(serveErr)
-	}
-	if serveErr := <-tcpDone; serveErr != nil {
-		t.Fatal(serveErr)
-	}
-	if err := errors.Join(udpConn.Close(), tcpListener.Close()); err != nil {
-		t.Fatalf("close DNS fixtures: %v", err)
-	}
+	require.NoError(t, err)
+	require.Contains(t, stdout, `"transport": "tcp"`)
+	require.Contains(t, stdout, `"value": "192.0.2.45"`)
+	require.NoError(t, <-udpDone)
+	require.NoError(t, <-tcpDone)
+	require.NoError(t, errors.Join(udpConn.Close(), tcpListener.Close()), "close DNS fixtures")
 }
 
 func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
@@ -222,9 +194,7 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			check: func(t *testing.T, output string) {
 				t.Helper()
 				for _, recordType := range []string{"OPT", "NXNAME", "IXFR", "AXFR", "ANY"} {
-					if !strings.Contains(output, "\t"+recordType+"\t\n") {
-						t.Errorf("text output missing empty %s value: %q", recordType, output)
-					}
+					assert.Contains(t, output, "\t"+recordType+"\t\n", "empty %s value", recordType)
 				}
 			},
 		},
@@ -234,9 +204,7 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			check: func(t *testing.T, output string) {
 				t.Helper()
 				var result dnsquery.Result
-				if err := json.Unmarshal([]byte(output), &result); err != nil {
-					t.Fatalf("decode JSON output: %v", err)
-				}
+				require.NoError(t, json.Unmarshal([]byte(output), &result), "decode JSON output")
 				assertEmptyDNSAnswerValues(t, result.Answers)
 			},
 		},
@@ -245,9 +213,7 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			args: []string{"--short"},
 			check: func(t *testing.T, output string) {
 				t.Helper()
-				if output != strings.Repeat("\n", 5) {
-					t.Fatalf("short output = %q, want five empty values", output)
-				}
+				assert.Equal(t, strings.Repeat("\n", 5), output, "five empty values")
 			},
 		},
 	}
@@ -268,9 +234,7 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			if panicValue != nil {
 				t.Fatalf("rendering empty RDATA panicked: %v", panicValue)
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			test.check(t, stdout)
 		})
 	}
@@ -290,13 +254,10 @@ func emptyRDATAAnswers() []dns.RR {
 func assertEmptyDNSAnswerValues(t *testing.T, answers []dnsquery.Answer) {
 	t.Helper()
 	wantTypes := []string{"OPT", "NXNAME", "IXFR", "AXFR", "ANY"}
-	if len(answers) != len(wantTypes) {
-		t.Fatalf("answers = %+v, want %d", answers, len(wantTypes))
-	}
+	require.Len(t, answers, len(wantTypes))
 	for index, answer := range answers {
-		if answer.Type != wantTypes[index] || answer.Value != "" {
-			t.Errorf("answer %d = %+v, want type %s with empty value", index, answer, wantTypes[index])
-		}
+		assert.Equal(t, wantTypes[index], answer.Type, "answer %d type", index)
+		assert.Empty(t, answer.Value, "answer %d value", index)
 	}
 }
 
@@ -359,12 +320,9 @@ func TestDNSDirectServerPortNormalization(t *testing.T) {
 			if test.portFlag != "" {
 				args = append(args, "--port", test.portFlag)
 			}
-			if _, _, err := executeRootCommandStreams(t, root, args...); err != nil {
-				t.Fatal(err)
-			}
-			if gotAddress != test.wantAddress {
-				t.Fatalf("exchange address = %q, want %q", gotAddress, test.wantAddress)
-			}
+			_, _, err := executeRootCommandStreams(t, root, args...)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantAddress, gotAddress, "exchange address")
 		})
 	}
 }
@@ -397,9 +355,7 @@ func TestDNSDirectRejectsServerPortConflictsBeforeExchangeOrOutput(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			outputPath := filepath.Join(t.TempDir(), "output")
-			if err := os.WriteFile(outputPath, []byte("preserve"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
 			exchanged := false
 			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
 				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
@@ -413,19 +369,11 @@ func TestDNSDirectRejectsServerPortConflictsBeforeExchangeOrOutput(t *testing.T)
 				args = append(args, "--port", test.portFlag)
 			}
 			_, _, err := executeRootCommandStreams(t, root, args...)
-			if !errors.Is(err, errInvalidDNSOptions) {
-				t.Fatalf("error = %v, want errInvalidDNSOptions", err)
-			}
-			if exchanged {
-				t.Fatal("invalid server port reached DNS exchange")
-			}
+			require.ErrorIs(t, err, errInvalidDNSOptions)
+			assert.False(t, exchanged, "invalid server port reached DNS exchange")
 			contents, readErr := os.ReadFile(outputPath)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			if string(contents) != "preserve" {
-				t.Fatalf("output = %q, want preserved contents", contents)
-			}
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(contents), "output file")
 		})
 	}
 }
@@ -466,9 +414,7 @@ func TestDNSDirectRejectsWrongOpcodeFromWire(t *testing.T) {
 	})
 	root := newRootCmd()
 	_, _, err := executeRootCommandStreams(t, root, "dns", "@"+host, "fixture.example", "--port", port)
-	if !errors.Is(err, errDNSResponseMismatch) {
-		t.Fatalf("error = %v", err)
-	}
+	require.ErrorIs(t, err, errDNSResponseMismatch)
 	finishUDPFixture(t, connection, done)
 }
 
@@ -488,15 +434,10 @@ func TestDNSDirectEscapesWireNamesInText(t *testing.T) {
 		root,
 		"dns", "@"+host, "fixture.example", "CNAME", "--port", port,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.ContainsRune(stdout, '\x1b') ||
-		!strings.Contains(stdout, `bad\x1b[32m.fixture.example.`) ||
-		!strings.Contains(stdout, `bad\x1b[31m.target.example.`) {
-
-		t.Fatalf("unsafe or missing escaped DNS names: %q", stdout)
-	}
+	require.NoError(t, err)
+	require.NotContains(t, stdout, "\x1b", "unsafe DNS names")
+	require.Contains(t, stdout, `bad\x1b[32m.fixture.example.`)
+	require.Contains(t, stdout, `bad\x1b[31m.target.example.`)
 	finishUDPFixture(t, connection, done)
 }
 
@@ -507,9 +448,7 @@ func startUDPFixture(
 	t.Helper()
 	listenConfig := net.ListenConfig{}
 	connection, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	host, port, err := net.SplitHostPort(connection.LocalAddr().String())
 	if err != nil {
 		if closeErr := connection.Close(); closeErr != nil {
@@ -522,12 +461,8 @@ func startUDPFixture(
 
 func finishUDPFixture(t *testing.T, connection net.PacketConn, done <-chan error) {
 	t.Helper()
-	if serveErr := <-done; serveErr != nil {
-		t.Fatal(serveErr)
-	}
-	if err := connection.Close(); err != nil {
-		t.Fatalf("close UDP DNS fixture: %v", err)
-	}
+	require.NoError(t, <-done)
+	require.NoError(t, connection.Close(), "close UDP DNS fixture")
 }
 
 func serveTCPAnswerFixture(listener net.Listener) <-chan error {
@@ -584,12 +519,9 @@ func TestDNSDirectUsesConfiguredServersWithoutPublicFallback(t *testing.T) {
 		},
 		ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 	})
-	if _, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns"); err != nil {
-		t.Fatal(err)
-	}
-	if gotAddress != "192.0.2.53:53" {
-		t.Fatalf("address = %q", gotAddress)
-	}
+	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns")
+	require.NoError(t, err)
+	assert.Equal(t, "192.0.2.53:53", gotAddress)
 }
 
 func TestDNSConfiguredServersRejectNonUDPSchemesAndUseBareFallback(t *testing.T) {
@@ -625,18 +557,14 @@ func TestDNSConfiguredServersRejectNonUDPSchemesAndUseBareFallback(t *testing.T)
 				},
 			})
 			root.SetContext(ctx)
-			if _, _, err := executeRootCommandStreams(
+			_, _, err := executeRootCommandStreams(
 				t,
 				root,
 				"dns", "example.test", "--resolver", "dns", "--short",
-			); err != nil {
-				t.Fatal(err)
-			}
-			validFallback := slices.Equal(transports, []dnsquery.Transport{dnsquery.TransportUDP}) &&
-				slices.Equal(addresses, []string{"192.0.2.53:53"})
-			if !validFallback {
-				t.Fatalf("transports=%v addresses=%v", transports, addresses)
-			}
+			)
+			require.NoError(t, err)
+			assert.Equal(t, []dnsquery.Transport{dnsquery.TransportUDP}, transports)
+			assert.Equal(t, []string{"192.0.2.53:53"}, addresses)
 		})
 	}
 }
@@ -659,12 +587,10 @@ func TestDNSExplicitPort53WithoutEndpointUsesConfiguredUDP(t *testing.T) {
 			return replyFor(request), nil
 		},
 	})
-	if _, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--port", "53", "--short"); err != nil {
-		t.Fatal(err)
-	}
-	if configured != 1 || exchanged != 1 {
-		t.Fatalf("configured calls=%d exchange calls=%d", configured, exchanged)
-	}
+	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--port", "53", "--short")
+	require.NoError(t, err)
+	assert.Equal(t, 1, configured, "configured calls")
+	assert.Equal(t, 1, exchanged, "exchange calls")
 }
 
 func TestDNSDirectAcceptsPTROwnerName(t *testing.T) {
@@ -685,16 +611,10 @@ func TestDNSDirectAcceptsPTROwnerName(t *testing.T) {
 		root,
 		"dns", "@"+host, "8.2.0.192.in-addr.arpa", "PTR", "--port", port, "--short",
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	finishUDPFixture(t, connection, done)
-	if queryName := <-queryNames; queryName != "8.2.0.192.in-addr.arpa." {
-		t.Fatalf("query name = %q", queryName)
-	}
-	if stdout != "ptr.fixture.example.\n" {
-		t.Fatalf("output = %q", stdout)
-	}
+	assert.Equal(t, "8.2.0.192.in-addr.arpa.", <-queryNames, "query name")
+	assert.Equal(t, "ptr.fixture.example.\n", stdout)
 }
 
 func TestDNSDirectPreservesRcodeAndTXTEscaping(t *testing.T) {
@@ -718,17 +638,12 @@ func TestDNSDirectPreservesRcodeAndTXTEscaping(t *testing.T) {
 		newRoot(),
 		"dns", "example.test", "TXT", "--resolver", "dns", "--format", "json",
 	)
-	if err != nil || !strings.Contains(jsonOutput, `"status": "NXDOMAIN"`) {
-		t.Fatalf("JSON output = %q, error = %v", jsonOutput, err)
-	}
+	require.NoError(t, err)
+	assert.Contains(t, jsonOutput, `"status": "NXDOMAIN"`)
 	root := newRoot()
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "TXT", "--resolver", "dns", "--short")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stdout != `"hello \"operator\"" "line\010break"`+"\n" {
-		t.Fatalf("short TXT = %q", stdout)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, `"hello \"operator\"" "line\010break"`+"\n", stdout, "short TXT")
 }
 
 func TestDNSDirectShortAllowsEmptyAnswers(t *testing.T) {
@@ -749,9 +664,8 @@ func TestDNSDirectShortAllowsEmptyAnswers(t *testing.T) {
 				root,
 				"dns", "missing.example", "--resolver", "dns", "--short",
 			)
-			if err != nil || stdout != "" {
-				t.Fatalf("output = %q, error = %v", stdout, err)
-			}
+			require.NoError(t, err)
+			assert.Empty(t, stdout)
 		})
 	}
 }
@@ -767,9 +681,7 @@ func TestDNSDirectRejectsMismatchedResponse(t *testing.T) {
 		ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 	})
 	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns")
-	if !errors.Is(err, errDNSResponseMismatch) {
-		t.Fatalf("error = %v", err)
-	}
+	assert.ErrorIs(t, err, errDNSResponseMismatch)
 }
 
 func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
@@ -783,9 +695,7 @@ func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
 			}},
 		})
 		_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--timeout", "10ms")
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("error = %v", err)
-		}
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 	t.Run("direct exchange", func(t *testing.T) {
 		t.Parallel()
@@ -795,30 +705,24 @@ func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
 			ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
 		})
 		_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--resolver", "dns")
-		if !errors.Is(err, target) {
-			t.Fatalf("error = %v", err)
-		}
+		assert.ErrorIs(t, err, target)
 	})
 }
 
 func TestDNSPreparedFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "output")
-	if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
 	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
 		System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
 			return nil, errTestDNSLookupFailed
 		}},
 	})
-	if _, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--output", path); err == nil {
-		t.Fatal("expected error")
-	}
+	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--output", path)
+	require.Error(t, err)
 	data, err := os.ReadFile(path)
-	if err != nil || string(data) != "preserve" {
-		t.Fatalf("output = %q, error = %v", data, err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data), "output file")
 }
 
 func TestDNSRestoresCommandContext(t *testing.T) {
@@ -841,19 +745,14 @@ func TestDNSRestoresCommandContext(t *testing.T) {
 			original := context.WithValue(t.Context(), dnsTestContextKey{}, test.name)
 			root.SetContext(original)
 			dnsCommand, _, err := root.Find([]string{"dns"})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			_, _, executeErr := executeRootCommandStreams(t, root, test.args...)
-			if test.name == "success" && executeErr != nil {
-				t.Fatal(executeErr)
+			if test.name == "success" {
+				require.NoError(t, executeErr)
+			} else {
+				require.Error(t, executeErr, "expected output setup error")
 			}
-			if test.name != "success" && executeErr == nil {
-				t.Fatal("expected output setup error")
-			}
-			if dnsCommand.Context() != original {
-				t.Fatal("DNS command context was not restored")
-			}
+			assert.Same(t, original, dnsCommand.Context(), "DNS command context was not restored")
 		})
 	}
 }

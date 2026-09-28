@@ -3,13 +3,13 @@ package dns_test
 import (
 	"context"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"codeberg.org/miekg/dns"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
@@ -18,12 +18,8 @@ func TestExampleDNSRecordTypeCompletion(t *testing.T) {
 	t.Parallel()
 
 	values, directive := executeDNSCompletion(t, "dns", "example.test", "A")
-	if !slices.Equal(values, []string{"A", "AAAA"}) {
-		t.Fatalf("completions = %q, want A and AAAA", values)
-	}
-	if directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Fatalf("directive = %v, want no file completion", directive)
-	}
+	assert.Equal(t, []string{"A", "AAAA"}, values)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }
 
 func executeDNSCompletion(t *testing.T, args ...string) ([]string, cobra.ShellCompDirective) {

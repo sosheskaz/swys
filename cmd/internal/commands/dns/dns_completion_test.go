@@ -7,6 +7,8 @@ import (
 
 	"codeberg.org/miekg/dns"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDNSCompletionRecordTypesFollowResolverContext(t *testing.T) {
@@ -14,15 +16,11 @@ func TestDNSCompletionRecordTypesFollowResolverContext(t *testing.T) {
 
 	directTypes := directDNSRecordTypes()
 	for _, rejected := range []string{"AXFR", "IXFR"} {
-		if slices.Contains(directTypes, rejected) {
-			t.Fatalf("direct completions contain rejected type %s", rejected)
-		}
+		assert.NotContains(t, directTypes, rejected, "direct completions")
 	}
 	for record, recordType := range dns.StringToType {
 		want := recordType != dns.TypeAXFR && recordType != dns.TypeIXFR
-		if slices.Contains(directTypes, record) != want {
-			t.Fatalf("direct completion membership for %s does not match parser registry", record)
-		}
+		assert.Equal(t, want, slices.Contains(directTypes, record), "direct completion membership for %s", record)
 	}
 
 	tests := []struct {
@@ -49,9 +47,7 @@ func TestDNSCompletionRecordTypesFollowResolverContext(t *testing.T) {
 			if !slices.Equal(got, test.want) {
 				t.Fatalf("completions = %q, want %q", got, test.want)
 			}
-			if directive != cobra.ShellCompDirectiveNoFileComp {
-				t.Fatalf("directive = %v, want no file completion", directive)
-			}
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 		})
 	}
 }
@@ -69,12 +65,8 @@ func TestDNSCompletionSuppressesFileFallback(t *testing.T) {
 		{"dns", "--timeout", ""},
 	} {
 		values, directive := executeDNSCompletion(t, args...)
-		if len(values) != 0 {
-			t.Errorf("complete %q = %q, want no values", args, values)
-		}
-		if directive != cobra.ShellCompDirectiveNoFileComp {
-			t.Errorf("complete %q directive = %v, want no file completion", args, directive)
-		}
+		assert.Empty(t, values, "complete %q", args)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "complete %q", args)
 	}
 }
 
@@ -82,9 +74,8 @@ func TestDNSCompletionPreservesInheritedFileCompletion(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--input", "--output"} {
 		values, directive := executeDNSCompletion(t, "dns", flag, "")
-		if len(values) != 0 || directive != cobra.ShellCompDirectiveDefault {
-			t.Errorf("complete %s = %q, %v; want inherited file completion", flag, values, directive)
-		}
+		assert.Empty(t, values, "complete %s", flag)
+		assert.Equal(t, cobra.ShellCompDirectiveDefault, directive, "complete %s", flag)
 	}
 }
 
@@ -97,34 +88,26 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 		{"dns", "-p", "53", "--resolver", ""},
 	} {
 		values, directive := executeDNSCompletion(t, args...)
-		if !slices.Equal(values, []string{"dns"}) || directive != cobra.ShellCompDirectiveNoFileComp {
-			t.Errorf("complete %q = %q, %v; want dns only and no files", args, values, directive)
-		}
+		assert.Equal(t, []string{"dns"}, values, "complete %q", args)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "complete %q", args)
 	}
 
 	values, directive := executeDNSCompletion(t, "dns", "--resolver", "system", "--")
-	if directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Fatalf("flag directive = %v, want no file completion", directive)
-	}
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "flag directive")
 	joined := strings.Join(values, "\n")
 	for _, conflict := range []string{"--port", "-p"} {
-		if strings.Contains(joined, conflict) {
-			t.Errorf("flags after --resolver system contain %s: %q", conflict, values)
-		}
+		assert.NotContains(t, joined, conflict, "flags after --resolver system")
 	}
 	for _, compatible := range []string{"--format", "--short", "--reverse", "--timeout"} {
-		if !strings.Contains(joined, compatible) {
-			t.Errorf("flags after --resolver system omit compatible %s: %q", compatible, values)
-		}
+		assert.Contains(t, joined, compatible, "flags after --resolver system")
 	}
 }
 
 func TestDNSCompletionConflictHasNoRecordCandidates(t *testing.T) {
 	t.Parallel()
 	values, directive := executeDNSCompletion(t, "dns", "--resolver", "system", "--port", "53", "example.test", "")
-	if len(values) != 0 || directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Fatalf("conflicting completion = %q, %v; want no candidates and no files", values, directive)
-	}
+	assert.Empty(t, values, "conflicting completion candidates")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "conflicting completion directive")
 }
 
 func TestDNSCompletionEndpointSelectionFollowsFinalResolver(t *testing.T) {
@@ -151,9 +134,7 @@ func TestDNSRejectsRemovedTransportFlag(t *testing.T) {
 	t.Parallel()
 
 	_, _, err := executeRootStreams(t, "dns", "example.test", "--transport", "udp")
-	if err == nil || !strings.Contains(err.Error(), "unknown flag: --transport") {
-		t.Fatalf("error = %v, want removed --transport rejection", err)
-	}
+	require.ErrorContains(t, err, "unknown flag: --transport")
 }
 
 func TestDNSCompletionFlagsFollowFinalResolver(t *testing.T) {
@@ -161,11 +142,7 @@ func TestDNSCompletionFlagsFollowFinalResolver(t *testing.T) {
 	for _, resolvers := range [][]string{{"system", "dns"}, {"dns", "system"}} {
 		values, _ := executeDNSCompletion(t, "dns", "--resolver", resolvers[0], "--resolver", resolvers[1], "--")
 		joined := strings.Join(values, "\n")
-		if strings.Contains(joined, "--port") != (resolvers[1] == "dns") {
-			t.Errorf("flags after resolvers %q = %q; incorrect visibility for --port", resolvers, values)
-		}
-		if strings.Contains(joined, "--transport") {
-			t.Errorf("flags after resolvers %q contain removed --transport: %q", resolvers, values)
-		}
+		assert.Equal(t, resolvers[1] == "dns", strings.Contains(joined, "--port"), "flags after resolvers %q", resolvers)
+		assert.NotContains(t, joined, "--transport", "flags after resolvers %q", resolvers)
 	}
 }
