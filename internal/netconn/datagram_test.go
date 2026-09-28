@@ -69,9 +69,7 @@ func TestReadDatagramContextCancellationDoesNotCloseInput(t *testing.T) {
 	cancel()
 	select {
 	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("error = %v, want context canceled", err)
-		}
+		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
 		t.Fatal("datagram input read did not stop waiting after cancellation")
 	}
@@ -94,9 +92,7 @@ func TestDialUDPExchangesOneDatagramOnLoopback(t *testing.T) {
 	t.Parallel()
 
 	listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, listener) })
 
 	serverDone := make(chan error, 1)
@@ -116,23 +112,13 @@ func TestDialUDPExchangesOneDatagramOnLoopback(t *testing.T) {
 	}()
 
 	connection, err := DialUDP(t.Context(), listener.LocalAddr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, connection) })
-	if err := SendUDP(t.Context(), connection, []byte("request")); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SendUDP(t.Context(), connection, []byte("request")))
 	response, err := ReceiveUDP(t.Context(), connection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(response) != "response" {
-		t.Fatalf("response = %q, want response", response)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "response", string(response))
+	require.NoError(t, <-serverDone)
 }
 
 func TestDialUDPRejectsCanceledContext(t *testing.T) {
@@ -141,9 +127,7 @@ func TestDialUDPRejectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	connection, err := DialUDP(ctx, "127.0.0.1:53")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 	if connection != nil {
 		closeTestUDPConnection(t, connection)
 		t.Fatal("DialUDP returned a connection for a canceled context")
@@ -154,52 +138,34 @@ func TestSendUDPTransmitsZeroLengthDatagram(t *testing.T) {
 	t.Parallel()
 
 	listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, listener) })
 	connection, err := DialUDP(t.Context(), listener.LocalAddr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, connection) })
 
-	if err := SendUDP(t.Context(), connection, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := listener.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SendUDP(t.Context(), connection, nil))
+	require.NoError(t, listener.SetReadDeadline(time.Now().Add(time.Second)))
 	buffer := make([]byte, 1)
 	read, _, err := listener.ReadFromUDP(buffer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if read != 0 {
-		t.Fatalf("received length = %d, want zero-length datagram", read)
-	}
+	require.NoError(t, err)
+	assert.Zero(t, read, "zero-length datagram")
 }
 
 func TestReceiveUDPCancellation(t *testing.T) {
 	t.Parallel()
 
 	listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, listener) })
 	connection, err := DialUDP(t.Context(), listener.LocalAddr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, connection) })
 
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
 	defer cancel()
 	_, err = ReceiveUDP(ctx, connection)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context deadline", err)
-	}
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestSendUDPRejectsOversizedPayload(t *testing.T) {
@@ -223,20 +189,14 @@ func TestUDPOperationRecognizesDeadlineWhileCancellationPropagates(t *testing.T)
 	t.Parallel()
 
 	connection, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { closeTestUDPConnection(t, connection) })
 	ctx := newLaggedDeadlineContext(t.Context(), time.Now().Add(-time.Second))
 	processed, err := udpOperation(ctx, connection, func() (int, error) {
 		return connection.Read(make([]byte, 1))
 	})
-	if processed != 0 {
-		t.Fatalf("processed = %d, want no datagram bytes", processed)
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want propagated context deadline", err)
-	}
+	assert.Zero(t, processed, "no datagram bytes")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 type laggedDeadlineContext struct {

@@ -15,6 +15,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -26,9 +29,7 @@ func TestDialTCPConnectsToLoopback(t *testing.T) {
 	t.Parallel()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
 			t.Errorf("close TCP listener: %v", closeErr)
@@ -43,18 +44,12 @@ func TestDialTCPConnectsToLoopback(t *testing.T) {
 	}()
 
 	connection, err := DialTCP(t.Context(), listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := connection.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, connection.Close())
 
 	select {
 	case serverConnection := <-accepted:
-		if err := serverConnection.Close(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, serverConnection.Close())
 	case <-time.After(time.Second):
 		t.Fatal("TCP connection was not accepted")
 	}
@@ -64,13 +59,9 @@ func TestDialTCPRetryRefusedRetriesUntilContextExpires(t *testing.T) {
 	t.Parallel()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, listener.Close())
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
@@ -81,22 +72,16 @@ func TestDialTCPRetryRefusedRetriesUntilContextExpires(t *testing.T) {
 		}
 		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want setup deadline after retrying connection refusal", err)
-	}
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestDialTCPRetryRefusedConnectsWhenListenerStarts(t *testing.T) {
 	t.Parallel()
 
 	reservation, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	address := reservation.Addr().String()
-	if err := reservation.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, reservation.Close())
 	type listenResult struct {
 		listener net.Listener
 		err      error
@@ -123,16 +108,10 @@ func TestDialTCPRetryRefusedConnectsWhenListenerStarts(t *testing.T) {
 	if dialErr != nil {
 		t.Fatalf("dial before delayed listener startup: %v", dialErr)
 	}
-	if err := connection.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, connection.Close())
 	serverConnection, err := result.listener.Accept()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := serverConnection.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, serverConnection.Close())
 }
 
 func TestDialTCPRetryRefusedDoesNotRetryOtherErrors(t *testing.T) {
@@ -212,13 +191,9 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 	t.Parallel()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, listener.Close())
 	_, nativeRefusalErr := (&net.Dialer{}).DialContext(t.Context(), "tcp", address)
 	if nativeRefusalErr == nil {
 		t.Fatal("native TCP dial connected to a closed loopback address")
@@ -237,28 +212,18 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 		}
 		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
 	}
-	if !errors.Is(err, errDialRetryCanceled) {
-		t.Fatalf("error = %v, want cancellation cause", err)
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want canonical context deadline", err)
-	}
-	if !errors.Is(err, syscallErr.Err) {
-		t.Fatalf("error = %v, want most recent native TCP refusal %v", err, syscallErr.Err)
-	}
+	require.ErrorIs(t, err, errDialRetryCanceled)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, syscallErr.Err)
 }
 
 func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
 	t.Parallel()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, listener.Close())
 	ctx, cancel := context.WithTimeoutCause(
 		t.Context(),
 		2*tcpRefusedRetryInterval,
@@ -273,9 +238,7 @@ func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
 		}
 		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
 	}
-	if !errors.Is(err, errDialWrappedCancellation) {
-		t.Fatalf("error = %v, want exact wrapping cancellation cause", err)
-	}
+	require.ErrorIs(t, err, errDialWrappedCancellation)
 }
 
 func TestDialTLSVerifiesPeerAndPreservesSNI(t *testing.T) {
@@ -298,21 +261,13 @@ func TestDialTLSVerifiesPeerAndPreservesSNI(t *testing.T) {
 		RootCAs:    roots,
 		ServerName: "example.com",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(connection.ConnectionState().VerifiedChains) == 0 {
-		t.Fatal("verified TLS connection has no verified chains")
-	}
-	if err := connection.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, connection.ConnectionState().VerifiedChains, "verified TLS chains")
+	require.NoError(t, connection.Close())
 
 	select {
 	case got := <-serverName:
-		if got != "example.com" {
-			t.Fatalf("SNI = %q, want example.com", got)
-		}
+		assert.Equal(t, "example.com", got, "SNI")
 	case <-time.After(time.Second):
 		t.Fatal("server did not receive ClientHello")
 	}
@@ -340,9 +295,7 @@ func TestDialTLSCancellationClosesConnection(t *testing.T) {
 	t.Parallel()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
 			t.Errorf("close stalled TLS listener: %v", closeErr)
@@ -384,9 +337,7 @@ func TestDialTLSCancellationClosesConnection(t *testing.T) {
 	}
 	result := <-dialDone
 	connection, err := result.connection, result.err
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context cancellation", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 	if connection != nil {
 		t.Fatal("DialTLS returned a connection after cancellation")
 	}
@@ -407,9 +358,7 @@ func TestDialTLSRejectsCanceledContextBeforeDial(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	connection, err := DialTLS(ctx, "127.0.0.1:1", &tls.Config{})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 	if connection != nil {
 		t.Fatal("DialTLS returned a connection for a canceled context")
 	}

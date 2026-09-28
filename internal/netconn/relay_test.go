@@ -13,6 +13,9 @@ import (
 	"testing/iotest"
 	"testing/synctest"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -57,12 +60,8 @@ func TestRelayHalfClosesAndDrainsPeerResponse(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-serverErr; err != nil {
-		t.Fatal(err)
-	}
-	if got := output.String(); got != "response" {
-		t.Fatalf("response = %q, want %q", got, "response")
-	}
+	require.NoError(t, <-serverErr)
+	assert.Equal(t, "response", output.String())
 }
 
 func TestRelayDuplexContinuesSendingAfterPeerEOF(t *testing.T) {
@@ -95,18 +94,10 @@ func TestRelayDuplexContinuesSendingAfterPeerEOF(t *testing.T) {
 	if _, err := io.WriteString(inputWriter, "complete request"); err != nil {
 		t.Fatal(err)
 	}
-	if err := inputWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-relayDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-serverErr; err != nil {
-		t.Fatal(err)
-	}
-	if request := <-serverRequest; request != "complete request" {
-		t.Fatalf("request = %q, want complete request", request)
-	}
+	require.NoError(t, inputWriter.Close())
+	require.NoError(t, <-relayDone)
+	require.NoError(t, <-serverErr)
+	assert.Equal(t, "complete request", <-serverRequest)
 }
 
 func TestRelayReturnsSendFailureAfterPeerEOF(t *testing.T) {
@@ -139,12 +130,8 @@ func TestRelayReturnsSendFailureAfterPeerEOF(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 	close(releaseInput)
-	if err := <-relayDone; !errors.Is(err, errTestInput) {
-		t.Fatalf("error = %v, want send failure", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, <-relayDone, errTestInput)
+	require.NoError(t, <-serverDone)
 	if observedCloseCount := observed.closeCount(); observedCloseCount != 1 {
 		t.Fatalf("connection close count = %d, want 1", observedCloseCount)
 	}
@@ -167,12 +154,8 @@ func TestRelayReturnsReceiveFailureWithoutWaitingForInput(t *testing.T) {
 	if closeErr := inputWriter.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if !errors.Is(err, errTestOutput) {
-		t.Fatalf("error = %v, want receive output failure", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, err, errTestOutput)
+	require.NoError(t, <-serverDone)
 }
 
 func TestRelayCancellationAfterPeerEOFDoesNotWaitForBlockedSend(t *testing.T) {
@@ -195,15 +178,9 @@ func TestRelayCancellationAfterPeerEOFDoesNotWaitForBlockedSend(t *testing.T) {
 	}()
 	waitForSignal(t, observed.peerEOF, "client receive EOF")
 	cancel()
-	if err := <-relayDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
-	if err := inputWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, <-relayDone, context.Canceled)
+	require.NoError(t, inputWriter.Close())
+	require.NoError(t, <-serverDone)
 }
 
 func TestFinishPeerFirstPrefersCompletedSendErrorOverCancellation(t *testing.T) {
@@ -216,9 +193,7 @@ func TestFinishPeerFirstPrefersCompletedSendErrorOverCancellation(t *testing.T) 
 	cancel()
 
 	err := finishPeerFirst(ctx, client, sent, copyResult{direction: receivePeerData})
-	if !errors.Is(err, errTestInput) {
-		t.Fatalf("error = %v, want completed send error", err)
-	}
+	require.ErrorIs(t, err, errTestInput)
 	if errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, do not discard completed send for cancellation", err)
 	}
@@ -233,12 +208,8 @@ func TestFinishPeerImmediatelyReturnsQueuedSendError(t *testing.T) {
 	sent <- copyResult{direction: sendInputData, err: errTestInput}
 
 	err := finishPeerImmediately(observed, sent, copyResult{direction: receivePeerData})
-	if !errors.Is(err, errTestInput) {
-		t.Fatalf("error = %v, want queued send failure", err)
-	}
-	if got := observed.closeCount(); got != 1 {
-		t.Fatalf("connection close count = %d, want 1", got)
-	}
+	require.ErrorIs(t, err, errTestInput)
+	assert.Equal(t, 1, observed.closeCount(), "connection close count")
 }
 
 func TestFinishPeerImmediatelyReturnsSendErrorQueuedWhileClosing(t *testing.T) {
@@ -254,9 +225,7 @@ func TestFinishPeerImmediatelyReturnsSendErrorQueuedWhileClosing(t *testing.T) {
 	}
 
 	err := finishPeerImmediately(connection, sent, copyResult{direction: receivePeerData})
-	if !errors.Is(err, errTestInput) {
-		t.Fatalf("error = %v, want send failure completed during shutdown", err)
-	}
+	require.ErrorIs(t, err, errTestInput)
 }
 
 func TestFinishPeerImmediatelyIgnoresExpectedSendErrorsQueuedWhileClosing(t *testing.T) {
@@ -303,15 +272,11 @@ func TestFinishPeerImmediatelyDoesNotWaitForSend(t *testing.T) {
 	}()
 	select {
 	case err := <-finished:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("peer EOF waited for an unfinished send")
 	}
-	if got := observed.closeCount(); got != 1 {
-		t.Fatalf("connection close count = %d, want 1", got)
-	}
+	assert.Equal(t, 1, observed.closeCount(), "connection close count")
 }
 
 func TestRelayDrainExpiryReturnsTimeoutAndPreservesPrefix(t *testing.T) {
@@ -336,19 +301,13 @@ func TestRelayDrainExpiryReturnsTimeoutAndPreservesPrefix(t *testing.T) {
 		&output,
 		RelayOptions{Wait: wait},
 	)
-	if !errors.Is(err, ErrDrainTimeout) {
-		t.Fatalf("error = %v, want ErrDrainTimeout", err)
-	}
+	require.ErrorIs(t, err, ErrDrainTimeout)
 	if !strings.Contains(err.Error(), wait.String()) {
 		t.Fatalf("error = %q, want elapsed wait %s", err, wait)
 	}
-	if got := output.String(); got != "partial response" {
-		t.Fatalf("response = %q, want preserved prefix", got)
-	}
+	require.Equal(t, "partial response", output.String(), "preserved prefix")
 	waitForSignal(t, observed.closed, "connection close")
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, <-serverDone)
 }
 
 func TestExpireDrainRechecksCompletedReceive(t *testing.T) {
@@ -377,9 +336,7 @@ func TestExpireDrainJoinsIndependentCloseAndReceiveErrors(t *testing.T) {
 	}
 	err := expireDrain(connection, received, time.Second)
 	for _, want := range []error{ErrDrainTimeout, errTestClose, errTestOutput} {
-		if !errors.Is(err, want) {
-			t.Fatalf("error = %v, want joined %v", err, want)
-		}
+		require.ErrorIs(t, err, want)
 	}
 }
 
@@ -411,12 +368,8 @@ func TestRelayZeroWaitDrainsUntilPeerEOF(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-serverErr; err != nil {
-		t.Fatal(err)
-	}
-	if got := output.String(); got != "late response" {
-		t.Fatalf("response = %q, want %q", got, "late response")
-	}
+	require.NoError(t, <-serverErr)
+	assert.Equal(t, "late response", output.String())
 }
 
 func TestRelayCancellationWaitsForReceiveCopy(t *testing.T) {
@@ -446,13 +399,9 @@ func TestRelayCancellationWaitsForReceiveCopy(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 	writer.releaseWrite()
-	if err := <-relayDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
+	require.ErrorIs(t, <-relayDone, context.Canceled)
 	waitForSignal(t, writer.stopped, "receive output stop")
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, <-serverDone)
 }
 
 func TestRelayCancellationClosesConnection(t *testing.T) {
@@ -463,9 +412,7 @@ func TestRelayCancellationClosesConnection(t *testing.T) {
 		defer cancel()
 
 		err := RelayWithOptions(ctx, connection, strings.NewReader(""), io.Discard, RelayOptions{})
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("error = %v, want context deadline exceeded", err)
-		}
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 		select {
 		case <-connection.closed:
 		default:
@@ -510,9 +457,7 @@ func TestRelayPreservesCancellationCause(t *testing.T) {
 		synctest.Wait()
 		cancel(errTestRelayCanceled)
 
-		if err := <-relayDone; !errors.Is(err, errTestRelayCanceled) {
-			t.Fatalf("error = %v, want cancellation cause", err)
-		}
+		require.ErrorIs(t, <-relayDone, errTestRelayCanceled)
 	})
 }
 
@@ -528,9 +473,7 @@ func TestRelayPreservesWrappedCancellationCause(t *testing.T) {
 		synctest.Wait()
 		cancel(errTestRelayWrapped)
 
-		if err := <-relayDone; !errors.Is(err, errTestRelayWrapped) {
-			t.Fatalf("error = %v, want exact wrapping cancellation cause", err)
-		}
+		require.ErrorIs(t, <-relayDone, errTestRelayWrapped)
 	})
 }
 
@@ -547,9 +490,7 @@ func TestRelayAlreadyCanceledDoesNotWaitForBlockedInput(t *testing.T) {
 	if closeErr := inputWriter.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestRelayReturnsCloseWriteFailure(t *testing.T) {
@@ -567,12 +508,8 @@ func TestRelayReturnsCloseWriteFailure(t *testing.T) {
 		io.Discard,
 		RelayOptions{Wait: time.Second, CloseWrite: true},
 	)
-	if !errors.Is(err, errTestCloseWrite) {
-		t.Fatalf("error = %v, want CloseWrite failure", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, err, errTestCloseWrite)
+	require.NoError(t, <-serverDone)
 }
 
 func TestRelayRejectsNegativeWait(t *testing.T) {
@@ -582,9 +519,7 @@ func TestRelayRejectsNegativeWait(t *testing.T) {
 	err := RelayWithOptions(
 		t.Context(), client, strings.NewReader(""), io.Discard, RelayOptions{Wait: -time.Second},
 	)
-	if !errors.Is(err, ErrInvalidWait) {
-		t.Fatalf("error = %v, want ErrInvalidWait", err)
-	}
+	require.ErrorIs(t, err, ErrInvalidWait)
 }
 
 func TestRelayClosesConnectionWhenInputFails(t *testing.T) {
@@ -600,12 +535,8 @@ func TestRelayClosesConnectionWhenInputFails(t *testing.T) {
 	err := RelayWithOptions(
 		t.Context(), client, iotest.ErrReader(errTestInput), io.Discard, RelayOptions{Wait: time.Second},
 	)
-	if !errors.Is(err, errTestInput) {
-		t.Fatalf("error = %v, want input failure", err)
-	}
-	if err := <-peerDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, err, errTestInput)
+	require.NoError(t, <-peerDone)
 }
 
 func TestRelayReturnsOutputFailure(t *testing.T) {
@@ -626,12 +557,8 @@ func TestRelayReturnsOutputFailure(t *testing.T) {
 		failingWriter{err: errTestOutput},
 		RelayOptions{Wait: time.Second, CloseWrite: true},
 	)
-	if !errors.Is(err, errTestOutput) {
-		t.Fatalf("error = %v, want output failure", err)
-	}
-	if err := <-peerDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, err, errTestOutput)
+	require.NoError(t, <-peerDone)
 }
 
 func TestRelayReceiveOnlyPreservesCancellationCause(t *testing.T) {
@@ -652,9 +579,7 @@ func TestRelayReceiveOnlyPreservesCancellationCause(t *testing.T) {
 		synctest.Wait()
 		cancel(errTestRelayWrapped)
 
-		if err := <-relayDone; !errors.Is(err, errTestRelayWrapped) {
-			t.Fatalf("error = %v, want exact wrapping cancellation cause", err)
-		}
+		require.ErrorIs(t, <-relayDone, errTestRelayWrapped)
 		select {
 		case <-connection.closed:
 		default:
@@ -680,15 +605,11 @@ func TestRelayReceiveOnlyReturnsOutputFailureWithoutReadingInput(t *testing.T) {
 		failingWriter{err: errTestOutput},
 		RelayOptions{ReceiveOnly: true},
 	)
-	if !errors.Is(err, errTestOutput) {
-		t.Fatalf("error = %v, want output failure", err)
-	}
+	require.ErrorIs(t, err, errTestOutput)
 	if errors.Is(err, errTestInput) {
 		t.Fatalf("error = %v, receive-only relay read input", err)
 	}
-	if err := <-peerDone; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, <-peerDone)
 }
 
 type pipeStream struct {
@@ -814,9 +735,7 @@ func (connection *pipeStream) CloseWrite() error {
 func newTCPStreamPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
 	t.Helper()
 	listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	accepted := make(chan struct {
 		connection *net.TCPConn
 		err        error
