@@ -1,31 +1,51 @@
 #!/usr/bin/env bash
-#MISE description="Run a bounded mutation smoke campaign for every portable fuzz target"
+#MISE description="Fuzz runnable targets with a bounded smoke or exploration budget"
+#USAGE flag "--package <pattern>" help="Go package pattern" default="./..."
+#USAGE flag "--target <name>" help="Exact fuzz target name (default: all targets)"
+#USAGE flag "--list" help="List selected runnable fuzz targets without fuzzing"
+#USAGE flag "--preset <preset>" help="Budget per target: smoke=100x, explore=30s" default="smoke" {
+#USAGE   choices "smoke" "explore"
+#USAGE }
+#USAGE flag "--fuzztime <budget>" help="Override the preset with a positive duration or iteration count"
+#USAGE flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="NPC_TEST_PACKAGE_WORKERS"
+#USAGE flag "--fuzz-workers <count>" help="Fuzz subprocess concurrency; unset uses GOMAXPROCS" env="NPC_FUZZ_WORKERS"
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../lib/go-test.sh"
+package_worker_args
 
-fuzz_iterations=100
-target_count=0
-fuzz_files="$(find . -type f -name '*_fuzz_test.go' -print | sort)"
+case "${usage_preset:-smoke}" in
+  smoke) budget=100x ;;
+  explore) budget=30s ;;
+esac
+budget="${usage_fuzztime:-$budget}"
+validate_budget fuzztime "$budget"
+fuzz_args=()
+workers="${usage_fuzz_workers:-${NPC_FUZZ_WORKERS:-}}"
+if [[ -n "$workers" ]]; then
+  positive_integer 'fuzz workers' "$workers"
+  fuzz_args=(-parallel "$workers")
+fi
 
-while IFS= read -r fuzz_file; do
-  package="$(go list -buildvcs=false "${fuzz_file%/*}")"
-  target_list="$(sed -nE 's/^func (Fuzz[[:alnum:]_]+)\(.*/\1/p' "$fuzz_file")"
-  if [[ -z "$target_list" ]]; then
-    printf 'no fuzz targets found in %s\n' "$fuzz_file" >&2
-    exit 1
-  fi
-  while IFS= read -r target; do
-    target_count=$((target_count + 1))
-    printf '==> %s %s (%dx)\n' "$package" "$target" "$fuzz_iterations"
-    go test -buildvcs=false "$package" \
-      -run='^$' \
-      -fuzz="^${target}$" \
-      -fuzztime="${fuzz_iterations}x" \
-      -parallel=2
-  done <<<"$target_list"
-done <<<"$fuzz_files"
-
-if ((target_count == 0)); then
-  printf 'no fuzz targets found\n' >&2
+targets="$(list_go_targets Fuzz "${usage_package:-./...}")"
+if [[ -n "${usage_target:-}" ]]; then
+  targets="$(jq -Rr --arg target "$usage_target" 'select(split("\t")[1] == $target)' <<<"$targets")"
+fi
+if [[ -z "$targets" ]]; then
+  printf 'no runnable fuzz targets match the selection\n' >&2
   exit 1
 fi
-printf 'completed %d fuzz targets\n' "$target_count"
+if [[ "${usage_list:-false}" == true ]]; then
+  printf '%s\n' "$targets"
+  exit
+fi
+
+count=0
+while IFS=$'\t' read -r package target; do
+  printf '==> %s %s (%s; fuzz workers=%s; package workers=%s)\n' \
+    "$package" "$target" "$budget" "${workers:-Go default}" \
+    "${usage_package_workers:-${NPC_TEST_PACKAGE_WORKERS:-Go default}}"
+  go test -buildvcs=false ${package_args[@]+"${package_args[@]}"} "$package" -run='^$' \
+    -fuzz="^${target}$" -fuzztime="$budget" ${fuzz_args[@]+"${fuzz_args[@]}"}
+  count=$((count + 1))
+done <<<"$targets"
+printf 'completed %d fuzz targets\n' "$count"

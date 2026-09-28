@@ -17,3 +17,4 @@ coverage-base.out
 .env
 .DS_Store
 .vscode/
+/.artifacts/bench/

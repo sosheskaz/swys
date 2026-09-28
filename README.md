@@ -1069,9 +1069,10 @@ mise run scan:vuln      # govulncheck scan
 ```
 
 Testing policy lives in [TESTING.md](TESTING.md) — the short version: every
-fix ships with a regression test, coverage is maintained or increased by
-every change, cryptographic code gets adversarial-input tests up front, and
-unbounded-input code proves bounded memory in benchmarks. Curated command
+material defect has a demonstrated regression test; other changes receive
+proportionate validation. Investigate coverage changes, select relevant
+adversarial-input tests, and verify bounded memory for unbounded-input code.
+Curated command
 guides follow the [help guide authoring standard](docs/help-authoring.md).
 
 ## Product direction and roadmap

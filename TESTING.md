@@ -1,22 +1,21 @@
 # Testing Policy
 
-This document is normative. The test suite is a product feature of npc, not
-overhead: for a tool whose job is cryptographic and wire-level correctness,
-an untested path is an unshipped path. The suite that exists is maintained
-and expanded — it is never weakened to make a change land.
+This document is normative. Tests protect NPC's observable cryptographic,
+wire-level, and command behavior. Choose focused evidence for the change;
+more assertions, fixtures, or coverage do not automatically mean better tests.
 
 ## Ground rules
 
-1. **Every fix ships with a regression test.** No exceptions. The test must
-   fail on the pre-fix code (red) and pass on the fix (green) — verify this
-   by actually reverting the fix once, not by reasoning about it. Name tests
-   after the behavior they pin (`TestDecryptPreservesReadErrors`), not the
-   bug number.
-2. **Coverage is maintained or increased by every change.** The CI coverage
-   report posts total and per-package deltas versus main on every PR; a
-   negative total delta requires justification in the PR description (e.g.
-   deleting a well-tested feature), and "I'll add tests later" is not a
-   justification. New code lands with its tests in the same PR.
+1. **Every material defect has a regression test.** A defect violates an
+   established behavior contract; a design flaw or preference change is not
+   automatically a defect. Demonstrate that the test fails without the fix
+   and passes with it. Name tests after the behavior they protect, not the bug
+   number. Existing tests and native validation may be sufficient for pure
+   refactors, configuration, and instruction changes.
+2. **Coverage is a review signal, not a test quota.** Investigate unexpected
+   total and per-package deltas, including nondeterministic execution. Explain
+   meaningful losses in the PR; do not add redundant tests just to raise a
+   percentage. New behavior and its relevant tests land together.
 3. **Failing tests are fixed at the root or escalated.** Never deleted,
    skipped, or loosened to pass. If a test is wrong, the PR that changes it
    must explain why the pinned behavior was wrong.
@@ -41,25 +40,46 @@ worker results through the existing synchronization before asserting on them.
 Do not replace deterministic coordination or `testing/synctest` with polling
 assertions. Keep assertion work outside timed benchmark loops.
 
-## What every change tests
+## Choose proportionate tests
 
-The baseline expectations for any code path, established by the existing
-suite and carried forward:
+Start with the observable contract and a credible failure mode. Each new case
+should protect a distinct behavior. Prefer a representative consumer example
+plus focused lower-level coverage over repeating the same cases at every layer.
+For configuration and instructions, use native syntax, schema, and consumer
+checks; do not write tests that merely restate checked-in values.
 
-- **Boundary sizes**: 0 bytes, 1 byte, one block, block ± 1, internal buffer
-  size ± 1, and multi-buffer inputs. Off-by-one bugs live at boundaries;
-  tables make covering them cheap.
-- **Malformed inputs**: truncated, empty, wrong-type, and garbage inputs
-  produce wrapped, descriptive errors — never panics, never silent success,
-  never partial output presented as complete.
-- **I/O fault injection**: a reader failing mid-stream surfaces as an I/O
-  error (not misreported as data corruption); a failing writer propagates
-  its error. Output filters flush and close before their underlying files.
-- **Command-level behavior**: user-visible behavior is tested through the
-  real root command (`cmd.NewCommand`) so flag parsing, I/O hooks, and
-  cleanup lifecycles are exercised, not mocked away. Family consumer tests
-  use external test packages; `cmd/internal/testcmd` runs the shared execution
-  lifecycle for their command trees.
+Use the following surfaces where relevant, not as a mandatory matrix for every
+change:
+
+- **Boundary sizes**: select meaningful block, buffer, and stream boundaries,
+  including empty or multi-buffer input where those exercise distinct behavior.
+- **Malformed inputs**: untrusted truncated, wrong-type, or garbage input must
+  not panic or present partial output as complete. Preserve documented streaming
+  contracts, including already-authenticated plaintext after later failure.
+- **I/O failures**: verify error identity and output lifecycle when the changed
+  path reads, writes, flushes, or closes resources. Inject failures at meaningful
+  boundaries instead of every possible call count.
+- **Command behavior**: exercise public flags, I/O hooks, and cleanup through
+  the real command lifecycle. Use `cmd.NewCommand` for root integration and
+  external family consumer tests with `cmd/internal/testcmd` for focused cases.
+
+Keep fixtures local and small. Extract a helper when it clarifies repeated
+setup, not to build a general test framework. Use tables for cases that share
+setup and assertions; avoid cross-products of unrelated dimensions. Add related
+tests to an existing file before creating another tiny artifact.
+
+Review failure paths, not only green runs. A failed prerequisite must not lead
+to a panic, a blocked channel receive, a leaked worker, or skipped cleanup.
+Register cleanup before assertions can terminate the test, and preserve useful
+independent checks when continuation is safe. Never place a parent assertion
+before the parallel subtests whose results it checks.
+For shell tests, verify that failed assertions exit on supported Bash versions;
+`set -e` alone is not an assertion mechanism.
+
+Prefer deterministic synchronization to sleeps and polling. Consult the pinned
+Go version's documentation for applicable standard-library facilities such as
+`testing/synctest` before writing custom timing machinery. Use it for suitable
+in-process concurrency, not as a replacement for real OS or network integration.
 
 ## Curated help guides
 
@@ -158,11 +178,39 @@ A package must carry benchmarks when any of these hold:
   claim without a comparison.
 - Profiling is per-package and discovery-driven: `mise run bench:cpu` /
   `bench:mem` find every package containing Benchmark functions
-  automatically — adding benchmarks to a package requires no task or CI
+  using Go's build-aware listing — adding benchmarks requires no task or CI
   changes.
 - CI runs the full benchmark suite with `-benchtime=1x` on every PR as a
   smoke test: benchmarks are code and rot like code; they must at least
   compile and run.
+
+### Tasks and profiles
+
+`bench`, `bench:cpu`, and `bench:mem` accept `--package` (default `./...`),
+`--bench` (Go regexp, default all), `--benchtime` (default `1s`), `--count`
+(default `1`), and `--package-workers`. Allocation reporting is always enabled.
+`--list` lists top-level benchmarks in the selected packages without running
+benchmarks; it does not enumerate or filter subbenchmarks using `--bench`.
+
+```fish
+mise run bench --help
+mise run bench -- --list
+mise run bench -- --package ./internal/contextio --bench BenchmarkReader --benchtime 1x
+mise run bench:cpu -- --package ./internal/contextio --benchtime 3s
+mise run bench:mem -- --package ./internal/contextio --output-dir /tmp/npc-profiles
+```
+
+Profiles run sequentially by package and retain the matching test binary under
+`.artifacts/bench/<import-path>/<cpu|mem>/`. Tasks print both paths and a usable
+`go tool pprof` command. Repeating a profile replaces that package/mode's files;
+use separate `--output-dir` values to retain comparisons. `clean:artifacts`
+removes the default profile directory. Ordinary benchmark runs retain Go's
+package concurrency. Empty selections or a run producing no benchmark results
+fail rather than report a successful measurement.
+
+Use direct `mise exec -- go test` for options outside this small interface.
+The former native benchmark flag syntax becomes `--benchtime 1x` in task calls;
+unit/race/coverage tasks still pass native Go flags through unchanged.
 
 Published cryptographic vectors may contain public example keys and are safe to
 commit as algorithm conformance data. Secret or deployment key material is
@@ -173,9 +221,9 @@ never fixture data; generate ephemeral private fixtures during test setup.
 | Policy                                | Enforced by                                                                                                         |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Suite passes, raced + shuffled        | `ci.yml` test steps on every PR                                                                                     |
-| Coverage maintained or increased      | CI sticky PR comment (delta vs main); reviewer blocks unjustified drops                                             |
+| Coverage changes investigated         | CI sticky PR comment; investigate unexpected deltas and explain meaningful losses                                   |
 | Benchmarks don't rot                  | CI benchmark smoke run (`-benchtime=1x`)                                                                            |
-| Portable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target)                                                    |
+| Runnable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target)                                                    |
 | Vulnerable dependencies               | `govulncheck` per PR + weekly scheduled run                                                                         |
 | Config/workflow validity              | lefthook (local + changed-files CI)                                                                                 |
 | No secret/deployment keys in fixtures | `.gitignore` patterns and review; provenance-backed published public vector and compatibility keys may be committed |
@@ -185,42 +233,45 @@ anything concurrency-adjacent.
 
 ## Fuzzing
 
-Fuzz seed corpora run with the ordinary unit and race suites. CI also discovers
-every portable target declared in a `*_fuzz_test.go` artifact and runs each with
-a fixed `-fuzztime=100x` budget through `mise run test:fuzz`.
-Platform-constrained targets remain seed-corpus tests on matching runners. This
-bounded smoke campaign catches harness rot and shallow regressions; use the
-longer mutation campaigns below for meaningful exploration, selecting one target
-per invocation:
+Fuzz seed corpora run with ordinary unit and race suites. `test:fuzz` discovers
+runnable targets using Go, including platform-specific targets on matching hosts.
+It excludes nested worktrees and does not depend on source filenames. Targets run
+sequentially; the budget applies separately to each target, not the whole campaign.
 
-```sh
-mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzParseKey$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzFormatFingerprint$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzEscapeDiagnosticValue$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzCertificateJSON$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHPrivateEnvelope$' -fuzztime=60s -parallel=2
-mise exec -- go test ./internal/asym -run='^$' -fuzz='^FuzzOpenSSHAuthorizedKey$' -fuzztime=60s -parallel=2
-mise exec -- go test ./internal/pemstrict -run='^$' -fuzz='^FuzzDecode$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/cli/certinput -run='^$' -fuzz='^FuzzParsePEMCertificates$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzByteEncodingRoundTrip$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzByteDecoders$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzStripNewlinesInputFailure$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/net -run='^$' -fuzz='^FuzzParseALPN$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/net -run='^$' -fuzz='^FuzzEscapeNetworkDiagnosticValue$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/cli/encoding -run='^$' -fuzz='^FuzzBase64URLDecoder$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/cli/artifact -run='^$' -fuzz='^FuzzReadArtifact$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzHTTPField$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzParseHTTPHeaders$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzWriteHTTPJSONResponse$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzWriteHTTPHead$' -fuzztime=30s -parallel=2
-mise exec -- go test ./cmd/internal/commands/http -run='^$' -fuzz='^FuzzHTTPTraceText$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/crypter -run='^$' -fuzz='^FuzzAESWireDecryptBounded$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagram$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzReadDatagramInputFailure$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesBidirectionalBytes$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/netconn -run='^$' -fuzz='^FuzzRelayPreservesPrefixesBeforeInputFailure$' -fuzztime=30s -parallel=2
-mise exec -- go test ./internal/securefile -run='^$' -fuzz='^FuzzDarwinReturnedCommonAttributes$' -fuzztime=30s -parallel=2
+The default `smoke` preset uses `100x` per target. `explore` uses `30s` per target;
+`--fuzztime` overrides either with a positive duration or iteration count. Smoke
+catches harness rot and shallow regressions; it is not a thorough fuzz campaign.
+Go may also spend time building, loading seeds, or minimizing a discovered failure.
+
+```fish
+mise run test:fuzz --help
+mise run test:fuzz -- --list
+mise run test:fuzz
+mise run test:fuzz -- --package ./internal/pemstrict --target FuzzDecode --preset explore
+mise run test:fuzz -- --package ./internal/pemstrict --fuzztime 500x --fuzz-workers 2
 ```
+
+`--target` is an exact name; use `--package` to disambiguate targets with the same
+name. Invalid options, empty selections, build failures, and failing targets
+return nonzero. For advanced Go options, use `mise exec -- go test` directly.
+
+### Worker controls
+
+Package concurrency (`-p`) and fuzz subprocess concurrency (`-parallel`) are
+separate. Leave both unset to use Go's defaults, based on `GOMAXPROCS`; these are
+not a single total worker budget. CI explicitly sets two fuzz workers and leaves
+package concurrency at Go's default.
+
+- `NPC_TEST_PACKAGE_WORKERS` supplies the package/build concurrency default for
+  unit, race, coverage, fuzz, and benchmark tasks.
+- Fuzz/benchmark `--package-workers` overrides that environment default.
+- Unit/race/coverage tasks retain native flags, such as
+  `mise run test:unit -- -p 2 -run TestName`; explicit `-p` wins.
+- `NPC_FUZZ_WORKERS` supplies fuzz concurrency; `--fuzz-workers` overrides it.
+  Neither changes ordinary tests' within-package `-parallel` setting.
+
+Worker counts must be positive integers. Limit them explicitly when running
+expensive targets or several campaigns concurrently.
 
 The artifact reader target exercises contiguous and one-byte reads at generated
 size limits, verifies the single-byte overflow probe does not over-read, and

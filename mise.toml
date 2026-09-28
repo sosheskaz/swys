@@ -3,6 +3,7 @@
 # Tasks live in .mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
 go = "1.27.1"
+jq = "1.8.2"
 golangci-lint = "2.13.2"
 goreleaser = "2.18.2"
 ko = "0.19.1"
@@ -27,12 +28,26 @@ GOTOOLCHAIN = "local"
 # bench lives inline because a file task named bench cannot coexist with the
 # bench/ directory that namespaces its cpu/mem variants.
 [tasks.bench]
-description = "Run all benchmarks across the repository"
-run = "go test -run='^$' -bench=. -benchmem ./..."
+description = "Run selected benchmarks with allocation reporting"
+usage = '''
+flag "--package <pattern>" help="Go package pattern" default="./..."
+flag "--bench <regexp>" help="Go benchmark regexp, including subbenchmarks" default="."
+flag "--benchtime <budget>" help="Duration or iterations per benchmark" default="1s"
+flag "--count <count>" help="Repeat each benchmark" default="1"
+flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="NPC_TEST_PACKAGE_WORKERS"
+flag "--list" help="List top-level benchmarks in selected packages without running them"
+'''
+run = "bash .mise/lib/bench.sh run"
 
 [tasks.check]
 description = "Run all local validation (lint + test)"
-depends = ["lint:go", "lint:platforms", "test:coverage-report", "test:unit"]
+depends = [
+  "lint:go",
+  "lint:platforms",
+  "test:coverage-report",
+  "test:tasks",
+  "test:unit",
+]
 
 [tasks."test:interop:openpgp"]
 description = "Run manual OpenPGP interoperability checks"
@@ -41,7 +56,7 @@ run = "tests/interop/openpgp/manual.sh ./npc"
 
 [tasks."clean:artifacts"]
 description = "Remove build artifacts and coverage/profile output"
-run = "rm -f npc cryptool *.prof *.test coverage.out coverage-base.out"
+run = "rm -f npc cryptool *.prof *.test coverage.out coverage-base.out && rm -rf .artifacts/bench"
 
 [tasks."install:hooks"]
 description = "Install git hooks via lefthook"

@@ -43,8 +43,8 @@ mise run scan:vuln
 ```
 
 `mise run check` runs Go lint, platform-specific vet checks, coverage-reporter
-tests, and unit tests. Race tests, fuzz mutation, benchmarks, vulnerability
-scanning, and changed-file configuration checks are separate CI checks.
+tests, task-runner tests, and unit tests. Race tests, fuzz mutation, benchmarks,
+vulnerability scanning, and changed-file configuration checks are separate CI checks.
 Lefthook configures formatting and configuration checks in `lefthook.yml`.
 
 Follow [TESTING.md](TESTING.md), the existing testing policy, with the segmented
@@ -52,6 +52,15 @@ authentication contract below applying to streaming AES. Exercise user-visible
 behavior through the real root command and its I/O hooks. Use local servers and
 temporary fixtures for tests. Run `mise run check` before pushing code changes
 and race tests for concurrency or subprocess work.
+
+Every material defect needs a regression test demonstrated red without the fix
+and green with it. Distinguish established-contract defects from design flaws or
+preference changes. Pure refactors may rely on existing tests; configuration and
+instructions use native validation. Choose tests for distinct contracts and
+credible failures, not exhaustive matrices or coverage percentages. Keep
+fixtures small, consolidate related tests, and review assertion failure paths
+for panics, blocked workers, and missed cleanup. Prefer deterministic coordination
+and applicable facilities in the pinned Go version over custom timing machinery.
 
 ## Command behavior
 

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Per-package benchmarks with memory profiling (writes <pkg>.mem.prof per benched package)"
+#MISE description="Run benchmarks with memory profiles and matching binaries"
+#USAGE flag "--package <pattern>" help="Go package pattern" default="./..."
+#USAGE flag "--bench <regexp>" help="Go benchmark regexp, including subbenchmarks" default="."
+#USAGE flag "--benchtime <budget>" help="Duration or iterations per benchmark" default="1s"
+#USAGE flag "--count <count>" help="Repeat each benchmark" default="1"
+#USAGE flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="NPC_TEST_PACKAGE_WORKERS"
+#USAGE flag "--list" help="List top-level benchmarks in selected packages without running them"
+#USAGE flag "--output-dir <dir>" help="Profile and binary directory" default=".artifacts/bench"
 set -euo pipefail
-exec "$(dirname "$0")/profile" mem "$@"
+exec "$(dirname "${BASH_SOURCE[0]}")/../../lib/bench.sh" mem

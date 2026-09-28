@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #MISE description="Run tests with coverage and open the HTML report"
 set -euo pipefail
-go test -coverprofile=coverage.out -covermode=atomic -coverpkg=./... "$@" ./...
+source "$(dirname "${BASH_SOURCE[0]}")/../../lib/go-test.sh"
+package_worker_args
+go test ${package_args[@]+"${package_args[@]}"} -coverprofile=coverage.out -covermode=atomic -coverpkg=./... "$@" ./...
 go tool cover -func=coverage.out | tail -n 1
 exec go tool cover -html=coverage.out

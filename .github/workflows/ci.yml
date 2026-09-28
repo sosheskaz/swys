@@ -44,7 +44,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: 'go golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
+          install_args: 'go jq golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
           cache: true
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
@@ -87,7 +87,10 @@ jobs:
         run: mise run test:unit -- -shuffle=on -coverprofile=coverage.out -covermode=atomic -coverpkg=./...
 
       - name: Benchmark smoke test
-        run: mise run bench -- -benchtime=1x
+        run: mise run bench -- --benchtime 1x
+
+      - name: Test task workflows
+        run: mise run test:tasks
 
       - name: Vulnerability scan
         run: mise run scan:vuln
@@ -215,7 +218,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: 'go'
+          install_args: 'go jq'
           cache: true
           cache_save: false
 
@@ -242,7 +245,7 @@ jobs:
         run: mise run test:race -- -shuffle=on
 
       - name: Fuzz smoke campaign
-        run: mise run test:fuzz
+        run: mise run test:fuzz -- --fuzz-workers 2
 
       - name: Save Go caches
         if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
