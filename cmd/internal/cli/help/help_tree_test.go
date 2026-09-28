@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"os"
-	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -37,25 +36,23 @@ func TestGuideDependenciesDefaultAndDetectNonterminalWriters(t *testing.T) {
 	t.Parallel()
 
 	dependencies := (Dependencies{}).WithDefaults()
-	if dependencies.Getenv == nil || dependencies.Terminal == nil || dependencies.Command == nil {
-		t.Fatal("default guide dependencies are incomplete")
-	}
-	if terminal, width := dependencies.Terminal(&bytes.Buffer{}); terminal || width != 0 {
-		t.Fatalf("buffer terminal result = (%t, %d), want (false, 0)", terminal, width)
-	}
+	require.NotNil(t, dependencies.Getenv)
+	require.NotNil(t, dependencies.Terminal)
+	require.NotNil(t, dependencies.Command)
+	terminal, width := dependencies.Terminal(&bytes.Buffer{})
+	assert.False(t, terminal, "buffer terminal")
+	assert.Zero(t, width, "buffer terminal width")
 
 	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err := errors.Join(reader.Close(), writer.Close()); err != nil {
 			t.Errorf("close terminal test pipe: %v", err)
 		}
 	})
-	if terminal, width := dependencies.Terminal(writer); terminal || width != 0 {
-		t.Fatalf("pipe terminal result = (%t, %d), want (false, 0)", terminal, width)
-	}
+	terminal, width = dependencies.Terminal(writer)
+	assert.False(t, terminal, "pipe terminal")
+	assert.Zero(t, width, "pipe terminal width")
 }
 
 func TestPublicGuideTreeExcludesInternalCommandsAndRejectsAmbiguousAliases(t *testing.T) {
@@ -77,16 +74,9 @@ func TestPublicGuideTreeExcludesInternalCommandsAndRejectsAmbiguousAliases(t *te
 	for _, child := range children {
 		names = append(names, child.Name())
 	}
-	if want := []string{"alias-one", "alias-two", "branch", "visible"}; !slices.Equal(names, want) {
-		t.Fatalf("public children = %q, want %q", names, want)
-	}
-	if got := guideCommandPath(root, root); got != "root" {
-		t.Fatalf("root command path = %q, want root", got)
-	}
-	if got := guideCommandPath(root, branch); got != "root branch" {
-		t.Fatalf("branch command path = %q, want root branch", got)
-	}
-	if _, err := resolveGuideTarget(root, []string{"shared"}); !errors.Is(err, errGuidePath) {
-		t.Fatalf("ambiguous alias error = %v, want errGuidePath", err)
-	}
+	assert.Equal(t, []string{"alias-one", "alias-two", "branch", "visible"}, names)
+	assert.Equal(t, "root", guideCommandPath(root, root))
+	assert.Equal(t, "root branch", guideCommandPath(root, branch))
+	_, err := resolveGuideTarget(root, []string{"shared"})
+	assert.ErrorIs(t, err, errGuidePath, "ambiguous alias")
 }

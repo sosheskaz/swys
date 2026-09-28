@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 )
@@ -53,18 +55,12 @@ func TestGuideRenderingAndPagerSelectionMatrix(t *testing.T) {
 			args := []string{"help", "net"}
 			args = append(args, test.args...)
 			stdout, stderr, err := executeRootCommandStreams(t, newGuideTestRoot(test.terminal, 61, test.env), args...)
-			if err != nil {
-				t.Fatal(err)
+			require.NoError(t, err)
+			if test.wantOutput {
+				require.Contains(t, stripGuideANSI(stdout), "Exchange raw bytes")
 			}
-			if test.wantOutput && !strings.Contains(stripGuideANSI(stdout), "Exchange raw bytes") {
-				t.Fatalf("stdout does not contain guide: %q", stdout)
-			}
-			if gotRich := strings.Contains(stdout, "\x1b["); gotRich != test.wantRich {
-				t.Fatalf("rich output = %t, want %t: %q", gotRich, test.wantRich, stdout)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q, want no diagnostics", stderr)
-			}
+			require.Equal(t, test.wantRich, strings.Contains(stdout, "\x1b["), "rich output: %q", stdout)
+			require.Empty(t, stderr)
 		})
 	}
 }
@@ -73,12 +69,8 @@ func TestGuideRenderingFlagsAreMutuallyExclusive(t *testing.T) {
 	t.Parallel()
 
 	stdout, _, err := executeRootCommandStreams(t, newGuideTestRoot(false, 0, nil), "help", "--rich", "--plain")
-	if err == nil || !strings.Contains(err.Error(), "if any flags in the group") {
-		t.Fatalf("error = %v, want mutual-exclusion diagnostic", err)
-	}
-	if stdout != "" {
-		t.Fatalf("stdout = %q, want no rendered guide", stdout)
-	}
+	require.ErrorContains(t, err, "if any flags in the group")
+	require.Empty(t, stdout)
 }
 
 func TestGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
@@ -104,22 +96,17 @@ func TestGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
 				newGuideTestRoot(test.terminal, test.width, test.env),
 				"help", "--plain",
 			)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			paragraph := firstGuideParagraphLines(stdout)
-			if len(paragraph) == 0 {
-				t.Fatalf("could not locate first paragraph in %q", stdout)
-			}
+			require.NotEmpty(t, paragraph, "first paragraph in %q", stdout)
 			longest := 0
 			for _, line := range paragraph {
 				if width := len([]rune(line)); width > longest {
 					longest = width
 				}
 			}
-			if longest > test.wantMax || longest <= test.wantOver {
-				t.Fatalf("first paragraph longest line = %d, want (%d, %d] lines %q", longest, test.wantOver, test.wantMax, paragraph)
-			}
+			assert.LessOrEqual(t, longest, test.wantMax, "paragraph lines %q", paragraph)
+			assert.Greater(t, longest, test.wantOver, "paragraph lines %q", paragraph)
 		})
 	}
 }
@@ -131,20 +118,13 @@ func TestGuidePagerReceivesQuotedArgumentsAndInheritedEnvironment(t *testing.T) 
 	pager := guidePagerHelperCommand("record", marker, "two words", environmentName)
 	root := newGuideTestRoot(true, 80, map[string]string{"PAGER": pager})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "cert", "--plain")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout, "Work with X.509 certificates") || stderr != "" {
-		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
-	}
+	require.NoError(t, err)
+	require.Contains(t, stdout, "Work with X.509 certificates")
+	require.Empty(t, stderr)
 	record, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatalf("pager was not reaped after recording input: %v", err)
-	}
+	require.NoError(t, err, "pager reaped after recording input")
 	for _, want := range []string{"argument=two words\n", "environment=visible\n", "Work with X.509 certificates"} {
-		if !bytes.Contains(record, []byte(want)) {
-			t.Errorf("pager record does not contain %q:\n%s", want, record)
-		}
+		assert.Contains(t, string(record), want, "pager record")
 	}
 }
 
@@ -153,15 +133,11 @@ func TestGuidePagerStartupFailureWarnsAndFallsBack(t *testing.T) {
 
 	root := newGuideTestRoot(true, 80, map[string]string{"PAGER": filepath.Join(t.TempDir(), "missing-pager")})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "dns")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout, "Resolve DNS names and records") || strings.Contains(stdout, "\x1b[") {
-		t.Fatalf("fallback stdout = %q, want plain rendered guide", stdout)
-	}
-	if !strings.Contains(stderr, "warning: could not start pager") || !strings.Contains(stderr, "writing guide directly") {
-		t.Fatalf("stderr = %q, want concise fallback warning", stderr)
-	}
+	require.NoError(t, err)
+	require.Contains(t, stdout, "Resolve DNS names and records")
+	require.NotContains(t, stdout, "\x1b[", "plain fallback output")
+	assert.Contains(t, stderr, "warning: could not start pager")
+	assert.Contains(t, stderr, "writing guide directly")
 }
 
 func TestGuidePagerPipeSetupFailureWarnsAndFallsBack(t *testing.T) {
@@ -174,12 +150,9 @@ func TestGuidePagerPipeSetupFailureWarnsAndFallsBack(t *testing.T) {
 	command.SetErr(&stderr)
 	dependencies := defaultGuideDependencies()
 	dependencies.Command = pagerCommandWithOccupiedStdin
-	if err := presentGuideThroughPager(command, dependencies, "unused", []byte("rendered guide\n")); err != nil {
-		t.Fatal(err)
-	}
-	if stdout.String() != "rendered guide\n" || !strings.Contains(stderr.String(), "could not start pager") {
-		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
-	}
+	require.NoError(t, presentGuideThroughPager(command, dependencies, "unused", []byte("rendered guide\n")))
+	assert.Equal(t, "rendered guide\n", stdout.String())
+	assert.Contains(t, stderr.String(), "could not start pager")
 }
 
 func TestGuidePagerFallbackPropagatesOutputFailure(t *testing.T) {
@@ -191,9 +164,7 @@ func TestGuidePagerFallbackPropagatesOutputFailure(t *testing.T) {
 	dependencies := defaultGuideDependencies()
 	dependencies.Command = pagerCommandWithOccupiedStdin
 	err := presentGuideThroughPager(command, dependencies, "unused", []byte("rendered guide\n"))
-	if !errors.Is(err, errGuideWriter) {
-		t.Fatalf("fallback error = %v, want guide writer failure", err)
-	}
+	require.ErrorIs(t, err, errGuideWriter)
 }
 
 func TestGuideMalformedPagerConfigurationIsAnError(t *testing.T) {
@@ -201,12 +172,9 @@ func TestGuideMalformedPagerConfigurationIsAnError(t *testing.T) {
 
 	root := newGuideTestRoot(true, 80, map[string]string{"PAGER": "'unterminated"})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "dns")
-	if !errors.Is(err, errInvalidPager) {
-		t.Fatalf("error = %v, want errInvalidPager", err)
-	}
-	if stdout != "" || stderr != "" {
-		t.Fatalf("stdout = %q, stderr = %q, want no partial output", stdout, stderr)
-	}
+	require.ErrorIs(t, err, errInvalidPager)
+	assert.Empty(t, stdout)
+	assert.Empty(t, stderr)
 }
 
 func TestGuideRedirectAndNoPagerNeverStartConfiguredPager(t *testing.T) {
@@ -228,9 +196,7 @@ func TestGuideRedirectAndNoPagerNeverStartConfiguredPager(t *testing.T) {
 			args := []string{"help", "net"}
 			args = append(args, test.args...)
 			_, _, err := executeRootCommandStreams(t, newGuideTestRoot(test.terminal, 80, map[string]string{"PAGER": pager}), args...)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("configured pager started unexpectedly: %v", statErr)
 			}
@@ -246,9 +212,7 @@ func TestGuidePagerSuccessfulEarlyExitSuppressesBrokenPipe(t *testing.T) {
 	command.SetErr(io.Discard)
 	dependencies := defaultGuideDependencies()
 	rendered := bytes.Repeat([]byte("a long rendered guide line\n"), 128*1024)
-	if err := presentGuideThroughPager(command, dependencies, guidePagerHelperCommand("early-exit"), rendered); err != nil {
-		t.Fatalf("successful early pager exit: %v", err)
-	}
+	assert.NoError(t, presentGuideThroughPager(command, dependencies, guidePagerHelperCommand("early-exit"), rendered), "successful early pager exit")
 }
 
 func TestGuidePagerReportsNonzeroExit(t *testing.T) {
@@ -258,9 +222,8 @@ func TestGuidePagerReportsNonzeroExit(t *testing.T) {
 	command.SetOut(io.Discard)
 	command.SetErr(io.Discard)
 	err := presentGuideThroughPager(command, defaultGuideDependencies(), guidePagerHelperCommand("fail"), []byte("guide\n"))
-	if err == nil || !strings.Contains(err.Error(), "pager") || !strings.Contains(err.Error(), "exit status") {
-		t.Fatalf("error = %v, want nonzero pager exit", err)
-	}
+	require.ErrorContains(t, err, "pager")
+	require.ErrorContains(t, err, "exit status")
 }
 
 func TestGuidePagerHelperProcess(t *testing.T) { //nolint:paralleltest // subprocess branch exits the test process

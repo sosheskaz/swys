@@ -65,22 +65,18 @@ func TestGuideRendererSupportsBoundedMarkdownVocabulary(t *testing.T) {
 		"1. First ordered item.",
 		"  printf '$HOME * [literal](punctuation) \\\\ tail\\n'",
 	} {
-		if !strings.Contains(plainText, want) {
-			t.Errorf("plain rendering does not contain %q:\n%s", want, plainText)
-		}
+		assert.Contains(t, plainText, want)
 	}
 	for _, marker := range []string{"\x1b[", "```", "**strong text**", "[documentation]("} {
-		if strings.Contains(plainText, marker) {
-			t.Errorf("plain rendering retained presentation marker %q:\n%s", marker, plainText)
-		}
+		assert.NotContains(t, plainText, marker)
 	}
 
 	rich, err := renderGuide([]byte(guideMarkupFixture), guideRenderOptions{width: 80, rich: true})
 	require.NoError(t, err)
 	assert.Contains(t, string(rich), "\x1b[", "rich rendering styling")
-	if visible := stripGuideANSI(string(rich)); strings.Contains(visible, "https://") || !strings.Contains(visible, "documentation.") {
-		t.Fatalf("rich rendering must show only the link label: %q", visible)
-	}
+	visible := stripGuideANSI(string(rich))
+	assert.NotContains(t, visible, "https://", "rich rendering shows only the link label")
+	assert.Contains(t, visible, "documentation.", "rich rendering shows the link label")
 }
 
 func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
@@ -120,9 +116,8 @@ func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := renderGuide([]byte(test.markup), guideRenderOptions{width: 80}); err == nil || !strings.Contains(err.Error(), "unsupported guide Markdown") {
-				t.Fatalf("error = %v, want unsupported Markdown rejection", err)
-			}
+			_, err := renderGuide([]byte(test.markup), guideRenderOptions{width: 80})
+			assert.ErrorContains(t, err, "unsupported guide Markdown")
 		})
 	}
 }
@@ -151,9 +146,7 @@ func TestGuideRendererWrapsProseButPreservesCodeAndLongDestinations(t *testing.T
 		if strings.Contains(line, "printf '") || strings.Contains(line, longURL) {
 			continue
 		}
-		if utf8.RuneCountInString(line) > 24 {
-			t.Errorf("line exceeds width 24: %q", line)
-		}
+		assert.LessOrEqual(t, utf8.RuneCountInString(line), 24, "line: %q", line)
 	}
 	assert.Contains(t, string(output), longURL, "long link destination")
 	assert.Contains(t, string(output), "  printf 'this command line intentionally exceeds the prose width'", "code line")

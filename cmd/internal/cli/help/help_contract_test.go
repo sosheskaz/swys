@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	rootcmd "github.com/sosheskaz-systems/npc/cmd"
@@ -25,44 +26,32 @@ func TestEmbeddedGuidesCoverEveryPublicCommand(t *testing.T) {
 
 	root := initializedGuideRoot()
 	guides, err := loadEmbeddedGuides(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := publicGuidePaths(root)
 	got := make([]string, 0, len(guides))
 	for path := range guides {
 		got = append(got, path)
 	}
 	slices.Sort(got)
-	if !slices.Equal(got, want) {
-		t.Fatalf("embedded guide paths = %q, want public command paths %q", got, want)
-	}
+	require.Equal(t, want, got, "embedded guide paths")
 
 	for _, path := range want {
 		command, err := resolveGuideTarget(root, strings.Fields(path))
-		if err != nil {
-			t.Fatalf("resolve canonical guide %q: %v", path, err)
-		}
+		require.NoError(t, err, "resolve canonical guide %q", path)
 		source := guides[path]
 		blocks, err := parseGuide(source)
-		if err != nil {
-			t.Fatalf("parse guide %q: %v", guideDisplayPath(path), err)
-		}
+		require.NoError(t, err, "parse guide %q", guideDisplayPath(path))
 		if command == root || len(publicGuideChildren(command)) > 0 {
-			if !guideHasBlock(blocks, guideListBlock) {
-				t.Errorf("root or branch guide %q has no chooser list", guideDisplayPath(path))
-			}
-		} else if !guideHasBlock(blocks, guideCodeBlock) {
-			t.Errorf("leaf guide %q has no executable example", guideDisplayPath(path))
+			assert.True(t, guideHasBlock(blocks, guideListBlock), "root or branch guide %q has no chooser list", guideDisplayPath(path))
+		} else {
+			assert.True(t, guideHasBlock(blocks, guideCodeBlock), "leaf guide %q has no executable example", guideDisplayPath(path))
 		}
 
 		reference := "npc --help"
 		if path != "" {
 			reference = "npc " + path + " --help"
 		}
-		if !sourceHasCommand(source, reference) {
-			t.Errorf("guide %q does not contain reference invocation %q", guideDisplayPath(path), reference)
-		}
+		assert.True(t, sourceHasCommand(source, reference), "guide %q lacks reference invocation %q", guideDisplayPath(path), reference)
 	}
 }
 
@@ -71,9 +60,7 @@ func TestGuideNavigationReferencesResolveThroughCommandTree(t *testing.T) {
 
 	root := initializedGuideRoot()
 	guides, err := loadEmbeddedGuides(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	navigation := regexp.MustCompile(`(?m)^npc help(?: ([^\r\n]+))?$`)
 	for path, source := range guides {
 		for _, match := range navigation.FindAllSubmatch(source, -1) {
@@ -81,9 +68,8 @@ func TestGuideNavigationReferencesResolveThroughCommandTree(t *testing.T) {
 			if slices.ContainsFunc(fields, func(field string) bool { return strings.HasPrefix(field, "-") }) {
 				continue
 			}
-			if _, err := resolveGuideTarget(root, fields); err != nil {
-				t.Errorf("guide %q has unresolved navigation %q: %v", guideDisplayPath(path), match[0], err)
-			}
+			_, err := resolveGuideTarget(root, fields)
+			assert.NoError(t, err, "guide %q navigation %q", guideDisplayPath(path), match[0])
 		}
 	}
 }
@@ -93,26 +79,18 @@ func TestEveryEmbeddedGuideRendersPlainAndRich(t *testing.T) {
 
 	root := initializedGuideRoot()
 	guides, err := loadEmbeddedGuides(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for path, source := range guides {
 		t.Run(strings.ReplaceAll(guideDisplayPath(path), " ", "_"), func(t *testing.T) {
 			t.Parallel()
 			plain, err := renderGuide(source, guideRenderOptions{width: 47})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			rich, err := renderGuide(source, guideRenderOptions{width: 47, rich: true})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if len(plain) == 0 || bytes.Contains(plain, []byte("\x1b[")) || bytes.Contains(plain, []byte("```")) {
 				t.Fatalf("plain guide contains raw presentation syntax: %q", plain)
 			}
-			if !bytes.Contains(rich, []byte("\x1b[")) {
-				t.Fatalf("rich guide contains no styling: %q", rich)
-			}
+			require.Contains(t, string(rich), "\x1b[", "rich guide styling")
 			plainLabels := regexp.MustCompile(`\s+\(https?://[^)]+\)`).ReplaceAllString(string(plain), "")
 			if stripped := stripGuideANSI(string(rich)); strings.Join(strings.Fields(stripped), " ") != strings.Join(strings.Fields(plainLabels), " ") {
 				t.Fatalf("rich and plain content differ\nrich: %q\nplain: %q", stripped, plain)
@@ -138,9 +116,7 @@ func TestEveryCommandAliasCombinationResolvesCanonicalGuide(t *testing.T) {
 						t.Errorf("resolve alias path %q: %v", path, err)
 						continue
 					}
-					if got, want := canonicalGuideKey(root, resolved), canonicalGuideKey(root, child); got != want {
-						t.Errorf("alias path %q resolved to %q, want %q", path, got, want)
-					}
+					assert.Equal(t, canonicalGuideKey(root, child), canonicalGuideKey(root, resolved), "alias path %q", path)
 					childPaths = append(childPaths, path)
 				}
 			}
@@ -160,19 +136,13 @@ func TestEveryPublicCommandReferenceHelpPointsToItsGuide(t *testing.T) {
 			args := strings.Fields(path)
 			args = append(args, "--help")
 			stdout, stderr, err := executeRootStreams(t, args...)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			invocation := "npc help"
 			if path != "" {
 				invocation += " " + path
 			}
-			if !strings.Contains(stdout, "For a usage guide, run '"+invocation+"'.") {
-				t.Fatalf("reference help lacks guide pointer %q:\n%s", invocation, stdout)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q", stderr)
-			}
+			require.Contains(t, stdout, "For a usage guide, run '"+invocation+"'.")
+			require.Empty(t, stderr)
 		})
 	}
 }
@@ -299,9 +269,7 @@ func TestHelpRejectsOperationalIOFlagsWithoutSideEffects(t *testing.T) {
 			root := newGuideTestRoot(false, 0, nil)
 			root.SetIn(guidePanicReader{})
 			_, _, err := executeRootCommandStreams(t, root, "help", "cert", "connect", "--"+flag, value)
-			if !errors.Is(err, errGuideOperationalFlag) {
-				t.Fatalf("error = %v, want errGuideOperationalFlag", err)
-			}
+			require.ErrorIs(t, err, errGuideOperationalFlag)
 			if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("operational flag touched %q: %v", path, statErr)
 			}
@@ -339,9 +307,7 @@ func TestGuideRenderingGoldens(t *testing.T) {
 			goldenPath := filepath.Join("testdata", test.name+".golden")
 			want, err := os.ReadFile(goldenPath)
 			require.NoError(t, err)
-			if got != string(want) {
-				t.Fatalf("rendering differs from %s\n--- got ---\n%s\n--- want ---\n%s", goldenPath, got, want)
-			}
+			assert.Equal(t, string(want), got, "rendering golden %s", goldenPath)
 		})
 	}
 }
