@@ -127,21 +127,16 @@ func TestBase64DecodersRejectDataAfterTerminalPadding(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/read-%d", name, inputName, readBufferSize), func(t *testing.T) {
 					t.Parallel()
 					decoder, err := GetInputDecoder(name)
-					if err != nil {
-						t.Fatal(err)
-					}
+					require.NoError(t, err)
 					reader := decoder(&maxChunkReader{
 						source: strings.NewReader(input),
 						max:    readBufferSize,
 					})
 					_, err = readAllWithBuffer(reader, readBufferSize)
-					if err == nil {
-						t.Fatalf("decode accepted data after terminal padding with read buffer %d", readBufferSize)
-					}
+					require.Error(t, err, "decode accepted data after terminal padding with read buffer %d", readBufferSize)
 					n, stickyErr := reader.Read(make([]byte, 1))
-					if n != 0 || stickyErr == nil || stickyErr.Error() != err.Error() {
-						t.Fatalf("read after validation error = %d, %v; want sticky %v", n, stickyErr, err)
-					}
+					assert.Zero(t, n, "read after validation error")
+					assert.EqualError(t, stickyErr, err.Error(), "sticky validation error")
 				})
 			}
 		}
@@ -165,19 +160,13 @@ func TestBase64DecodersPreserveValidPaddingPolicyAcrossBoundaries(t *testing.T) 
 				t.Run(fmt.Sprintf("%s/%s/source-%d", encodingName, test.name, sourceChunkSize), func(t *testing.T) {
 					t.Parallel()
 					decoder, err := GetInputDecoder(encodingName)
-					if err != nil {
-						t.Fatal(err)
-					}
+					require.NoError(t, err)
 					got, err := io.ReadAll(decoder(&maxChunkReader{
 						source: strings.NewReader(test.input),
 						max:    sourceChunkSize,
 					}))
-					if err != nil {
-						t.Fatal(err)
-					}
-					if string(got) != test.want {
-						t.Fatalf("decode = %q, want %q", got, test.want)
-					}
+					require.NoError(t, err)
+					assert.Equal(t, test.want, string(got))
 				})
 			}
 		}
@@ -189,47 +178,27 @@ func TestBase64DecoderPreservesSourceErrorWithData(t *testing.T) {
 	readErr := errTestSourceReadFailed
 	source := &dataAndErrorReader{data: []byte("YQ=="), err: readErr}
 	decoder, err := GetInputDecoder("base64")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	reader := decoder(source)
 	got, err := readAllWithBuffer(reader, 1)
-	if string(got) != "a" {
-		t.Fatalf("decoded bytes = %q, want %q", got, "a")
-	}
-	if !errors.Is(err, readErr) {
-		t.Fatalf("decode error = %v, want source error", err)
-	}
+	assert.Equal(t, "a", string(got), "decoded bytes")
+	require.ErrorIs(t, err, readErr, "decode error")
 
 	n, stickyErr := reader.Read(make([]byte, 1))
-	if n != 0 {
-		t.Fatalf("read after source error = %d bytes, want 0", n)
-	}
-	if !errors.Is(stickyErr, readErr) {
-		t.Fatalf("read after source error = %v, want sticky source error", stickyErr)
-	}
-	if source.reads != 1 {
-		t.Fatalf("source reads = %d, want 1", source.reads)
-	}
+	assert.Zero(t, n, "read after source error")
+	require.ErrorIs(t, stickyErr, readErr, "sticky source error")
+	assert.Equal(t, 1, source.reads, "source reads")
 }
 
 func TestBase64ValidationErrorOmitsEOF(t *testing.T) {
 	t.Parallel()
 	source := &dataAndErrorReader{data: []byte("YQ==Yg=="), err: io.EOF}
 	decoder, err := GetInputDecoder("base64")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	got, err := io.ReadAll(decoder(source))
-	if string(got) != "a" {
-		t.Fatalf("decoded prefix = %q, want %q", got, "a")
-	}
-	if !errors.Is(err, errInvalidBase64Padding) {
-		t.Fatalf("decode error = %v, want invalid padding", err)
-	}
-	if errors.Is(err, io.EOF) {
-		t.Fatalf("decode error = %v, want corruption without EOF", err)
-	}
+	assert.Equal(t, "a", string(got), "decoded prefix")
+	require.ErrorIs(t, err, errInvalidBase64Padding, "decode error")
+	assert.NotErrorIs(t, err, io.EOF, "decode error must not expose EOF")
 }
 
 func TestNewlineStrippingReaderDoesNotReturnZeroWithoutError(t *testing.T) {
@@ -238,15 +207,9 @@ func TestNewlineStrippingReaderDoesNotReturnZeroWithoutError(t *testing.T) {
 	reader := stripNewlines(source)
 	buffer := make([]byte, 8)
 	n, err := reader.Read(buffer)
-	if err != nil {
-		t.Fatalf("read error = %v, want nil", err)
-	}
-	if n == 0 {
-		t.Fatal("read returned 0 bytes with nil error for a non-empty buffer, want the newline-only chunk skipped internally")
-	}
-	if string(buffer[:n]) != "ab" {
-		t.Fatalf("read = %q, want %q", buffer[:n], "ab")
-	}
+	require.NoError(t, err)
+	require.NotZero(t, n, "read returned 0 bytes with nil error for a non-empty buffer, want the newline-only chunk skipped internally")
+	assert.Equal(t, "ab", string(buffer[:n]))
 }
 
 type sequenceReader struct {
@@ -327,20 +290,12 @@ func TestOptionalPaddingReaderErrorIsSticky(t *testing.T) {
 			break
 		}
 	}
-	if firstErr == nil {
-		t.Fatal("no error surfaced within 8 reads, want invalid padding")
-	}
-	if !errors.Is(firstErr, errInvalidBase64URLPadding) {
-		t.Fatalf("first error = %v, want invalid padding", firstErr)
-	}
+	require.Error(t, firstErr, "no error surfaced within 8 reads, want invalid padding")
+	require.ErrorIs(t, firstErr, errInvalidBase64URLPadding)
 
 	n, secondErr := reader.Read(buffer)
-	if n != 0 {
-		t.Fatalf("read after error = %d bytes, want 0", n)
-	}
-	if !errors.Is(secondErr, errInvalidBase64URLPadding) {
-		t.Fatalf("second error = %v, want the same sticky invalid padding error", secondErr)
-	}
+	assert.Zero(t, n, "read after error")
+	assert.ErrorIs(t, secondErr, errInvalidBase64URLPadding, "sticky invalid padding error")
 }
 
 type failingWriter struct {
