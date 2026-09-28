@@ -3,7 +3,7 @@ module github.com/sosheskaz-systems/npc
 go 1.27.0
 
 require (
-	codeberg.org/miekg/dns v0.6.109
+	codeberg.org/miekg/dns v0.6.114
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/ProtonMail/gopenpgp/v3 v3.4.1
 	github.com/spf13/cobra v1.10.2
