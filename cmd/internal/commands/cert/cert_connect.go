@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/spf13/cobra"
@@ -14,47 +15,43 @@ import (
 )
 
 func newConnectCmd() *cobra.Command {
-	connectCmd := commandio.NetworkCommand(commandio.StructuredOutputCommand(&cobra.Command{
+	cmd := commandio.NetworkCommand(commandio.StructuredOutputCommand(&cobra.Command{
 		Aliases: []string{"c", "conn"},
 		Use:     "connect host:port",
 		Short:   "Fetch and display certificates from a TLS connection",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			formatter, err := certFormatterFromCommand(cmd)
-			if err != nil {
-				return err
-			}
-
-			dnsName, _, err := net.SplitHostPort(args[0])
-			if err != nil {
-				return fmt.Errorf("parse TLS address %q: %w", args[0], err)
-			}
-			connection, err := netconn.DialTLS(cmd.Context(), args[0], &tls.Config{
-				// Verification remains a reporting concern so diagnostic inspection
-				// can retrieve expired, mismatched, and privately trusted chains.
-				InsecureSkipVerify: true, //nolint:gosec // diagnostic inspection intentionally reports trust failures after retrieval
-				ServerName:         dnsName,
-			})
-			if err != nil {
-				return err
-			}
-			defer connection.Close() //nolint:errcheck // peer certificates are already in memory
-			certs := connection.ConnectionState().PeerCertificates
-			if len(certs) == 0 {
-				return errNoPeerCertificates
-			}
-			includeChain, err := cmd.Flags().GetBool("chain")
-			if err != nil {
-				return fmt.Errorf("read chain flag: %w", err)
-			}
-			includeChain = includeChain || formatter.RequiresChain()
-			certInfos, err := asym.NewCertInfos(certs, &x509.VerifyOptions{DNSName: dnsName}, includeChain)
-			if err != nil {
-				return err
-			}
-			return formatCertificates(cmd, formatter, certInfos)
-		},
+		RunE:    runPreparedInspection,
 	}, certFormatNames))
-	connectCmd.Flags().Bool("chain", false, "include the peer-provided certificate chain")
-	connectCmd.ValidArgsFunction = cobra.NoFileCompletions
-	return connectCmd
+	commandio.AddOutputEncodingFlag(cmd)
+	addCertificateSelection(cmd, asym.SelectLeaf)
+	cmd.ValidArgsFunction = cobra.NoFileCompletions
+	return cmd
+}
+
+func prepareConnectedCertificates(cmd *cobra.Command, _ io.Reader) ([]byte, error) {
+	address := cmd.Flags().Args()[0]
+	dnsName, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("parse TLS address %q: %w", address, err)
+	}
+	timeout, err := cmd.Flags().GetDuration(commandio.TimeoutFlagName)
+	if err != nil {
+		return nil, fmt.Errorf("read timeout flag: %w", err)
+	}
+	// Preparation precedes RunE, so its connection needs its own setup deadline.
+	ctx, cancel := commandio.NetworkSetupContext(cmd.Context(), timeout)
+	defer cancel()
+	connection, err := netconn.DialTLS(ctx, address, &tls.Config{
+		// Retrieval and trust reporting are separate, including for private roots.
+		InsecureSkipVerify: true, //nolint:gosec // diagnostic retrieval reports verification separately
+		ServerName:         dnsName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close() //nolint:errcheck // peer certificates are already in memory
+	certs := connection.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return nil, errNoPeerCertificates
+	}
+	return prepareInspection(cmd, certs, &x509.VerifyOptions{DNSName: dnsName}, "peer")
 }

@@ -20,7 +20,9 @@ func TestSharedEncodingAndFormatDescriptions(t *testing.T) {
 		{args: []string{"http", "--input-encoding", ""}, want: "b64\talias for base64"},
 		{args: []string{"http", "--format", ""}, want: "json\tstructured JSON"},
 		{args: []string{"dns", "--format", ""}, want: "json\tstructured JSON"},
-		{args: []string{"certificate", "inspect", "-f", ""}, want: "chain\tissuer certificates as PEM, excluding the leaf"},
+		{args: []string{"certificate", "inspect", "-f", ""}, want: "pem\tcertificate PEM"},
+		{args: []string{"certificate", "inspect", "--select", ""}, want: "chain\tsupplied certificates after the leaf"},
+		{args: []string{"cert", "connect", "--select", "0"}, want: "0\troot of an unambiguous complete chain"},
 		{args: []string{"cert", "key-inspect", "--format", ""}, want: "text\thuman-readable text"},
 		{args: []string{"nc", "connect", "tcp", "-e", ""}, want: "raw\tunencoded bytes"},
 	} {

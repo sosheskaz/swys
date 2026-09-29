@@ -22,7 +22,8 @@ func TestCertificatePEMEscapesVerificationDiagnostics(t *testing.T) {
 	command := &cobra.Command{}
 	command.SetOut(&output)
 	command.SetErr(&diagnostics)
-	require.NoError(t, formatCertificates(command, &asym.PEMFormatter{}, []*asym.CertInfo{info}))
+	require.NoError(t, (&asym.PEMFormatter{}).FormatReport(&asym.CertificateReport{Certificates: []*asym.CertInfo{info}}, command.OutOrStdout()))
+	require.NoError(t, (asym.CertificateVerification{Error: info.VerifyError}).WriteText(command.ErrOrStderr()))
 	assert.Equal(t, "certificate verification: not verified: bad\\x1b[2J\\r\\nname\n", diagnostics.String())
 	block, rest := pem.Decode(output.Bytes())
 	require.NotNil(t, block, "PEM certificate changed")

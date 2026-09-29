@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -303,9 +304,15 @@ func TestCertConnectVerificationStatusRemainsNonFatal(t *testing.T) {
 		"cert", "connect", server.Listener.Addr().String(), "--format", "json", "--timeout", "0",
 	)
 	require.NoError(t, err)
-	if !strings.Contains(stdout, `"verified": false`) || !strings.Contains(stdout, `"verify_error"`) {
-		t.Fatalf("certificate JSON = %s, want non-fatal verification status", stdout)
+	var report struct {
+		Verification struct {
+			Error    string `json:"error"`
+			Verified bool   `json:"verified"`
+		} `json:"verification"`
 	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &report))
+	assert.False(t, report.Verification.Verified)
+	assert.NotEmpty(t, report.Verification.Error)
 }
 
 func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
@@ -314,29 +321,36 @@ func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
-			t.Errorf("close stalled TLS listener: %v", closeErr)
+			t.Errorf("close listener: %v", closeErr)
 		}
 	})
-	accepted := make(chan net.Conn, 1)
+	done := make(chan struct{})
 	go func() {
-		connection, acceptErr := listener.Accept()
-		if acceptErr == nil {
-			accepted <- connection
+		defer close(done)
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close() //nolint:errcheck // fixture cleanup
+		// Consume ClientHello without answering; EOF follows client cancellation.
+		if _, copyErr := io.Copy(io.Discard, conn); copyErr != nil {
+			t.Errorf("consume stalled handshake: %v", copyErr)
 		}
 	}()
-
-	_, _, err = executeRootStreams(
-		t,
-		"cert", "connect", listener.Addr().String(), "--timeout", "25ms",
-	)
+	path := filepath.Join(t.TempDir(), "existing.pem")
+	require.NoError(t, os.WriteFile(path, []byte("preserve me"), 0o600))
+	parent, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	root := newRootCmd()
+	root.SetContext(parent)
+	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", listener.Addr().String(), "--timeout", "20ms", "-o", path)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-
-	select {
-	case connection := <-accepted:
-		require.NoError(t, connection.Close())
-	case <-time.After(time.Second):
-		t.Fatal("TLS handshake connection was not accepted")
-	}
+	require.NoError(t, parent.Err(), "the command must use its own setup timeout during preparation")
+	require.NoError(t, listener.Close())
+	<-done
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "preserve me", string(after))
 }
 
 func TestCertConnectConnectionRefusedDoesNotRetry(t *testing.T) {

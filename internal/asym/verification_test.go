@@ -7,7 +7,10 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,57 +18,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewCertInfosVerifiesHostnameAndPeerIntermediates(t *testing.T) {
+func TestCertificateReportPreservesNamesAndLeafVerification(t *testing.T) {
 	t.Parallel()
 	leaf, intermediate, root := generateCertificateChain(t)
 	roots := x509.NewCertPool()
 	roots.AddCert(root)
-
-	infos, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
-		DNSName: "service.example.com",
-		Roots:   roots,
-	}, true)
+	report, err := InspectCertificates([]*x509.Certificate{leaf, intermediate, root}, &x509.VerifyOptions{
+		DNSName: "service.example.com", Roots: roots,
+	}, SelectLeaf, "peer")
 	require.NoError(t, err)
-	require.Len(t, infos, 2)
-	assert.True(t, infos[0].Verified, "leaf verification: %s", infos[0].VerifyError)
-	assert.True(t, infos[1].Verified, "intermediate verification: %s", infos[1].VerifyError)
+	require.Len(t, report.Certificates, 1)
+	assert.True(t, report.Verification.Verified)
+	require.Len(t, report.Verification.Chains, 1)
+	assert.Equal(t, []string{
+		NewCertInfo(leaf).SHA256Fingerprint, NewCertInfo(intermediate).SHA256Fingerprint, NewCertInfo(root).SHA256Fingerprint,
+	}, report.Verification.Chains[0])
 	var output bytes.Buffer
-	require.NoError(t, (&TextFormatter{Long: true}).Format(infos[0], &output))
-	assert.Contains(t, output.String(), "Test, Root", "chain output should preserve the comma in the common name")
-	leafOnly, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
-		DNSName: "service.example.com",
-		Roots:   roots,
-	}, false)
-	require.NoError(t, err)
-	assert.Len(t, leafOnly, 1)
-
-	wrongHost, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
-		DNSName: "other.example.com",
-		Roots:   roots,
-	}, true)
-	require.NoError(t, err)
-	require.NotEmpty(t, wrongHost)
-	assert.False(t, wrongHost[0].Verified, "leaf unexpectedly verified for the wrong hostname")
-}
-
-func TestNewCertInfosPreservesCommonNamesContainingCommas(t *testing.T) {
-	t.Parallel()
-	leaf, intermediate, root := generateCertificateChain(t)
-	roots := x509.NewCertPool()
-	roots.AddCert(root)
-
-	infos, err := NewCertInfos([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{
-		DNSName: "service.example.com",
-		Roots:   roots,
-	}, true)
-	require.NoError(t, err)
-	require.NotEmpty(t, infos)
-	assert.Equal(t, "Service, Leaf", infos[0].CommonName())
-	require.Len(t, infos[0].Chains, 1)
-	require.Len(t, infos[0].Chains[0], 3)
-	chain := infos[0].Chains[0]
-	assert.Equal(t, "Service, Leaf", chain[0].CommonName)
-	assert.Equal(t, "Test, Root", chain[2].CommonName)
+	require.NoError(t, (&TextFormatter{Long: true}).FormatReport(report, &output))
+	assert.Contains(t, output.String(), "Service, Leaf")
+	assert.Contains(t, output.String(), "Service, Leaf -> Test Intermediate -> Test, Root")
+	assert.Contains(t, output.String(), "certificate verification: verified")
 }
 
 func TestNewCertInfoVerifiedDoesNotMutateOptions(t *testing.T) {
@@ -147,4 +119,130 @@ func createCertificate(
 	cert, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
 	return cert
+}
+
+func TestCertificateRootSelectionKeepsTrustSeparate(t *testing.T) {
+	t.Parallel()
+	leaf, intermediate, root := generateCertificateChain(t)
+	_, _, unrelated := generateCertificateChain(t)
+	trusted := x509.NewCertPool()
+	trusted.AddCert(root)
+	for _, test := range []struct {
+		roots        *x509.CertPool
+		name         string
+		hostname     string
+		wantSource   string
+		certs        []*x509.Certificate
+		wantVerified bool
+		wantError    bool
+	}{
+		{
+			name: "omitted trusted root", certs: []*x509.Certificate{leaf, intermediate},
+			roots: trusted, hostname: "service.example.com", wantSource: "verified_chain", wantVerified: true,
+		},
+		{
+			name: "supplied trusted root", certs: []*x509.Certificate{leaf, intermediate, root},
+			roots: trusted, hostname: "service.example.com", wantSource: "peer", wantVerified: true,
+		},
+		{name: "private root", certs: []*x509.Certificate{leaf, intermediate, root}, roots: x509.NewCertPool(), wantSource: "peer"},
+		{name: "wrong hostname", certs: []*x509.Certificate{leaf, intermediate, root}, roots: trusted, hostname: "other.example.com", wantSource: "peer"},
+		{name: "missing root", certs: []*x509.Certificate{leaf, intermediate}, roots: x509.NewCertPool(), wantError: true},
+		{name: "unrelated root", certs: []*x509.Certificate{leaf, intermediate, unrelated}, roots: x509.NewCertPool(), wantError: true},
+		{name: "chain gap", certs: []*x509.Certificate{leaf, root}, roots: x509.NewCertPool(), wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			report, err := InspectCertificates(test.certs, &x509.VerifyOptions{Roots: test.roots, DNSName: test.hostname}, SelectRoot, "peer")
+			if test.wantError {
+				require.ErrorIs(t, err, ErrCertificateSelection)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, report.Certificates, 1)
+			assert.Equal(t, root.Raw, report.Certificates[0].RawDER)
+			assert.Equal(t, test.wantSource, report.Certificates[0].Source)
+			assert.Equal(t, test.wantVerified, report.Verification.Verified)
+			if !test.wantVerified {
+				assert.NotEmpty(t, report.Verification.Error)
+			}
+		})
+	}
+}
+
+func TestCertificateSelectionEmptyChainFails(t *testing.T) {
+	t.Parallel()
+	leaf, _, _ := generateCertificateChain(t)
+	_, err := InspectCertificates([]*x509.Certificate{leaf}, &x509.VerifyOptions{Roots: x509.NewCertPool()}, SelectChain, "input")
+	require.ErrorIs(t, err, ErrCertificateSelection)
+}
+
+func TestCertificateRootSelectionDeduplicatesCrossSignedPaths(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	roots := x509.NewCertPool()
+	var supplied []*x509.Certificate
+	var expected []string
+	intermediateKey := generateECDSAKey(t)
+	intermediateTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(10), Subject: pkix.Name{CommonName: "Cross-signed intermediate"},
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+	}
+	for i := range 2 {
+		key := generateECDSAKey(t)
+		template := &x509.Certificate{
+			SerialNumber: big.NewInt(int64(i + 1)), Subject: pkix.Name{CommonName: fmt.Sprintf("Root %d", i)},
+			IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+			NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		}
+		root := createCertificate(t, template, template, &key.PublicKey, key)
+		roots.AddCert(root)
+		expected = append(expected, NewCertInfo(root).SHA256Fingerprint)
+		// Two distinct issuers can lead to the same root; export that root only once.
+		for j := range i + 1 {
+			intermediateTemplate.SerialNumber = big.NewInt(int64(10 + i*2 + j))
+			supplied = append(supplied, createCertificate(t, intermediateTemplate, root, &intermediateKey.PublicKey, key))
+		}
+	}
+	leafKey := generateECDSAKey(t)
+	leaf := createCertificate(t, &x509.Certificate{
+		SerialNumber: big.NewInt(20), Subject: pkix.Name{CommonName: "Leaf"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+	}, supplied[0], &leafKey.PublicKey, intermediateKey)
+	supplied = append([]*x509.Certificate{leaf}, supplied...)
+	report, err := InspectCertificates(supplied, &x509.VerifyOptions{Roots: roots}, SelectRoot, "peer")
+	require.NoError(t, err)
+	assert.True(t, report.Verification.Verified)
+	require.Len(t, report.Verification.Chains, 3)
+	require.Len(t, report.Certificates, 2)
+	slices.Sort(expected)
+	for i, cert := range report.Certificates {
+		assert.Equal(t, expected[i], cert.SHA256Fingerprint)
+		assert.Equal(t, "verified_chain", cert.Source)
+	}
+	_, err = InspectCertificates(supplied, &x509.VerifyOptions{Roots: roots}, "0", "peer")
+	require.ErrorIs(t, err, ErrCertificateSelection)
+	assert.ErrorContains(t, err, "ambiguous")
+}
+
+func TestCertificateIndexRunsFromRootToLeaf(t *testing.T) {
+	t.Parallel()
+	leaf, intermediate, root := generateCertificateChain(t)
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+	for index, want := range []*x509.Certificate{root, intermediate, leaf} {
+		t.Run(strconv.Itoa(index), func(t *testing.T) {
+			t.Parallel()
+			report, err := InspectCertificates([]*x509.Certificate{leaf, intermediate}, &x509.VerifyOptions{Roots: roots}, strconv.Itoa(index), "peer")
+			require.NoError(t, err)
+			require.Len(t, report.Certificates, 1)
+			assert.Equal(t, want.Raw, report.Certificates[0].RawDER)
+			assert.True(t, report.Verification.Verified)
+		})
+	}
+	report, err := InspectCertificates([]*x509.Certificate{leaf, intermediate, root}, &x509.VerifyOptions{Roots: x509.NewCertPool()}, "1", "input")
+	require.NoError(t, err)
+	require.Len(t, report.Certificates, 1)
+	assert.Equal(t, intermediate.Raw, report.Certificates[0].RawDER)
+	assert.False(t, report.Verification.Verified)
 }

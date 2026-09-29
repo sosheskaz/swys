@@ -9,13 +9,11 @@ import (
 const certificatePEMType = "CERTIFICATE"
 
 // PEMFormatter outputs the raw PEM certificate only.
-type PEMFormatter struct {
-	FullChain bool
-}
+type PEMFormatter struct{}
 
-// RequiresChain reports whether this formatter emits the full certificate chain.
-func (f *PEMFormatter) RequiresChain() bool {
-	return f.FullChain
+// FormatReport writes selected certificates without making selection decisions.
+func (f *PEMFormatter) FormatReport(report *CertificateReport, w io.Writer) error {
+	return f.FormatMultiple(report.Certificates, w)
 }
 
 // Format writes a single certificate as PEM.

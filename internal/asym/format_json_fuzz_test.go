@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"math/big"
 	"net"
 	"slices"
@@ -24,7 +25,7 @@ import (
 const maxFuzzCertificateDERSize = 1 << 12
 
 // fuzzCertificateVerifyTime pins chain verification to a fixed instant. Left to
-// wall-clock time, NewCertInfoVerified would make this target nondeterministic,
+// wall-clock time, InspectCertificates would make this target nondeterministic,
 // which Go's fuzzing engine assumes against when minimizing and reproducing.
 var fuzzCertificateVerifyTime = time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
 
@@ -52,15 +53,15 @@ func FuzzCertificateJSON(f *testing.F) {
 			return
 		}
 
-		info, err := NewCertInfoVerified(cert, &x509.VerifyOptions{
+		report, err := InspectCertificates([]*x509.Certificate{cert}, &x509.VerifyOptions{
 			Roots:       x509.NewCertPool(),
 			CurrentTime: fuzzCertificateVerifyTime,
-		})
+		}, SelectLeaf, "peer")
 		if err != nil {
 			t.Fatalf("inspect parsed certificate: %v", err)
 		}
 		var output bytes.Buffer
-		formatErr := (&JSONFormatter{Indent: indent}).Format(info, &output)
+		formatErr := (&JSONFormatter{Indent: indent}).FormatReport(report, &output)
 
 		// The SPKI is the only part of the envelope whose rendering can fail, so
 		// acceptance is differentiated against the standard library marshaller.
@@ -77,13 +78,26 @@ func FuzzCertificateJSON(f *testing.F) {
 		if !indent && strings.Count(output.String(), "\n") != 1 {
 			t.Fatalf("unindented certificate JSON spans multiple lines: %q", output.String())
 		}
-		checkFuzzCertificateEnvelope(t, output.Bytes(), cert, wantPublicKey)
+		var decoded struct {
+			Selection    string                  `json:"selection"`
+			Certificates []json.RawMessage       `json:"certificates"`
+			Verification CertificateVerification `json:"verification"`
+		}
+		if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.Selection != SelectLeaf || len(decoded.Certificates) != 1 || decoded.Verification.Verified || decoded.Verification.Error == "" {
+			t.Fatalf("unexpected inspection report: %s", output.Bytes())
+		}
+		checkFuzzCertificateEnvelope(t, decoded.Certificates[0], cert, wantPublicKey)
 	})
 }
 
 func checkFuzzCertificateEnvelope(t *testing.T, encoded []byte, cert *x509.Certificate, publicKey []byte) {
 	t.Helper()
 	var decoded struct {
+		PEM               string    `json:"pem"`
+		Source            string    `json:"source"`
 		NotBefore         time.Time `json:"not_before"`
 		NotAfter          time.Time `json:"not_after"`
 		Subject           string    `json:"subject"`
@@ -99,6 +113,11 @@ func checkFuzzCertificateEnvelope(t *testing.T, encoded []byte, cert *x509.Certi
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("certificate JSON does not decode: %v; output %q", err, encoded)
+	}
+
+	block, rest := pem.Decode([]byte(decoded.PEM))
+	if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, cert.Raw) || len(rest) != 0 || decoded.Source != "peer" {
+		t.Fatalf("PEM does not preserve certificate DER or provenance")
 	}
 
 	if decoded.Subject != cert.Subject.String() {

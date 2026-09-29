@@ -9,7 +9,8 @@ import (
 
 // TextFormatter formats certificate info as human-readable text.
 type TextFormatter struct {
-	Long bool
+	Long         bool
+	metadataOnly bool
 }
 
 // Format writes one certificate's information.
@@ -36,7 +37,7 @@ func (f *TextFormatter) FormatMultiple(infos []*CertInfo, writer io.Writer) erro
 }
 
 func (f *TextFormatter) formatCompact(info *CertInfo, writer io.Writer) error {
-	if err := writeSummary(info, writer); err != nil {
+	if err := writeSummary(info, writer, f.metadataOnly); err != nil {
 		return err
 	}
 
@@ -60,7 +61,7 @@ func (f *TextFormatter) formatCompact(info *CertInfo, writer io.Writer) error {
 }
 
 func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
-	if err := writeSummary(info, writer); err != nil {
+	if err := writeSummary(info, writer, f.metadataOnly); err != nil {
 		return err
 	}
 	publicKeyFingerprint := "(unavailable)"
@@ -101,15 +102,18 @@ func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
 			return err
 		}
 	}
-	if len(info.Chains) == 0 {
+	return writeCertificateChains(writer, info.Chains)
+}
+
+func writeCertificateChains(writer io.Writer, chains [][]ChainCertInfo) error {
+	if len(chains) == 0 {
 		return nil
 	}
-
 	const labelWidth = 12
 	if _, err := fmt.Fprintf(writer, "  %*s:\n", labelWidth, "Chains"); err != nil {
 		return fmt.Errorf("write certificate chains heading: %w", err)
 	}
-	for i, chain := range info.Chains {
+	for i, chain := range chains {
 		chainNames := make([]string, len(chain))
 		for j, cert := range chain {
 			chainNames[j] = cert.CommonName
@@ -124,19 +128,46 @@ func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
 	return nil
 }
 
-// RequiresChain reports whether text output needs peer chain certificates.
-func (f *TextFormatter) RequiresChain() bool {
-	return false
+// FormatReport renders selection details and reports verification of the original leaf.
+func (f *TextFormatter) FormatReport(report *CertificateReport, w io.Writer) error {
+	metadata := &TextFormatter{Long: f.Long, metadataOnly: true}
+	if err := metadata.FormatMultiple(report.Certificates, w); err != nil {
+		return err
+	}
+	if err := report.Verification.WriteText(w); err != nil {
+		return err
+	}
+	if f.Long {
+		return writeCertificateChains(w, report.Verification.chainNames)
+	}
+	return nil
 }
 
-func writeSummary(info *CertInfo, writer io.Writer) error {
-	status := "+"
+// WriteText writes terminal-safe verification diagnostics.
+func (v CertificateVerification) WriteText(w io.Writer) error {
+	status := "not verified"
+	if v.Verified {
+		status = "verified"
+	} else if v.Error != "" {
+		status += ": " + EscapeDiagnosticValue(v.Error)
+	}
+	if _, err := fmt.Fprintf(w, "certificate verification: %s\n", status); err != nil {
+		return fmt.Errorf("write certificate verification status: %w", err)
+	}
+	return nil
+}
+
+func writeSummary(info *CertInfo, writer io.Writer, metadataOnly bool) error {
+	status := "+ "
 	if !info.Verified {
-		status = "x"
+		status = "x "
+	}
+	if metadataOnly {
+		status = ""
 	}
 	if _, err := fmt.Fprintf(
 		writer,
-		"%s %s | %s | expires %s (%s)\n",
+		"%s%s | %s | expires %s (%s)\n",
 		status,
 		EscapeDiagnosticValue(info.CommonName()),
 		EscapeDiagnosticValue(info.IssuerCommonName()),
@@ -145,7 +176,7 @@ func writeSummary(info *CertInfo, writer io.Writer) error {
 	); err != nil {
 		return fmt.Errorf("write certificate summary: %w", err)
 	}
-	if !info.Verified && info.VerifyError != "" {
+	if !metadataOnly && !info.Verified && info.VerifyError != "" {
 		if _, err := fmt.Fprintf(writer, "  Error: %s\n", EscapeDiagnosticValue(info.VerifyError)); err != nil {
 			return fmt.Errorf("write certificate verification error: %w", err)
 		}

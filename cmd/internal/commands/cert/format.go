@@ -1,6 +1,9 @@
 package cert
 
 import (
+	"bytes"
+	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -21,12 +24,10 @@ const (
 )
 
 var certFormatters = map[string]func() asym.CertFormatter{
-	"text":      func() asym.CertFormatter { return &asym.TextFormatter{} },
-	"long":      func() asym.CertFormatter { return &asym.TextFormatter{Long: true} },
-	formatJSON:  func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
-	"pem":       func() asym.CertFormatter { return &asym.PEMFormatter{} },
-	"chain":     func() asym.CertFormatter { return &asym.ChainPEMFormatter{} },
-	"fullchain": func() asym.CertFormatter { return &asym.PEMFormatter{FullChain: true} },
+	"text":     func() asym.CertFormatter { return &asym.TextFormatter{} },
+	"long":     func() asym.CertFormatter { return &asym.TextFormatter{Long: true} },
+	formatJSON: func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
+	"pem":      func() asym.CertFormatter { return &asym.PEMFormatter{} },
 }
 
 // ErrFormatSelectsStructuredOutput identifies a byte encoding supplied as a certificate output format.
@@ -55,51 +56,66 @@ func certFormatterFromCommand(cmd *cobra.Command) (asym.CertFormatter, error) {
 	return getCertFormatter(format)
 }
 
-func formatCertificates(
-	cmd *cobra.Command,
-	formatter asym.CertFormatter,
-	infos []*asym.CertInfo,
-) error {
-	output := cmd.OutOrStdout()
-	var err error
-	if len(infos) == 1 {
-		err = formatter.Format(infos[0], output)
-	} else {
-		err = formatter.FormatMultiple(infos, output)
+type inspectionResultKey struct{}
+
+func prepareInspection(cmd *cobra.Command, certs []*x509.Certificate, options *x509.VerifyOptions, source string) ([]byte, error) {
+	formatter, err := certFormatterFromCommand(cmd)
+	if err != nil {
+		return nil, err
 	}
+	selection, err := cmd.Flags().GetString("select")
+	if err != nil {
+		return nil, fmt.Errorf("read selection flag: %w", err)
+	}
+	report, err := asym.InspectCertificates(certs, options, selection, source)
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	if err := formatter.FormatReport(report, &output); err != nil {
+		return nil, err
+	}
+	if _, pemOutput := formatter.(*asym.PEMFormatter); pemOutput {
+		cmd.SetContext(context.WithValue(cmd.Context(), inspectionResultKey{}, report.Verification))
+	}
+	return output.Bytes(), nil
+}
+
+func runPreparedInspection(cmd *cobra.Command, _ []string) error {
+	prepared, output, err := commandio.TakePrepared(cmd)
 	if err != nil {
 		return err
 	}
-	if certificateFormatterIncludesVerification(formatter) {
-		return nil
+	if _, err := io.Copy(output, bytes.NewReader(prepared)); err != nil {
+		return fmt.Errorf("write certificate output: %w", err)
 	}
-	return writeCertificateVerificationStatus(cmd.ErrOrStderr(), infos)
-}
-
-func certificateFormatterIncludesVerification(formatter asym.CertFormatter) bool {
-	switch formatter.(type) {
-	case *asym.JSONFormatter, *asym.TextFormatter:
-		return true
-	default:
-		return false
-	}
-}
-
-func writeCertificateVerificationStatus(output io.Writer, infos []*asym.CertInfo) error {
-	for i, info := range infos {
-		label := "certificate verification"
-		if len(infos) > 1 {
-			label = fmt.Sprintf("certificate %d verification", i+1)
-		}
-		status := "not verified"
-		if info.Verified {
-			status = "verified"
-		} else if info.VerifyError != "" {
-			status += ": " + asym.EscapeDiagnosticValue(info.VerifyError)
-		}
-		if _, err := fmt.Fprintf(output, "%s: %s\n", label, status); err != nil {
-			return fmt.Errorf("write certificate verification status: %w", err)
-		}
+	if verification, ok := cmd.Context().Value(inspectionResultKey{}).(asym.CertificateVerification); ok {
+		return verification.WriteText(cmd.ErrOrStderr())
 	}
 	return nil
+}
+
+func addCertificateSelection(cmd *cobra.Command, defaultSelection string) {
+	cmd.Flags().String("select", defaultSelection, "certificates to export (leaf, chain, fullchain, root, or index: 0=root, last=leaf)")
+	commandio.RegisterDescribedFlagCompletion(cmd, "select", func() []string {
+		return []string{asym.SelectLeaf, asym.SelectChain, asym.SelectFullChain, asym.SelectRoot, "0", "1"}
+	}, map[string]string{
+		asym.SelectLeaf:      "first certificate",
+		asym.SelectChain:     "supplied certificates after the leaf",
+		asym.SelectFullChain: "all supplied certificates",
+		asym.SelectRoot:      "verified trust anchors or a supplied self-signed CA",
+		"0":                  "root of an unambiguous complete chain",
+		"1":                  "next certificate toward the leaf, if present",
+	})
+}
+
+func validateInspectionFlags(cmd *cobra.Command) error {
+	if _, err := certFormatterFromCommand(cmd); err != nil {
+		return err
+	}
+	selection, err := cmd.Flags().GetString("select")
+	if err != nil {
+		return fmt.Errorf("read selection flag: %w", err)
+	}
+	return asym.ValidateCertificateSelection(selection)
 }

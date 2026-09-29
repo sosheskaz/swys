@@ -76,6 +76,8 @@ type ChainCertInfo struct {
 // fields stay grouped. JSON output is unaffected either way -- certInfoJSON in
 // format_json.go owns the wire format.
 type CertInfo struct {
+	// Source identifies how inspection obtained this certificate.
+	Source    string    `json:"-"`
 	NotBefore time.Time `json:"not_before"`
 	NotAfter  time.Time `json:"not_after"`
 
@@ -155,9 +157,7 @@ func (c *CertInfo) publicKeyDERBytes() ([]byte, error) {
 
 // CertFormatter is the interface for certificate output formatters.
 type CertFormatter interface {
-	Format(info *CertInfo, w io.Writer) error
-	FormatMultiple(infos []*CertInfo, w io.Writer) error
-	RequiresChain() bool
+	FormatReport(report *CertificateReport, w io.Writer) error
 }
 
 // NewCertInfo creates a CertInfo from an X.509 certificate without verification.
@@ -266,51 +266,6 @@ func verifyCertInfo(
 		}
 	}
 	return chains, nil
-}
-
-// NewCertInfos creates consistently verified information for a leaf-first certificate chain.
-func NewCertInfos(certs []*x509.Certificate, options *x509.VerifyOptions, includeChain bool) ([]*CertInfo, error) {
-	if len(certs) == 0 {
-		return nil, errEmptyCertChain
-	}
-
-	intermediates := x509.NewCertPool()
-	for _, cert := range certs[1:] {
-		intermediates.AddCert(cert)
-	}
-
-	certOptions := x509.VerifyOptions{}
-	if options != nil {
-		certOptions = *options
-	}
-	certOptions.Intermediates = intermediates
-	leafInfo := NewCertInfo(certs[0])
-	verifiedChains, err := verifyCertInfo(leafInfo, certs[0], &certOptions)
-	if err != nil {
-		return nil, fmt.Errorf("inspect leaf certificate: %w", err)
-	}
-	infos := []*CertInfo{leafInfo}
-	if !includeChain {
-		return infos, nil
-	}
-
-	for _, cert := range certs[1:] {
-		info := NewCertInfo(cert)
-		info.Verified = certificateInChains(cert, verifiedChains)
-		infos = append(infos, info)
-	}
-	return infos, nil
-}
-
-func certificateInChains(cert *x509.Certificate, chains [][]*x509.Certificate) bool {
-	for _, chain := range chains {
-		for _, verified := range chain {
-			if cert.Equal(verified) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // NewCertInfoFromDER parses DER bytes and returns CertInfo with verification.

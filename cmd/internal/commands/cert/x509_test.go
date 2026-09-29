@@ -3,12 +3,14 @@ package cert_test
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/json"
 	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +38,7 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 
 func TestCertificateSupportedFormatsDriveHelpErrorsAndCompletion(t *testing.T) {
 	t.Parallel()
-	wantFormats := []string{"chain", "fullchain", "json", "long", "pem", "text"}
+	wantFormats := []string{"json", "long", "pem", "text"}
 	root := rootcmd.NewCommand()
 	command, _, err := root.Find([]string{"cert", "inspect"})
 	require.NoError(t, err)
@@ -66,17 +68,17 @@ func TestConnectCommandFormatsCertificateChain(t *testing.T) {
 	server := newChainTLSServer(t)
 	certificates := server.TLS.Certificates[0].Certificate
 	tests := []struct {
-		format string
-		want   [][]byte
+		selection string
+		want      [][]byte
 	}{
-		{format: "pem", want: certificates[:1]},
-		{format: "chain", want: certificates[1:]},
-		{format: "fullchain", want: certificates},
+		{selection: "leaf", want: certificates[:1]},
+		{selection: "chain", want: certificates[1:]},
+		{selection: "fullchain", want: certificates},
 	}
 	for _, tt := range tests {
-		t.Run(tt.format, func(t *testing.T) {
+		t.Run(tt.selection, func(t *testing.T) {
 			t.Parallel()
-			output, _, err := executeRootStreams(t, "cert", "connect", server.Listener.Addr().String(), "--format", tt.format)
+			output, _, err := executeRootStreams(t, "cert", "connect", server.Listener.Addr().String(), "--format", "pem", "--select", tt.selection)
 			require.NoError(t, err)
 			var got [][]byte
 			for remaining := []byte(output); len(bytes.TrimSpace(remaining)) > 0; {
@@ -133,4 +135,73 @@ func newChainTLSServerWithClientHello(
 	server.StartTLS()
 	t.Cleanup(server.Close)
 	return server
+}
+
+func TestCertificateSelectionFailurePreservesOutput(t *testing.T) {
+	t.Parallel()
+	server := newChainTLSServer(t)
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.TLS.Certificates[0].Certificate[0]})
+	for _, test := range []struct {
+		name       string
+		diagnostic string
+		args       []string
+	}{
+		{name: "missing root", args: []string{"cert", "inspect", "--select", "root"}, diagnostic: "root unavailable"},
+		{name: "numeric missing root", args: []string{"cert", "inspect", "--select", "0"}, diagnostic: "root unavailable"},
+		{name: "negative index", args: []string{"cert", "inspect", "--select", "-1"}, diagnostic: "non-negative decimal index"},
+		{name: "overflow index", args: []string{"cert", "inspect", "--select", "999999999999999999999999999999999"}, diagnostic: "non-negative decimal index"},
+		{
+			name: "out of range index", args: []string{"cert", "connect", server.Listener.Addr().String(), "--select", "2"},
+			diagnostic: "index 2 out of range (valid: 0..1",
+		},
+		{name: "empty chain", args: []string{"cert", "inspect", "--select", "chain"}, diagnostic: "no issuer certificates"},
+		{name: "invalid selection", args: []string{"cert", "inspect", "--select", "missing"}, diagnostic: "unknown selection"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "existing.pem")
+			require.NoError(t, os.WriteFile(path, []byte("preserve me"), 0o600))
+			args := append(slices.Clone(test.args), "--output", path)
+			_, _, err := executeCertTestWithInput(t, certificate, args...)
+			require.ErrorContains(t, err, test.diagnostic)
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, "preserve me", string(after))
+		})
+	}
+}
+
+func TestCertificateInspectSelectionIsIndependentOfFormat(t *testing.T) {
+	t.Parallel()
+	server := newChainTLSServer(t)
+	certificates := server.TLS.Certificates[0].Certificate
+	var input []byte
+	for _, der := range certificates {
+		input = append(input, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	for _, selection := range []string{"leaf", "chain", "fullchain", "root", "0", "1"} {
+		t.Run(selection, func(t *testing.T) {
+			t.Parallel()
+			pemOutput, _, err := executeCertTestWithInput(t, input, "cert", "inspect", "--select", selection, "-f", "pem")
+			require.NoError(t, err)
+			jsonOutput, stderr, err := executeCertTestWithInput(t, input, "cert", "inspect", "--select", selection, "-f", "json")
+			require.NoError(t, err)
+			var report struct {
+				Selection    string `json:"selection"`
+				Certificates []struct {
+					PEM    string `json:"pem"`
+					Source string `json:"source"`
+				} `json:"certificates"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(jsonOutput), &report))
+			assert.Equal(t, selection, report.Selection)
+			var joined strings.Builder
+			for _, cert := range report.Certificates {
+				joined.WriteString(cert.PEM)
+				assert.Equal(t, "input", cert.Source)
+			}
+			assert.Equal(t, pemOutput, joined.String())
+			assert.Empty(t, stderr)
+		})
+	}
 }

@@ -68,13 +68,21 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			return !isPublicKeyFormat(target), nil
 		},
 	})
-	lifecycle.Register(inspect, commandio.Behavior{})
-	lifecycle.Register(connect, commandio.Behavior{Validate: func(cmd *cobra.Command) error {
-		if err := commandio.ValidateNetworkTimeout(cmd); err != nil {
-			return fmt.Errorf("validate network flags: %w", err)
-		}
-		return nil
-	}})
+	lifecycle.Register(inspect, commandio.Behavior{
+		Validate:       validateInspectionFlags,
+		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare:        prepareInspectedCertificates,
+	})
+	lifecycle.Register(connect, commandio.Behavior{
+		Validate: func(cmd *cobra.Command) error {
+			if err := commandio.ValidateNetworkTimeout(cmd); err != nil {
+				return fmt.Errorf("validate network flags: %w", err)
+			}
+			return validateInspectionFlags(cmd)
+		},
+		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare:        prepareConnectedCertificates,
+	})
 	lifecycle.Register(create, commandio.Behavior{
 		Validate:       validateCertificateFlags(validateCertificateCreateFlags),
 		PreparesOutput: certificateCreateUsesCSR,
@@ -125,31 +133,24 @@ func newCertInspectCmd() *cobra.Command {
 		Use:   "inspect",
 		Short: "Inspect X.509 certificates",
 		Args:  cobra.NoArgs,
-		RunE:  runCertInspect,
+		RunE:  runPreparedInspection,
 	}, certFormatNames)
+	commandio.AddOutputEncodingFlag(certInspectCmd)
+	addCertificateSelection(certInspectCmd, asym.SelectFullChain)
 	certInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return certInspectCmd
 }
 
-func runCertInspect(cmd *cobra.Command, _ []string) error {
-	formatter, err := certFormatterFromCommand(cmd)
+func prepareInspectedCertificates(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	data, err := artifact.Read(input, artifact.MaxCertificateBytes)
 	if err != nil {
-		return err
-	}
-
-	data, err := artifact.Read(cmd.InOrStdin(), artifact.MaxCertificateBytes)
-	if err != nil {
-		return fmt.Errorf("read certificate input: %w", err)
+		return nil, fmt.Errorf("read certificate input: %w", err)
 	}
 	certs, err := certinput.ParsePEMCertificates(data)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	certInfos, err := asym.NewCertInfos(certs, &x509.VerifyOptions{
+	return prepareInspection(cmd, certs, &x509.VerifyOptions{
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-	}, true)
-	if err != nil {
-		return err
-	}
-	return formatCertificates(cmd, formatter, certInfos)
+	}, "input")
 }

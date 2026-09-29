@@ -30,24 +30,27 @@ var ByteEncodingDescriptions = map[string]string{
 
 // StructuredFormatDescriptions supplies help and completion text for formats.
 var StructuredFormatDescriptions = map[string]string{
-	"text":      "human-readable text",
-	"long":      "detailed human-readable text",
-	"json":      "structured JSON",
-	"pem":       "certificate PEM",
-	"chain":     "issuer certificates as PEM, excluding the leaf",
-	"fullchain": "leaf and chain certificates as PEM",
+	"text": "human-readable text",
+	"long": "detailed human-readable text",
+	"json": "structured JSON",
+	"pem":  "certificate PEM",
 }
 
 // BinaryOutputCommand adds output encoding and optional input decoding flags.
 func BinaryOutputCommand(command *cobra.Command, acceptsInput bool) *cobra.Command {
 	AddShape(command, "binary-output")
-	command.Flags().StringP(EncodingFlagName, "e", encoding.Raw,
-		"output encoding ("+strings.Join(encoding.Names(), ", ")+")")
-	registerEncodingCompletion(command, EncodingFlagName)
+	AddOutputEncodingFlag(command)
 	if acceptsInput {
 		AddInputEncodingFlag(command)
 	}
 	return command
+}
+
+// AddOutputEncodingFlag adds byte encoding independently of output representation.
+func AddOutputEncodingFlag(command *cobra.Command) {
+	command.Flags().StringP(EncodingFlagName, "e", encoding.Raw,
+		"output encoding ("+strings.Join(encoding.Names(), ", ")+")")
+	registerEncodingCompletion(command, EncodingFlagName)
 }
 
 // SensitiveBinaryOutputCommand marks encoded output as private by default.

@@ -48,7 +48,7 @@ func TestExampleReferenceHelpRemainsGenerated(t *testing.T) {
 	require.NoError(t, err, "npc cert connect --help")
 	for _, want := range []string{
 		"Usage:\n  npc cert connect host:port [flags]",
-		"--chain",
+		"--select",
 		"For a usage guide, run 'npc help cert connect'.",
 	} {
 		assert.Contains(t, stdout, want)
