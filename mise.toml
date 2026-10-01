@@ -4,7 +4,7 @@
 [tools]
 go = "1.27.1"
 jq = "1.8.2"
-golangci-lint = "2.13.2"
+golangci-lint = "2.14.0"
 goreleaser = "2.18.2"
 ko = "0.19.1"
 lefthook = "2.1.14"
