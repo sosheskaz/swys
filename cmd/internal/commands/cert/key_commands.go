@@ -74,19 +74,11 @@ Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX publ
 or one unencrypted OpenSSH private key or authorized_keys public entry.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			formatter, err := keyFormatterFromCommand(cmd)
+			prepared, output, err := commandio.TakePrepared(cmd)
 			if err != nil {
 				return err
 			}
-			key, err := readKey(cmd)
-			if err != nil {
-				return err
-			}
-			info, err := key.Info()
-			if err != nil {
-				return err
-			}
-			return formatter.Format(info, cmd.OutOrStdout())
+			return writeKey(output, prepared, "key metadata")
 		},
 	}, keyFormatNames))
 	commandio.AddOutputEncodingFlag(keyInspectCmd)
@@ -125,10 +117,6 @@ or one unencrypted OpenSSH private key or authorized_keys public entry.`,
 	commandio.AddShape(keyConvertCmd, "key-convert")
 	keyConvertCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return keyConvertCmd
-}
-
-func readKey(cmd *cobra.Command) (*asym.Key, error) {
-	return readKeyFrom(cmd.InOrStdin())
 }
 
 func readKeyFrom(input io.Reader) (*asym.Key, error) {
@@ -325,4 +313,24 @@ func prepareKeyConversionOutput(cmd *cobra.Command, input io.Reader) ([]byte, er
 		return nil, fmt.Errorf("serialize key as %s: %w", target, err)
 	}
 	return encoded, nil
+}
+
+func prepareKeyInspectionOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	formatter, err := keyFormatterFromCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	key, err := readKeyFrom(input)
+	if err != nil {
+		return nil, err
+	}
+	info, err := key.Info()
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	if err := formatter.Format(info, &output); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
 }

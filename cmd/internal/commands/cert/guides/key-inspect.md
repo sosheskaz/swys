@@ -4,6 +4,8 @@ Read one supported private or public key and report its algorithm, size, and pub
 
 Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX public key in PEM or DER, or one unencrypted OpenSSH private key or authorized_keys public entry.
 
+NPC reads and formats the complete key metadata before opening the output destination. Invalid key input leaves an existing output file unchanged.
+
 ## Inspect a key file
 
 ```sh

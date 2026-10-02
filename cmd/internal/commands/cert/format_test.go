@@ -31,26 +31,14 @@ func TestCertificatePEMEscapesVerificationDiagnostics(t *testing.T) {
 	assert.Empty(t, strings.TrimSpace(string(rest)), "PEM certificate changed")
 }
 
-var (
-	errKeyTestReadFailed = errors.New("read failed")
-	errTestWriteFailed   = errors.New("write failed")
-)
+var errTestWriteFailed = errors.New("write failed")
 
-func TestReadAndWriteKeyBytesPreserveIOErrors(t *testing.T) {
+func TestWriteKeyBytesPreservesIOErrors(t *testing.T) {
 	t.Parallel()
-	readCommand := &cobra.Command{}
-	readCommand.SetIn(keyFailingReader{err: errKeyTestReadFailed})
-	_, err := readKey(readCommand)
-	require.ErrorIs(t, err, errKeyTestReadFailed)
-
 	writeCommand := &cobra.Command{}
 	writeCommand.SetOut(keyFailingWriter{err: errTestWriteFailed})
 	require.ErrorIs(t, writeKeyBytes(writeCommand, []byte("key"), "test key"), errTestWriteFailed)
 }
-
-type keyFailingReader struct{ err error }
-
-func (reader keyFailingReader) Read([]byte) (int, error) { return 0, reader.err }
 
 type keyFailingWriter struct{ err error }
 

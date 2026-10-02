@@ -2,6 +2,8 @@
 
 Create a minimum-viable X.509 certificate for local tests and development. Supply an existing private key. The default is a self-signed leaf valid for 30 days.
 
+NPC reads and validates the selected key and issuer artifacts and prepares the complete certificate before opening the output destination. Artifact read, validation, or certificate creation failures leave an existing output file unchanged.
+
 ## Create a localhost identity
 
 ```sh

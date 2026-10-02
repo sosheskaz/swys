@@ -243,3 +243,23 @@ type keyFailingReader struct {
 func (reader keyFailingReader) Read([]byte) (int, error) {
 	return 0, reader.err
 }
+
+func TestKeyInspectionPreservesReadErrors(t *testing.T) {
+	t.Parallel()
+	_, _, err := executeRootStreamsWithInput(t, keyFailingReader{err: errKeyTestReadFailed}, "cert", "key-inspect")
+	require.ErrorIs(t, err, errKeyTestReadFailed)
+}
+
+func TestKeyInspectionPreservesOutputOnMalformedInput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	input := filepath.Join(dir, "malformed.key")
+	output := filepath.Join(dir, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte("not a key"), 0o600))
+	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
+	_, _, err := executeRootStreams(t, "cert", "key-inspect", "--input", input, "--format", "json", "--output", output)
+	require.ErrorIs(t, err, asym.ErrMalformedKey)
+	remaining, err := os.ReadFile(output)
+	require.NoError(t, err)
+	assert.Equal(t, "sentinel", string(remaining))
+}

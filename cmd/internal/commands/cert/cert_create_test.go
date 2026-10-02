@@ -526,3 +526,31 @@ func generateTestKey(t *testing.T, algorithm, path string) {
 		t.Fatalf("generate %s key: %v", algorithm, err)
 	}
 }
+
+func TestCertificateCreationPreservesOutputOnKeyFailure(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"create", "csr"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			for _, failure := range []string{"missing", "malformed"} {
+				t.Run(failure, func(t *testing.T) {
+					t.Parallel()
+					dir := t.TempDir()
+					key := filepath.Join(dir, "private.key")
+					wantErr := os.ErrNotExist
+					if failure == "malformed" {
+						require.NoError(t, os.WriteFile(key, []byte("not a key"), 0o600))
+						wantErr = asym.ErrMalformedKey
+					}
+					output := filepath.Join(dir, "artifact.pem")
+					require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
+					_, _, err := executeRootStreams(t, "cert", operation, "--key", key, "--output", output)
+					require.ErrorIs(t, err, wantErr)
+					remaining, err := os.ReadFile(output)
+					require.NoError(t, err)
+					assert.Equal(t, "sentinel", string(remaining))
+				})
+			}
+		})
+	}
+}

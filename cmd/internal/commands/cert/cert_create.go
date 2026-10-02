@@ -91,50 +91,48 @@ submit the emitted request to the intended CA.`,
 }
 
 func runCertCreate(cmd *cobra.Command, _ []string) error {
-	if csr, err := cmd.Flags().GetString(csrFlagName); err != nil {
-		return fmt.Errorf("read csr flag: %w", err)
-	} else if csr != "" {
-		prepared, output, err := commandio.TakePrepared(cmd)
-		if err != nil {
-			return err
-		}
-		if _, err := output.Write(prepared); err != nil {
-			return fmt.Errorf("write certificate: %w", err)
-		}
-		return nil
-	}
-	options, err := certificateOptionsFromCommand(cmd)
+	prepared, output, err := commandio.TakePrepared(cmd)
 	if err != nil {
 		return err
 	}
-	subjectKey, err := certificateSubjectKeyFromCommand(cmd)
-	if err != nil {
-		return err
-	}
-	issuer, issuerKey, err := certificateIssuerFromCommand(cmd)
-	if err != nil {
-		return err
-	}
-	der, err := asym.CreateCertificate(&options, subjectKey, issuer, issuerKey)
-	if err != nil {
-		if issuer != nil {
-			return fmt.Errorf("create certificate using --issuer-cert and --issuer-key: %w", err)
-		}
-		return fmt.Errorf("create certificate: %w", err)
-	}
-	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: certinput.PEMType, Bytes: der})
-	if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(certificatePEM)); err != nil {
+	if _, err := io.Copy(output, bytes.NewReader(prepared)); err != nil {
 		return fmt.Errorf("write certificate: %w", err)
 	}
 	return nil
 }
 
-func certificateSubjectKeyFromCommand(cmd *cobra.Command) (*asym.Key, error) {
+func prepareCertificateOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	if certificateCreateUsesCSR(cmd) {
+		return prepareCertificateFromCSR(cmd, input)
+	}
+	options, err := certificateOptionsFromCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	subjectKey, err := certificateSubjectKeyFromCommand(cmd, input)
+	if err != nil {
+		return nil, err
+	}
+	issuer, issuerKey, err := certificateIssuerFromCommandInput(cmd, input)
+	if err != nil {
+		return nil, err
+	}
+	der, err := asym.CreateCertificate(&options, subjectKey, issuer, issuerKey)
+	if err != nil {
+		if issuer != nil {
+			return nil, fmt.Errorf("create certificate using --issuer-cert and --issuer-key: %w", err)
+		}
+		return nil, fmt.Errorf("create certificate: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: certinput.PEMType, Bytes: der}), nil
+}
+
+func certificateSubjectKeyFromCommand(cmd *cobra.Command, input io.Reader) (*asym.Key, error) {
 	keyPath, err := cmd.Flags().GetString("key")
 	if err != nil {
 		return nil, fmt.Errorf("read key flag: %w", err)
 	}
-	key, err := readCertificateKey(cmd, "--key", keyPath)
+	key, err := readCertificateKey(input, "--key", keyPath)
 	if err != nil {
 		return nil, err
 	}
@@ -144,63 +142,35 @@ func certificateSubjectKeyFromCommand(cmd *cobra.Command) (*asym.Key, error) {
 	return key, nil
 }
 
-func certificateIssuerFromCommand(cmd *cobra.Command) (*x509.Certificate, *asym.Key, error) {
-	issuerCertPath, err := cmd.Flags().GetString(issuerCertFlagName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read issuer-cert flag: %w", err)
-	}
-	if issuerCertPath == "" {
-		return nil, nil, nil
-	}
-	issuerKeyPath, err := cmd.Flags().GetString(issuerKeyFlagName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read issuer-key flag: %w", err)
-	}
-	issuerData, err := readCertificateArtifact(cmd, "--issuer-cert", issuerCertPath, artifact.MaxCertificateBytes)
-	if err != nil {
-		return nil, nil, err
-	}
-	issuers, err := certinput.ParsePEMCertificates(issuerData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parse --issuer-cert: %w", err)
-	}
-	if len(issuers) != 1 {
-		return nil, nil, fmt.Errorf(
-			"parse --issuer-cert: %w: issuer input must contain exactly one certificate, found %d",
-			certinput.ErrTrailingData,
-			len(issuers),
-		)
-	}
-	issuer := issuers[0]
-	issuerKey, err := readCertificateKey(cmd, "--issuer-key", issuerKeyPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	return issuer, issuerKey, nil
-}
-
 func runCertCSR(cmd *cobra.Command, _ []string) error {
-	options, err := certificateRequestOptionsFromCommand(cmd)
+	prepared, output, err := commandio.TakePrepared(cmd)
 	if err != nil {
 		return err
 	}
-	keyPath, err := cmd.Flags().GetString("key")
-	if err != nil {
-		return fmt.Errorf("read key flag: %w", err)
-	}
-	key, err := readCertificateKey(cmd, "--key", keyPath)
-	if err != nil {
-		return err
-	}
-	der, err := asym.CreateCertificateRequest(&options, key)
-	if err != nil {
-		return fmt.Errorf("create certificate request from --key: %w", err)
-	}
-	requestPEM := pem.EncodeToMemory(&pem.Block{Type: certificateRequestPEMType, Bytes: der})
-	if _, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(requestPEM)); err != nil {
+	if _, err := io.Copy(output, bytes.NewReader(prepared)); err != nil {
 		return fmt.Errorf("write certificate request: %w", err)
 	}
 	return nil
+}
+
+func prepareCertificateRequestOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {
+	options, err := certificateRequestOptionsFromCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	keyPath, err := cmd.Flags().GetString("key")
+	if err != nil {
+		return nil, fmt.Errorf("read key flag: %w", err)
+	}
+	key, err := readCertificateKey(input, "--key", keyPath)
+	if err != nil {
+		return nil, err
+	}
+	der, err := asym.CreateCertificateRequest(&options, key)
+	if err != nil {
+		return nil, fmt.Errorf("create certificate request from --key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: certificateRequestPEMType, Bytes: der}), nil
 }
 
 func validateCertificateCSRFlags(cmd *cobra.Command) error {
@@ -518,8 +488,8 @@ func validateCertificateInputSelection(cmd *cobra.Command, sourceFlags ...string
 	return nil
 }
 
-func readCertificateKey(cmd *cobra.Command, flagName, source string) (*asym.Key, error) {
-	data, err := readCertificateArtifact(cmd, flagName, source, artifact.MaxKeyBytes)
+func readCertificateKey(input io.Reader, flagName, source string) (*asym.Key, error) {
+	data, err := readCertificateArtifactFrom(input, flagName, source, artifact.MaxKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -528,22 +498,6 @@ func readCertificateKey(cmd *cobra.Command, flagName, source string) (*asym.Key,
 		return nil, fmt.Errorf("parse %s: %w", flagName, err)
 	}
 	return key, nil
-}
-
-func readCertificateArtifact(cmd *cobra.Command, flagName, source string, limit int64) ([]byte, error) {
-	if source == "-" {
-		data, err := artifact.Read(cmd.InOrStdin(), limit)
-		if err != nil {
-			return nil, fmt.Errorf("read %s from stdin: %w", flagName, err)
-		}
-		return data, nil
-	}
-	// The path is intentionally supplied by the CLI user.
-	data, err := artifact.ReadFile(source, limit)
-	if err != nil {
-		return nil, fmt.Errorf("read %s %q: %w", flagName, source, err)
-	}
-	return data, nil
 }
 
 func addCertificateIdentityFlags(command *cobra.Command) {

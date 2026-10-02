@@ -2,6 +2,8 @@
 
 Create a PKCS #10 request from an existing private key. The request contains the chosen subject and requested DNS or IP subject alternative names; NPC does not submit or sign it.
 
+NPC reads and validates the key and prepares the complete request before opening the output destination. Key read, validation, or request creation failures leave an existing output file unchanged.
+
 ## Request a server identity
 
 ```sh

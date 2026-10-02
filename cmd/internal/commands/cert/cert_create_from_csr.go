@@ -43,7 +43,7 @@ func prepareCertificateFromCSR(cmd *cobra.Command, input io.Reader) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read csr flag: %w", err)
 	}
-	requestData, err := readCertificateArtifactFrom(cmd, input, "--csr", requestPath, artifact.MaxKeyBytes)
+	requestData, err := readCertificateArtifactFrom(input, "--csr", requestPath, artifact.MaxKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -318,11 +318,14 @@ func certificateIssuerFromCommandInput(cmd *cobra.Command, input io.Reader) (*x5
 	if err != nil {
 		return nil, nil, fmt.Errorf("read issuer-cert flag: %w", err)
 	}
+	if issuerCertPath == "" {
+		return nil, nil, nil
+	}
 	issuerKeyPath, err := cmd.Flags().GetString(issuerKeyFlagName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read issuer-key flag: %w", err)
 	}
-	issuerData, err := readCertificateArtifactFrom(cmd, input, "--issuer-cert", issuerCertPath, artifact.MaxCertificateBytes)
+	issuerData, err := readCertificateArtifactFrom(input, "--issuer-cert", issuerCertPath, artifact.MaxCertificateBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -333,18 +336,14 @@ func certificateIssuerFromCommandInput(cmd *cobra.Command, input io.Reader) (*x5
 	if len(issuers) != 1 {
 		return nil, nil, fmt.Errorf("parse --issuer-cert: %w: issuer input must contain exactly one certificate, found %d", certinput.ErrTrailingData, len(issuers))
 	}
-	keyData, err := readCertificateArtifactFrom(cmd, input, "--issuer-key", issuerKeyPath, artifact.MaxKeyBytes)
+	issuerKey, err := readCertificateKey(input, "--issuer-key", issuerKeyPath)
 	if err != nil {
 		return nil, nil, err
-	}
-	issuerKey, err := asym.ParseKey(keyData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parse --issuer-key: %w", err)
 	}
 	return issuers[0], issuerKey, nil
 }
 
-func readCertificateArtifactFrom(cmd *cobra.Command, input io.Reader, flagName, source string, limit int64) ([]byte, error) {
+func readCertificateArtifactFrom(input io.Reader, flagName, source string, limit int64) ([]byte, error) {
 	if source == "-" {
 		data, err := artifact.Read(input, limit)
 		if err != nil {
@@ -352,5 +351,10 @@ func readCertificateArtifactFrom(cmd *cobra.Command, input io.Reader, flagName, 
 		}
 		return data, nil
 	}
-	return readCertificateArtifact(cmd, flagName, source, limit)
+	// The path is intentionally supplied by the CLI user.
+	data, err := artifact.ReadFile(source, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read %s %q: %w", flagName, source, err)
+	}
+	return data, nil
 }
