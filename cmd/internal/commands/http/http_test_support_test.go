@@ -1,7 +1,11 @@
 package http_test
 
 import (
+	"context"
+	"io"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -56,4 +60,36 @@ func executeRoot(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	stdout, stderr, err := executeRootStreams(t, args...)
 	return stdout + stderr, err
+}
+
+func startCancellableHTTPRequest(t *testing.T, server *httptest.Server, input io.Reader, args ...string) (context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	root := newRootCmd()
+	root.SetContext(ctx)
+	root.SetIn(input)
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(args)
+	done := make(chan error, 1)
+	stopped := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		if closer, ok := input.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				t.Errorf("close HTTP test input: %v", err)
+			}
+		}
+		server.CloseClientConnections()
+		select {
+		case <-stopped:
+		case <-time.After(2 * time.Second):
+			t.Error("HTTP command worker did not stop during cleanup")
+		}
+	})
+	go func() {
+		defer close(stopped)
+		done <- executeCommand(root)
+	}()
+	return cancel, done
 }

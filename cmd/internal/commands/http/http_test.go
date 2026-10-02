@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -810,21 +811,75 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 	})
 }
 
-func TestHTTPRequestTimeoutCancelsRequest(t *testing.T) {
+func TestHTTPRequestTimeout(t *testing.T) {
 	t.Parallel()
 
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-t.Context().Done()
+	}))
+	// A request deadline may expire before the server can enter its handler.
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			<-t.Context().Done()
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+
+	_, done := startCancellableHTTPRequest(t, server, nil,
+		"http", server.URL, "--request-timeout", "50ms")
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("--request-timeout did not stop the request")
+	}
+}
+
+func TestHTTPRequestCancellationReachesServer(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{})
 	requestCanceled := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		<-request.Context().Done()
-		close(requestCanceled)
+		close(started)
+		select {
+		case <-request.Context().Done():
+			close(requestCanceled)
+		case <-t.Context().Done():
+		}
 	}))
 	t.Cleanup(server.Close)
 
-	_, _, err := executeRootStreams(t, "http", server.URL, "--request-timeout", "50ms")
-	require.Error(t, err)
+	cancel, done := startCancellableHTTPRequest(t, server, nil, "http", server.URL)
+	select {
+	case <-started:
+	case err := <-done:
+		t.Fatalf("request ended before handler entry: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("server handler did not start")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("request ended before cancellation: %v", err)
+	default:
+	}
 	select {
 	case <-requestCanceled:
-	case <-time.After(time.Second):
+		t.Fatal("server request context canceled before parent cancellation")
+	default:
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent cancellation did not stop the request")
+	}
+	select {
+	case <-requestCanceled:
+	case <-time.After(2 * time.Second):
 		t.Fatal("server request context was not canceled")
 	}
 }
@@ -889,42 +944,63 @@ func TestHTTPSetupTimeoutStopsBlockedTLSHandshake(t *testing.T) {
 	}
 }
 
-func TestHTTPRequestTimeoutInterruptsBlockedUpload(t *testing.T) {
+func TestHTTPRequestCancellationInterruptsBlockedUpload(t *testing.T) {
 	t.Parallel()
 
+	started := make(chan struct{})
 	bodyRead := make(chan error, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
 		_, err := io.Copy(io.Discard, request.Body)
 		bodyRead <- err
 	}))
 	t.Cleanup(server.Close)
 	input := newBlockingReadCloser()
-	root := newRootCmd()
-	root.SetIn(input)
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
-	root.SetArgs([]string{
-		"http", "-X", "POST", server.URL,
-		"--input", "-",
-		"--request-timeout", "50ms",
-	})
-	done := make(chan error, 1)
-	go func() { done <- executeCommand(root) }()
+	cancel, done := startCancellableHTTPRequest(t, server, input,
+		"http", "-X", "POST", server.URL, "--input", "-")
 
+	for _, ready := range []struct {
+		done <-chan struct{}
+		name string
+	}{
+		{started, "server handler"},
+		{input.started, "stdin read"},
+	} {
+		select {
+		case <-ready.done:
+		case err := <-done:
+			t.Fatalf("request ended before %s started: %v", ready.name, err)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s did not start", ready.name)
+		}
+	}
 	select {
 	case err := <-done:
-		require.Error(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("request timeout did not interrupt blocked upload")
+		t.Fatalf("request ended before cancellation: %v", err)
+	default:
 	}
 	select {
 	case <-input.closed:
-	case <-time.After(time.Second):
+		t.Fatal("blocked stdin closed before cancellation")
+	default:
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent cancellation did not interrupt blocked upload")
+	}
+	select {
+	case <-input.closed:
+	case <-time.After(2 * time.Second):
 		t.Fatal("blocked stdin was not closed")
 	}
 	select {
-	case <-bodyRead:
-	case <-time.After(time.Second):
+	case err := <-bodyRead:
+		require.Error(t, err, "canceled upload completed without a body read error")
+	case <-time.After(2 * time.Second):
 		t.Fatal("server remained blocked reading canceled upload")
 	}
 }
@@ -1152,24 +1228,24 @@ type failAfterWriter struct {
 }
 
 type blockingReadCloser struct {
-	closed chan struct{}
+	started   chan struct{}
+	closed    chan struct{}
+	startOnce sync.Once
+	closeOnce sync.Once
 }
 
 func newBlockingReadCloser() *blockingReadCloser {
-	return &blockingReadCloser{closed: make(chan struct{})}
+	return &blockingReadCloser{started: make(chan struct{}), closed: make(chan struct{})}
 }
 
 func (reader *blockingReadCloser) Read([]byte) (int, error) {
+	reader.startOnce.Do(func() { close(reader.started) })
 	<-reader.closed
 	return 0, errHTTPTestInputClosed
 }
 
 func (reader *blockingReadCloser) Close() error {
-	select {
-	case <-reader.closed:
-	default:
-		close(reader.closed)
-	}
+	reader.closeOnce.Do(func() { close(reader.closed) })
 	return nil
 }
 
