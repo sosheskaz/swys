@@ -68,7 +68,7 @@ func FuzzWriteHTTPJSONResponse(f *testing.F) {
 
 		baseline := &fuzzHTTPRecordingWriter{}
 		baselineResponse := newResponse()
-		err := writeHTTPJSONResponse(baseline, request, baselineResponse, requestErr, nil)
+		err := writeHTTPJSONSelection(baseline, selectHTTPOutput(httpSelectResponse, request, baselineResponse), requestErr)
 		if baselineResponse != nil {
 			if closeErr := baselineResponse.Body.Close(); closeErr != nil {
 				t.Fatalf("close baseline fuzz HTTP response body: %v", closeErr)
@@ -131,7 +131,7 @@ func assertFuzzHTTPOutputFailure(
 	}
 	output := &fuzzHTTPFailOnceWriter{failAt: int(failureCall) % baselineCalls}
 	response := newResponse()
-	err := writeHTTPJSONResponse(output, request, response, requestErr, nil)
+	err := writeHTTPJSONSelection(output, selectHTTPOutput(httpSelectResponse, request, response), requestErr)
 	if response != nil {
 		require.NoError(t, response.Body.Close(), "close failing-writer fuzz HTTP response body")
 	}

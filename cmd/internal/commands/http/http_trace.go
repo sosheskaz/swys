@@ -284,28 +284,94 @@ func (trace *httpTrace) writeText(output io.Writer) error {
 		if _, err := fmt.Fprintf(output, "http trace %d: %s %s\n", i+1, asym.EscapeDiagnosticValue(view.Method), asym.EscapeDiagnosticValue(view.URL)); err != nil {
 			return fmt.Errorf("write HTTP trace summary: %w", err)
 		}
-		fields := []struct{ name, value string }{
-			{name: "dns", value: view.DNS},
-			{name: "connect", value: view.Connect},
-			{name: "first byte", value: view.FirstByte},
-			{name: "transfer", value: view.Transfer},
-			{name: "total", value: view.Total},
+		if err := writeHTTPTraceConnection(output, view); err != nil {
+			return err
 		}
-		for _, field := range fields {
-			if field.value != "" {
-				if _, err := fmt.Fprintf(output, "  %s: %s\n", field.name, field.value); err != nil {
-					return fmt.Errorf("write HTTP trace timing: %w", err)
-				}
+		if err := writeHTTPTraceTimings(output, view); err != nil {
+			return err
+		}
+		if err := writeHTTPTraceTLS(output, view.TLS); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeHTTPTraceConnection(output io.Writer, view *httpTraceView) error {
+	for _, field := range []struct{ name, value string }{
+		{name: "network", value: view.Network},
+		{name: "address", value: view.Address},
+		{name: "connection", value: view.Connection},
+	} {
+		if field.value != "" {
+			if _, err := fmt.Fprintf(output, "  %s: %s\n", field.name, asym.EscapeDiagnosticValue(field.value)); err != nil {
+				return fmt.Errorf("write HTTP trace connection: %w", err)
 			}
 		}
-		if view.TLS != nil {
-			if _, err := fmt.Fprintf(
-				output, "  tls: %s, %s, alpn=%s, verified=%t\n",
-				asym.EscapeDiagnosticValue(view.TLS.Version), asym.EscapeDiagnosticValue(view.TLS.Cipher),
-				asym.EscapeDiagnosticValue(view.TLS.ALPN), view.TLS.Verified,
-			); err != nil {
-				return fmt.Errorf("write HTTP TLS trace: %w", err)
+	}
+	for _, attempt := range view.Attempts {
+		if err := writeHTTPTraceAttempt(output, attempt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeHTTPTraceAttempt(output io.Writer, attempt httpTraceConnectView) error {
+	if _, err := fmt.Fprintf(output, "  attempt: %s %s, duration=%s", asym.EscapeDiagnosticValue(attempt.Network),
+		asym.EscapeDiagnosticValue(attempt.Address), attempt.Duration); err != nil {
+		return fmt.Errorf("write HTTP trace attempt: %w", err)
+	}
+	if attempt.Error != "" {
+		if _, err := fmt.Fprintf(output, ", error=%s", asym.EscapeDiagnosticValue(attempt.Error)); err != nil {
+			return fmt.Errorf("write HTTP trace attempt error: %w", err)
+		}
+	}
+	if attempt.Selected {
+		if _, err := io.WriteString(output, ", selected"); err != nil {
+			return fmt.Errorf("write HTTP trace selected attempt: %w", err)
+		}
+	}
+	if _, err := io.WriteString(output, "\n"); err != nil {
+		return fmt.Errorf("write HTTP trace attempt separator: %w", err)
+	}
+	return nil
+}
+
+func writeHTTPTraceTimings(output io.Writer, view *httpTraceView) error {
+	for _, field := range []struct{ name, value string }{
+		{name: "dns", value: view.DNS},
+		{name: "connect", value: view.Connect},
+		{name: "first byte", value: view.FirstByte},
+		{name: "transfer", value: view.Transfer},
+		{name: "total", value: view.Total},
+	} {
+		if field.value != "" {
+			if _, err := fmt.Fprintf(output, "  %s: %s\n", field.name, field.value); err != nil {
+				return fmt.Errorf("write HTTP trace timing: %w", err)
 			}
+		}
+	}
+	return nil
+}
+
+func writeHTTPTraceTLS(output io.Writer, tlsView *httpTraceTLSView) error {
+	if tlsView == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "  tls: %s, %s, alpn=%s, verified=%t\n",
+		asym.EscapeDiagnosticValue(tlsView.Version), asym.EscapeDiagnosticValue(tlsView.Cipher),
+		asym.EscapeDiagnosticValue(tlsView.ALPN), tlsView.Verified); err != nil {
+		return fmt.Errorf("write HTTP TLS trace: %w", err)
+	}
+	if tlsView.Handshake != "" {
+		if _, err := fmt.Fprintf(output, "  tls handshake: %s\n", tlsView.Handshake); err != nil {
+			return fmt.Errorf("write HTTP TLS handshake: %w", err)
+		}
+	}
+	for _, certificate := range tlsView.Certificates {
+		if _, err := fmt.Fprintf(output, "  certificate: %s\n", asym.EscapeDiagnosticValue(string(certificate))); err != nil {
+			return fmt.Errorf("write HTTP TLS certificate: %w", err)
 		}
 	}
 	return nil

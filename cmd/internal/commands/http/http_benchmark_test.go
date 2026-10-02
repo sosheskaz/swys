@@ -33,7 +33,7 @@ func BenchmarkHTTPStreaming(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				benchmarkHTTPCommand(b, "http", server.URL, "--format", "json")
+				benchmarkHTTPCommand(b, "http", server.URL, "--select", "response", "--format", "json")
 			}
 		})
 

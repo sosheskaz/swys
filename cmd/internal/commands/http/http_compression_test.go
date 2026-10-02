@@ -62,7 +62,7 @@ func TestHTTPAutomaticCompressionUpdatesResponseMetadata(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	included, _, err := executeRootStreams(t, "http", server.URL, "--include")
+	included, _, err := executeRootStreams(t, "http", server.URL, "--select", "response")
 	require.NoError(t, err)
 	if strings.Contains(strings.ToLower(included), "content-encoding:") || strings.Contains(strings.ToLower(included), "content-length:") {
 		t.Fatalf("included response retained encoded metadata: %q", included)
@@ -71,7 +71,7 @@ func TestHTTPAutomaticCompressionUpdatesResponseMetadata(t *testing.T) {
 		t.Fatalf("included response = %q, want decoded body", included)
 	}
 
-	jsonOutput, _, err := executeRootStreams(t, "http", server.URL, "--format", "json")
+	jsonOutput, _, err := executeRootStreams(t, "http", server.URL, "--select", "response", "--format", "json")
 	require.NoError(t, err)
 	envelope := decodeHTTPEnvelope(t, jsonOutput)
 	if _, exists := envelope.Headers["Content-Encoding"]; exists {
@@ -177,7 +177,7 @@ func TestHTTPAutomaticCompressionPreservesUnsupportedEncoding(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	stdout, _, err := executeRootStreams(t, "http", server.URL, "--include")
+	stdout, _, err := executeRootStreams(t, "http", server.URL, "--select", "response")
 	require.NoError(t, err)
 	if !strings.Contains(stdout, "Content-Encoding: zstd") || !strings.HasSuffix(stdout, "opaque") {
 		t.Fatalf("response = %q, want untouched unsupported encoding", stdout)
@@ -197,7 +197,7 @@ func TestHTTPAutomaticCompressionReportsMalformedGzip(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	stdout, _, err := executeRootStreams(t, "http", server.URL, "--format", "json")
+	stdout, _, err := executeRootStreams(t, "http", server.URL, "--select", "response", "--format", "json")
 	require.Error(t, err)
 	envelope := decodeHTTPEnvelope(t, stdout)
 	if envelope.Complete || envelope.Error == "" {

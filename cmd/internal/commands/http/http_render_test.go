@@ -42,7 +42,7 @@ func TestWriteHTTPJSONResponseStreamsBase64Body(t *testing.T) {
 	var output bytes.Buffer
 	command.SetOut(&output)
 
-	require.NoError(t, writeHTTPResponse(command, &httpOptions{format: "json"}, request, response, nil, nil))
+	require.NoError(t, writeHTTPResponse(command, &httpOptions{selection: "response", format: "json"}, request, response, nil, nil))
 	var envelope struct { //nolint:govet // Field order mirrors the JSON fields asserted by this test.
 		Method       string `json:"method"`
 		StatusCode   int    `json:"status_code"`
@@ -77,7 +77,7 @@ func TestWriteHTTPJSONResponseClosesEnvelopeAfterBodyReadFailure(t *testing.T) {
 	var output bytes.Buffer
 	command.SetOut(&output)
 
-	err := writeHTTPResponse(command, &httpOptions{format: "json"}, request, response, nil, nil)
+	err := writeHTTPResponse(command, &httpOptions{selection: "response", format: "json"}, request, response, nil, nil)
 	require.ErrorIs(t, err, readErr)
 	var envelope struct { //nolint:govet // Field order mirrors the JSON fields asserted by this test.
 		Body     string `json:"body"`
@@ -97,7 +97,7 @@ func TestWriteHTTPJSONResponseReportsConnectionFailure(t *testing.T) {
 	var output bytes.Buffer
 	command.SetOut(&output)
 
-	err := writeHTTPResponse(command, &httpOptions{format: "json"}, request, nil, requestErr, nil)
+	err := writeHTTPResponse(command, &httpOptions{selection: "response", format: "json"}, request, nil, requestErr, nil)
 	require.ErrorIs(t, err, requestErr)
 	var envelope struct { //nolint:govet // Field order mirrors the JSON fields asserted by this test.
 		Body     string `json:"body"`
@@ -166,6 +166,33 @@ func TestHTTPTracePairsSelectedConnectAttemptAndCertificateVerification(t *testi
 		}
 		require.NoError(t, json.Unmarshal(views[0].TLS.Certificates[i], &certificate))
 		assert.Equal(t, wantVerified, certificate.Verified, "certificate %d", i)
+	}
+
+	var output bytes.Buffer
+	require.NoError(t, trace.writeText(&output))
+	assert.Contains(t, output.String(), "  tls handshake: "+views[0].TLS.Handshake+"\n")
+	var certificateLines []string
+	for line := range strings.SplitSeq(output.String(), "\n") {
+		if strings.HasPrefix(line, "  certificate: ") {
+			certificateLines = append(certificateLines, strings.TrimPrefix(line, "  certificate: "))
+		}
+	}
+	require.Len(t, certificateLines, 2, "rendered peer certificates")
+	for i, wantVerified := range []bool{true, false} {
+		assert.Equal(t, string(views[0].TLS.Certificates[i]), certificateLines[i], "full certificate %d JSON", i)
+		var certificate struct {
+			Subject           string `json:"subject"`
+			Issuer            string `json:"issuer"`
+			SerialNumber      string `json:"serial_number"`
+			SHA256Fingerprint string `json:"sha256_fingerprint"`
+			Verified          bool   `json:"verified"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(certificateLines[i]), &certificate), "rendered certificate %d JSON", i)
+		assert.NotEmpty(t, certificate.Subject)
+		assert.NotEmpty(t, certificate.Issuer)
+		assert.NotEmpty(t, certificate.SerialNumber)
+		assert.NotEmpty(t, certificate.SHA256Fingerprint)
+		assert.Equal(t, wantVerified, certificate.Verified, "rendered certificate %d verification", i)
 	}
 }
 

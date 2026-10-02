@@ -73,11 +73,10 @@ func TestHTTPMethodRouting(t *testing.T) {
 			require.NoError(t, err, "http %s", test.methodArg)
 			require.Equal(t, test.wantMethod, <-gotMethod, "request method")
 			if test.wantMethod == http.MethodHead {
-				assert.Contains(t, stdout, "204 No Content", "HEAD status")
-				assert.Contains(t, stdout, "X-Http-Test", "HEAD headers")
-				return
+				assert.Empty(t, stdout, "default HEAD body")
+			} else {
+				assert.Equal(t, "ok", stdout, "response body")
 			}
-			assert.Equal(t, "ok", stdout, "response body")
 		})
 	}
 }
@@ -499,9 +498,9 @@ func TestHTTPJSONResponseEnvelopeAndTrace(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	stdout, stderr, err := executeRootStreams(t, "http", "-X", "GET", server.URL, "--format", "json", "--trace")
+	stdout, stderr, err := executeRootStreams(t, "http", "-X", "GET", server.URL, "--select", "response", "--format", "json", "--trace")
 	require.NoError(t, err, "HTTP JSON response: %v", err)
-	assert.Empty(t, stderr)
+	assert.Contains(t, stderr, "http trace 1:", "trace diagnostics")
 	envelope := decodeHTTPEnvelope(t, stdout)
 	assert.Equal(t, http.MethodGet, envelope.Method, "request method")
 	assert.Equal(t, server.URL, envelope.URL, "request URL")
@@ -515,9 +514,7 @@ func TestHTTPJSONResponseEnvelopeAndTrace(t *testing.T) {
 	assert.Equal(t, base64.StdEncoding.EncodeToString(responseBody), envelope.Body, "response body")
 	assert.True(t, envelope.Complete, "response completion")
 	assert.Empty(t, envelope.Error, "response error")
-	if len(envelope.Trace) == 0 || bytes.Equal(envelope.Trace, []byte("null")) {
-		t.Fatalf("trace = %s, want embedded trace", envelope.Trace)
-	}
+	assert.Empty(t, envelope.Trace, "trace must not enter JSON output")
 }
 
 func TestHTTPTextTraceIsWrittenToStderr(t *testing.T) {
@@ -534,7 +531,7 @@ func TestHTTPTextTraceIsWrittenToStderr(t *testing.T) {
 	assert.NotEmpty(t, strings.TrimSpace(stderr), "trace diagnostics")
 }
 
-func TestHTTPIncludeAndOutputEncoding(t *testing.T) {
+func TestHTTPResponseSelectionAndOutputEncoding(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -543,11 +540,11 @@ func TestHTTPIncludeAndOutputEncoding(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	t.Run("include status and headers", func(t *testing.T) {
+	t.Run("select response status and headers", func(t *testing.T) {
 		t.Parallel()
 
-		stdout, _, err := executeRootStreams(t, "http", server.URL, "--include")
-		require.NoError(t, err, "HTTP include")
+		stdout, _, err := executeRootStreams(t, "http", server.URL, "--select", "response")
+		require.NoError(t, err, "HTTP response selection")
 		assert.Contains(t, stdout, "200 OK", "included status")
 		assert.Contains(t, stdout, "X-Npc-Test: included", "included header")
 		assert.True(t, strings.HasSuffix(stdout, "abc"), "included body: %q", stdout)
@@ -562,28 +559,55 @@ func TestHTTPIncludeAndOutputEncoding(t *testing.T) {
 	})
 }
 
-func TestHTTPRejectsEnvelopeEncodingBeforeOutput(t *testing.T) {
+func TestHTTPRejectsIncompatibleSelectionAndFormatBeforeOutput(t *testing.T) {
 	t.Parallel()
 
 	tests := [][]string{
-		{"--include", "--encoding", "base64"},
-		{"--format", "json", "--encoding", "base64"},
+		{"--select", "body", "--format", "text"},
+		{"--select", "response", "--format", "raw"},
+		{"--format", ""},
 	}
 	for _, flags := range tests {
 		t.Run(strings.Join(flags, "_"), func(t *testing.T) {
 			t.Parallel()
 
+			var called atomic.Bool
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				called.Store(true)
+			}))
+			t.Cleanup(server.Close)
 			outputPath := filepath.Join(t.TempDir(), "output")
 			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
-			args := append([]string{"http", "http://127.0.0.1:1"}, flags...)
+			args := append([]string{"http", server.URL}, flags...)
 			args = append(args, "--output", outputPath)
 			_, _, err := executeRootStreams(t, args...)
 			require.Error(t, err, "incompatible output options succeeded")
+			require.ErrorIs(t, err, errInvalidHTTPFlags)
+			assert.False(t, called.Load(), "server received invalid request")
 			contents, readErr := os.ReadFile(outputPath)
 			require.NoError(t, readErr)
 			assert.Equal(t, "preserve", string(contents), "existing output")
 		})
 	}
+}
+
+func TestHTTPRemovedIncludeFlagDoesNotSendRequestOrOpenOutput(t *testing.T) {
+	t.Parallel()
+
+	var called atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called.Store(true)
+	}))
+	t.Cleanup(server.Close)
+	outputPath := filepath.Join(t.TempDir(), "output")
+	require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+	_, _, err := executeRootStreams(t, "http", server.URL, "--include", "--output", outputPath)
+	require.Error(t, err, "removed flag succeeded")
+	assert.Contains(t, err.Error(), "unknown flag: --include")
+	assert.False(t, called.Load(), "server received request with removed flag")
+	contents, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserve", string(contents), "existing output")
 }
 
 func TestHTTPStatusFailurePreservesResponseBody(t *testing.T) {
@@ -669,7 +693,7 @@ func TestHTTPRedirectBehavior(t *testing.T) {
 		stdout, _, err := executeRootStreams(
 			t,
 			"http", "-X", "POST", server.URL+"/start",
-			"--data", "request body", "--format", "json",
+			"--data", "request body", "--select", "response", "--format", "json",
 		)
 		require.NoError(t, err, "follow 303 redirect")
 		envelope := decodeHTTPEnvelope(t, stdout)
@@ -1037,12 +1061,19 @@ func TestHTTPTruncatedResponseReportsPartialOutput(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "abc", stdout)
 
-	stdout, _, err = executeRootStreams(t, "http", server.URL, "--format", "json")
+	stdout, _, err = executeRootStreams(t, "http", server.URL, "--select", "response", "--format", "json")
 	require.Error(t, err)
 	envelope := decodeHTTPEnvelope(t, stdout)
 	assert.False(t, envelope.Complete, "truncated response completion")
 	assert.NotEmpty(t, envelope.Error, "truncated response error")
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("abc")), envelope.Body, "partial base64 response")
+
+	stdout, _, err = executeRootStreams(t, "http", server.URL, "--select", "body", "--format", "json")
+	require.Error(t, err)
+	bodyReport := decodeHTTPEnvelope(t, stdout)
+	assert.False(t, bodyReport.Complete, "truncated body completion")
+	assert.NotEmpty(t, bodyReport.Error, "truncated body error")
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("abc")), bodyReport.Body, "partial base64 body")
 }
 
 func TestHTTPOutputWriteFailureReturnsPartialOutput(t *testing.T) {

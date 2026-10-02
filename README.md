@@ -520,31 +520,33 @@ is disabled for HEAD and range requests. Supplying `Accept-Encoding` yourself,
 including an empty value, disables automatic negotiation and leaves the
 response body and its encoding headers untouched.
 
-By default, stdout or `--output` contains only the response body. HEAD prints
-the status and headers; `--include` adds them for other methods. Body-only text
-output also accepts `--encoding`; encoded output cannot be combined with
-headers or a JSON envelope.
+By default, `--select body` writes the response body to stdout or `--output`
+as raw bytes. Use `--select response` to include the status and headers; its
+default text format separates the headers from the body with a blank line.
+HEAD has an empty body by default, so select the response to see its headers.
+The `--encoding/-e` option transforms the entire serialized stdout stream,
+including response headers or a JSON envelope when selected.
 
 Tracing is an option on the request:
 
 ```fish
 npc http -X GET https://example.com --trace
-npc http -X GET https://example.com --format json --trace | jq .
+npc http -X GET https://example.com --select response --format json --trace | jq .
 ```
 
-Text-mode traces go to stderr and summarize each hop's DNS, connection, TLS,
-first-byte, and transfer timings. `--format/-f json` instead emits a response
-envelope containing method, final URL, status, protocol, headers, a `body`
-string, `body_encoding: "base64"`, and `complete`. The body is always base64,
-including JSON and text responses, and is streamed without buffering the whole
-response. Bytes reflect the decoded HTTP response body when npc negotiated gzip
-compression. URL passwords are redacted in reports.
+Traces always go to stderr and report each hop's connection attempts, TLS
+details, and DNS, connection, first-byte, and transfer timings. With
+`--select body --format json`, stdout is a report containing a base64 `body`,
+`body_encoding: "base64"`, and `complete`. With `--select response` and
+`--format json`, the report also contains method, final URL, status, protocol, and
+headers. The body is streamed without buffering the whole response or
+interpreting application JSON. Bytes reflect the decoded HTTP response body
+when npc negotiated gzip compression. URL passwords are redacted in response
+reports.
 
-With `-f json --trace`, the trace is embedded in the envelope rather than printed
-on stderr. Failed transfers include an error and `complete: false` when the
-output remains writable; a completed 4xx/5xx response has `complete: true` and
-still returns nonzero by default. An output-write failure can leave incomplete
-JSON. The JSON envelope already includes headers, so `--include` is rejected.
+Failed transfers include an error and `complete: false` in JSON when output
+remains writable; a completed 4xx/5xx response has `complete: true` and still
+returns nonzero by default. An output-write failure can leave incomplete JSON.
 
 ### gRPC discovery and unary calls
 

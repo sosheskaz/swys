@@ -21,16 +21,19 @@ import (
 var httpGuideFiles embed.FS
 
 const (
-	httpRequestShape  = "http-request"
-	httpCommandName   = "http"
-	httpFormatText    = "text"
-	httpFormatJSON    = "json"
-	httpEncodingRaw   = encoding.Raw
-	httpStdinAuto     = "auto"
-	httpStdinNever    = "never"
-	httpStdinAlways   = "always"
-	httpMediaTypeJSON = "application/json"
-	httpCodingGzip    = "gzip"
+	httpRequestShape   = "http-request"
+	httpCommandName    = "http"
+	httpFormatText     = "text"
+	httpFormatRaw      = "raw"
+	httpFormatJSON     = "json"
+	httpSelectBody     = "body"
+	httpSelectResponse = "response"
+	httpEncodingRaw    = encoding.Raw
+	httpStdinAuto      = "auto"
+	httpStdinNever     = "never"
+	httpStdinAlways    = "always"
+	httpMediaTypeJSON  = "application/json"
+	httpCodingGzip     = "gzip"
 )
 
 type httpOptions struct {
@@ -38,6 +41,7 @@ type httpOptions struct {
 	jsonData       string
 	stdin          string
 	format         string
+	selection      string
 	inputEncoding  string
 	encoding       string
 	cert           string
@@ -51,7 +55,6 @@ type httpOptions struct {
 	requestTimeout time.Duration
 	timeout        time.Duration
 	maxRedirects   int
-	include        bool
 	trace          bool
 	follow         bool
 	fail           bool
@@ -75,8 +78,9 @@ Use --resolve HOST:PORT:ADDRESS[,ADDRESS] to override direct connection
 addresses without changing the URL host or TLS identity.
 Explicit methods other than GET and HEAD automatically read non-terminal stdin
 unless a body option is supplied. Use --stdin never to disable this behavior.
---trace writes diagnostics to stderr; with --format json it adds trace data to
-the response envelope, whose body is always a base64 string.
+By default stdout contains the raw response body. Use --select response for
+status, headers, and body; --format json writes a report with a base64 body.
+--trace writes connection, TLS, and timing diagnostics to stderr.
 Only gzip is automatically negotiated and decompressed. Supplying any explicit
 Accept-Encoding value disables automatic negotiation and decompression.`,
 		Args: validateHTTPArgs,
@@ -142,11 +146,11 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.StringArrayVar(&options.forms, "form", nil, "URL-encoded form field (name=value); repeatable")
 	flags.StringArrayVar(&options.files, "file", nil, "multipart file field (name=path); repeatable")
 	flags.StringVar(&options.stdin, "stdin", httpStdinAuto, "stdin body selection (auto, never, always)")
-	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", httpFormatText, "response format (text, json); JSON bodies are base64")
-	flags.StringVarP(&options.encoding, commandio.EncodingFlagName, "e", httpEncodingRaw, "body output encoding ("+strings.Join(encoding.Names(), ", ")+")")
+	flags.StringVar(&options.selection, "select", httpSelectBody, "output selection (body, response)")
+	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (body: raw, json; response: text, json)")
+	flags.StringVarP(&options.encoding, commandio.EncodingFlagName, "e", httpEncodingRaw, "whole output encoding ("+strings.Join(encoding.Names(), ", ")+")")
 	flags.StringVar(&options.inputEncoding, commandio.InputEncodingFlagName, httpEncodingRaw,
 		"raw/JSON body input encoding ("+strings.Join(encoding.Names(), ", ")+")")
-	flags.BoolVar(&options.include, "include", false, "include response status and headers before the body")
 	flags.BoolVar(&options.trace, "trace", false, "include connection, TLS, and timing diagnostics")
 	flags.BoolVar(&options.follow, "follow", true, "follow redirects")
 	flags.BoolVar(&options.fail, "fail", true, "return an error for HTTP 4xx/5xx, preserving the response body")

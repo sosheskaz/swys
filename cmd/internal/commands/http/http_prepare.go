@@ -28,7 +28,7 @@ func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateHTTPOptions(cmd, options, method); err != nil {
+	if err := validateHTTPOptions(cmd, options); err != nil {
 		return nil, err
 	}
 	resolver, err := parseHTTPResolves(options.resolves)
@@ -81,11 +81,11 @@ func defaultHTTPUserAgent() string {
 	return "npc/" + buildVersion
 }
 
-func validateHTTPOptions(cmd *cobra.Command, options *httpOptions, method string) error {
+func validateHTTPOptions(cmd *cobra.Command, options *httpOptions) error {
 	if options.timeout < 0 || options.requestTimeout < 0 || options.maxRedirects < 0 {
 		return fmt.Errorf("%w: timeouts and --max-redirects cannot be negative", ErrInvalidFlags)
 	}
-	if err := validateHTTPOutputOptions(options, method); err != nil {
+	if err := validateHTTPOutputOptions(options, cmd.Flags().Changed(commandio.FormatFlagName)); err != nil {
 		return err
 	}
 	if err := validateHTTPBodySelection(cmd, options); err != nil {
@@ -94,9 +94,19 @@ func validateHTTPOptions(cmd *cobra.Command, options *httpOptions, method string
 	return validateHTTPTLSOptions(cmd, options)
 }
 
-func validateHTTPOutputOptions(options *httpOptions, method string) error {
-	if options.format != httpFormatText && options.format != httpFormatJSON {
-		return fmt.Errorf("%w: --format must be text or json", ErrInvalidFlags)
+func validateHTTPOutputOptions(options *httpOptions, formatChanged bool) error {
+	if options.selection != httpSelectBody && options.selection != httpSelectResponse {
+		return fmt.Errorf("%w: --select must be body or response", ErrInvalidFlags)
+	}
+	if formatChanged && options.format == "" {
+		return fmt.Errorf("%w: --format cannot be empty", ErrInvalidFlags)
+	}
+	format := effectiveHTTPFormat(options)
+	if options.selection == httpSelectBody && format != httpFormatRaw && format != httpFormatJSON {
+		return fmt.Errorf("%w: body --format must be raw or json", ErrInvalidFlags)
+	}
+	if options.selection == httpSelectResponse && format != httpFormatText && format != httpFormatJSON {
+		return fmt.Errorf("%w: response --format must be text or json", ErrInvalidFlags)
 	}
 	if _, err := encoding.GetOutputEncoder(options.encoding); err != nil {
 		return err
@@ -104,13 +114,17 @@ func validateHTTPOutputOptions(options *httpOptions, method string) error {
 	if _, err := encoding.GetInputDecoder(options.inputEncoding); err != nil {
 		return err
 	}
-	if options.encoding != httpEncodingRaw && (options.format == httpFormatJSON || options.include || method == http.MethodHead) {
-		return fmt.Errorf("%w: --encoding requires body-only text output", ErrInvalidFlags)
-	}
-	if options.include && options.format == httpFormatJSON {
-		return fmt.Errorf("%w: --include is only available with text output", ErrInvalidFlags)
-	}
 	return nil
+}
+
+func effectiveHTTPFormat(options *httpOptions) string {
+	if options.format != "" {
+		return options.format
+	}
+	if options.selection == httpSelectResponse {
+		return httpFormatText
+	}
+	return httpFormatRaw
 }
 
 func validateHTTPTLSOptions(cmd *cobra.Command, options *httpOptions) error {

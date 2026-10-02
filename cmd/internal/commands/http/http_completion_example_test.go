@@ -48,17 +48,19 @@ func TestExampleHTTPJSONFileCompletion(t *testing.T) {
 	assertHTTPDirectiveAllowsSpace(t, directive)
 }
 
-func TestHTTPIncludeBooleanCompletionRespectsOutputContext(t *testing.T) {
+func TestExampleHTTPSelectionAndFormatCompletion(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{
-		{"--format", "json", "--include="},
-		{"--encoding", "base64", "--include="},
-	} {
-		values, directive := completeHTTPCommand(t, args...)
-		if !slices.Equal(values, []string{"false"}) || directive != cobra.ShellCompDirectiveNoFileComp {
-			t.Errorf("complete %q = %q, %v; want false without files", args, values, directive)
-		}
-	}
+	values, directive := completeHTTPCommand(t, "--select", "")
+	assertHTTPCompletions(t, values, "body", "response")
+	assertHTTPDirectiveAllowsSpace(t, directive)
+
+	values, _ = completeHTTPCommand(t, "--select", "body", "--format", "")
+	assertHTTPCompletions(t, values, "raw", "json")
+	assertHTTPCompletionAbsent(t, values, "text")
+
+	values, _ = completeHTTPCommand(t, "--select", "response", "--format", "")
+	assertHTTPCompletions(t, values, "text", "json")
+	assertHTTPCompletionAbsent(t, values, "raw")
 }
 
 func TestExampleHTTPMultipartPathCompletion(t *testing.T) {
@@ -247,9 +249,9 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 	}
 	assertHTTPCompletions(t, values, "--header", "--input-encoding")
 
-	values, _ = completeHTTPCommand(t, "--include", "--format", "")
-	assertHTTPCompletions(t, values, httpFormatText)
-	assertHTTPCompletionAbsent(t, values, httpFormatJSON)
+	values, _ = completeHTTPCommand(t, "--select", "response", "--format", "")
+	assertHTTPCompletions(t, values, httpFormatText, httpFormatJSON)
+	assertHTTPCompletionAbsent(t, values, "raw")
 
 	values, _ = completeHTTPCommand(t, "--form", "name=value", "--file", "asset=missing", "--input-encoding", "")
 	assertHTTPCompletions(t, values, httpEncodingRaw)
@@ -257,14 +259,14 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 
 	values, _ = completeHTTPCommand(t, "--format", "json", "-")
 	assertHTTPCompletionAbsent(t, values, "--include")
+	assertHTTPCompletions(t, values, "--select")
 	values, _ = completeHTTPCommand(t, "--encoding", "base64", "--format", "")
-	assertHTTPCompletions(t, values, httpFormatText)
-	assertHTTPCompletionAbsent(t, values, httpFormatJSON)
+	assertHTTPCompletions(t, values, "raw", httpFormatJSON)
+	assertHTTPCompletionAbsent(t, values, httpFormatText)
 	values, _ = completeHTTPCommand(t, "-X", http.MethodHead, "--encoding", "")
-	assertHTTPCompletions(t, values, httpEncodingRaw)
-	assertHTTPCompletionAbsent(t, values, "base64")
+	assertHTTPCompletions(t, values, httpEncodingRaw, "base64")
 	values, _ = completeHTTPCommand(t, "--encoding", "base64", "--method", "")
-	assertHTTPCompletionAbsent(t, values, http.MethodHead)
+	assertHTTPCompletions(t, values, http.MethodHead)
 
 	values, _ = completeHTTPCommand(t, "--stdin", httpStdinAlways, "-")
 	for _, conflict := range []string{"--input", "--data", "--json", "--form", "--file"} {

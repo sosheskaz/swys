@@ -14,7 +14,7 @@ Wire formats and key-container formats describe cryptographic or input data, not
 
 The hash commands have one explicit exception: they encode the digest, finalize the encoder, then append one **unencoded** newline for non-raw encodings; raw digests have no newline. Do not generalize that framing rule to other commands.
 
-This is normative for new and updated output interfaces. Existing commands may still differ until migrated. In particular, HTTP currently limits `--encoding` to body-only text output, and DNS does not yet use the shared whole-output encoding path. Treat those as staged adoption, not as evidence that the contract is already implemented throughout the CLI.
+This is normative for new and updated output interfaces. Existing commands may still differ until migrated. DNS does not yet use the shared whole-output encoding path. Treat that as staged adoption, not as evidence that the contract is already implemented throughout the CLI.
 
 ## Review checklist
 

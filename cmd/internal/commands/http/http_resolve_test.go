@@ -3,7 +3,6 @@ package http_test
 import (
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -30,39 +29,44 @@ func TestHTTPResolveFallsBackAndTracesMappedAddresses(t *testing.T) {
 	requestHost := net.JoinHostPort("127.0.0.2", port)
 	resolve := requestHost + ":127.0.0.3," + serverURL.Hostname()
 
-	stdout, _, err := executeRootStreams(
+	stdout, stderr, err := executeRootStreams(
 		t,
 		"http", "http://"+requestHost,
 		"--resolve", resolve,
-		"--format", "json", "--trace",
+		"--select", "response", "--format", "json", "--trace",
 	)
 	require.NoError(t, err)
 	envelope := decodeHTTPEnvelope(t, stdout)
 	if envelope.Body != base64.StdEncoding.EncodeToString([]byte("fallback")) {
 		t.Fatalf("body = %q", envelope.Body)
 	}
-	var trace []struct {
-		DNS      string `json:"dns"`
-		Address  string `json:"address"`
-		Attempts []struct {
-			Address  string `json:"address"`
-			Selected bool   `json:"selected"`
-		} `json:"connect_attempts"`
-	}
-	require.NoError(t, json.Unmarshal(envelope.Trace, &trace))
-	if len(trace) != 1 || trace[0].DNS != "" || trace[0].Address != serverURL.Host {
-		t.Fatalf("trace = %+v", trace)
-	}
+	assert.Empty(t, envelope.Trace, "trace must not enter JSON output")
+	assert.Contains(t, stderr, "http trace 1:", "trace diagnostics")
 	wantAttempts := []string{net.JoinHostPort("127.0.0.3", port), serverURL.Host}
-	if len(trace[0].Attempts) != len(wantAttempts) {
-		t.Fatalf("attempts = %+v", trace[0].Attempts)
-	}
+	lastOffset := -1
 	for index, want := range wantAttempts {
-		attempt := trace[0].Attempts[index]
-		if attempt.Address != want || attempt.Selected != (index == len(wantAttempts)-1) {
-			t.Fatalf("attempt %d = %+v, want address %q", index, attempt, want)
+		line := httpTraceLineContaining(stderr, want)
+		if line == "" {
+			t.Fatalf("trace = %q, missing attempt %q", stderr, want)
+		}
+		offset := strings.Index(stderr, line)
+		if offset <= lastOffset {
+			t.Fatalf("trace attempts out of order: %q", stderr)
+		}
+		lastOffset = offset
+		if strings.Contains(line, "selected") != (index == len(wantAttempts)-1) {
+			t.Fatalf("attempt line = %q, want selected=%t", line, index == len(wantAttempts)-1)
 		}
 	}
+}
+
+func httpTraceLineContaining(trace, value string) string {
+	for line := range strings.SplitSeq(trace, "\n") {
+		if strings.Contains(line, "attempt") && strings.Contains(line, value) {
+			return line
+		}
+	}
+	return ""
 }
 
 func TestHTTPResolveAppliesToRedirects(t *testing.T) {

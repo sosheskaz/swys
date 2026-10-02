@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -37,7 +36,9 @@ var httpHeaderValues = map[string][]string{
 }
 
 func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
-	mustRegisterHTTPCompletion(cmd, "include", completeHTTPInclude(options))
+	mustRegisterHTTPCompletion(cmd, "select", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return prefixMatches([]string{httpSelectBody, httpSelectResponse}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	})
 	mustRegisterHTTPCompletion(cmd, httpFormatJSON, completeHTTPJSON)
 	mustRegisterHTTPCompletion(cmd, "file", completeHTTPFileField)
 	mustRegisterHTTPCompletion(cmd, "header", completeHTTPHeader)
@@ -54,20 +55,16 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 		}
 		return prefixMatches(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
-	mustRegisterHTTPCompletion(cmd, commandio.FormatFlagName, func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		values := []string{httpFormatText, httpFormatJSON}
-		if options.include || httpCompletionEncoding(cmd) != httpEncodingRaw {
-			values = []string{httpFormatText}
+	mustRegisterHTTPCompletion(cmd, commandio.FormatFlagName, func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		values := []string{httpFormatRaw, httpFormatJSON}
+		if options.selection == httpSelectResponse {
+			values = []string{httpFormatText, httpFormatJSON}
 		}
 		return prefixMatchesWithDescriptions(values, commandio.StructuredFormatDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
 	mustRegisterHTTPCompletion(cmd, commandio.EncodingFlagName,
-		func(completionCmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			values := encoding.Names()
-			if options.include || options.format == httpFormatJSON || httpCompletionMethod(completionCmd) == http.MethodHead {
-				values = []string{httpEncodingRaw}
-			}
-			return prefixMatchesWithDescriptions(values, commandio.ByteEncodingDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
+		func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return prefixMatchesWithDescriptions(encoding.Names(), commandio.ByteEncodingDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
 		})
 	mustRegisterHTTPCompletion(cmd, commandio.InputEncodingFlagName, func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		values := encoding.Names()
@@ -81,22 +78,6 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 	}
 }
 
-func completeHTTPInclude(options *httpOptions) cobra.CompletionFunc {
-	return func(_ *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		var values []string
-		for _, value := range []bool{true, false} {
-			if value && (options.format == httpFormatJSON || options.encoding != httpEncodingRaw) {
-				continue
-			}
-			candidate := strconv.FormatBool(value)
-			if strings.HasPrefix(candidate, prefix) {
-				values = append(values, candidate)
-			}
-		}
-		return values, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
 func mustRegisterHTTPCompletion(cmd *cobra.Command, name string, completion cobra.CompletionFunc) {
 	if err := cmd.RegisterFlagCompletionFunc(name, completion); err != nil {
 		panic(err)
@@ -107,13 +88,10 @@ func noFileHTTPCompletion(*cobra.Command, []string, string) ([]string, cobra.She
 	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
-func completeHTTPMethod(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func completeHTTPMethod(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	values := []string{
 		http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
 		http.MethodDelete, http.MethodOptions, http.MethodConnect, http.MethodTrace, "QUERY",
-	}
-	if httpCompletionEncoding(cmd) != httpEncodingRaw {
-		values = slices.DeleteFunc(values, func(value string) bool { return value == http.MethodHead })
 	}
 	return prefixMatches(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
@@ -303,14 +281,6 @@ func httpCompletionUsesStdin(cmd *cobra.Command, options *httpOptions) bool {
 	return cmd.Flags().Changed("input") && cmd.Flag("input").Value.String() == "-" || cmd.Flags().Changed(httpFormatJSON) && options.jsonData == "@-"
 }
 
-func httpCompletionMethod(cmd *cobra.Command) string {
-	return httpCompletionString(cmd, "method")
-}
-
-func httpCompletionEncoding(cmd *cobra.Command) string {
-	return httpCompletionString(cmd, commandio.EncodingFlagName)
-}
-
 func httpCompletionStdin(cmd *cobra.Command) string {
 	return httpCompletionString(cmd, "stdin")
 }
@@ -346,16 +316,7 @@ func prepareHTTPCompletion(completionCmd *cobra.Command, args []string) {
 			}
 		}
 	}
-	prepareHTTPOutputCompletion(probeCommand, hide)
 	prepareHTTPBodyCompletion(probeCommand, hide)
-}
-
-func prepareHTTPOutputCompletion(cmd *cobra.Command, hide func(...string)) {
-	format := httpCompletionString(cmd, commandio.FormatFlagName)
-	outputEncoding := httpCompletionString(cmd, commandio.EncodingFlagName)
-	if format == httpFormatJSON || outputEncoding != httpEncodingRaw {
-		hide("include")
-	}
 }
 
 func prepareHTTPBodyCompletion(cmd *cobra.Command, hide func(...string)) {

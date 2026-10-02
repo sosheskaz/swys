@@ -22,7 +22,10 @@ const forgedFuzzHTTPTraceURL = "https://example.test/\n" +
 // fuzzHTTPTraceFields are the indented labels writeText may emit, in the order
 // it declares them. Re-derived here so a reordered or renamed field is a
 // failure rather than a silently accepted change.
-var fuzzHTTPTraceFields = []string{"dns", "connect", "first byte", "transfer", "total", "tls"}
+var fuzzHTTPTraceFields = []string{
+	"network", "address", "connection", "attempt", "dns", "connect",
+	"first byte", "transfer", "total", "tls", "tls handshake", "certificate",
+}
 
 // FuzzHTTPTraceText checks that peer-supplied TLS metadata and request targets
 // render as printable single lines. The trace summary carries the request URL
@@ -36,6 +39,7 @@ var fuzzHTTPTraceFields = []string{"dns", "connect", "first byte", "transfer", "
 func FuzzHTTPTraceText(f *testing.F) {
 	f.Add("GET", "https://example.test/path", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0807060504030201), uint8(0x39), false, uint8(0))
 	f.Add("GET", "https://example.test/two", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0807060504030201), uint8(0x3a), false, uint8(0))
+	f.Add("GET", "https://example.test/fallback", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0807060504030201), uint8(0x79), false, uint8(0))
 	// Descending stamps make every elapsed() field empty, so no timing line renders.
 	f.Add("GET", "https://example.test/path", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0102030405060708), uint8(0x39), false, uint8(0))
 	f.Add("GET", "https://example.test/", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2\nhttp trace 2: smuggled", uint64(1), uint8(0x09), false, uint8(0))
@@ -115,12 +119,16 @@ func checkFuzzHTTPTraceLines(t *testing.T, text string, trace *httpTrace, method
 	hop := 0
 	field := 0
 	tlsLines := 0
+	attemptLines := 0
+	certificateLines := 0
 	for _, line := range lines {
 		if strings.HasPrefix(line, "http trace ") {
-			checkFuzzHTTPTraceTLSCount(t, trace, hop, tlsLines, text)
+			checkFuzzHTTPTraceCounts(t, trace, hop, tlsLines, attemptLines, certificateLines, text)
 			hop++
 			field = 0
 			tlsLines = 0
+			attemptLines = 0
+			certificateLines = 0
 			prefix := fmt.Sprintf("http trace %d: ", hop)
 			if !strings.HasPrefix(line, prefix) {
 				t.Fatalf("summary line %q does not start with %q", line, prefix)
@@ -139,11 +147,21 @@ func checkFuzzHTTPTraceLines(t *testing.T, text string, trace *httpTrace, method
 		if next < 0 {
 			t.Fatalf("line %q matches no HTTP trace field; trace %q", line, text)
 		}
-		if next < field {
+		name := fuzzHTTPTraceFields[next]
+		if next < field && (next != field-1 || (name != "attempt" && name != "certificate")) {
 			t.Fatalf("field %q is out of declared order %q; trace %q", line, fuzzHTTPTraceFields, text)
 		}
 		field = next + 1
-		if fuzzHTTPTraceFields[next] == "tls" {
+		if name == "attempt" {
+			if hop <= len(trace.hops) {
+				checkFuzzHTTPTraceAttempt(t, line, trace.hops[hop-1], attemptLines)
+			}
+			attemptLines++
+		}
+		if name == "certificate" {
+			certificateLines++
+		}
+		if name == "tls" {
 			tlsLines++
 			// A smuggled summary line can push hop past the real ones. That only
 			// happens once production is already broken, and the trailing count
@@ -153,18 +171,20 @@ func checkFuzzHTTPTraceLines(t *testing.T, text string, trace *httpTrace, method
 			}
 		}
 	}
-	checkFuzzHTTPTraceTLSCount(t, trace, hop, tlsLines, text)
+	checkFuzzHTTPTraceCounts(t, trace, hop, tlsLines, attemptLines, certificateLines, text)
 	if hop != hops {
 		t.Fatalf("HTTP trace rendered %d summary lines, want %d hops: %q", hop, hops, text)
 	}
 }
 
-// checkFuzzHTTPTraceTLSCount requires a TLS line exactly when the hop captured a
-// handshake: without it, silently dropping peer TLS metadata would go unnoticed.
-func checkFuzzHTTPTraceTLSCount(t *testing.T, trace *httpTrace, hop, tlsLines int, text string) {
+// checkFuzzHTTPTraceCounts requires each captured attempt and TLS detail to render.
+func checkFuzzHTTPTraceCounts(t *testing.T, trace *httpTrace, hop, tlsLines, attemptLines, certificateLines int, text string) {
 	t.Helper()
 	if hop == 0 || hop > len(trace.hops) {
 		return
+	}
+	if want := len(trace.hops[hop-1].connectAttempts); attemptLines != want {
+		t.Fatalf("hop %d rendered %d attempts, want %d: %q", hop, attemptLines, want, text)
 	}
 	want := 0
 	if trace.hops[hop-1].tls != nil {
@@ -172,6 +192,26 @@ func checkFuzzHTTPTraceTLSCount(t *testing.T, trace *httpTrace, hop, tlsLines in
 	}
 	if tlsLines != want {
 		t.Fatalf("hop %d rendered %d tls lines, want %d: %q", hop, tlsLines, want, text)
+	}
+	if want != 0 {
+		want = len(trace.hops[hop-1].tls.certificates)
+	}
+	if certificateLines != want {
+		t.Fatalf("hop %d rendered %d certificate lines, want %d: %q", hop, certificateLines, want, text)
+	}
+}
+
+func checkFuzzHTTPTraceAttempt(t *testing.T, line string, hop *httpTraceHop, index int) {
+	t.Helper()
+	if index >= len(hop.connectAttempts) {
+		t.Fatalf("unexpected attempt line %q", line)
+	}
+	attempt := hop.connectAttempts[index]
+	if !strings.Contains(line, attempt.network+" "+attempt.address) {
+		t.Fatalf("attempt %d = %q, want network %q and address %q", index, line, attempt.network, attempt.address)
+	}
+	if strings.Contains(line, ", selected") != (attempt == hop.selectedConnect) {
+		t.Fatalf("attempt %d = %q, want selected=%t", index, line, attempt == hop.selectedConnect)
 	}
 }
 
@@ -227,7 +267,12 @@ func fuzzHTTPTrace(method, url, tlsVersion, tlsCipher, tlsALPN string, timing ui
 			hop.connectAttempts = []*httpTraceConnectAttempt{{
 				start: hop.start, end: hop.tlsStart, network: "tcp", address: hop.address,
 			}}
-			hop.selectedConnect = hop.connectAttempts[0]
+			if shape&0x40 != 0 {
+				hop.connectAttempts = append([]*httpTraceConnectAttempt{{
+					start: hop.start, end: hop.tlsStart, network: "tcp", address: "203.0.113.2:443", err: "refused",
+				}}, hop.connectAttempts...)
+			}
+			hop.selectedConnect = hop.connectAttempts[len(hop.connectAttempts)-1]
 		}
 		if shape&0x08 != 0 {
 			hop.tls = &httpTraceTLS{
