@@ -34,7 +34,7 @@ func TestCertificateReportPreservesNamesAndLeafVerification(t *testing.T) {
 		NewCertInfo(leaf).SHA256Fingerprint, NewCertInfo(intermediate).SHA256Fingerprint, NewCertInfo(root).SHA256Fingerprint,
 	}, report.Verification.Chains[0])
 	var output bytes.Buffer
-	require.NoError(t, (&TextFormatter{Long: true}).FormatReport(report, &output))
+	require.NoError(t, (&TextFormatter{}).FormatReport(report, &output))
 	assert.Contains(t, output.String(), "Service, Leaf")
 	assert.Contains(t, output.String(), "Service, Leaf -> Test Intermediate -> Test, Root")
 	assert.Contains(t, output.String(), "certificate verification: verified")

@@ -1,6 +1,6 @@
 # Inspect a TLS server's certificates
 
-Retrieve certificates from a TLS endpoint, inspect their details, or export their complete PEM bytes. The default displays the leaf certificate as text.
+Retrieve certificates from a TLS endpoint, inspect their details, or export their complete PEM bytes. The default **text** format displays detailed leaf metadata, validity dates, fingerprints, and certificate verification. **--format json|pem** selects structured JSON or complete PEM bytes.
 
 ## Export a certificate or CA
 
@@ -25,7 +25,7 @@ npc cert connect example.com:443 --select 0 -f pem -e base64
 ## Inspect details or use JSON
 
 ```sh
-npc cert connect example.com:443 --select fullchain -f long
+npc cert connect example.com:443 --select fullchain -f text
 npc cert connect example.com:443 --select root -f json
 ```
 

@@ -9,16 +9,7 @@ import (
 
 // TextFormatter formats certificate info as human-readable text.
 type TextFormatter struct {
-	Long         bool
 	metadataOnly bool
-}
-
-// Format writes one certificate's information.
-func (f *TextFormatter) Format(info *CertInfo, writer io.Writer) error {
-	if f.Long {
-		return f.formatLong(info, writer)
-	}
-	return f.formatCompact(info, writer)
 }
 
 // FormatMultiple writes information for multiple certificates.
@@ -36,31 +27,8 @@ func (f *TextFormatter) FormatMultiple(infos []*CertInfo, writer io.Writer) erro
 	return nil
 }
 
-func (f *TextFormatter) formatCompact(info *CertInfo, writer io.Writer) error {
-	if err := writeSummary(info, writer, f.metadataOnly); err != nil {
-		return err
-	}
-
-	const maxDNSNames = 3
-	switch {
-	case len(info.DNSNames) > maxDNSNames:
-		shown := strings.Join(info.DNSNames[:maxDNSNames], ", ")
-		if _, err := fmt.Fprintf(writer, "  DNS: %s, and %d more\n", EscapeDiagnosticValue(shown), len(info.DNSNames)-maxDNSNames); err != nil {
-			return fmt.Errorf("write DNS names: %w", err)
-		}
-	case len(info.DNSNames) > 0:
-		if _, err := fmt.Fprintf(writer, "  DNS: %s\n", EscapeDiagnosticValue(strings.Join(info.DNSNames, ", "))); err != nil {
-			return fmt.Errorf("write DNS names: %w", err)
-		}
-	default:
-		if _, err := fmt.Fprintln(writer, "  DNS: (none)"); err != nil {
-			return fmt.Errorf("write DNS names: %w", err)
-		}
-	}
-	return nil
-}
-
-func (f *TextFormatter) formatLong(info *CertInfo, writer io.Writer) error {
+// Format writes one certificate's information.
+func (f *TextFormatter) Format(info *CertInfo, writer io.Writer) error {
 	if err := writeSummary(info, writer, f.metadataOnly); err != nil {
 		return err
 	}
@@ -130,17 +98,14 @@ func writeCertificateChains(writer io.Writer, chains [][]ChainCertInfo) error {
 
 // FormatReport renders selection details and reports verification of the original leaf.
 func (f *TextFormatter) FormatReport(report *CertificateReport, w io.Writer) error {
-	metadata := &TextFormatter{Long: f.Long, metadataOnly: true}
+	metadata := &TextFormatter{metadataOnly: true}
 	if err := metadata.FormatMultiple(report.Certificates, w); err != nil {
 		return err
 	}
 	if err := report.Verification.WriteText(w); err != nil {
 		return err
 	}
-	if f.Long {
-		return writeCertificateChains(w, report.Verification.chainNames)
-	}
-	return nil
+	return writeCertificateChains(w, report.Verification.chainNames)
 }
 
 // WriteText writes terminal-safe verification diagnostics.

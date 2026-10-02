@@ -104,27 +104,7 @@ func TestCertInfoCommonName(t *testing.T) {
 	assert.Equal(t, "test.example.com", cn)
 }
 
-func TestTextFormatterCompact(t *testing.T) {
-	t.Parallel()
-	cert := generateTestCert(t)
-	info := NewCertInfo(cert)
-	info.Verified = true
-
-	formatter := &TextFormatter{Long: false}
-	var buf bytes.Buffer
-	err := formatter.Format(info, &buf)
-	require.NoError(t, err, "Format")
-
-	output := buf.String()
-
-	// Check status indicator
-	assert.Contains(t, output, "+ test.example.com")
-
-	// Check DNS names line (2 DNS names should not be truncated)
-	assert.Contains(t, output, "DNS: test.example.com, www.test.example.com")
-}
-
-func TestTextFormatterCompactManyDNS(t *testing.T) {
+func TestTextFormatterAllDNSNames(t *testing.T) {
 	t.Parallel()
 	cert := generateTestCert(t, func(c *x509.Certificate) {
 		c.DNSNames = []string{"a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.com"}
@@ -132,29 +112,24 @@ func TestTextFormatterCompactManyDNS(t *testing.T) {
 	info := NewCertInfo(cert)
 	info.Verified = true
 
-	formatter := &TextFormatter{Long: false}
+	formatter := &TextFormatter{}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
 	require.NoError(t, err, "Format")
 
 	output := buf.String()
 
-	// Check that DNS names are truncated with "and X more"
-	assert.Contains(t, output, "and 2 more")
-	// Should show first 3
-	assert.Contains(t, output, "a.example.com, b.example.com, c.example.com")
-	// Should not show the 4th one in full
-	assert.NotContains(t, output, "d.example.com, e.example.com")
+	assert.Contains(t, output, "DNS Names: a.example.com, b.example.com, c.example.com, d.example.com, e.example.com")
 }
 
-func TestTextFormatterCompactUnverified(t *testing.T) {
+func TestTextFormatterUnverified(t *testing.T) {
 	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
 	info.Verified = false
 	info.VerifyError = "certificate signed by unknown authority"
 
-	formatter := &TextFormatter{Long: false}
+	formatter := &TextFormatter{}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
 	require.NoError(t, err, "Format")
@@ -168,7 +143,7 @@ func TestTextFormatterCompactUnverified(t *testing.T) {
 	assert.Contains(t, output, "Error: certificate signed by unknown authority")
 }
 
-func TestTextFormatterLong(t *testing.T) {
+func TestTextFormatter(t *testing.T) {
 	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
@@ -180,7 +155,7 @@ func TestTextFormatterLong(t *testing.T) {
 		},
 	}
 
-	formatter := &TextFormatter{Long: true}
+	formatter := &TextFormatter{}
 	var buf bytes.Buffer
 	err := formatter.Format(info, &buf)
 	require.NoError(t, err, "Format")
@@ -195,7 +170,7 @@ func TestTextFormatterLong(t *testing.T) {
 	assert.Contains(t, output, "Chains:")
 }
 
-func TestTextFormatterLongHandlesUnknownPublicKeyAlgorithm(t *testing.T) {
+func TestTextFormatterHandlesUnknownPublicKeyAlgorithm(t *testing.T) {
 	t.Parallel()
 	cert := generateTestCert(t)
 	cert.PublicKeyAlgorithm = x509.UnknownPublicKeyAlgorithm
@@ -203,7 +178,7 @@ func TestTextFormatterLongHandlesUnknownPublicKeyAlgorithm(t *testing.T) {
 	info := NewCertInfo(cert)
 
 	var buf bytes.Buffer
-	require.NoError(t, (&TextFormatter{Long: true}).Format(info, &buf), "Format")
+	require.NoError(t, (&TextFormatter{}).Format(info, &buf), "Format")
 	require.Contains(t, buf.String(), "Public Key SHA256: (unavailable)")
 }
 
@@ -218,7 +193,7 @@ func TestTextFormatterMultiple(t *testing.T) {
 	info1 := NewCertInfo(cert1)
 	info2 := NewCertInfo(cert2)
 
-	formatter := &TextFormatter{Long: false}
+	formatter := &TextFormatter{}
 	var buf bytes.Buffer
 	err := formatter.FormatMultiple([]*CertInfo{info1, info2}, &buf)
 	require.NoError(t, err, "FormatMultiple")
@@ -327,7 +302,7 @@ func TestPEMFormatterMultiple(t *testing.T) {
 	assert.Equal(t, 2, count)
 }
 
-func TestTextFormatterLongChainCNHandlesComma(t *testing.T) {
+func TestTextFormatterChainCNHandlesComma(t *testing.T) {
 	t.Parallel()
 	cert := generateTestCert(t)
 	info := NewCertInfo(cert)
@@ -338,7 +313,7 @@ func TestTextFormatterLongChainCNHandlesComma(t *testing.T) {
 		},
 	}
 
-	formatter := &TextFormatter{Long: true}
+	formatter := &TextFormatter{}
 	var buf bytes.Buffer
 	require.NoError(t, formatter.Format(info, &buf), "Format")
 

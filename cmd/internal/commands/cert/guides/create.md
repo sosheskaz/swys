@@ -18,7 +18,7 @@ Use the leaf key above, then create a separate CA key and certificate. The leaf 
 npc cert keygen --output ca-key.pem
 npc cert create --ca --key ca-key.pem --subject 'CN=Local Test CA' --output ca.pem
 npc cert create --key leaf-key.pem --dns localhost --issuer-cert ca.pem --issuer-key ca-key.pem --output signed-leaf.pem
-npc cert inspect --input signed-leaf.pem --format long
+npc cert inspect --input signed-leaf.pem --format text
 ```
 
 NPC **does not** install generated authorities into a trust store. Select the test CA explicitly in the client or an isolated test trust store.

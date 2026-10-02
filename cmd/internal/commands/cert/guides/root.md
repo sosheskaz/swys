@@ -23,7 +23,7 @@ Generate a private key, issue a self-signed test certificate for it, then inspec
 ```sh
 npc cert keygen --output server-key.pem
 npc cert create --key server-key.pem --dns localhost --output server-cert.pem
-npc cert inspect --input server-cert.pem --format long
+npc cert inspect --input server-cert.pem --format text
 ```
 
 The key stays private; the certificate can be shared with peers. Self-signing does not make it trusted by other clients. The create guide shows a small test CA when several identities need the same trust anchor.

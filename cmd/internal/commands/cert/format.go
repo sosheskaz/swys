@@ -25,7 +25,6 @@ const (
 
 var certFormatters = map[string]func() asym.CertFormatter{
 	"text":     func() asym.CertFormatter { return &asym.TextFormatter{} },
-	"long":     func() asym.CertFormatter { return &asym.TextFormatter{Long: true} },
 	formatJSON: func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
 	"pem":      func() asym.CertFormatter { return &asym.PEMFormatter{} },
 }

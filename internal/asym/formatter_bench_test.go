@@ -86,27 +86,12 @@ func BenchmarkNewCertInfoVerifiedWarmed(b *testing.B) {
 	}
 }
 
-func BenchmarkTextFormatterCompact(b *testing.B) {
-	info := NewCertInfo(benchCert)
-	formatter := &TextFormatter{Long: false}
-	var buf bytes.Buffer
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		buf.Reset()
-		if err := formatter.Format(info, &buf); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkTextFormatterLong(b *testing.B) {
+func BenchmarkTextFormatter(b *testing.B) {
 	info := NewCertInfo(benchCert)
 	info.Chains = [][]ChainCertInfo{
 		{{Subject: "CN=test", Issuer: "CN=CA", CommonName: "test"}},
 	}
-	formatter := &TextFormatter{Long: true}
+	formatter := &TextFormatter{}
 	var buf bytes.Buffer
 
 	b.ReportAllocs()

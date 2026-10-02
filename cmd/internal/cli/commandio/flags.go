@@ -31,7 +31,6 @@ var ByteEncodingDescriptions = map[string]string{
 // StructuredFormatDescriptions supplies help and completion text for formats.
 var StructuredFormatDescriptions = map[string]string{
 	"text": "human-readable text",
-	"long": "detailed human-readable text",
 	"json": "structured JSON",
 	"pem":  "certificate PEM",
 }

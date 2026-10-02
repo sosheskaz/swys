@@ -38,7 +38,7 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 
 func TestCertificateSupportedFormatsDriveHelpErrorsAndCompletion(t *testing.T) {
 	t.Parallel()
-	wantFormats := []string{"json", "long", "pem", "text"}
+	wantFormats := []string{"json", "pem", "text"}
 	root := rootcmd.NewCommand()
 	command, _, err := root.Find([]string{"cert", "inspect"})
 	require.NoError(t, err)
@@ -93,6 +93,30 @@ func TestConnectCommandFormatsCertificateChain(t *testing.T) {
 	}
 }
 
+func TestCertificateTextIncludesDetails(t *testing.T) {
+	t.Parallel()
+	server := newChainTLSServer(t)
+	input := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.TLS.Certificates[0].Certificate[0]})
+	for _, command := range [][]string{{"cert", "inspect"}, {"cert", "connect", server.Listener.Addr().String()}} {
+		t.Run(command[1], func(t *testing.T) {
+			t.Parallel()
+			output, stderr, err := executeCertTestWithInput(t, input, command...)
+			require.NoError(t, err)
+			assert.Empty(t, stderr)
+			explicit, explicitStderr, err := executeCertTestWithInput(t, input, append(slices.Clone(command), "--format", "text")...)
+			require.NoError(t, err)
+			assert.Empty(t, explicitStderr)
+			for _, field := range []string{
+				"Subject:", "Issuer:", "Serial:", "DNS Names:", "IPs:", "Not Before:", "Not After:",
+				"Key:", "SHA256:", "Public Key SHA256:", "certificate verification:",
+			} {
+				assert.Contains(t, output, field, "default format")
+				assert.Contains(t, explicit, field, "explicit text format")
+			}
+		})
+	}
+}
+
 func TestConnectCommandPreservesEndpointSNI(t *testing.T) {
 	t.Parallel()
 	serverName := make(chan string, 1)
@@ -137,7 +161,7 @@ func newChainTLSServerWithClientHello(
 	return server
 }
 
-func TestCertificateSelectionFailurePreservesOutput(t *testing.T) {
+func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	server := newChainTLSServer(t)
 	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.TLS.Certificates[0].Certificate[0]})
@@ -146,6 +170,8 @@ func TestCertificateSelectionFailurePreservesOutput(t *testing.T) {
 		diagnostic string
 		args       []string
 	}{
+		{name: "removed inspect format", args: []string{"cert", "inspect", "--format", "long"}, diagnostic: "unknown output format"},
+		{name: "removed connect format", args: []string{"cert", "connect", server.Listener.Addr().String(), "--format", "long"}, diagnostic: "unknown output format"},
 		{name: "missing root", args: []string{"cert", "inspect", "--select", "root"}, diagnostic: "root unavailable"},
 		{name: "numeric missing root", args: []string{"cert", "inspect", "--select", "0"}, diagnostic: "root unavailable"},
 		{name: "negative index", args: []string{"cert", "inspect", "--select", "-1"}, diagnostic: "non-negative decimal index"},

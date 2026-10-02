@@ -113,7 +113,7 @@ func TestExampleHelpKeyCertificateWorkflow(t *testing.T) {
 	if err := leaf.VerifyHostname("localhost"); err != nil {
 		t.Fatalf("certificate does not identify localhost: %v", err)
 	}
-	output, err := executeRoot(t, "cert", "inspect", "--input", certificate, "--format", "long")
+	output, err := executeRoot(t, "cert", "inspect", "--input", certificate, "--format", "text")
 	if err != nil || !strings.Contains(output, "localhost") {
 		t.Fatalf("inspect documented certificate: output=%q error=%v", output, err)
 	}

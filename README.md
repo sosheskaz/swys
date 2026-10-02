@@ -43,7 +43,7 @@ Create and inspect a self-signed development certificate using that key:
 
 ```fish
 npc cert create --dns localhost --key private.pem --output certificate.pem
-npc cert inspect --input certificate.pem --format long
+npc cert inspect --input certificate.pem --format text
 npc cert verify --input certificate.pem --ca certificate.pem --hostname localhost
 npc cert match --cert certificate.pem --key private.pem
 ```
@@ -410,7 +410,7 @@ enough. Use `npc net listen --udp 9000 </dev/null` for an empty response.
 
 `cert connect` and `cert inspect` remain inspection commands: they always report
 certificate verification status, but a failed verification is not enforced.
-Text, long, and JSON views include it in their structured output; PEM views
+Text and JSON views include it in their structured output; PEM views
 report it on stderr so stdout remains a clean certificate artifact. `net
 connect --tls` is the data-bearing client and therefore fails the handshake before
 sending input when verification fails.
@@ -811,7 +811,7 @@ npc cert create \
 Inspect the resulting certificates using the normal certificate formatter:
 
 ```fish
-npc cert inspect --input ca.crt --format long
+npc cert inspect --input ca.crt --format text
 npc cert inspect --input server.crt --format json
 npc cert inspect --input client.crt
 ```
@@ -1158,7 +1158,7 @@ are bugs, and where possible they are enforced by tests rather than review.
    - `--encoding` / `-e`: byte serialization — `raw`, `hex`, `base64`,
      `base64url`, `base32`. Applies to binary output (keys, ciphertext,
      digests). Input gets the symmetric `--input-encoding`.
-   - `--format` / `-f`: structured presentation — `text`, `long`, `json`,
+   - `--format` / `-f`: structured presentation — `text`, `json`,
      `pem`. Applies to structured output (certs, key metadata, analyses).
 
    The same words mean the same thing on every command.
