@@ -16,10 +16,10 @@ import (
 
 // Configure validates flags and installs command streams and cleanup.
 func Configure(cmd *cobra.Command, behavior *Behavior) error {
-	return configureCommandIOWithBehavior(cmd, behavior)
+	return configureCommandIOWithBehavior(cmd, behavior, nil)
 }
 
-func configureCommandIOWithBehavior(cmd *cobra.Command, behavior *Behavior) error {
+func configureCommandIOWithBehavior(cmd *cobra.Command, behavior *Behavior, setup *ioSetup) error {
 	if err := cmd.ValidateRequiredFlags(); err != nil {
 		return fmt.Errorf("validate required flags: %w", err)
 	}
@@ -32,7 +32,7 @@ func configureCommandIOWithBehavior(cmd *cobra.Command, behavior *Behavior) erro
 		}
 	}
 	originalContext := cmd.Context()
-	cleanup, preparedOutput, preparedWriter, err := configureIO(cmd, behavior)
+	cleanup, preparedOutput, preparedWriter, err := configureIO(cmd, behavior, setup)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func configureCommandIOWithBehavior(cmd *cobra.Command, behavior *Behavior) erro
 	return nil
 }
 
-func configureIO(cmd *cobra.Command, behavior *Behavior) (func() error, []byte, io.Writer, error) {
+func configureIO(cmd *cobra.Command, behavior *Behavior, preflight *ioSetup) (func() error, []byte, io.Writer, error) {
 	originalContext := cmd.Context()
 	originalIn := cmd.InOrStdin()
 	originalOut := cmd.OutOrStdout()
@@ -64,9 +64,15 @@ func configureIO(cmd *cobra.Command, behavior *Behavior) (func() error, []byte, 
 		return func() error { return nil }, nil, nil, errors.Join(err, cleanup())
 	}
 
-	setup, err := readIOSetup(cmd, behavior)
-	if err != nil {
-		return fail(err)
+	var setup ioSetup
+	var err error
+	if preflight != nil {
+		setup = *preflight
+	} else {
+		setup, err = readIOSetup(cmd, behavior)
+		if err != nil {
+			return fail(err)
+		}
 	}
 
 	input := originalIn

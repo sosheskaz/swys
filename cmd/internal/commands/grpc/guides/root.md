@@ -41,6 +41,8 @@ Verbose reflection diagnostics include response headers immediately. Reflection 
 
 NPC disables service-config retries and adds no application retry loop. The gRPC library may transparently retry only when it can determine that the server did not process the RPC. After invocation begins, a timeout, lost response, cancellation, or local output failure does not prove the server did not execute the method; there is no exactly-once guarantee.
 
+Unsupported output encodings and invalid --mode values are rejected before reading request input or contacting the server. The --mode flag requires --output.
+
 NPC prepares and serializes the result before opening an output file. Once the output is opened, a write or close failure may leave it empty or partial even though remote execution already occurred.
 
 For all flags and defaults, use the generated reference:

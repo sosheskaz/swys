@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,6 +140,32 @@ func TestGRPCExplicitEmptyDiscoverySelectorsRejectBeforeNetwork(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGRPCInvalidOutputModeRejectsBeforeInputAndNetwork(t *testing.T) {
+	t.Parallel()
+	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	input := &countingReader{source: strings.NewReader(`{"text":"must not execute"}`)}
+	root := newRootCmd()
+	root.SetIn(input)
+	path := filepath.Join(t.TempDir(), "output")
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
+	_, _, err := executeRootCommandStreams(t, root, "grpc", address, grpcFixtureMethodName, "--plaintext", "--mode", "0888", "--output", path)
+	wantErr := commandio.ErrInvalidOutputMode
+	if runtime.GOOS == "windows" {
+		wantErr = commandio.ErrOutputModeUnsupported
+	}
+	require.ErrorIs(t, err, wantErr)
+	assert.Zero(t, input.reads.Load(), "invalid mode consumed request input")
+	calls, _, _ := record.snapshot()
+	v1Calls, alphaCalls := record.reflectionCounts()
+	assert.Zero(t, calls, "invalid mode invoked the RPC")
+	assert.Zero(t, v1Calls, "invalid mode queried reflection v1")
+	assert.Zero(t, alphaCalls, "invalid mode queried reflection v1alpha")
+	assert.Zero(t, record.connectionCount(), "invalid mode connected to the server")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data))
 }
 
 func TestGRPCCommandContract(t *testing.T) {

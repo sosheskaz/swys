@@ -28,6 +28,8 @@ The default selection, **result**, includes the resolver, response details when 
 npc dns @1.1.1.1 example.com TXT --select values --format json --encoding base64
 ```
 
+Unsupported output encodings and invalid **--mode** values are rejected before a DNS query. **--mode** requires **--output**.
+
 ## Related command
 
 Use HTTP when the task is an application request rather than a name lookup.

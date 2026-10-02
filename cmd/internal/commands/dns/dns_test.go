@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"codeberg.org/miekg/dns"
@@ -84,6 +85,27 @@ func TestDNSRejectsInvalidOptionsBeforeOpeningOutput(t *testing.T) {
 			assert.Equal(t, "preserve", string(data), "output file")
 		})
 	}
+}
+
+func TestDNSInvalidEncodingRejectsBeforeQuery(t *testing.T) {
+	t.Parallel()
+	var queries atomic.Int64
+	host, port, connection, done := startUDPFixture(t, func(request *dns.Msg) *dns.Msg {
+		queries.Add(1)
+		return standardDNSReply(request)
+	})
+	t.Cleanup(func() {
+		_ = connection.Close() //nolint:errcheck // release a fixture that received no query
+		<-done
+	})
+	path := filepath.Join(t.TempDir(), "output")
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
+	_, _, err := executeRootStreams(t, "dns", "@udp://"+net.JoinHostPort(host, port), "example.test", "--encoding", "rot13", "--output", path)
+	require.ErrorIs(t, err, byteencoding.ErrUnknownOutputEncoding)
+	assert.Zero(t, queries.Load(), "invalid encoding reached the DNS server")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "preserve", string(data))
 }
 
 func TestDNSRejectsRemovedShortFlag(t *testing.T) {

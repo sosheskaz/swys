@@ -69,6 +69,17 @@ func (lifecycle *Lifecycle) PreRun(command *cobra.Command, args []string) error 
 	if !registered {
 		return Configure(command, nil)
 	}
+	skipIO := behavior.SkipIO || behavior.SkipIOIf != nil && behavior.SkipIOIf(command, args)
+	var setup *ioSetup
+	if behavior.BeforeIO != nil && !skipIO {
+		// Operational preparation may consume input or make network requests.
+		// Reject common I/O options before it starts, without opening files.
+		preflight, err := readIOSetup(command, &behavior)
+		if err != nil {
+			return err
+		}
+		setup = &preflight
+	}
 	var afterConfigure func(error) error
 	if behavior.BeforeIO != nil {
 		var err error
@@ -77,13 +88,13 @@ func (lifecycle *Lifecycle) PreRun(command *cobra.Command, args []string) error 
 			return err
 		}
 	}
-	if behavior.SkipIO || behavior.SkipIOIf != nil && behavior.SkipIOIf(command, args) {
+	if skipIO {
 		if afterConfigure != nil {
 			return afterConfigure(nil)
 		}
 		return nil
 	}
-	err := Configure(command, &behavior)
+	err := configureCommandIOWithBehavior(command, &behavior, setup)
 	if afterConfigure != nil {
 		return afterConfigure(err)
 	}
