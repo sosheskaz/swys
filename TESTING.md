@@ -279,13 +279,12 @@ requires partial read failures to preserve their error identity without
 returning buffered artifact bytes.
 
 These targets bound generated input sizes and check key identity, certificate
-order and DER preservation, base64url acceptance against the standard library
-(including one-byte reads), and authenticated decryption against an independent
-standard-library wire decoder. The bounded AES wire target exercises OpenPGP
-and Tink framing, malformed inputs, and authenticated decryption. A failing
-chunk emits no plaintext; earlier authenticated chunks may remain after a later
-failure. Parser round trips cover successfully parsed
-artifacts; they do not prove rejection of every invalid input. The ALPN target
+order and DER preservation, and base64url acceptance against the standard library
+(including one-byte reads). The bounded AES wire target exercises OpenPGP and
+Tink parsing and decryption with input and output limits. Unit tests separately
+check authentication failures and retained plaintext prefixes. Parser round trips
+cover successfully parsed artifacts; they do not prove rejection of every invalid
+input. The ALPN target
 uses an independently structured delimiter oracle to check ordered opaque
 protocol bytes, empty elements, surrounding Unicode whitespace, and the TLS
 one-byte length boundary. The network diagnostic target pins the escaping of
@@ -314,14 +313,9 @@ blank separator, and every trace line classifies as a numbered hop summary or
 one of that hop's declared fields in order. Names and values already made of
 printable runes must render verbatim, which pins content without restating the
 escaper. Trace hops are built from generated timestamps rather than wall-clock
-time. The trace target renders the textual summary; the certificate chain a hop
-captures reaches JSON output only, and is covered by the certificate target.
-
-The PKCS#7 padding target states the contract independently of how the pad
-length is derived: a successful result is a prefix of its input whose removed
-suffix consists entirely of bytes equal to that suffix's own length, and a
-separate dimension supplies independently padded messages so an implementation
-that rejected everything could not pass.
+time. The trace target renders the textual summary. Captured certificates also
+appear as JSON lines in text traces; unit tests check those lines, while the
+certificate target checks certificate JSON formatting.
 
 The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
