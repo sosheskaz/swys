@@ -2,11 +2,13 @@ package dns_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/netip"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,6 +16,50 @@ import (
 )
 
 var errUnexpectedSystemLookup = errors.New("unexpected system resolver call")
+
+func TestExampleDNSOutputSelectionAndEncoding(t *testing.T) {
+	t.Parallel()
+	newRoot := func() *cobra.Command {
+		return newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+			System: stubSystemResolver{
+				lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+					return []netip.Addr{
+						netip.MustParseAddr("192.0.2.10"),
+						netip.MustParseAddr("192.0.2.20"),
+					}, nil
+				},
+			},
+		})
+	}
+
+	defaultOutput, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test")
+	require.NoError(t, err)
+	selectedResult, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "--select", "result", "--format", "text")
+	require.NoError(t, err)
+	assert.Equal(t, defaultOutput, selectedResult, "explicit result selection")
+
+	values, stderr, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "--select", "values")
+	require.NoError(t, err)
+	assert.Equal(t, "192.0.2.10\n192.0.2.20\n", values)
+	assert.Empty(t, stderr)
+
+	jsonValues, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "--select", "values", "--format", "json")
+	require.NoError(t, err)
+	if want := "[\n  \"192.0.2.10\",\n  \"192.0.2.20\"\n]\n"; jsonValues != want {
+		t.Errorf("selected JSON values = %q, want %q", jsonValues, want)
+	}
+
+	encoded, stderr, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "--select", "values", "-e", "base64")
+	require.NoError(t, err)
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(values)), encoded, "encode complete text including final newline")
+	assert.Empty(t, stderr)
+
+	encodedJSON, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "--select", "values", "--format", "json", "--encoding", "base64")
+	require.NoError(t, err)
+	if want := base64.StdEncoding.EncodeToString([]byte(jsonValues)); encodedJSON != want {
+		t.Errorf("encoded complete JSON = %q, want %q", encodedJSON, want)
+	}
+}
 
 func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 	t.Parallel()
@@ -34,7 +80,7 @@ func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 	assert.Empty(t, stderr, "diagnostics")
 }
 
-func TestExampleDNSShortJSON(t *testing.T) {
+func TestExampleDNSValuesJSON(t *testing.T) {
 	t.Parallel()
 
 	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
@@ -47,8 +93,8 @@ func TestExampleDNSShortJSON(t *testing.T) {
 			},
 		},
 	})
-	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "AAAA", "--short", "--format", "json")
-	require.NoError(t, err, "npc dns example.test AAAA --short --format json")
+	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "AAAA", "--select", "values", "--format", "json")
+	require.NoError(t, err, "npc dns example.test AAAA --select values --format json")
 	assert.Equal(t, "[\n  \"2001:db8::10\",\n  \"2001:db8::20\"\n]\n", stdout)
 }
 

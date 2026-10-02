@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
@@ -46,7 +47,7 @@ func TestDNSAliasesUseTheSameSyntax(t *testing.T) {
 					},
 				},
 			})
-			stdout, _, err := executeRootCommandStreams(t, root, alias, "example.test", "A", "--short")
+			stdout, _, err := executeRootCommandStreams(t, root, alias, "example.test", "A", "--select", "values")
 			require.NoError(t, err)
 			assert.Equal(t, "192.0.2.1\n", stdout)
 		})
@@ -85,6 +86,46 @@ func TestDNSRejectsInvalidOptionsBeforeOpeningOutput(t *testing.T) {
 	}
 }
 
+func TestDNSRejectsRemovedShortFlag(t *testing.T) {
+	t.Parallel()
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+			return []netip.Addr{netip.MustParseAddr("192.0.2.10")}, nil
+		}},
+	})
+	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--short")
+	require.ErrorContains(t, err, "unknown flag: --short")
+}
+
+func TestDNSInvalidPresentationPreservesOutput(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		want error
+		name string
+		args []string
+	}{
+		{name: "selection", args: []string{"--select", "missing"}, want: errInvalidDNSOptions},
+		{name: "encoding", args: []string{"--encoding", "rot13"}, want: byteencoding.ErrUnknownOutputEncoding},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "output")
+			require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+					return []netip.Addr{netip.MustParseAddr("192.0.2.10")}, nil
+				}},
+			})
+			args := append([]string{"dns", "example.test", "--output", path}, test.args...)
+			_, _, executeErr := executeRootCommandStreams(t, root, args...)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, "preserve", string(data), "destination after invalid %s", test.name)
+			require.ErrorIs(t, executeErr, test.want)
+		})
+	}
+}
+
 func TestDNSSystemPTRAndMetadata(t *testing.T) {
 	t.Parallel()
 	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{System: stubSystemResolver{lookupAddr: func(_ context.Context, address string) ([]string, error) {
@@ -112,7 +153,7 @@ func TestDNSSystemResolverIsInjectedPerCommand(t *testing.T) {
 					return []netip.Addr{netip.MustParseAddr(address)}, nil
 				}},
 			})
-			stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--short")
+			stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--select", "values")
 			require.NoError(t, err)
 			assert.Equal(t, address+"\n", stdout)
 		})
@@ -209,8 +250,8 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			},
 		},
 		{
-			name: "short",
-			args: []string{"--short"},
+			name: "values",
+			args: []string{"--select", "values"},
 			check: func(t *testing.T, output string) {
 				t.Helper()
 				assert.Equal(t, strings.Repeat("\n", 5), output, "five empty values")
@@ -560,7 +601,7 @@ func TestDNSConfiguredServersRejectNonUDPSchemesAndUseBareFallback(t *testing.T)
 			_, _, err := executeRootCommandStreams(
 				t,
 				root,
-				"dns", "example.test", "--resolver", "dns", "--short",
+				"dns", "example.test", "--resolver", "dns", "--select", "values",
 			)
 			require.NoError(t, err)
 			assert.Equal(t, []dnsquery.Transport{dnsquery.TransportUDP}, transports)
@@ -587,7 +628,7 @@ func TestDNSExplicitPort53WithoutEndpointUsesConfiguredUDP(t *testing.T) {
 			return replyFor(request), nil
 		},
 	})
-	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--port", "53", "--short")
+	_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--port", "53", "--select", "values")
 	require.NoError(t, err)
 	assert.Equal(t, 1, configured, "configured calls")
 	assert.Equal(t, 1, exchanged, "exchange calls")
@@ -609,7 +650,7 @@ func TestDNSDirectAcceptsPTROwnerName(t *testing.T) {
 	stdout, _, err := executeRootCommandStreams(
 		t,
 		root,
-		"dns", "@"+host, "8.2.0.192.in-addr.arpa", "PTR", "--port", port, "--short",
+		"dns", "@"+host, "8.2.0.192.in-addr.arpa", "PTR", "--port", port, "--select", "values",
 	)
 	require.NoError(t, err)
 	finishUDPFixture(t, connection, done)
@@ -641,31 +682,46 @@ func TestDNSDirectPreservesRcodeAndTXTEscaping(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, jsonOutput, `"status": "NXDOMAIN"`)
 	root := newRoot()
-	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "TXT", "--resolver", "dns", "--short")
+	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "TXT", "--resolver", "dns", "--select", "values")
 	require.NoError(t, err)
-	assert.Equal(t, `"hello \"operator\"" "line\010break"`+"\n", stdout, "short TXT")
+	assert.Equal(t, `"hello \"operator\"" "line\010break"`+"\n", stdout, "selected TXT value")
+	jsonValues, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "TXT", "--resolver", "dns", "--select", "values", "--format", "json")
+	require.NoError(t, err)
+	wantJSON, err := json.MarshalIndent([]string{strings.TrimSuffix(stdout, "\n")}, "", "  ")
+	require.NoError(t, err)
+	if want := string(wantJSON) + "\n"; jsonValues != want {
+		t.Errorf("selected TXT JSON = %q, want %q", jsonValues, want)
+	}
 }
 
-func TestDNSDirectShortAllowsEmptyAnswers(t *testing.T) {
+func TestDNSDirectValuesAllowEmptyAnswers(t *testing.T) {
 	t.Parallel()
 	for _, rcode := range []uint16{dns.RcodeSuccess, dns.RcodeNameError} {
 		t.Run(dns.RcodeToString[rcode], func(t *testing.T) {
 			t.Parallel()
-			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
-				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
-					response := replyFor(request)
-					response.Rcode = rcode
-					return response, nil
-				},
-				ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
-			})
+			newRoot := func() *cobra.Command {
+				return newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+					PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+						response := replyFor(request)
+						response.Rcode = rcode
+						return response, nil
+					},
+					ConfiguredServers: func() ([]string, error) { return []string{"192.0.2.53"}, nil },
+				})
+			}
 			stdout, _, err := executeRootCommandStreams(
 				t,
-				root,
-				"dns", "missing.example", "--resolver", "dns", "--short",
+				newRoot(),
+				"dns", "missing.example", "--resolver", "dns", "--select", "values",
 			)
 			require.NoError(t, err)
 			assert.Empty(t, stdout)
+			jsonOutput, _, err := executeRootCommandStreams(t, newRoot(),
+				"dns", "missing.example", "--resolver", "dns", "--select", "values", "--format", "json")
+			require.NoError(t, err)
+			if jsonOutput != "[]\n" {
+				t.Errorf("empty values JSON = %q, want %q", jsonOutput, "[]\n")
+			}
 		})
 	}
 }
@@ -731,7 +787,7 @@ func TestDNSRestoresCommandContext(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "success", args: []string{"dns", "example.test", "--short"}},
+		{name: "success", args: []string{"dns", "example.test", "--select", "values"}},
 		{name: "output setup error", args: []string{"dns", "example.test", "--output", t.TempDir()}},
 	}
 	for _, test := range tests {

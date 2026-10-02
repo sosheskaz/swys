@@ -66,7 +66,7 @@ DNS server:
 
 ```fish
 npc dns example.com
-npc dns @192.0.2.53 example.com MX --short
+npc dns @192.0.2.53 example.com MX --select values
 ```
 
 ## Guides and reference help
@@ -137,7 +137,7 @@ address as a convenient PTR form:
 ```fish
 npc dns example.com
 npc dns example.com AAAA --format json
-npc dns 192.0.2.10 --reverse --short
+npc dns 192.0.2.10 --reverse --select values
 ```
 
 System resolution intentionally exposes only the data returned by Go's
@@ -170,7 +170,7 @@ raw reverse-owner queries.
 
 ```fish
 npc dns @192.0.2.53 example.com MX
-npc dig @tcp://192.0.2.53 example.com TXT --short
+npc dig @tcp://192.0.2.53 example.com TXT --select values
 npc dns @tls://resolver.example example.com AAAA --ca resolver-ca.pem
 npc dns @https://resolver.example/dns-query example.com --ca resolver-ca.pem
 npc nslookup example.com CAA --resolver dns --format json
@@ -195,10 +195,13 @@ DNS response, including NXDOMAIN or SERVFAIL, is rendered with its status and
 counts as a completed exchange; transport, timeout, malformed-response, ID,
 opcode, and question-mismatch failures exit nonzero.
 
-`--short` prints one answer value per line. With `--format json`, it prints a
-JSON array of values instead. TXT values retain DNS zone-file quoting and
-escaping so embedded whitespace, quotes, control bytes, and multi-string TXT
-records remain unambiguous. The `dig` and `nslookup` aliases accept exactly the
+`--select result|values` defaults to the complete result. Values selection prints
+one answer value per line in text, or a JSON array with `--format json`. An
+empty values selection prints no text bytes or `[]` in JSON. `--encoding`/`-e`
+encodes the complete formatted output, including its final newline; the default
+is `raw`. TXT values retain DNS zone-file quoting and escaping so embedded
+whitespace, quotes, control bytes, and multi-string TXT records remain
+unambiguous. The `dig` and `nslookup` aliases accept exactly the
 same syntax and flags as `dns`; they do not emulate those programs' `+option`
 syntax.
 

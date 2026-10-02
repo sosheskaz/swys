@@ -18,7 +18,7 @@ func TestExampleDNSOverTLS(t *testing.T) {
 		t,
 		"dns", endpoint, "example.test", "A",
 		"--ca", identity.caCertPath,
-		"--short",
+		"--select", "values",
 	)
 	require.NoError(t, err, "npc dns @tls://server name A")
 	require.Equal(t, "192.0.2.44\n", stdout)
@@ -49,7 +49,7 @@ func TestExampleDNSOverHTTPS(t *testing.T) {
 		t,
 		"dns", server.endpoint("localhost", "/lookup?profile=example"), "example.test",
 		"--ca", identity.caCertPath,
-		"--short",
+		"--select", "values",
 	)
 	require.NoError(t, err, "npc dns @https://server/lookup?profile=example name")
 	require.Equal(t, "192.0.2.44\n", stdout)

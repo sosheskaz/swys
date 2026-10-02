@@ -70,7 +70,7 @@ Use this page order unless a shorter page remains clearer:
 
 Examples must use supported command syntax and preserve copyable command text. State prerequisites immediately before the example, including required files, a listener that must already be running, or a second terminal. Prefer portable shell syntax shared by documented shells. Label shell-specific examples in prose and use the matching fence language.
 
-When a guide describes output selection, formatting, or encoding, follow the [command output contract](command-output.md). Document the command's actual supported combinations; DNS behavior is still being brought into that contract.
+When a guide describes output selection, formatting, or encoding, follow the [command output contract](command-output.md). Document the command's actual supported combinations.
 
 Prefer a short end-to-end example where it adds context: create an input, use it with a related command, and inspect or recover the result. Key guides should show where keys are used with certificates or AES, not only how to generate or transform them. Usually one or two such workflows are enough; avoid repeating the same setup in every section.
 

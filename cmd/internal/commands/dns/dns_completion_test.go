@@ -98,9 +98,28 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 	for _, conflict := range []string{"--port", "-p"} {
 		assert.NotContains(t, joined, conflict, "flags after --resolver system")
 	}
-	for _, compatible := range []string{"--format", "--short", "--reverse", "--timeout"} {
+	for _, compatible := range []string{"--format", "--select", "--encoding", "--reverse", "--timeout"} {
 		assert.Contains(t, joined, compatible, "flags after --resolver system")
 	}
+	assert.NotContains(t, joined, "--short", "removed flag")
+}
+
+func TestDNSOutputOptionCompletion(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		flag string
+		want []string
+	}{
+		{flag: "--select", want: []string{"result", "values"}},
+		{flag: "--format", want: []string{"text", "json"}},
+	} {
+		values, directive := executeDNSCompletion(t, "dns", test.flag, "")
+		assert.ElementsMatch(t, test.want, values, "complete %s", test.flag)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "complete %s", test.flag)
+	}
+	values, directive := executeDNSCompletion(t, "dns", "--encoding", "bas")
+	assert.Contains(t, values, "base64")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }
 
 func TestDNSCompletionConflictHasNoRecordCandidates(t *testing.T) {

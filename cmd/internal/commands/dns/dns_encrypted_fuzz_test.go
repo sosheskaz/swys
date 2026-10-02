@@ -79,7 +79,7 @@ func FuzzEncryptedDNSEndpointNormalization(f *testing.F) {
 		case 10:
 			endpoint = "@" + url.QueryEscape(token) + "@127.0.0.1"
 		}
-		args := []string{"dns", endpoint, "example.test", "--short", "--timeout", "1s"}
+		args := []string{"dns", endpoint, "example.test", "--select", "values", "--timeout", "1s"}
 		if mode%11 < 7 {
 			args = append(args, "--ca", identity.caCertPath)
 		}
@@ -113,7 +113,9 @@ func FuzzEncryptedDNSDoTFrameLengths(f *testing.F) {
 	f.Fuzz(func(t *testing.T, delta int16, corrupt bool) {
 		endpoint := startDoTFrameFuzzServer(t, identity, delta, corrupt)
 		outputPath := writeExistingDNSOutput(t)
-		_, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--short", "--output", outputPath, "--timeout", "1s")
+		_, _, err := executeRootStreams(t,
+			"dns", endpoint, "example.test", "--ca", identity.caCertPath,
+			"--select", "values", "--output", outputPath, "--timeout", "1s")
 		if delta == 0 && !corrupt {
 			if err != nil {
 				t.Fatal(err)
@@ -178,7 +180,9 @@ func FuzzEncryptedDNSDoHResponseBoundaries(f *testing.F) {
 		}))
 		endpoint := server.endpoint("localhost", fmt.Sprintf("/dns-query?size=%d&truncated=%t", size, truncated))
 		outputPath := writeExistingDNSOutput(t)
-		_, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--short", "--output", outputPath, "--timeout", "1s")
+		_, _, err := executeRootStreams(t,
+			"dns", endpoint, "example.test", "--ca", identity.caCertPath,
+			"--select", "values", "--output", outputPath, "--timeout", "1s")
 		if size <= dns.MaxMsgSize && !truncated {
 			if err != nil {
 				t.Fatal(err)

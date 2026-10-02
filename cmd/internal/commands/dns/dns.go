@@ -47,6 +47,7 @@ const (
 
 type dnsOptions struct {
 	resolver   string
+	selectMode string
 	format     string
 	ca         string
 	serverName string
@@ -54,7 +55,6 @@ type dnsOptions struct {
 	key        string
 	timeout    time.Duration
 	port       int
-	short      bool
 	reverse    bool
 	systemCA   bool
 	insecure   bool
@@ -69,19 +69,21 @@ type dnsQuery struct {
 	name       string
 	record     string
 	transport  string
+	selectMode string
 	format     string
 	timeout    time.Duration
 	port       int
 	recordType uint16
 	portSet    bool
-	short      bool
 }
 
 type dnsPreparedOutputKey struct{}
 
 const (
-	dnsFormatText = "text"
-	dnsFormatJSON = "json"
+	dnsFormatText   = "text"
+	dnsFormatJSON   = "json"
+	dnsSelectResult = "result"
+	dnsSelectValues = "values"
 )
 
 var dnsFormatDescriptions = map[string]string{
@@ -92,10 +94,11 @@ var dnsFormatDescriptions = map[string]string{
 // NewCommand constructs DNS commands with the supplied resolver dependencies.
 func NewCommand(lifecycle *commandio.Lifecycle, deps dnsquery.Dependencies) *cobra.Command {
 	options := &dnsOptions{
-		resolver: dnsResolverSystem,
-		format:   dnsFormatText,
-		port:     53,
-		timeout:  commandio.DefaultNetworkTimeout,
+		resolver:   dnsResolverSystem,
+		selectMode: dnsSelectResult,
+		format:     dnsFormatText,
+		port:       53,
+		timeout:    commandio.DefaultNetworkTimeout,
 	}
 	command := &cobra.Command{
 		Use:     "dns [@server] name [type]",
@@ -163,8 +166,9 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	flags.IntVarP(&options.port, "port", "p", 53, "direct DNS server port")
 	flags.BoolVarP(&options.reverse, "reverse", "x", false, "perform a PTR lookup for an IP address")
 	flags.DurationVar(&options.timeout, "timeout", commandio.DefaultNetworkTimeout, "whole lookup timeout (0 disables)")
-	flags.BoolVar(&options.short, "short", false, "print only answer values")
+	flags.StringVar(&options.selectMode, "select", dnsSelectResult, "result selection (result, values)")
 	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", dnsFormatText, "result format (text, json)")
+	commandio.AddOutputEncodingFlag(command)
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
 	flags.StringVar(&options.key, tlsconfig.KeyFlagName, "", "client private key path")
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
@@ -182,6 +186,11 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	}
 	commandio.RegisterDescribedFlagCompletion(command, commandio.FormatFlagName,
 		func() []string { return []string{dnsFormatText, dnsFormatJSON} }, dnsFormatDescriptions)
+	commandio.RegisterDescribedFlagCompletion(command, "select",
+		func() []string { return []string{dnsSelectResult, dnsSelectValues} }, map[string]string{
+			dnsSelectResult: "complete DNS result",
+			dnsSelectValues: "answer values only",
+		})
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
@@ -301,7 +310,7 @@ var _ pflag.Value = (*dnsResolverFlagValue)(nil)
 func parseDNSQuery(cmd *cobra.Command, args []string, options *dnsOptions) (dnsQuery, error) {
 	query := dnsQuery{
 		resolver: options.resolver, transport: dnsTransportUDP, port: options.port,
-		portSet: cmd.Flags().Changed("port"), timeout: options.timeout, format: options.format, short: options.short,
+		portSet: cmd.Flags().Changed("port"), timeout: options.timeout, selectMode: options.selectMode, format: options.format,
 	}
 	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
 		query.server = strings.TrimPrefix(args[0], "@")
@@ -383,6 +392,9 @@ func validateDNSChoiceOptions(options *dnsOptions) error {
 	if options.format != dnsFormatText && options.format != dnsFormatJSON {
 		return fmt.Errorf("%w: unknown format %q (valid: text, json)", ErrInvalidDNSOptions, options.format)
 	}
+	if options.selectMode != dnsSelectResult && options.selectMode != dnsSelectValues {
+		return fmt.Errorf("%w: unknown selection %q (valid: result, values)", ErrInvalidDNSOptions, options.selectMode)
+	}
 	return nil
 }
 
@@ -459,6 +471,22 @@ func dnsTLSOptionsSelected(cmd *cobra.Command) bool {
 
 type dnsResult = dnsquery.Result
 
+type dnsSelectedOutput struct {
+	result *dnsResult
+	values []string
+}
+
+func selectDNSResult(result *dnsResult, selection string) dnsSelectedOutput {
+	if selection == dnsSelectResult {
+		return dnsSelectedOutput{result: result}
+	}
+	values := make([]string, 0, len(result.Answers))
+	for _, answer := range result.Answers {
+		values = append(values, answer.Value)
+	}
+	return dnsSelectedOutput{values: values}
+}
+
 func prepareDNSOutput(ctx context.Context, query *dnsQuery, deps dnsquery.Dependencies) ([]byte, error) {
 	lookupContext, cancel := commandio.NetworkSetupContext(ctx, query.timeout)
 	defer cancel()
@@ -481,18 +509,14 @@ func prepareDNSOutput(ctx context.Context, query *dnsQuery, deps dnsquery.Depend
 		}
 		return nil, err
 	}
-	return renderDNSResult(&result, query.format, query.short)
+	return renderDNSResult(selectDNSResult(&result, query.selectMode), query.format)
 }
 
-func renderDNSResult(result *dnsResult, format string, short bool) ([]byte, error) {
+func renderDNSResult(selected dnsSelectedOutput, format string) ([]byte, error) {
 	if format == dnsFormatJSON {
-		var value any = result
-		if short {
-			values := make([]string, 0, len(result.Answers))
-			for _, answer := range result.Answers {
-				values = append(values, answer.Value)
-			}
-			value = values
+		var value any = selected.result
+		if selected.result == nil {
+			value = selected.values
 		}
 		data, err := json.MarshalIndent(value, "", "  ")
 		if err != nil {
@@ -501,15 +525,16 @@ func renderDNSResult(result *dnsResult, format string, short bool) ([]byte, erro
 		return append(data, '\n'), nil
 	}
 	var output bytes.Buffer
-	if short {
-		for _, answer := range result.Answers {
-			fmt.Fprintln(&output, asym.EscapeDiagnosticValue(answer.Value))
+	if selected.result == nil {
+		for _, value := range selected.values {
+			fmt.Fprintln(&output, asym.EscapeDiagnosticValue(value))
 		}
 		if output.Len() == 0 {
 			return make([]byte, 0), nil
 		}
 		return output.Bytes(), nil
 	}
+	result := selected.result
 	fmt.Fprintf(&output, ";; resolver: %s\n", result.Resolver)
 	if result.Server == nil {
 		fmt.Fprintln(&output, ";; server: unavailable")

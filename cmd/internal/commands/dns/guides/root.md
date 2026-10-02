@@ -13,10 +13,20 @@ Ask a particular DNS server by putting its address first. A selected server, tra
 
 ```sh
 npc dns @1.1.1.1 example.com AAAA
-npc dns @1.1.1.1 example.com MX --transport tcp
+npc dns @tcp://1.1.1.1 example.com MX --select values
 ```
 
 Direct UDP retries a truncated response over TCP. A system lookup may follow operating-system search, hosts-file, or resolver policy that direct DNS bypasses.
+
+## Choose output
+
+The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines; **--format json** prints the complete result object or an array of selected values. An empty values selection prints no text bytes or an empty JSON array. TXT values retain DNS zone-file quoting and escaping.
+
+**--encoding** (or **-e**) transforms the complete formatted output, including its final newline. The default **raw** encoding leaves it unchanged. For example, encode the JSON values array as Base64:
+
+```sh
+npc dns @1.1.1.1 example.com TXT --select values --format json --encoding base64
+```
 
 ## Related command
 

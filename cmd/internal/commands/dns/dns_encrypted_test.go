@@ -170,7 +170,7 @@ func TestDNSPlaintextEndpointSchemes(t *testing.T) {
 	t.Run("UDP", func(t *testing.T) {
 		t.Parallel()
 		host, port, connection, done := startUDPFixture(t, standardDNSReply)
-		stdout, _, err := executeRootStreams(t, "dns", "@udp://"+net.JoinHostPort(host, port), "example.test", "--short")
+		stdout, _, err := executeRootStreams(t, "dns", "@udp://"+net.JoinHostPort(host, port), "example.test", "--select", "values")
 		require.NoError(t, err)
 		require.Equal(t, "192.0.2.44\n", stdout)
 		finishUDPFixture(t, connection, done)
@@ -181,7 +181,7 @@ func TestDNSPlaintextEndpointSchemes(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = listener.Close() }) //nolint:errcheck // test cleanup is best effort
 		done := serveTCPAnswerFixture(listener)
-		stdout, _, err := executeRootStreams(t, "dns", "@tcp://"+listener.Addr().String(), "fixture.example", "--short")
+		stdout, _, err := executeRootStreams(t, "dns", "@tcp://"+listener.Addr().String(), "fixture.example", "--select", "values")
 		require.NoError(t, err)
 		require.Equal(t, "192.0.2.45\n", stdout)
 		require.NoError(t, <-done)
@@ -335,7 +335,7 @@ func TestDNSOverTLSTrustServerNameInsecureAndSystemRoots(t *testing.T) {
 			t.Parallel()
 			identity := newEncryptedDNSTestIdentity(t, []string{test.identityName}, nil)
 			endpoint, requests := startDoTTestServer(t, identity, false, standardDNSReply)
-			args := append([]string{"dns", endpoint, "example.test", "--short"}, test.args(identity)...)
+			args := append([]string{"dns", endpoint, "example.test", "--select", "values"}, test.args(identity)...)
 			stdout, _, err := executeRootStreams(t, args...)
 			require.NoError(t, err)
 			require.Equal(t, "192.0.2.44\n", stdout)
@@ -420,7 +420,7 @@ func TestDNSOverTLSMutualAuthentication(t *testing.T) {
 	endpoint, requests := startDoTTestServer(t, identity, true, standardDNSReply)
 	stdout, _, err := executeRootStreams(
 		t,
-		"dns", endpoint, "example.test", "--short",
+		"dns", endpoint, "example.test", "--select", "values",
 		"--ca", identity.caCertPath,
 		"--cert", identity.clientCertPath,
 		"--key", identity.clientKeyPath,
@@ -575,7 +575,7 @@ func TestDNSOverHTTPSRequestDefaultsAndExplicitPath(t *testing.T) { //nolint:tpa
 		{name: "explicit empty query", path: "/dns-query?", wantPath: "/dns-query?"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			stdout, _, err := executeRootStreams(t, "dns", server.endpoint("localhost", test.path), "example.test", "--ca", identity.caCertPath, "--short")
+			stdout, _, err := executeRootStreams(t, "dns", server.endpoint("localhost", test.path), "example.test", "--ca", identity.caCertPath, "--select", "values")
 			require.NoError(t, err)
 			require.Equal(t, "192.0.2.44\n", stdout)
 			got := <-requests
@@ -603,7 +603,7 @@ func TestDNSOverHTTPSMutualAuthentication(t *testing.T) {
 	}))
 	stdout, _, err := executeRootStreams(
 		t,
-		"dns", server.endpoint("localhost", ""), "example.test", "--short",
+		"dns", server.endpoint("localhost", ""), "example.test", "--select", "values",
 		"--ca", identity.caCertPath,
 		"--cert", identity.clientCertPath,
 		"--key", identity.clientKeyPath,
@@ -687,7 +687,7 @@ func TestEncryptedDNSDoHProxyChild(t *testing.T) {
 	}
 	stdout, _, err := executeRootStreams(
 		t,
-		"dns", os.Getenv("NPC_DOH_PROXY_ENDPOINT"), "example.test", "--short",
+		"dns", os.Getenv("NPC_DOH_PROXY_ENDPOINT"), "example.test", "--select", "values",
 		"--ca", os.Getenv("NPC_DOH_PROXY_CA"),
 	)
 	require.NoError(t, err)
@@ -715,7 +715,7 @@ func TestEncryptedDNSPreservesOutputFormatsAndStatus(t *testing.T) {
 	}{
 		{name: "text", want: ";; status: NXDOMAIN"},
 		{name: "JSON", args: []string{"--format", "json"}, want: `"status": "NXDOMAIN"`},
-		{name: "short", args: []string{"--short"}, want: "192.0.2.44\n"},
+		{name: "values", args: []string{"--select", "values"}, want: "192.0.2.44\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -780,7 +780,7 @@ func TestDNSOverHTTPSAcceptsSuccessfulStatuses(t *testing.T) {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
 			t.Parallel()
 			endpoint := server.endpoint("localhost", "/dns-query?status="+strconv.Itoa(status))
-			stdout, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--short")
+			stdout, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--select", "values")
 			require.NoError(t, err, "HTTP %d DoH response", status)
 			assert.Equal(t, "192.0.2.44\n", stdout, "HTTP %d", status)
 		})
@@ -849,7 +849,7 @@ func TestDNSOverHTTPSResponseSizeLimit(t *testing.T) {
 			t.Parallel()
 			outputPath := writeExistingDNSOutput(t)
 			endpoint := server.endpoint("localhost", "/dns-query?size="+strconv.Itoa(size))
-			stdout, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--short", "--output", outputPath)
+			stdout, _, err := executeRootStreams(t, "dns", endpoint, "example.test", "--ca", identity.caCertPath, "--select", "values", "--output", outputPath)
 			if size <= dns.MaxMsgSize {
 				require.NoError(t, err)
 				require.Empty(t, stdout, "want file output")
@@ -925,7 +925,9 @@ func TestEncryptedDNSExplicitPortAgreement(t *testing.T) {
 		writeDoHTestResponse(t, writer, standardDNSReply(message))
 	}))
 	port := server.port()
-	stdout, _, err := executeRootStreams(t, "dns", server.endpoint("localhost", ""), "example.test", "--port", port, "--ca", identity.caCertPath, "--short")
+	stdout, _, err := executeRootStreams(t,
+		"dns", server.endpoint("localhost", ""), "example.test",
+		"--port", port, "--ca", identity.caCertPath, "--select", "values")
 	require.NoError(t, err, "agreeing port")
 	require.Equal(t, "192.0.2.44\n", stdout, "agreeing port")
 	before := hits.Load()
@@ -947,7 +949,7 @@ func TestEncryptedDNSAliases(t *testing.T) {
 		writeDoHTestResponse(t, writer, standardDNSReply(message))
 	}))
 	for _, command := range []string{"dns", "dig", "nslookup"} {
-		stdout, _, err := executeRootStreams(t, command, server.endpoint("localhost", ""), "example.test", "--ca", identity.caCertPath, "--short")
+		stdout, _, err := executeRootStreams(t, command, server.endpoint("localhost", ""), "example.test", "--ca", identity.caCertPath, "--select", "values")
 		require.NoError(t, err, "%s", command)
 		require.Equal(t, "192.0.2.44\n", stdout, "%s", command)
 	}
