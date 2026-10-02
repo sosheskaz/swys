@@ -14,6 +14,12 @@ For a signing request, NPC also verifies the request signature.
 npc cert match --cert server.pem --key server-key.pem --csr server.csr --format json
 ```
 
+Use **--encoding base64** (or **-e base64**) to encode the complete text or JSON report, including its final newline. The default **raw** encoding leaves the report unchanged.
+
+```sh
+npc cert match --cert server.pem --key server-key.pem --format json --encoding base64 --output match.b64
+```
+
 Use **-** for at most one operand to read it from stdin. **--input** can redirect that stdin operand from a file.
 
 ```sh

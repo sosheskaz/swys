@@ -318,6 +318,7 @@ func newAESKeyInspectCmd() *cobra.Command {
 		Use: "key-inspect", Short: "Inspect AES key metadata without revealing key material", Args: cobra.NoArgs,
 		RunE: writePreparedAESKey,
 	}, func() []string { return []string{"text", inspectionJSON} }))
+	commandio.AddOutputEncodingFlag(cmd)
 	cmd.Flags().String("key-format", keyFormatAuto, "key format (auto, raw, tink-json, tink-binary)")
 	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 	cmd.ValidArgsFunction = cobra.NoFileCompletions

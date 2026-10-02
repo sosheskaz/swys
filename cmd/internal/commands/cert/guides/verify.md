@@ -26,6 +26,12 @@ Use **--purpose client** for a client certificate or **--purpose any** to accept
 npc cert verify --input client.pem --intermediates issuer.pem --ca root.pem --purpose client --at 2026-01-01T00:00:00Z --format json
 ```
 
+Use **--encoding base64** (or **-e base64**) to encode the entire report, including its final newline, for transport. The default **raw** encoding leaves the selected text or JSON format unchanged.
+
+```sh
+npc cert verify --input chain.pem --ca root.pem --hostname api.example.com --format json --encoding base64 --output report.b64
+```
+
 A readable certificate that fails verification produces a report with **verified: false** and a nonzero exit status. NPC does not fetch missing certificates, OCSP responses, or CRLs.
 
 ## Reference

@@ -61,6 +61,22 @@ func TestExampleAESKeyReadersDetectContainerFormats(t *testing.T) {
 	require.Equal(t, raw, got)
 }
 
+func TestExampleAESKeyInspectionEncodesCompleteStdout(t *testing.T) {
+	t.Parallel()
+	input := filepath.Join(t.TempDir(), "raw.key")
+	require.NoError(t, os.WriteFile(input, bytes.Repeat([]byte{0x42}, 16), 0o600))
+
+	plain, stderr, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
+		"aes", "key-inspect", "--input", input)
+	require.NoError(t, err, "unencoded inspection: stderr %q", stderr)
+	require.Equal(t, []byte("Raw AES key: 128 bits\n"), plain)
+
+	encoded, stderr, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
+		"aes", "key-inspect", "--input", input, "-e", "base64")
+	require.NoError(t, err, "encoded inspection: stderr %q", stderr)
+	require.Equal(t, base64.StdEncoding.EncodeToString(plain), string(encoded))
+}
+
 func TestAESAutoKeyReadersPreferRawLengthAndRespectExplicitFormat(t *testing.T) {
 	t.Parallel()
 	raw := append([]byte("{raw-key}"), bytes.Repeat([]byte{'x'}, 16-len("{raw-key}"))...)

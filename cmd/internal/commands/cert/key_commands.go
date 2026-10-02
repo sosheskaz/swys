@@ -89,6 +89,7 @@ or one unencrypted OpenSSH private key or authorized_keys public entry.`,
 			return formatter.Format(info, cmd.OutOrStdout())
 		},
 	}, keyFormatNames))
+	commandio.AddOutputEncodingFlag(keyInspectCmd)
 	keyInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return keyInspectCmd
 }

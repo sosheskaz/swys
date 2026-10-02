@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 )
 
 func TestExampleCertVerifyCustomRoot(t *testing.T) {
@@ -47,6 +48,69 @@ func TestExampleCertMatchCertificateAndPrivateKey(t *testing.T) {
 	require.NoError(t, err, "npc cert match: %v (stderr %q)", err, stderr)
 	assertCertBooleanReport(t, stdout, "match", true)
 	assertCertReportPublicDetails(t, stdout)
+}
+
+func TestExampleCertReportsEncodeCompleteStdout(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	dir := t.TempDir()
+	chainPath := writeCertTestFile(t, dir, "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
+	rootPath := writeCertTestFile(t, dir, "root.pem", fixture.rootPEM)
+	keyPath := writeCertTestFile(t, dir, "leaf-key.pem", fixture.leafKeyPKCS8PEM)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "verify", args: []string{
+			"cert", "verify", "--input", chainPath, "--ca", rootPath,
+			"--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json",
+		}},
+		{name: "match", args: []string{"cert", "match", "--cert", chainPath, "--key", keyPath, "--format", "json"}},
+		{name: "key-inspect", args: []string{"cert", "key-inspect", "--input", keyPath, "--format", "json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			plain, stderr, err := executeRootStreams(t, tc.args...)
+			require.NoError(t, err, "unencoded report: stderr %q", stderr)
+			require.True(t, strings.HasSuffix(plain, "\n"), "unencoded report should end in a newline: %q", plain)
+
+			encoded, stderr, err := executeRootStreams(t, append(append([]string{}, tc.args...), "--encoding", "base64")...)
+			require.NoError(t, err, "encoded report: stderr %q", stderr)
+			require.Equal(t, base64.StdEncoding.EncodeToString([]byte(plain)), encoded)
+		})
+	}
+}
+
+func TestCertVerifyEncodedNegativeReportPreservesOutcome(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	wrong := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	dir := t.TempDir()
+	chainPath := writeCertTestFile(t, dir, "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
+	wrongRootPath := writeCertTestFile(t, dir, "wrong-root.pem", wrong.rootPEM)
+	args := []string{"cert", "verify", "--input", chainPath, "--ca", wrongRootPath, "--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json"}
+
+	plain, plainStderr, err := executeRootStreams(t, args...)
+	require.ErrorIs(t, err, errCertificateReportNegative)
+	assertCertBooleanReport(t, plain, "verified", false)
+
+	encoded, encodedStderr, err := executeRootStreams(t, append(args, "-e", "base64")...)
+	require.ErrorIs(t, err, errCertificateReportNegative)
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte(plain)), encoded)
+	require.Equal(t, plainStderr, encodedStderr, "diagnostics should remain outside output encoding")
+}
+
+func TestCertVerifyInvalidOutputEncodingPreservesDestination(t *testing.T) {
+	t.Parallel()
+	output := filepath.Join(t.TempDir(), "report.json")
+	require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
+
+	_, _, err := executeRootStreams(t, "cert", "verify", "--output", output, "--encoding", "missing")
+	require.ErrorIs(t, err, byteencoding.ErrUnknownOutputEncoding)
+	contents, readErr := os.ReadFile(output)
+	require.NoError(t, readErr)
+	require.Equal(t, []byte("preserve"), contents)
 }
 
 func TestCertVerifyAndMatchCommandSurface(t *testing.T) {
