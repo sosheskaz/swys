@@ -71,7 +71,9 @@ jobs:
     name: Release
     needs: release-please
     if: ${{ needs.release-please.outputs.releases_created == 'true' }}
-    uses: ./.github/workflows/release.yml
+    # Keep ./ until actionlint supports $/; then migrate and remove this exception.
+    # https://github.com/rhysd/actionlint/issues/711
+    uses: ./.github/workflows/release.yml # zizmor: ignore[self-repository]
     permissions:
       contents: write
       packages: write
