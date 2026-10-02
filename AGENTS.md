@@ -73,6 +73,8 @@ and applicable facilities in the pinned Go version over custom timing machinery.
   and sensitive-output protections.
 - Add or update the corresponding embedded guide whenever a public command
   or its behavior changes. Aliases share the canonical command's guide.
+- Follow the [command output contract](docs/command-output.md) for new or
+  updated output interfaces, and use its review checklist before changing one.
 
 ## Cryptographic and I/O contracts
 
