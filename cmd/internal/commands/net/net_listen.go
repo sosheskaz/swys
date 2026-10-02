@@ -57,7 +57,7 @@ available local IPv4 and IPv6 addresses.`,
 	configureNetProtocolCompletion(command, true)
 	commandio.AddShape(command, netProtocolShape)
 	command.Args = netProtocolAddressArgs(nil, true)
-	lifecycle.Register(command, commandio.Behavior{Validate: validateNetCommand})
+	lifecycle.Register(command, commandio.Behavior{Validate: validateNetCommand, PrepareInput: prepareNetListenTLS})
 	return command
 }
 
@@ -206,7 +206,7 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := tlsServerConfigFromCommand(cmd)
+	config, err := preparedTLSConfig(cmd)
 	if err != nil {
 		return err
 	}
@@ -245,6 +245,22 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 			Duplex: options.duplex, ReceiveOnly: options.receiveOnly,
 		},
 	)
+}
+
+func prepareNetListenTLS(cmd *cobra.Command) error {
+	protocol, err := networkProtocolFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if protocol != netProtocolTLS {
+		return nil
+	}
+	config, err := tlsServerConfigFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	cmd.SetContext(context.WithValue(cmd.Context(), preparedTLSConfigKey{}, config))
+	return nil
 }
 
 func tlsServerConfigFromCommand(cmd *cobra.Command) (*tls.Config, error) {

@@ -81,7 +81,7 @@ protocols explicitly; it does not transform the application payload.`,
 	configureNetProtocolCompletion(command, false)
 	commandio.AddShape(command, netProtocolShape)
 	command.Args = netProtocolAddressArgs(nil, false)
-	lifecycle.Register(command, commandio.Behavior{Validate: validateNetCommand})
+	lifecycle.Register(command, commandio.Behavior{Validate: validateNetCommand, PrepareInput: prepareNetConnectTLS})
 	return command
 }
 
@@ -218,7 +218,7 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := tlsConfigFromCommand(cmd, args[0])
+	config, err := preparedTLSConfig(cmd)
 	if err != nil {
 		return err
 	}
@@ -278,6 +278,34 @@ func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, 
 		receiveOnly: receiveOnly,
 		verbose:     verbose,
 	}, nil
+}
+
+type preparedTLSConfigKey struct{}
+
+var errPreparedTLSConfigUnavailable = errors.New("prepared TLS configuration is unavailable")
+
+func prepareNetConnectTLS(cmd *cobra.Command) error {
+	protocol, err := networkProtocolFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if protocol != netProtocolTLS {
+		return nil
+	}
+	config, err := tlsConfigFromCommand(cmd, cmd.Flags().Args()[0])
+	if err != nil {
+		return err
+	}
+	cmd.SetContext(context.WithValue(cmd.Context(), preparedTLSConfigKey{}, config))
+	return nil
+}
+
+func preparedTLSConfig(cmd *cobra.Command) (*tls.Config, error) {
+	config, ok := cmd.Context().Value(preparedTLSConfigKey{}).(*tls.Config)
+	if !ok || config == nil {
+		return nil, errPreparedTLSConfigUnavailable
+	}
+	return config, nil
 }
 
 func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, error) {

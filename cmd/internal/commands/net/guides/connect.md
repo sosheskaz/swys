@@ -34,6 +34,8 @@ printf 'hello\n' | npc net connect --tls service.example.test:443 --ca test-ca.p
 
 Server certificates and hostnames are verified by default. --ca replaces system roots unless --system-ca is also set. --cert and --key supply an optional client identity together. --servername overrides the endpoint host for SNI and verification. --insecure disables verification for controlled diagnostics and cannot be combined with --ca or --system-ca. --alpn advertises application protocols; it does not transform payload bytes. TLS uses the TCP stream lifecycle. Its five-second setup timeout includes the handshake.
 
+NPC loads and validates local TLS CA and identity files before opening the output destination or reading payload bytes. Local credential failures leave an existing output file unchanged. Later network, handshake, or stream failures may leave partial output.
+
 ## Next steps
 
 ```sh

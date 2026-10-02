@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
 	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
 
@@ -749,4 +750,23 @@ func writeListenTestIdentityFiles(t *testing.T, certificates [][]byte, privateKe
 	require.NoError(t, os.WriteFile(certPath, certPEM, 0o600))
 	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o600))
 	return certPath, keyPath
+}
+
+func TestNetListenTLSCredentialFailurePreservesOutputAndInput(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "empty.pem")
+	output := filepath.Join(dir, "request")
+	require.NoError(t, os.WriteFile(certPath, nil, 0o600))
+	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
+	payload := strings.NewReader("payload")
+	root := newRootCmd()
+	root.SetIn(payload)
+	_, _, err := executeRootCommandStreams(t, root, "net", "listen", "--tls", "127.0.0.1:0", "--cert", certPath, "--key", identity.serverKey, "--output", output)
+	require.ErrorIs(t, err, certinput.ErrNoCertificates)
+	remaining, err := os.ReadFile(output)
+	require.NoError(t, err)
+	assert.Equal(t, "sentinel", string(remaining))
+	assert.Equal(t, len("payload"), payload.Len())
 }

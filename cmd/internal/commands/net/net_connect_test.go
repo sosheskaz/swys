@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	"github.com/sosheskaz-systems/npc/internal/netconn"
 )
@@ -610,4 +611,69 @@ func startTLSEOFResponseServer(
 		}
 	}()
 	return listener.Addr().String(), result
+}
+
+func TestNetConnectTLSCredentialFailurePreservesOutputAndInput(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	for _, test := range []struct {
+		want  error
+		name  string
+		flags []string
+	}{
+		{want: os.ErrNotExist, name: "missing CA", flags: []string{"--ca", filepath.Join(t.TempDir(), "missing.pem")}},
+		{want: errTLSClientKeyMismatch, name: "mismatched identity", flags: []string{"--cert", identity.clientCert, "--key", identity.serverKey}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output := filepath.Join(t.TempDir(), "response")
+			require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
+			payload := strings.NewReader("payload")
+			root := newRootCmd()
+			root.SetIn(payload)
+			args := append([]string{"net", "connect", "--tls", "localhost:1", "--output", output}, test.flags...)
+			_, _, err := executeRootCommandStreams(t, root, args...)
+			require.ErrorIs(t, err, test.want)
+			remaining, err := os.ReadFile(output)
+			require.NoError(t, err)
+			assert.Equal(t, "sentinel", string(remaining))
+			assert.Equal(t, len("payload"), payload.Len())
+		})
+	}
+}
+
+func TestNetConnectTLSReloadsCredentialsOnRootReuse(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	ca, err := os.ReadFile(identity.caCert)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(caPath, ca, 0o600))
+	address, serverResult := startTLSExchangeServer(t, &identity, false, nil)
+	root := newRootCmd()
+	originalContext := t.Context()
+	root.SetContext(originalContext)
+	leaf, _, err := root.Find([]string{"net", "connect"})
+	require.NoError(t, err)
+	leaf.SetContext(originalContext)
+	root.SetIn(strings.NewReader("request"))
+	output := filepath.Join(t.TempDir(), "response")
+	args := []string{"net", "connect", "--tls", address, "--ca", caPath, "--servername", "localhost", "--wait", "1s", "--output", output}
+	_, _, err = executeRootCommandStreams(t, root, args...)
+	require.NoError(t, err)
+	result := <-serverResult
+	require.NoError(t, result.err)
+	assert.Equal(t, "request", result.request)
+	assert.Same(t, originalContext, leaf.Context())
+	require.NoError(t, os.WriteFile(caPath, nil, 0o600))
+	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
+	payload := strings.NewReader("payload")
+	root.SetIn(payload)
+	_, _, err = executeRootCommandStreams(t, root, args...)
+	require.ErrorIs(t, err, certinput.ErrNoCertificates)
+	remaining, err := os.ReadFile(output)
+	require.NoError(t, err)
+	assert.Equal(t, "sentinel", string(remaining))
+	assert.Equal(t, len("payload"), payload.Len())
+	assert.Same(t, originalContext, leaf.Context())
 }

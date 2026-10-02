@@ -36,6 +36,8 @@ printf 'ready\n' | npc net listen --tls localhost:9443 --cert server-cert.pem --
 
 TLS listener mode requires --cert and --key. Supplying --ca requires and verifies a client certificate; --system-ca combines system roots with that bundle. --alpn advertises application protocols without transforming payload bytes. TLS uses the TCP stream lifecycle and may use --recv-only. Listener setup waits indefinitely by default; a positive --timeout bounds bind, accept, and handshake setup.
 
+NPC loads and validates local TLS CA and identity files before opening the output destination or reading payload bytes. Local credential failures leave an existing output file unchanged. Later network, handshake, or stream failures may leave partial output.
+
 ## Next steps
 
 ```sh
