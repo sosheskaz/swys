@@ -151,8 +151,7 @@ func BenchmarkCommonName(b *testing.B) {
 	info := &CertInfo{subjectCN: "bench.example.com"}
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = info.CommonName()
 	}
 }
