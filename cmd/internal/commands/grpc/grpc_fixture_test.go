@@ -221,10 +221,6 @@ func (recorder *grpcFixtureRecorder) recordReflection(method string, md metadata
 		recorder.alphaReflectionCalls++
 	}
 	recorder.mu.Unlock()
-	select {
-	case recorder.reflectionStarted <- struct{}{}:
-	default:
-	}
 }
 
 func (recorder *grpcFixtureRecorder) reflectionCounts() (int, int) {
@@ -368,6 +364,10 @@ func startGRPCFixtureWithSchemaModeAt(
 					return fmt.Errorf("set fixture reflection header: %w", err)
 				}
 				stream.SetTrailer(metadata.Pairs("fixture-reflection-trailer", "done"))
+				select {
+				case record.reflectionStarted <- struct{}{}:
+				default:
+				}
 			}
 			return handler(srv, stream)
 		}),
