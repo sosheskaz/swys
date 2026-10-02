@@ -17,6 +17,8 @@ Use **--encoding base64** (or **-e base64**) to encode the entire metadata repor
 npc cert key-inspect --input public.pem --format json --encoding base64 --output key-report.b64
 ```
 
+The **--format** flag accepts **text** (the default) or **json**. An unsupported format is rejected before opening or truncating the output file.
+
 Inspection accepts the supported PEM, DER, and OpenSSH public containers. It does not decrypt password-protected private keys.
 
 Use the public operation to emit a shareable public key rather than copying information from the inspection report.

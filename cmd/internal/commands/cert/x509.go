@@ -49,7 +49,12 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		Prepare:        prepareKeyPublicOutput,
 		PreparesOutput: func(*cobra.Command) bool { return true },
 	})
-	lifecycle.Register(keyInspect, commandio.Behavior{})
+	lifecycle.Register(keyInspect, commandio.Behavior{
+		Validate: func(cmd *cobra.Command) error {
+			_, err := keyFormatterFromCommand(cmd)
+			return err
+		},
+	})
 	lifecycle.Register(keyConvert, commandio.Behavior{
 		Validate: func(cmd *cobra.Command) error {
 			_, err := keyConversionTargetFromCommand(cmd)

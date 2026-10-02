@@ -176,6 +176,7 @@ func TestKeyEnumValidationPrecedesOutputOpen(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
 		{"cert", "key-convert", "--to", "missing"},
+		{"cert", "key-inspect", "--format", "missing"},
 	} {
 		path := filepath.Join(t.TempDir(), "existing")
 		require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
