@@ -41,6 +41,7 @@ import (
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz-systems/npc/internal/asym"
@@ -218,13 +219,14 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	commandio.AddShape(command, grpcRequestShape)
 	commandio.AddShape(command, "structured-output")
 	commandio.AddShape(command, "network")
+	commandio.AddOutputEncodingFlag(command)
 	flags := command.PersistentFlags()
 	flags.StringVar(&options.list, "list", "", "list methods in a service")
 	flags.StringVar(&options.describe, "describe", "", "describe a protobuf symbol")
 	flags.StringVar(&options.protoset, "protoset", "", "read descriptors from a FileDescriptorSet instead of reflection")
 	flags.StringVarP(&options.data, "data", "d", "", "literal protobuf JSON request")
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request metadata (name: value); repeatable")
-	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", grpcFormatText, "discovery output format (text, json)")
+	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (text, json); defaults to text for discovery and json for invocation")
 	flags.DurationVar(&options.timeout, "timeout", commandio.DefaultNetworkTimeout, "overall connection, reflection, and invocation timeout (0 disables)")
 	flags.IntVar(&options.maxMessageSize, "max-message-size", grpcDefaultMessageSize, "maximum sent and received protobuf message size in bytes")
 	flags.BoolVar(&options.plaintext, "plaintext", false, "use plaintext HTTP/2 instead of TLS")
@@ -298,7 +300,15 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	}
 
 	if selector == "" {
-		output, renderErr := schema.renderDiscovery(options.list, options.describe, options.format)
+		selection, selectErr := schema.selectDiscovery(options.list, options.describe)
+		if selectErr != nil {
+			return nil, selectErr
+		}
+		format := options.format
+		if format == "" {
+			format = grpcFormatText
+		}
+		output, renderErr := selection.render(format)
 		if renderErr != nil {
 			return nil, renderErr
 		}
@@ -366,9 +376,13 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		}
 		return nil, grpcStatusError("invoke gRPC method", err)
 	}
-	output, err := (protojson.MarshalOptions{Resolver: types}).Marshal(response)
+	format := options.format
+	if format == "" {
+		format = grpcFormatJSON
+	}
+	output, err := marshalGRPCResponse(response, types, format)
 	if err != nil {
-		return nil, fmt.Errorf("serialize protobuf JSON response: %w", err)
+		return nil, err
 	}
 	output = append(output, '\n')
 	result := &grpcPreparation{output: output}
@@ -376,6 +390,20 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		result.diagnostics = grpcDiagnostics(options, details)
 	}
 	return result, nil
+}
+
+func marshalGRPCResponse(response proto.Message, types *dynamicpb.Types, format string) ([]byte, error) {
+	var output []byte
+	var err error
+	if format == grpcFormatText {
+		output, err = (prototext.MarshalOptions{Resolver: types}).Marshal(response)
+	} else {
+		output, err = (protojson.MarshalOptions{Resolver: types}).Marshal(response)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("serialize protobuf %s response: %w", format, err)
+	}
+	return output, nil
 }
 
 //nolint:gocognit,gocyclo // ordered local validation must complete before any side effect
@@ -426,8 +454,18 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if options.maxMessageSize <= 0 || options.maxMessageSize > int(^uint(0)>>1)/4 {
 		return fmt.Errorf("%w: --max-message-size must be positive and allow a safe JSON limit", ErrInvalidOptions)
 	}
-	if options.format != grpcFormatText && options.format != grpcFormatJSON {
+	if cmd.Flags().Changed(commandio.FormatFlagName) && options.format == "" {
 		return fmt.Errorf("%w: --format must be text or json", ErrInvalidOptions)
+	}
+	if options.format != "" && options.format != grpcFormatText && options.format != grpcFormatJSON {
+		return fmt.Errorf("%w: --format must be text or json", ErrInvalidOptions)
+	}
+	outputEncoding, err := cmd.Flags().GetString(commandio.EncodingFlagName)
+	if err != nil {
+		return fmt.Errorf("read encoding flag: %w", err)
+	}
+	if _, err := encoding.GetOutputEncoder(outputEncoding); err != nil {
+		return err
 	}
 	if cmd.Flags().Changed("data") && cmd.Flags().Changed("input") {
 		return fmt.Errorf("%w: --data and --input are mutually exclusive", ErrInvalidOptions)
@@ -746,42 +784,53 @@ func (schema *grpcSchema) findMethod(selector string) (protoreflect.MethodDescri
 	return method, nil
 }
 
-//nolint:nestif // selector-specific rendering is intentionally kept at the consumer boundary
-func (schema *grpcSchema) renderDiscovery(list, describe, format string) ([]byte, error) {
+type grpcDiscoverySelection struct {
+	descriptor proto.Message
+	values     []string
+}
+
+func (schema *grpcSchema) selectDiscovery(list, describe string) (grpcDiscoverySelection, error) {
 	if list != "" {
 		descriptor, err := schema.files.FindDescriptorByName(protoreflect.FullName(list))
 		if err != nil {
-			return nil, fmt.Errorf("find gRPC service %q: %w", list, err)
+			return grpcDiscoverySelection{}, fmt.Errorf("find gRPC service %q: %w", list, err)
 		}
 		service, ok := descriptor.(protoreflect.ServiceDescriptor)
 		if !ok {
-			return nil, fmt.Errorf("%w: gRPC symbol %q is not a service", errUnsupportedGRPC, list)
+			return grpcDiscoverySelection{}, fmt.Errorf("%w: gRPC symbol %q is not a service", errUnsupportedGRPC, list)
 		}
 		methods := make([]string, service.Methods().Len())
 		for index := range methods {
 			methods[index] = string(service.Methods().Get(index).Name())
 		}
-		return grpcDiscoveryList(methods, format)
+		return grpcDiscoverySelection{values: methods}, nil
 	}
 	if describe != "" {
 		descriptor, err := schema.files.FindDescriptorByName(protoreflect.FullName(describe))
 		if err != nil {
-			return nil, fmt.Errorf("find gRPC symbol %q: %w", describe, err)
+			return grpcDiscoverySelection{}, fmt.Errorf("find gRPC symbol %q: %w", describe, err)
 		}
 		protoDescriptor, err := grpcDescriptorProto(descriptor)
 		if err != nil {
-			return nil, err
+			return grpcDiscoverySelection{}, err
 		}
-		if format == grpcFormatJSON {
-			data, err := (protojson.MarshalOptions{Multiline: true, Indent: "  "}).Marshal(protoDescriptor)
-			if err != nil {
-				return nil, fmt.Errorf("serialize gRPC descriptor JSON: %w", err)
-			}
-			return append(data, '\n'), nil
-		}
-		return []byte(prototext.Format(protoDescriptor)), nil
+		return grpcDiscoverySelection{descriptor: protoDescriptor}, nil
 	}
-	return grpcDiscoveryList(schema.services, format)
+	return grpcDiscoverySelection{values: schema.services}, nil
+}
+
+func (selection grpcDiscoverySelection) render(format string) ([]byte, error) {
+	if selection.descriptor == nil {
+		return grpcDiscoveryList(selection.values, format)
+	}
+	if format == grpcFormatJSON {
+		data, err := (protojson.MarshalOptions{Multiline: true, Indent: "  "}).Marshal(selection.descriptor)
+		if err != nil {
+			return nil, fmt.Errorf("serialize gRPC descriptor JSON: %w", err)
+		}
+		return append(data, '\n'), nil
+	}
+	return []byte(prototext.Format(selection.descriptor)), nil
 }
 
 func grpcDescriptorProto(descriptor protoreflect.Descriptor) (proto.Message, error) {

@@ -582,7 +582,10 @@ with a protobuf `FileDescriptorSet`; service listing and schema description are
 then offline and do not connect to `HOST:PORT`. Runtime `.proto` compilation is
 not supported. Streaming methods appear in discovery but cannot be invoked.
 Discovery output is text by default; `--format json` emits JSON lists or a JSON
-descriptor. Unary responses are protobuf JSON followed by a newline.
+descriptor. Unary responses are protobuf JSON followed by a newline by default;
+`--format text` emits protobuf text with dynamic type resolution, including
+`Any`. `--encoding/-e` encodes the complete stdout result, including its
+newline. Verbose diagnostics remain unencoded on stderr.
 
 Requests come from stdin, `--input`, or literal `--data/-d`. An empty request is
 `{}`. NPC accepts exactly one strict protobuf JSON value, including official
@@ -1098,7 +1101,7 @@ detail from the layers beneath it rather than reimplementing them:
 | ----- | -------------------------------- | ------------------------------------------ |
 | L4    | Raw transport (netcat successor) | `net` (`tcp`, `tls`, `udp`)                |
 | L5/6  | TLS, X.509, crypto primitives    | `cert`, `aes`, `hash`, `sign`              |
-| L7    | Application protocols            | `http`, later `grpc`                       |
+| L7    | Application protocols            | `http`, `grpc`                             |
 | —     | Byte-level utilities             | `encode`, `decode`, `rand`, `zip`, `unzip` |
 
 The layering is the identity of the tool, not a grab-bag: `http` output

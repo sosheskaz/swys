@@ -19,7 +19,9 @@ npc grpc api.example.test:443 example.v1.EchoService/Echo \
   -d '{"text":"hello"}'
 ```
 
-Responses are protobuf JSON followed by a newline. Streaming methods can be discovered but are not supported for invocation.
+Responses are protobuf JSON followed by a newline by default. Use the format flag with text for protobuf text with dynamic type resolution, including Any; json selects the default JSON explicitly. Streaming methods can be discovered but are not supported for invocation.
+
+Discovery defaults to text. Use the format flag with json for JSON lists or descriptors. The encoding flag transforms the complete stdout result, including its trailing newline. For example, base64 encoding applies to the whole protobuf JSON or text response. Verbose diagnostics remain on stderr outside the encoder.
 
 ## Use TLS or an offline protoset
 

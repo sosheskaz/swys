@@ -33,6 +33,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
 )
 
@@ -155,6 +156,7 @@ func TestGRPCCommandContract(t *testing.T) {
 		{name: "data", shorthand: "d"},
 		{name: "header", shorthand: "H"},
 		{name: "verbose", shorthand: "v"},
+		{name: "encoding", shorthand: "e", value: "raw"},
 		{name: "timeout", value: "10s"},
 		{name: "max-message-size", value: "16777216"},
 	} {
@@ -167,6 +169,39 @@ func TestGRPCCommandContract(t *testing.T) {
 		if test.value != "" {
 			require.Equal(t, test.value, flag.DefValue, "--%s default", test.name)
 		}
+	}
+}
+
+func TestGRPCInvalidOutputOptionsPreserveFileAndAvoidInvocation(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		wantErr error
+		name    string
+		flag    string
+		value   string
+	}{
+		{name: "format", flag: "--format", value: "invalid-output-option", wantErr: errInvalidGRPCOptions},
+		{name: "empty format", flag: "--format", value: "", wantErr: errInvalidGRPCOptions},
+		{name: "encoding", flag: "--encoding", value: "invalid-output-option", wantErr: encoding.ErrUnknownOutputEncoding},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+			output := filepath.Join(t.TempDir(), "response")
+			require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
+
+			_, _, err := executeRootStreams(t,
+				"grpc", address, grpcFixtureMethodName, "--plaintext", "--data", `{}`,
+				test.flag, test.value, "--output", output,
+			)
+			require.ErrorIs(t, err, test.wantErr)
+			calls, _, _ := record.snapshot()
+			assert.Zero(t, calls, "invalid output option must not invoke the application RPC")
+			content, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(content), "invalid output option must not truncate the file")
+		})
 	}
 }
 
@@ -330,7 +365,7 @@ func TestGRPCProtobufJSONSemantics(t *testing.T) {
 	request := `{"payload":"AAEC","count":"9223372036854775807","mode":"MODE_ACTIVE",` +
 		`"tags":["first","second"],"labels":{"a":1,"b":2},"id":7,` +
 		`"extra":{"@type":"type.googleapis.com/google.protobuf.StringValue","value":"inside"}}`
-	stdout, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "-d", request)
+	stdout, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--format", "json", "-d", request)
 	require.NoError(t, err)
 	var response map[string]any
 	require.NoError(t, json.Unmarshal([]byte(stdout), &response), "decode response: %v", err)
