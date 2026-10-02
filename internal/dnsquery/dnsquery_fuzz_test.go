@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"testing"
 
 	externalDNS "codeberg.org/miekg/dns"
@@ -24,6 +25,8 @@ func FuzzResolveWireResponse(f *testing.F) {
 		A:   rdata.A{Addr: netip.MustParseAddr("192.0.2.1")},
 	}}
 	f.Add(packFuzzDNSMessage(f, matching), uint8(0))
+	collision := fuzzReplyFor(externalDNS.NewMsg("mismatch.example.", externalDNS.TypeA))
+	f.Add(packFuzzDNSMessage(f, collision), uint8(5))
 	for mismatch := uint8(1); mismatch <= 7; mismatch++ {
 		f.Add(packFuzzDNSMessage(f, matching), mismatch)
 	}
@@ -173,7 +176,11 @@ func mutateFuzzDNSResponse(response *externalDNS.Msg, mismatch uint8) {
 	case 4:
 		response.Opcode = (response.Opcode + 1) & 0xf
 	case 5:
-		response.Question[0].Header().Name = "mismatch.example."
+		name := "mismatch.example."
+		if strings.EqualFold(response.Question[0].Header().Name, name) {
+			name = "other-mismatch.example."
+		}
+		response.Question[0].Header().Name = name
 	case 6:
 		question := response.Question[0]
 		replacementType := externalDNS.TypeNULL
