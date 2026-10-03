@@ -53,8 +53,8 @@ mode. Keep `aes.key` private:
 
 ```fish
 npc aes keygen --output aes.key
-printf 'hello\n' | npc aes encrypt --keyfile aes.key --output message.gcm
-npc aes decrypt --keyfile aes.key --input message.gcm
+printf 'hello\n' | npc aes encrypt --key aes.key --output message.gcm
+npc aes decrypt --key aes.key --input message.gcm
 ```
 
 For local transport examples, see the [TCP and TLS walkthrough](#raw-tcp-and-tls-walkthrough).
@@ -889,7 +889,7 @@ Encrypt a file with the default authenticated AES-GCM mode:
 
 ```fish
 npc aes encrypt \
-    --keyfile aes.key \
+    --key aes.key \
     --input document.txt \
     --output document.txt.gcm
 ```
@@ -898,7 +898,7 @@ Decrypt it using the same key:
 
 ```fish
 npc aes decrypt \
-    --keyfile aes.key \
+    --key aes.key \
     --input document.txt.gcm \
     --output recovered.txt
 ```
@@ -911,18 +911,18 @@ are safe to pass as text:
 
 ```fish
 set key (npc aes keygen --encoding base64 | string trim)
-set ciphertext (npc aes encrypt "secret message" --key "$key" --encoding base64)
+set ciphertext (npc aes encrypt "secret message" --key-base64 "$key" --encoding base64)
 
-npc aes decrypt "$ciphertext" --key "$key" --input-encoding base64
+npc aes decrypt "$ciphertext" --key-base64 "$key" --input-encoding base64
 ```
 
 For Tink ciphertext bound to context, use the same `--aad` value when
 encrypting and decrypting:
 
 ```fish
-npc aes encrypt --wire-format tink --keyfile aes.key --aad "customer=42;format=v1" \
+npc aes encrypt --wire-format tink --key aes.key --aad "customer=42;format=v1" \
     --input document.txt --output document.txt.gcm
-npc aes decrypt --wire-format tink --keyfile aes.key --aad "customer=42;format=v1" \
+npc aes decrypt --wire-format tink --key aes.key --aad "customer=42;format=v1" \
     --input document.txt.gcm --output recovered.txt
 ```
 
@@ -966,7 +966,7 @@ group, and restores the terminal.
 `--wire-format tink` selects native Tink AES-GCM-HKDF ciphertext. A raw AES key
 uses 1 MiB ciphertext segments, SHA-256 HKDF, and a matching derived key size
 by default. A Tink keyset supplies its own parameters and primary encryption
-key; enabled keys can decrypt. With `--keyfile`, encrypt and decrypt detect
+key; enabled keys can decrypt. With `--key`, encrypt and decrypt detect
 raw, Tink JSON, or Tink binary keys from their contents by default. Use
 `--key-format raw`, `tink-json`, or `tink-binary` to select a format explicitly.
 OpenPGP uses the keyset's enabled primary key for both encryption and decryption;
@@ -1227,8 +1227,10 @@ identity loading accept asymmetric key artifacts up to 1 MiB. Certificate
 inspection, verification, matching, issuer certificates, and TLS certificate/CA bundles accept up to
 16 MiB per input. For commands that support `--input-encoding`, these limits apply after decoding,
 including stdin; oversized artifacts fail without parsing truncated data.
-AES `--keyfile` accepts at most 32 raw bytes; keys must still be exactly 16
-or 32 bytes. AES keyfiles are read once and key length is validated before the
+AES `--key/-k` reads a raw key or a Tink keyset. Explicit raw format accepts at most
+32 bytes; auto-detected and Tink containers accept up to 1 MiB. Raw keys must be
+exactly 16 or 32 bytes. Use `--key-base64` for a literal base64 raw key.
+AES key files are read once and key length is validated before the
 output file is opened. Raw network payload streams are not subject to artifact
 limits. Other streaming commands can open existing output files before artifact
 reads, so a read failure can leave them truncated under the normal streaming-output

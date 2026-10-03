@@ -76,11 +76,11 @@ func TestAESPasswordPreflightKeepsOutput(t *testing.T) {
 		{args: []string{"decrypt", "--password-env", "NPC_TEST_AES_EMPTY", "--input", message}, want: "password is empty"},
 		{args: []string{"encrypt", "--password=false"}, want: "--password=false"},
 		{args: append([]string{"encrypt", "--wire-format", "tink"}, env...), want: "password"},
-		{args: append([]string{"encrypt", "--keyfile", keyset, "--key-format", "tink-json"}, env...), want: "none of the others can be"},
+		{args: append([]string{"encrypt", "--key", keyset, "--key-format", "tink-json"}, env...), want: "none of the others can be"},
 		{args: append([]string{"encrypt", "--key-id", "1"}, env...), want: "password"},
 		{args: append([]string{"decrypt", "--allow-expensive-kdf"}, env...), want: "unknown flag"},
 		{args: append([]string{"decrypt", "--kdf-passes", "1"}, env...), want: "unknown flag"},
-		{args: []string{"encrypt", "--key", "AAAAAAAAAAAAAAAAAAAAAA==", "--kdf-passes", "1"}, want: "requires a password"},
+		{args: []string{"encrypt", "--key-base64", "AAAAAAAAAAAAAAAAAAAAAA==", "--kdf-passes", "1"}, want: "requires a password"},
 		{args: append([]string{"encrypt", "--kdf-memory", "96KiB"}, env...), want: "power of two"},
 		{args: append([]string{"encrypt", "--kdf-memory", "64MB"}, env...), want: "power of two"},
 		{args: append([]string{"encrypt", "--kdf-memory", "8KiB", "--kdf-parallelism", "2"}, env...), want: "at least 8 KiB per lane"},
@@ -166,7 +166,7 @@ func TestAESPasswordWrongCredentialKeepsOutput(t *testing.T) {
 	got, err := os.ReadFile(output)
 	require.NoError(t, err)
 	require.Equal(t, []byte("sentinel"), got)
-	_, err = executeRoot(t, "aes", "decrypt", "--key", base64.StdEncoding.EncodeToString(make([]byte, 32)), "--input", input)
+	_, err = executeRoot(t, "aes", "decrypt", "--key-base64", base64.StdEncoding.EncodeToString(make([]byte, 32)), "--input", input)
 	require.ErrorContains(t, err, "unexpected tag 3")
 }
 

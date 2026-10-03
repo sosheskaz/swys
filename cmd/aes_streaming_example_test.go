@@ -41,10 +41,10 @@ func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	commands := []*exec.Cmd{
-		newNetPipeProcess(ctx, "aes", "encrypt", "--keyfile", keyPath, "--input", plaintextPath),
+		newNetPipeProcess(ctx, "aes", "encrypt", "--key", keyPath, "--input", plaintextPath),
 		newNetPipeProcess(ctx, "net", "connect", address),
 		newNetPipeProcess(ctx, "net", "listen", address, "--recv-only"),
-		newNetPipeProcess(ctx, "aes", "decrypt", "--keyfile", keyPath),
+		newNetPipeProcess(ctx, "aes", "decrypt", "--key", keyPath),
 		newNetPipeProcess(ctx, "hash", "sha256"),
 	}
 	pipes := make([][2]*os.File, len(commands)-1)

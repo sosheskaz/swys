@@ -504,7 +504,7 @@ func addCertificateIdentityFlags(command *cobra.Command) {
 	command.Flags().String("subject", "", "subject common name as CN=<value>")
 	command.Flags().StringArray("dns", nil, "DNS subject alternative name (repeatable)")
 	command.Flags().StringArray("ip", nil, "IP subject alternative name (repeatable)")
-	command.Flags().String("key", "", "existing private key path, or - for stdin")
+	command.Flags().StringP("key", "k", "", "existing private key path, or - for stdin")
 	if err := command.MarkFlagFilename("key"); err != nil {
 		panic(err)
 	}

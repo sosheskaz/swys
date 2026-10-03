@@ -130,10 +130,10 @@ func TestExampleHelpKeyAESWorkflow(t *testing.T) {
 	}
 	root := newRootCmd()
 	root.SetIn(strings.NewReader("deploy at 09:00"))
-	if _, _, err := executeRootCommandStreams(t, root, "aes", "encrypt", "--keyfile", key, "--output", ciphertext); err != nil {
+	if _, _, err := executeRootCommandStreams(t, root, "aes", "encrypt", "--key", key, "--output", ciphertext); err != nil {
 		t.Fatal(err)
 	}
-	plaintext, err := executeRoot(t, "aes", "decrypt", "--keyfile", key, "--input", ciphertext)
+	plaintext, err := executeRoot(t, "aes", "decrypt", "--key", key, "--input", ciphertext)
 	if err != nil || plaintext != "deploy at 09:00" {
 		t.Fatalf("recover documented message: plaintext=%q error=%v", plaintext, err)
 	}

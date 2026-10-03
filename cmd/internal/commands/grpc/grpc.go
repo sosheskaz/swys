@@ -236,7 +236,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, "servername", "", "override TLS SNI and verification name")
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
-	flags.StringVar(&options.key, tlsconfig.KeyFlagName, "", "client private key path")
+	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
 	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
 	registerGRPCCompletion(command, options)

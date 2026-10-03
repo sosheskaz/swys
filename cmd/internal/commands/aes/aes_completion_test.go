@@ -21,13 +21,13 @@ func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
 		unwanted string
 		args     []string
 	}{
-		{name: "default OpenPGP hides external AAD", args: []string{"aes", "encrypt", "--key", "AA==", "--"}, want: "--key-id", unwanted: "--aad"},
+		{name: "default OpenPGP hides external AAD", args: []string{"aes", "encrypt", "--key-base64", "AA==", "--"}, want: "--key-id", unwanted: "--aad"},
 		{
 			name: "Tink hides OpenPGP key selection", want: "--aad", unwanted: "--key-id",
-			args: []string{"aes", "encrypt", "--key", "AA==", "--wire-format", "tink", "--"},
+			args: []string{"aes", "encrypt", "--key-base64", "AA==", "--wire-format", "tink", "--"},
 		},
-		{name: "decryption offers wire selection", args: []string{"aes", "decrypt", "--key", "AA==", "--"}, want: "--wire-format", unwanted: "--hkdf-hash"},
-		{name: "key hides password costs", args: []string{"aes", "encrypt", "--key", "AA==", "--"}, want: "--chunk-size", unwanted: "--kdf-memory"},
+		{name: "decryption offers wire selection", args: []string{"aes", "decrypt", "--key-base64", "AA==", "--"}, want: "--wire-format", unwanted: "--hkdf-hash"},
+		{name: "key hides password costs", args: []string{"aes", "encrypt", "--key-base64", "AA==", "--"}, want: "--chunk-size", unwanted: "--kdf-memory"},
 		{name: "password hides key selection", args: []string{"aes", "encrypt", "--password-env", "NAME", "--"}, want: "--kdf-memory", unwanted: "--key-id"},
 	}
 	for _, test := range tests {
@@ -47,9 +47,9 @@ func TestAESCompletionSuppressesFilesForLiteralValues(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "plaintext", args: []string{"aes", "encrypt", "--key", "AA==", "plain"}},
-		{name: "ciphertext", args: []string{"aes", "decrypt", "--key", "AA==", "cipher"}},
-		{name: "key", args: []string{"aes", "encrypt", "--key", ""}},
+		{name: "plaintext", args: []string{"aes", "encrypt", "--key-base64", "AA==", "plain"}},
+		{name: "ciphertext", args: []string{"aes", "decrypt", "--key-base64", "AA==", "cipher"}},
+		{name: "key", args: []string{"aes", "encrypt", "--key-base64", ""}},
 		{name: "AAD", args: []string{"aes", "decrypt", "--aad", ""}},
 		{name: "wire format", args: []string{"aes", "encrypt", "--wire-format", ""}},
 	}
@@ -61,7 +61,7 @@ func TestAESCompletionSuppressesFilesForLiteralValues(t *testing.T) {
 		})
 	}
 
-	output := completeRoot(t, "aes", "encrypt", "--keyfile", "")
+	output := completeRoot(t, "aes", "encrypt", "--key", "")
 	assertCompletionDirective(t, output, ":0")
 }
 

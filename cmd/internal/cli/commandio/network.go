@@ -96,7 +96,7 @@ func StreamNetworkCommandWithTimeout(
 	RegisterDurationCompletion(command, TimeoutFlagName, "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"), completion)
 	RegisterDurationCompletion(command, WaitFlagName, "Wait indefinitely while draining the response", completion)
 	command.Flags().Bool(CloseWriteFlagName, true, "half-close the connection write side after input EOF")
-	command.Flags().BoolP(DuplexFlagName, "d", true, "keep sending input after the peer closes its write side")
+	command.Flags().Bool(DuplexFlagName, true, "keep sending input after the peer closes its write side")
 	command.Flags().BoolP("verbose", "v", false, "write connection details to stderr")
 	command.Args = NetworkAddressArgs(command.Args, allowEmptyHost)
 	command.ValidArgsFunction = cobra.NoFileCompletions

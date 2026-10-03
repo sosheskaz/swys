@@ -64,7 +64,7 @@ protocols explicitly; it does not transform the application payload.`,
 		"response wait: TCP/TLS drain defaults to 0 (unlimited); " +
 			"UDP first datagram defaults to 5s (explicit 0 waits indefinitely)"
 	command.Flags().String(tlsconfig.CertFlagName, "", "TLS client certificate chain PEM path (TLS only)")
-	command.Flags().String(tlsconfig.KeyFlagName, "", "TLS client private key path (TLS only)")
+	command.Flags().StringP(tlsconfig.KeyFlagName, "k", "", "TLS client private key path (TLS only)")
 	command.Flags().String(tlsconfig.CAFlagName, "", "TLS custom CA certificate bundle PEM path (TLS only)")
 	command.Flags().Bool(tlsconfig.SystemCAFlagName, false, "include system roots with --ca (TLS only)")
 	command.Flags().String(tlsconfig.ServerNameFlagName, "", "TLS SNI and verification name (default endpoint host; TLS only)")

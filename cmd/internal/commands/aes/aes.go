@@ -6,10 +6,12 @@ import (
 	"context"
 	"crypto/aes"
 	"embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -27,15 +29,17 @@ import (
 )
 
 const (
-	wireOpenPGP     = "openpgp"
-	wireTink        = "tink"
-	flagDerivedBits = "derived-key-bits"
-	flagHKDFHash    = "hkdf-hash"
-	flagAAD         = "aad"
-	commandDecrypt  = "decrypt"
-	keyFormatAuto   = "auto"
-	hashSHA256      = "sha256"
-	hashSHA512      = "sha512"
+	wireOpenPGP       = "openpgp"
+	wireTink          = "tink"
+	flagDerivedBits   = "derived-key-bits"
+	keyFlagName       = "key"
+	keyBase64FlagName = "key-base64"
+	flagHKDFHash      = "hkdf-hash"
+	flagAAD           = "aad"
+	commandDecrypt    = "decrypt"
+	keyFormatAuto     = "auto"
+	hashSHA256        = "sha256"
+	hashSHA512        = "sha512"
 )
 
 //go:embed guides
@@ -95,16 +99,16 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 }
 
 func addKeyFlags(cmd *cobra.Command) {
-	cmd.Flags().BytesBase64P("key", "k", nil, "raw AES key as base64")
-	cmd.Flags().StringP("keyfile", "K", "", "read the AES key or Tink keyset from this file")
-	cmd.Flags().String("key-format", keyFormatAuto, "keyfile format (auto, raw, tink-json, tink-binary)")
+	cmd.Flags().String(keyBase64FlagName, "", "raw AES key as base64")
+	cmd.Flags().StringP(keyFlagName, "k", "", "read the AES key or Tink keyset from this file")
+	cmd.Flags().String("key-format", keyFormatAuto, "key file format (auto, raw, tink-json, tink-binary)")
 	cmd.Flags().String("key-id", "", "decimal Tink key ID for OpenPGP")
-	if err := cmd.MarkFlagFilename("keyfile"); err != nil {
+	if err := cmd.MarkFlagFilename(keyFlagName); err != nil {
 		panic(err)
 	}
 	addPasswordFlags(cmd)
-	cmd.MarkFlagsMutuallyExclusive("key", "keyfile", "password", "password-command", "password-env")
-	cmd.MarkFlagsOneRequired("key", "keyfile", "password", "password-command", "password-env")
+	cmd.MarkFlagsMutuallyExclusive(keyBase64FlagName, keyFlagName, "password", "password-command", "password-env")
+	cmd.MarkFlagsOneRequired(keyBase64FlagName, keyFlagName, "password", "password-command", "password-env")
 	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 }
 
@@ -115,7 +119,7 @@ func addAESWireFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagHKDFHash, hashSHA256, "Tink HKDF hash (sha256 or sha512)")
 	cmd.Flags().Int(flagDerivedBits, 0, "Tink derived AES bits (default matches input key)")
 	commandio.RegisterFlagCompletion(cmd, "wire-format", func() []string { return []string{wireOpenPGP, wireTink} })
-	registerAESNoFileFlagCompletion(cmd, "key")
+	registerAESNoFileFlagCompletion(cmd, keyBase64FlagName)
 	registerAESNoFileFlagCompletion(cmd, flagAAD)
 	registerAESNoFileFlagCompletion(cmd, "chunk-size")
 	commandio.RegisterFlagCompletion(cmd, flagHKDFHash, func() []string { return []string{hashSHA256, hashSHA512} })
@@ -142,6 +146,11 @@ func operationKeyFormat(cmd *cobra.Command) (string, error) {
 }
 
 func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
+	if cmd.Flags().Changed(keyBase64FlagName) {
+		if _, err := decodeAESKeyBase64(cmd); err != nil {
+			return err
+		}
+	}
 	wire, err := getAESString(cmd, "wire-format")
 	if err != nil {
 		return err
@@ -166,10 +175,10 @@ func validateAESFlagsBeforeIO(cmd *cobra.Command) error {
 }
 
 func validateAESFormatFlags(cmd *cobra.Command, wire, format string) error {
-	if cmd.Flags().Changed("key") && cmd.Flags().Changed("key-format") && format != keyFormatRaw {
-		return fmt.Errorf("%w: --key is always raw; --key-format applies to --keyfile", errAESWireFlag)
+	if cmd.Flags().Changed(keyBase64FlagName) && cmd.Flags().Changed("key-format") && format != keyFormatRaw {
+		return fmt.Errorf("%w: --key-base64 is always raw; --key-format applies to --key", errAESWireFlag)
 	}
-	if cmd.Flags().Changed("key-id") && (cmd.Flags().Changed("key") || format == keyFormatRaw) {
+	if cmd.Flags().Changed("key-id") && (cmd.Flags().Changed(keyBase64FlagName) || format == keyFormatRaw) {
 		return fmt.Errorf("%w: --key-id requires a Tink keyset", errAESWireFlag)
 	}
 	if wire == wireTink {
@@ -205,7 +214,7 @@ func validateAESChunkFlag(cmd *cobra.Command, wire string) error {
 }
 
 func validateAESKeyOutputCollision(cmd *cobra.Command) error {
-	keyfile, err := getAESString(cmd, "keyfile")
+	keyfile, err := getAESString(cmd, keyFlagName)
 	if err != nil {
 		return err
 	}
@@ -222,7 +231,7 @@ func validateAESKeyOutputCollision(cmd *cobra.Command) error {
 		return err
 	}
 	if same {
-		return fmt.Errorf("%w: --keyfile %q and --output %q", ErrAESKeyOutputCollision, keyfile, output)
+		return fmt.Errorf("%w: --key %q and --output %q", ErrAESKeyOutputCollision, keyfile, output)
 	}
 	return nil
 }
@@ -269,14 +278,14 @@ func prepareAESOperation(cmd *cobra.Command) error {
 }
 
 func readAESOperationKey(cmd *cobra.Command) ([]byte, *keyset.Handle, error) {
-	if cmd.Flags().Changed("key") {
-		key, err := cmd.Flags().GetBytesBase64("key")
+	if cmd.Flags().Changed(keyBase64FlagName) {
+		key, err := decodeAESKeyBase64(cmd)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read --key: %w", err)
+			return nil, nil, err
 		}
 		return key, nil, nil
 	}
-	path, err := getAESString(cmd, "keyfile")
+	path, err := getAESString(cmd, keyFlagName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -297,6 +306,18 @@ func readAESOperationKey(cmd *cobra.Command) ([]byte, *keyset.Handle, error) {
 		return nil, nil, fmt.Errorf("invalid AES keyfile (%s): %w", format, err)
 	}
 	return nil, handle, nil
+}
+
+func decodeAESKeyBase64(cmd *cobra.Command) ([]byte, error) {
+	value, err := getAESString(cmd, keyBase64FlagName)
+	if err != nil {
+		return nil, err
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return nil, fmt.Errorf("decode --%s: %w", keyBase64FlagName, err)
+	}
+	return key, nil
 }
 
 func prepareAESPrimitive(cmd *cobra.Command, op *aesOperation, key []byte, handle *keyset.Handle) error {

@@ -34,8 +34,8 @@ func TestArtifactCommandsRejectOversizedInputs(t *testing.T) {
 		{"cert csr key", []string{"cert", "csr", "--key", keyPath}},
 		{"cert issuer cert", []string{"cert", "create", "--key", identity.serverKey, "--issuer-cert", certPath, "--issuer-key", identity.serverKey}},
 		{"cert issuer key", []string{"cert", "create", "--key", identity.serverKey, "--issuer-cert", identity.caCert, "--issuer-key", keyPath}},
-		{"aes encrypt", []string{"aes", "encrypt", "hello", "--keyfile", aesPath, "--key-format", "raw"}},
-		{"aes decrypt", []string{"aes", "decrypt", "hello", "--keyfile", aesPath, "--key-format", "raw"}},
+		{"aes encrypt", []string{"aes", "encrypt", "hello", "--key", aesPath, "--key-format", "raw"}},
+		{"aes decrypt", []string{"aes", "decrypt", "hello", "--key", aesPath, "--key-format", "raw"}},
 	}
 	for _, operation := range []string{"connect", "listen"} {
 		for _, artifact := range []struct{ name, path string }{{"ca", certPath}, {"cert", certPath}, {"key", keyPath}} {
@@ -133,7 +133,7 @@ func TestArtifactCommandsAcceptExactLimits(t *testing.T) {
 			if err := os.WriteFile(path, bytes.Repeat([]byte{'x'}, size), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, _, err := executeRootStreams(t, "aes", "encrypt", "hello", "--keyfile", path)
+			_, _, err := executeRootStreams(t, "aes", "encrypt", "hello", "--key", path)
 			valid := size == 16 || size == 32
 			if (err == nil) != valid || errors.Is(err, artifact.ErrTooLarge) {
 				t.Fatalf("key size %d: %v", size, err)

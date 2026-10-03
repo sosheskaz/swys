@@ -38,10 +38,10 @@ func TestExampleAESAutodetectsKeysetFiles(t *testing.T) {
 			keyfile := filepath.Join(t.TempDir(), "keyfile")
 			require.NoError(t, os.WriteFile(keyfile, tc.data, 0o600))
 			wire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
-				"aes", "encrypt", "-K", keyfile)
+				"aes", "encrypt", "-k", keyfile)
 			require.NoError(t, err)
 			opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-				"aes", "decrypt", "-K", keyfile)
+				"aes", "decrypt", "-k", keyfile)
 			require.NoError(t, err)
 			require.Equal(t, plaintext, opened)
 		})
@@ -52,14 +52,14 @@ func TestExampleAESOpenPGPDefaultWire(t *testing.T) {
 	t.Parallel()
 	key := bytes.Repeat([]byte{0x42}, 32)
 	plaintext := []byte{0, 'O', 'p', 'e', 'n', 'P', 'G', 'P', '\n', 0xff}
-	keyArg := base64.StdEncoding.EncodeToString(key)
+	keyArg := " \n" + base64.StdEncoding.EncodeToString(key) + "\t "
 	wire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
-		"aes", "encrypt", "--key", keyArg)
+		"aes", "encrypt", "--key-base64", keyArg)
 	require.NoError(t, err)
 	require.NotEmpty(t, wire)
 	require.False(t, bytes.HasPrefix(wire, []byte("NPCENC\r\n")), "default output must use an OpenPGP packet stream")
 	opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-		"aes", "decrypt", "--wire-format", "openpgp", "--key", keyArg)
+		"aes", "decrypt", "--wire-format", "openpgp", "--key-base64", keyArg)
 	require.NoError(t, err)
 	require.Equal(t, plaintext, opened)
 }
@@ -74,7 +74,7 @@ func TestExampleAESTinkWireInteroperatesWithNativeTink(t *testing.T) {
 	require.NoError(t, err)
 
 	wire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
-		"aes", "encrypt", "--wire-format", "tink", "--key", keyArg,
+		"aes", "encrypt", "--wire-format", "tink", "--key-base64", keyArg,
 		"--chunk-size", "64", "--aad", aad)
 	require.NoError(t, err)
 	reader, err := primitive.NewDecryptingReader(bytes.NewReader(wire), []byte(aad))
@@ -91,7 +91,7 @@ func TestExampleAESTinkWireInteroperatesWithNativeTink(t *testing.T) {
 	require.Equal(t, len(plaintext), n)
 	require.NoError(t, writer.Close())
 	opened, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(nativeWire.Bytes()),
-		"aes", "decrypt", "--wire-format", "tink", "--key", keyArg,
+		"aes", "decrypt", "--wire-format", "tink", "--key-base64", keyArg,
 		"--chunk-size", "64", "--aad", aad)
 	require.NoError(t, err)
 	require.Equal(t, plaintext, opened)
@@ -112,7 +112,7 @@ func TestExampleAESOpenPGPDecryptsSequoiaFixture(t *testing.T) {
 			t.Parallel()
 			wire := readSequoiaFixture(t, test.name)
 			opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-				"aes", "decrypt", "--wire-format", "openpgp", "--key", keyArg)
+				"aes", "decrypt", "--wire-format", "openpgp", "--key-base64", keyArg)
 			require.NoError(t, err)
 			require.Equal(t, test.plaintext, opened)
 		})
@@ -144,7 +144,7 @@ func TestAESOpenPGPRejectsUnauthenticatedAndExtraPackets(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(test.wire),
-				"aes", "decrypt", "--wire-format", "openpgp", "--key", keyArg)
+				"aes", "decrypt", "--wire-format", "openpgp", "--key-base64", keyArg)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "unknown flag", "decryption must examine the selected wire format")
 			if test.mayPrefix {

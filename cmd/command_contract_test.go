@@ -180,6 +180,71 @@ func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
 	}
 }
 
+func TestKeyFlagsShareFileShorthand(t *testing.T) {
+	t.Parallel()
+	for _, path := range [][]string{{"aes", "encrypt"}, {"cert", "create"}, {"net", "connect"}} {
+		command, _, err := NewCommand().Find(path)
+		require.NoError(t, err)
+		flag := command.Flags().Lookup("key")
+		require.NotNil(t, flag)
+		assert.Equal(t, "k", flag.Shorthand, "key shorthand for %q", path)
+		assert.Equal(t, "string", flag.Value.Type(), "key file value for %q", path)
+	}
+}
+
+func TestCommonShortFlagsKeepTheirMeanings(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, shorthand string
+		path            []string
+	}{
+		{name: "version", shorthand: "V"},
+		{path: []string{"net", "connect"}, name: "verbose", shorthand: "v"},
+		{path: []string{"net", "connect"}, name: "duplex"},
+		{path: []string{"http"}, name: "data", shorthand: "d"},
+		{path: []string{"grpc"}, name: "data", shorthand: "d"},
+	} {
+		command, _, err := NewCommand().Find(test.path)
+		require.NoError(t, err)
+		flag := command.Flags().Lookup(test.name)
+		require.NotNil(t, flag)
+		assert.Equal(t, test.shorthand, flag.Shorthand, "%q --%s", test.path, test.name)
+	}
+}
+
+func TestRootVersionUsesUppercaseShortFlag(t *testing.T) {
+	t.Parallel()
+	want, _, err := executeRootStreams(t, "--version")
+	require.NoError(t, err)
+	got, stderr, err := executeRootStreams(t, "-V")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Empty(t, stderr)
+	_, _, err = executeRootStreams(t, "-v")
+	require.ErrorContains(t, err, "unknown shorthand flag")
+}
+
+func TestRemovedAESKeyFileFlagsRejectBeforeIO(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--keyfile", "-K"} {
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+			keyPath := filepath.Join(directory, "key")
+			outputPath := filepath.Join(directory, "output")
+			require.NoError(t, os.WriteFile(keyPath, []byte("0123456789abcdef"), 0o600))
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+			root := NewCommand()
+			stdout, _, err := executeRootCommandStreams(t, root, "aes", "encrypt", "payload", flag, keyPath, "--output", outputPath)
+			assert.Empty(t, stdout)
+			contents, readErr := os.ReadFile(outputPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, []byte("preserve"), contents)
+			require.ErrorContains(t, err, "unknown")
+		})
+	}
+}
+
 func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 	t.Parallel()
 	const plaintext = "encoding round trip"
@@ -193,7 +258,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 			ciphertext, err := executeRoot(
 				t,
 				"aes", "encrypt",
-				"--key", key,
+				"--key-base64", key,
 				"--input", plainPath,
 				"--encoding", encoding,
 			)
@@ -203,7 +268,7 @@ func TestAESInputOutputEncodingRoundTrip(t *testing.T) {
 			output, err := executeRoot(
 				t,
 				"aes", "decrypt",
-				"--key", key,
+				"--key-base64", key,
 				"--input", cipherPath,
 				"--input-encoding", encoding,
 			)
@@ -224,14 +289,14 @@ func TestBase64URLInputAcceptsPadding(t *testing.T) {
 	t.Parallel()
 	const plaintext = "padded base64url"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	rawCiphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key", key)
+	rawCiphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key-base64", key)
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "ciphertext")
 	padded := base64.URLEncoding.EncodeToString([]byte(rawCiphertext))
 	require.NoError(t, os.WriteFile(path, []byte(padded), 0o600))
 	output, err := executeRoot(
 		t,
-		"aes", "decrypt", "--key", key,
+		"aes", "decrypt", "--key-base64", key,
 		"--input", path,
 		"--input-encoding", "base64url",
 	)
@@ -243,13 +308,13 @@ func TestHexInputAcceptsTrailingNewline(t *testing.T) {
 	t.Parallel()
 	const plaintext = "trailing newline"
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	ciphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key", key, "--encoding", "hex")
+	ciphertext, err := executeRoot(t, "aes", "encrypt", plaintext, "--key-base64", key, "--encoding", "hex")
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "ciphertext")
 	require.NoError(t, os.WriteFile(path, []byte(ciphertext+"\n"), 0o600))
 	output, err := executeRoot(
 		t,
-		"aes", "decrypt", "--key", key,
+		"aes", "decrypt", "--key-base64", key,
 		"--input", path,
 		"--input-encoding", "hex",
 	)
@@ -267,7 +332,7 @@ func TestUnknownInputEncodingDoesNotTruncateOutput(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	_, err := executeRoot(
 		t,
-		"aes", "decrypt", "--key", key,
+		"aes", "decrypt", "--key-base64", key,
 		"--input", inputPath,
 		"--input-encoding", "rot13",
 		"--output", outputPath,

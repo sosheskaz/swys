@@ -48,7 +48,7 @@ func TestAESValidKeyfileFIFOIsReadOnce(t *testing.T) {
 	}
 	commandDone := make(chan commandResult, 1)
 	go func() {
-		stdout, _, err := executeRootStreams(t, "aes", "encrypt", "payload", "--keyfile", path)
+		stdout, _, err := executeRootStreams(t, "aes", "encrypt", "payload", "--key", path)
 		commandDone <- commandResult{stdout: stdout, err: err}
 	}()
 
@@ -80,7 +80,7 @@ func TestAESInvalidInputPrecedesUnreadKeyfileFIFO(t *testing.T) {
 			want: "missing-input",
 			args: func(fifo, output, directory string) []string {
 				return []string{
-					"aes", "encrypt", "--keyfile", fifo,
+					"aes", "encrypt", "--key", fifo,
 					"--input", filepath.Join(directory, "missing-input"),
 					"--output", output,
 				}
@@ -91,7 +91,7 @@ func TestAESInvalidInputPrecedesUnreadKeyfileFIFO(t *testing.T) {
 			want: "unknown input encoding",
 			args: func(fifo, output, _ string) []string {
 				return []string{
-					"aes", "encrypt", "payload", "--keyfile", fifo,
+					"aes", "encrypt", "payload", "--key", fifo,
 					"--input-encoding", "rot13", "--output", output,
 				}
 			},

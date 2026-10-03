@@ -14,8 +14,8 @@ Use a raw 128-bit or 256-bit AES key, a cleartext Tink streaming keyset, or a pa
 
 ```sh
 npc aes keygen --output key.bin
-printf 'secret message' | npc aes encrypt --keyfile key.bin --output message.pgp
-npc aes decrypt --keyfile key.bin --input message.pgp
+printf 'secret message' | npc aes encrypt --key key.bin --output message.pgp
+npc aes decrypt --key key.bin --input message.pgp
 ```
 
 OpenPGP records a power-of-two chunk size from 64 bytes through 4 MiB; the default is 1 MiB. Tink uses ciphertext segments from 64 bytes through 64 MiB. Tink keyset parameters are authoritative. An explicit conflicting override is rejected.

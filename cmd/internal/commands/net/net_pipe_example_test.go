@@ -29,10 +29,10 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	encrypt := newNetPipeProcess(ctx, "aes", "encrypt", "-K", keyPath)
+	encrypt := newNetPipeProcess(ctx, "aes", "encrypt", "-k", keyPath)
 	connect := newNetPipeProcess(ctx, "net", "connect", address)
 	listen := newNetPipeProcess(ctx, "net", "listen", address, "-r")
-	decrypt := newNetPipeProcess(ctx, "aes", "decrypt", "-K", keyPath)
+	decrypt := newNetPipeProcess(ctx, "aes", "decrypt", "-k", keyPath)
 	commands := []*exec.Cmd{encrypt, connect, listen, decrypt}
 
 	encryptedRead, encryptedWrite, err := os.Pipe()

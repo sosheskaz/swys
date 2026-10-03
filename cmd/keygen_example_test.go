@@ -19,7 +19,7 @@ func TestExampleCertKeygenCreatesCertificate(t *testing.T) {
 	certPath := filepath.Join(dir, "identity.crt")
 	_, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, "cert", "keygen", "--output", keyPath)
 	require.NoError(t, err)
-	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), nil, "cert", "create", "--key", keyPath, "--dns", "localhost", "--output", certPath)
+	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), nil, "cert", "create", "-k", keyPath, "--dns", "localhost", "--output", certPath)
 	require.NoError(t, err)
 	output, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, "cert", "inspect", "--input", certPath)
 	require.NoError(t, err)
@@ -37,9 +37,9 @@ func TestExampleAESKeygenEncryptsAndDecrypts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, key, 32)
 	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader([]byte("secret message")),
-		"aes", "encrypt", "--keyfile", keyPath, "--output", cipherPath)
+		"aes", "encrypt", "--key", keyPath, "--output", cipherPath)
 	require.NoError(t, err)
-	plaintext, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, "aes", "decrypt", "--keyfile", keyPath, "--input", cipherPath)
+	plaintext, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, "aes", "decrypt", "--key", keyPath, "--input", cipherPath)
 	require.NoError(t, err)
 	require.Equal(t, []byte("secret message"), plaintext)
 }

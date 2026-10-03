@@ -122,10 +122,10 @@ func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
 		"--input", inputPath,
 		"--ca", identity.caCert,
 		"--cert", identity.clientCert,
-		"--key", identity.clientKey,
+		"-k", identity.clientKey,
 		"--servername", "localhost",
 		"--wait", "1s",
-		"--verbose",
+		"-v",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "response", stdout)

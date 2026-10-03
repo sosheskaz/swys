@@ -17,7 +17,7 @@ for bits in 128 256; do
   head -c "$((bits / 8))" /dev/zero | tr '\000' 'B' >"$case_dir/key"
   printf '\000OpenPGP\n\377' >"$case_dir/plain"
 
-  "$npc_bin" aes encrypt --wire-format openpgp --keyfile "$case_dir/key" \
+  "$npc_bin" aes encrypt --wire-format openpgp --key "$case_dir/key" \
     --input "$case_dir/plain" --output "$case_dir/npc-wire"
   NPC_INTEROP_SCRATCH="$scratch_dir" "$interop_dir/run.sh" \
     decrypt "/scratch/$bits/key" "/scratch/$bits/npc-wire" "/scratch/$bits/sequoia-opened"
@@ -25,7 +25,7 @@ for bits in 128 256; do
 
   NPC_INTEROP_SCRATCH="$scratch_dir" "$interop_dir/run.sh" \
     encrypt "/scratch/$bits/key" "/scratch/$bits/plain" "/scratch/$bits/sequoia-wire"
-  "$npc_bin" aes decrypt --wire-format openpgp --keyfile "$case_dir/key" \
+  "$npc_bin" aes decrypt --wire-format openpgp --key "$case_dir/key" \
     --input "$case_dir/sequoia-wire" --output "$case_dir/npc-opened"
   cmp "$case_dir/plain" "$case_dir/npc-opened"
 

@@ -20,7 +20,7 @@ func TestExampleAESOpenPGPFileRoundTrip(t *testing.T) {
 	require.NoError(t, os.WriteFile(keyPath, bytes.Repeat([]byte{0x42}, 32), 0o600))
 	require.NoError(t, os.WriteFile(plaintextPath, plaintext, 0o600))
 
-	_, err := executeRoot(t, "aes", "encrypt", "--keyfile", keyPath,
+	_, err := executeRoot(t, "aes", "encrypt", "--key", keyPath,
 		"--input", plaintextPath, "--output", ciphertextPath)
 	require.NoError(t, err)
 	wire, err := os.ReadFile(ciphertextPath)
@@ -28,7 +28,7 @@ func TestExampleAESOpenPGPFileRoundTrip(t *testing.T) {
 	require.NotEmpty(t, wire)
 	require.Equal(t, byte(0xd2), wire[0], "outer packet must be SEIPD")
 
-	_, err = executeRoot(t, "aes", "decrypt", "--keyfile", keyPath,
+	_, err = executeRoot(t, "aes", "decrypt", "--key", keyPath,
 		"--input", ciphertextPath, "--output", openedPath)
 	require.NoError(t, err)
 	opened, err := os.ReadFile(openedPath)

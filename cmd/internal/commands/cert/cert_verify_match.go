@@ -95,7 +95,7 @@ func newCertMatchCmd() *cobra.Command {
 	}, certificateReportFormatNames)
 	commandio.AddOutputEncodingFlag(command)
 	command.Flags().String(tlsconfig.CertFlagName, "", "certificate path, or - for stdin")
-	command.Flags().String(tlsconfig.KeyFlagName, "", "public or private key path, or - for stdin")
+	command.Flags().StringP(tlsconfig.KeyFlagName, "k", "", "public or private key path, or - for stdin")
 	command.Flags().String(csrFlagName, "", "certificate request path, or - for stdin")
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, csrFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {

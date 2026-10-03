@@ -43,7 +43,7 @@ func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 		assert.Equal(t, "0s", test.command.Flags().Lookup("wait").DefValue, "%s wait default", test.name)
 		assert.Equal(t, "true", test.command.Flags().Lookup("close-write").DefValue, "%s close-write default", test.name)
 		assert.Equal(t, "true", test.command.Flags().Lookup("duplex").DefValue, "%s duplex default", test.name)
-		assert.Equal(t, "d", test.command.Flags().Lookup("duplex").Shorthand, "%s duplex shorthand", test.name)
+		assert.Empty(t, test.command.Flags().Lookup("duplex").Shorthand, "%s duplex shorthand", test.name)
 	}
 	flag := newNetListenTestCommand(t, "tcp").Flags().Lookup("recv-only")
 	if flag == nil {

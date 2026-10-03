@@ -23,6 +23,8 @@ import (
 //go:embed guides
 var rootGuideFiles embed.FS
 
+const versionFlagName = "version"
+
 func newRootCmd() *cobra.Command {
 	return newRootCmdWithDNSDependencies(defaultDNSDependencies())
 }
@@ -57,6 +59,10 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps he
 		PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
 			return commandio.Close(cmd)
 		},
+	}
+	rootCmd.Flags().BoolP(versionFlagName, "V", false, "version for "+rootCmd.DisplayName())
+	if err := rootCmd.Flags().SetAnnotation(versionFlagName, cobra.FlagSetByCobraAnnotation, []string{"true"}); err != nil {
+		panic(err)
 	}
 	commandio.AddRootFlags(rootCmd)
 	httpCmd := http.NewCommand(lifecycle)

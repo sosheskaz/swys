@@ -36,15 +36,15 @@ func TestAESOpenPGPSelectsNamedKeysetEntry(t *testing.T) {
 	}
 	keyPath := writeAESKeysetFixture(t, fixture)
 	plaintext := []byte("selected OpenPGP session key")
-	baseArgs := []string{"aes", "encrypt", "--wire-format", "openpgp", "--keyfile", keyPath, "--key-format", "tink-json"}
+	baseArgs := []string{"aes", "encrypt", "--wire-format", "openpgp", "--key", keyPath, "--key-format", "tink-json"}
 	primaryWire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext), baseArgs...)
 	require.NoError(t, err, "OpenPGP defaults to the enabled primary key")
 	primaryOpened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(primaryWire),
-		"aes", "decrypt", "--key", base64.StdEncoding.EncodeToString(first))
+		"aes", "decrypt", "--key-base64", base64.StdEncoding.EncodeToString(first))
 	require.NoError(t, err)
 	require.Equal(t, plaintext, primaryOpened)
 	primaryOpened, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(primaryWire),
-		"aes", "decrypt", "--keyfile", keyPath, "--key-format", "tink-json")
+		"aes", "decrypt", "--key", keyPath, "--key-format", "tink-json")
 	require.NoError(t, err)
 	require.Equal(t, plaintext, primaryOpened)
 
@@ -52,15 +52,15 @@ func TestAESOpenPGPSelectsNamedKeysetEntry(t *testing.T) {
 		append(slices.Clone(baseArgs), "--key-id", "202")...)
 	require.NoError(t, err)
 	opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-		"aes", "decrypt", "--wire-format", "openpgp", "--key", base64.StdEncoding.EncodeToString(selected))
+		"aes", "decrypt", "--wire-format", "openpgp", "--key-base64", base64.StdEncoding.EncodeToString(selected))
 	require.NoError(t, err)
 	require.Equal(t, plaintext, opened)
 	opened, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-		"aes", "decrypt", "--keyfile", keyPath, "--key-format", "tink-json")
+		"aes", "decrypt", "--key", keyPath, "--key-format", "tink-json")
 	require.Error(t, err, "old ciphertext needs the older key ID after rotation")
 	require.Empty(t, opened)
 	opened, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-		"aes", "decrypt", "--keyfile", keyPath, "--key-format", "tink-json", "--key-id", "202")
+		"aes", "decrypt", "--key", keyPath, "--key-format", "tink-json", "--key-id", "202")
 	require.NoError(t, err)
 	require.Equal(t, plaintext, opened)
 }
@@ -83,10 +83,10 @@ func TestAESAutoKeyfilePreservesValidRawKeys(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, key, 0o600))
 			plaintext := []byte("raw key precedence")
 			wire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
-				"aes", "encrypt", "--keyfile", path)
+				"aes", "encrypt", "--key", path)
 			require.NoError(t, err)
 			opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-				"aes", "decrypt", "--keyfile", path)
+				"aes", "decrypt", "--key", path)
 			require.NoError(t, err)
 			require.Equal(t, plaintext, opened)
 		})
@@ -123,7 +123,7 @@ func TestAESAutoKeyfileRejectsInvalidSelectionsBeforeOutput(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "output")
 			require.NoError(t, os.WriteFile(keyfile, tc.data, 0o600))
 			require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
-			args := append([]string{"aes", "encrypt", "--keyfile", keyfile, "--output", output}, tc.flags...)
+			args := append([]string{"aes", "encrypt", "--key", keyfile, "--output", output}, tc.flags...)
 			_, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader([]byte("payload")), args...)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "KEY_MATERIAL_SENTINEL")
@@ -151,7 +151,7 @@ func TestAESTinkKeysetUsesNativePrimaryAndParameters(t *testing.T) {
 	aad := []byte("context")
 
 	wire, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
-		"aes", "encrypt", "--wire-format", "tink", "--keyfile", keyPath,
+		"aes", "encrypt", "--wire-format", "tink", "--key", keyPath,
 		"--aad", string(aad))
 	require.NoError(t, err)
 	reader, err := primitive.NewDecryptingReader(bytes.NewReader(wire), aad)
@@ -173,13 +173,13 @@ func TestAESTinkKeysetUsesNativePrimaryAndParameters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	opened, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(nativeWire.Bytes()),
-		"aes", "decrypt", "--wire-format", "tink", "--keyfile", keyPath,
+		"aes", "decrypt", "--wire-format", "tink", "--key", keyPath,
 		"--aad", string(aad))
 	require.NoError(t, err)
 	require.Equal(t, plaintext, opened)
 
 	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(plaintext),
-		"aes", "encrypt", "--wire-format", "tink", "--keyfile", keyPath,
+		"aes", "encrypt", "--wire-format", "tink", "--key", keyPath,
 		"--key-format", "tink-json", "--chunk-size", "64")
 	require.Error(t, err, "explicit parameters must agree with the keyset")
 }
@@ -190,7 +190,7 @@ func TestAESTinkKeysetMatchesKeyBeforeOutput(t *testing.T) {
 		PrimaryKeyId: 101,
 		Key:          []*tink_go_proto.Keyset_Key{fixtureAESKey(t, 101, bytes.Repeat([]byte{0x53}, 32), tink_go_proto.KeyStatusType_ENABLED)},
 	}
-	keyArgs := []string{"--wire-format", "tink", "--keyfile", writeAESKeysetFixture(t, fixture), "--key-format", "tink-json"}
+	keyArgs := []string{"--wire-format", "tink", "--key", writeAESKeysetFixture(t, fixture), "--key-format", "tink-json"}
 	output := filepath.Join(t.TempDir(), "plaintext")
 	require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
 	_, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader([]byte("not a Tink header")),
@@ -251,7 +251,7 @@ func TestAESTinkRejectsUnauthenticatedSegments(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(test.wire),
-				"aes", "decrypt", "--wire-format", "tink", "--key", base64.StdEncoding.EncodeToString(test.key),
+				"aes", "decrypt", "--wire-format", "tink", "--key-base64", base64.StdEncoding.EncodeToString(test.key),
 				"--chunk-size", "64", "--aad", test.aad)
 			require.Error(t, err)
 			if test.firstBad {
@@ -320,7 +320,7 @@ func TestAESOpenPGPPreparesCompressedInputBeforeOutput(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "plaintext")
 			require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
 			_, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(test.wire),
-				"aes", "decrypt", "--key", base64.StdEncoding.EncodeToString(key), "--output", output)
+				"aes", "decrypt", "--key-base64", base64.StdEncoding.EncodeToString(key), "--output", output)
 			if test.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -356,7 +356,7 @@ func TestAESWireValidationPreservesOutput(t *testing.T) {
 			if test.decrypt {
 				leaf = "decrypt"
 			}
-			args := []string{"aes", leaf, "--key", keyArg, "--output", output}
+			args := []string{"aes", leaf, "--key-base64", keyArg, "--output", output}
 			args = append(args, test.flags...)
 			input := []byte("payload")
 			if test.decrypt {

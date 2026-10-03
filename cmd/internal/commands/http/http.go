@@ -160,7 +160,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.DurationVar(&options.timeout, "timeout", commandio.DefaultNetworkTimeout, "connection setup and TLS handshake timeout (0 disables)")
 	flags.DurationVar(&options.requestTimeout, "request-timeout", 0, "whole request timeout, including upload and response (0 disables)")
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
-	flags.StringVar(&options.key, tlsconfig.KeyFlagName, "", "client private key path")
+	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")

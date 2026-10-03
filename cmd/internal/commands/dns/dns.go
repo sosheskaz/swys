@@ -171,7 +171,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", dnsFormatText, "result format (text, json)")
 	commandio.AddOutputEncodingFlag(command)
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
-	flags.StringVar(&options.key, tlsconfig.KeyFlagName, "", "client private key path")
+	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")

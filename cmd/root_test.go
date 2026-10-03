@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +28,45 @@ import (
 )
 
 var errTestCommandFailed = errors.New("command failed")
+
+func TestAESMalformedLiteralKeyProtectsDiagnosticsAndIO(t *testing.T) {
+	t.Parallel()
+	const synthetic = "NPC_SYNTHETIC_KEY_MATERIAL!"
+	const credentialFlag = "--key-base64"
+	t.Run("execution", func(t *testing.T) {
+		t.Parallel()
+		directory := t.TempDir()
+		outputPath := filepath.Join(directory, "output")
+		require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+		root := NewCommand()
+		stdout, stderr, err := executeRootCommandStreams(t, root, "aes", "encrypt",
+			credentialFlag, synthetic, "--input", filepath.Join(directory, "missing"), "--output", outputPath,
+		)
+		var corrupt base64.CorruptInputError
+		require.ErrorAs(t, err, &corrupt)
+		assert.Contains(t, err.Error(), credentialFlag)
+		assert.NotContains(t, err.Error(), synthetic)
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+		contents, readErr := os.ReadFile(outputPath)
+		require.NoError(t, readErr)
+		assert.Equal(t, []byte("preserve"), contents)
+	})
+	t.Run("completion", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		process := newNetPipeProcess(ctx, "__completeNoDesc", "aes", "encrypt",
+			credentialFlag, synthetic, "--wire-format", "",
+		)
+		var stdout, stderr bytes.Buffer
+		process.Stdout = &stdout
+		process.Stderr = &stderr
+		require.NoError(t, process.Run(), "completion process; stderr: %s", stderr.String())
+		assert.Equal(t, "openpgp\ntink\n:4\n", stdout.String())
+		assert.NotContains(t, stderr.String(), synthetic)
+	})
+}
 
 func TestOutputEncodingDoesNotTruncate(t *testing.T) {
 	t.Parallel()
@@ -170,7 +211,7 @@ func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
 
 	_, err := executeRoot(
 		t,
-		"aes", "encrypt", "--key", key,
+		"aes", "encrypt", "--key-base64", key,
 		"--input", inputPath,
 		"--output", outputPath,
 	)

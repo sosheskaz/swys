@@ -44,7 +44,7 @@ func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest
 					output = filepath.Join(dir, "alias")
 					require.NoError(t, os.Link(keyfile, output), "create hard link")
 				}
-				_, err := executeRoot(t, "aes", leaf, "payload", "--keyfile", keyfile, "--output", output)
+				_, err := executeRoot(t, "aes", leaf, "payload", "--key", keyfile, "--output", output)
 				if err == nil {
 					t.Error("expected keyfile/output collision error")
 				}
@@ -65,9 +65,9 @@ func TestAESKeyfileRoundTrip(t *testing.T) {
 	keyfile := filepath.Join(dir, "key")
 	encrypted := filepath.Join(dir, "encrypted")
 	require.NoError(t, os.WriteFile(keyfile, bytes.Repeat([]byte{0x42}, 32), 0o600))
-	_, err := executeRoot(t, "aes", "encrypt", "hello", "--keyfile", keyfile, "--output", encrypted)
+	_, err := executeRoot(t, "aes", "encrypt", "hello", "--key", keyfile, "--output", encrypted)
 	require.NoError(t, err)
-	got, err := executeRoot(t, "aes", "decrypt", "--keyfile", keyfile, "--input", encrypted)
+	got, err := executeRoot(t, "aes", "decrypt", "--key", keyfile, "--input", encrypted)
 	require.NoError(t, err)
 	assert.Equal(t, "hello", got)
 }
@@ -76,7 +76,7 @@ func TestAESLiteralDashKeyfileWritesStdout(t *testing.T) { //nolint:paralleltest
 	t.Chdir(t.TempDir())
 	key := bytes.Repeat([]byte{0x42}, 32)
 	require.NoError(t, os.WriteFile("-", key, 0o600))
-	stdout, stderr, err := executeRootStreams(t, "aes", "encrypt", "hello", "--keyfile", "-", "--output", "-")
+	stdout, stderr, err := executeRootStreams(t, "aes", "encrypt", "hello", "--key", "-", "--output", "-")
 	require.NoError(t, err)
 	assert.NotEmpty(t, stdout, "ciphertext must use configured stdout")
 	assert.Empty(t, stderr)
@@ -94,7 +94,7 @@ func TestAESKeyfilePathErrorPreservesOutput(t *testing.T) {
 	output := filepath.Join(dir, "output")
 	original := []byte("preserve")
 	require.NoError(t, os.WriteFile(output, original, 0o600))
-	_, err := executeRoot(t, "aes", "encrypt", "hello", "--keyfile", keyfile, "--output", output)
+	_, err := executeRoot(t, "aes", "encrypt", "hello", "--key", keyfile, "--output", output)
 	require.ErrorIs(t, err, syscall.ENOTDIR, "error = %v, want source path error", err)
 	got, err := os.ReadFile(output)
 	require.NoError(t, err)

@@ -43,7 +43,7 @@ available local IPv4 and IPv6 addresses.`,
 	command.Flags().Lookup(netWaitFlagName).Usage += " (TCP/TLS only; UDP listener uses --timeout)"
 	command.Flags().BoolP(netRecvOnlyFlagName, "r", false, "receive peer data without reading or sending input (TCP/TLS only)")
 	command.Flags().String(tlsconfig.CertFlagName, "", "TLS server certificate chain PEM path (TLS only; required)")
-	command.Flags().String(tlsconfig.KeyFlagName, "", "TLS server private key path (TLS only; required)")
+	command.Flags().StringP(tlsconfig.KeyFlagName, "k", "", "TLS server private key path (TLS only; required)")
 	command.Flags().String(tlsconfig.CAFlagName, "", "TLS client CA certificate bundle PEM path (TLS only)")
 	command.Flags().Bool(tlsconfig.SystemCAFlagName, false, "include system roots with --ca (TLS only)")
 	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")

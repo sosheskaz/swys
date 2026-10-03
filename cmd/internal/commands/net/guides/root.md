@@ -30,7 +30,7 @@ Input EOF half-closes each outgoing stream by default, and each command drains i
 This makes local pipelines work without startup sleeps because the connector retries a refused TCP setup within its five-second setup timeout:
 
 ```sh
-printf 'hello, world\n' | npc aes encrypt -K aes.key | npc net connect localhost:4444 | npc net listen localhost:4444 -r | npc aes decrypt -K aes.key
+printf 'hello, world\n' | npc aes encrypt -k aes.key | npc net connect localhost:4444 | npc net listen localhost:4444 -r | npc aes decrypt -k aes.key
 ```
 
 ## Next steps
