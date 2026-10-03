@@ -70,13 +70,14 @@ func TestDNSCompletionSuppressesFileFallback(t *testing.T) {
 	}
 }
 
-func TestDNSCompletionPreservesInheritedFileCompletion(t *testing.T) {
+func TestDNSCompletionOffersOnlyMeaningfulInheritedFileFlags(t *testing.T) {
 	t.Parallel()
-	for _, flag := range []string{"--input", "--output"} {
-		values, directive := executeDNSCompletion(t, "dns", flag, "")
-		assert.Empty(t, values, "complete %s", flag)
-		assert.Equal(t, cobra.ShellCompDirectiveDefault, directive, "complete %s", flag)
-	}
+	values, directive := executeDNSCompletion(t, "dns", "--output", "")
+	assert.Empty(t, values)
+	assert.Equal(t, cobra.ShellCompDirectiveDefault, directive, "output filesystem fallback")
+	values, directive = executeDNSCompletion(t, "dns", "--i")
+	assert.NotContains(t, strings.Join(values, "\n"), "--input")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }
 
 func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {

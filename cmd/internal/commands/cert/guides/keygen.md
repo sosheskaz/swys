@@ -2,6 +2,8 @@
 
 Generate an Ed25519 private key by default. Use --algorithm for P-256, P-384, or RSA.
 
+Use --output to save the generated key and --mode to select file permissions. Key generation rejects --input because it has no payload to read.
+
 ```sh
 npc cert keygen -o private.pem -P public.pem
 npc cert create --key private.pem --dns localhost --output localhost.pem

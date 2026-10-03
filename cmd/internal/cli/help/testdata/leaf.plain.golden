@@ -7,6 +7,10 @@ json|pem selects structured JSON or complete PEM bytes.
 
 Export a certificate or CA
 
+Use --output to save the retrieved certificates and --mode to select file
+permissions. This operation reads the server's certificates, so an explicit
+--input is an error.
+
   npc cert connect example.com:443 -f pem -o server.pem
   npc cert connect example.com:443 --select chain -f pem -o issuers.pem
   npc cert connect example.com:443 --select root -f pem -e base64

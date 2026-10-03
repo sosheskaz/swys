@@ -50,7 +50,7 @@ func TestExampleHashReadsAndWritesFiles(t *testing.T) {
 	stdout, err := executeHashCommand(
 		t,
 		bytes.NewReader(nil),
-		"hash", "sha256", "--input", inputPath, "--output", outputPath,
+		"--input", inputPath, "hash", "sha256", "--output", outputPath,
 	)
 	require.NoError(t, err)
 	assert.Empty(t, stdout, "stdout with file output")

@@ -23,6 +23,8 @@ type Behavior struct {
 	SkipIO                bool
 	InputPrepared         bool
 	ClearInheritedStreams bool
+	SupportsInput         bool
+	SupportsOutput        bool
 }
 
 // Lifecycle binds command-specific behavior to one Cobra command tree.
@@ -64,12 +66,20 @@ func (lifecycle *Lifecycle) Behavior(command *cobra.Command) (Behavior, bool) {
 
 // PreRun applies the registered command behavior before opening output.
 func (lifecycle *Lifecycle) PreRun(command *cobra.Command, args []string) error {
+	if lifecycle.prepareShellCompletion(command, args) {
+		return nil
+	}
 	lifecycle.PrepareCompletion(command, args)
 	behavior, registered := lifecycle.Behavior(command)
 	if !registered {
 		return Configure(command, nil)
 	}
 	skipIO := behavior.SkipIO || behavior.SkipIOIf != nil && behavior.SkipIOIf(command, args)
+	if !skipIO {
+		if err := lifecycle.validateIOCapabilities(command); err != nil {
+			return err
+		}
+	}
 	var setup *ioSetup
 	if behavior.BeforeIO != nil && !skipIO {
 		// Operational preparation may consume input or make network requests.

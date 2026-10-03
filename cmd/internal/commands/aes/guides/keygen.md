@@ -2,6 +2,8 @@
 
 Generate a 256-bit raw key by default. Use --bits 128 for AES-128, or choose a cleartext Tink keyset with --key-format.
 
+Use --output to save the generated key and --mode to select file permissions. Key generation rejects --input because it has no payload to read.
+
 AES-192 is excluded because the Tink AES-GCM-HKDF streaming primitive used by NPC supports only 128-bit and 256-bit derived AES keys. NPC supports raw 128-bit and 256-bit keys for its OpenPGP and Tink streaming formats.
 
 ```sh

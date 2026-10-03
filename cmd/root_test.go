@@ -82,11 +82,45 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 	const original = "keep me"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
 
-	_, err := executeRoot(t, "cert", "keygen", "--input", path, "--output", path)
+	_, err := executeRoot(t, "hash", "sha256", "--input", path, "--output", path)
 	require.ErrorIs(t, err, commandio.ErrSameInputOutput)
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	assert.Equal(t, original, string(data), "file content")
+}
+
+func TestOutputOnlyCommandsRejectExplicitInputBeforeIO(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"aes", "keygen"}, {"completion", "fish"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			outputPath := filepath.Join(t.TempDir(), "output")
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+			input := &modeInputReader{}
+			root := NewCommand()
+			root.SetIn(input)
+			invocation := append(append([]string{}, args...), "--input", "-", "--output", outputPath)
+			stdout, _, err := executeRootCommandStreams(t, root, invocation...)
+			assert.Zero(t, input.reads.Load(), "irrelevant input was read")
+			contents, readErr := os.ReadFile(outputPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, []byte("preserve"), contents, "irrelevant input changed output")
+			assert.Empty(t, stdout)
+			require.ErrorContains(t, err, "--input")
+		})
+	}
+}
+
+func TestOutputOnlyCommandDoesNotReadOmittedInput(t *testing.T) {
+	t.Parallel()
+	input := &modeInputReader{}
+	root := NewCommand()
+	root.SetIn(input)
+	stdout, stderr, err := executeRootCommandStreams(t, root, "aes", "keygen")
+	require.NoError(t, err)
+	assert.Len(t, stdout, 32)
+	assert.Empty(t, stderr)
+	assert.Zero(t, input.reads.Load(), "key generation read omitted payload input")
 }
 
 func TestMainStreamDashAndLiteralPaths(t *testing.T) { //nolint:paralleltest // literal paths require t.Chdir

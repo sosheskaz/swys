@@ -57,7 +57,7 @@ available local IPv4 and IPv6 addresses.`,
 	configureNetProtocolCompletion(command, true)
 	commandio.AddShape(command, netProtocolShape)
 	command.Args = netProtocolAddressArgs(nil, true)
-	lifecycle.Register(command, commandio.Behavior{Validate: validateNetCommand, PrepareInput: prepareNetListenTLS})
+	lifecycle.Register(command, commandio.Behavior{SupportsInput: true, SupportsOutput: true, Validate: validateNetCommand, PrepareInput: prepareNetListenTLS})
 	return command
 }
 

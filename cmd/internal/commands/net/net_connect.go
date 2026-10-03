@@ -82,7 +82,7 @@ protocols explicitly; it does not transform the application payload.`,
 	configureNetProtocolCompletion(command, false)
 	commandio.AddShape(command, netProtocolShape)
 	command.Args = netProtocolAddressArgs(nil, false)
-	lifecycle.Register(command, commandio.Behavior{Validate: validateNetCommand, PrepareInput: prepareNetConnectTLS})
+	lifecycle.Register(command, commandio.Behavior{SupportsInput: true, SupportsOutput: true, Validate: validateNetCommand, PrepareInput: prepareNetConnectTLS})
 	return command
 }
 

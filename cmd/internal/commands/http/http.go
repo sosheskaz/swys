@@ -92,6 +92,8 @@ Accept-Encoding value disables automatic negotiation and decompression.`,
 		},
 	}
 	lifecycle.Register(command, commandio.Behavior{
+		SupportsInput:  true,
+		SupportsOutput: true,
 		BeforeIO: func(cmd *cobra.Command, args []string) (func(error) error, error) {
 			prepared = nil
 			if len(args) == 0 {

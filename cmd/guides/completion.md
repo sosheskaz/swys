@@ -2,6 +2,8 @@
 
 Generate a completion script for the shell that will load it. NPC writes the script to stdout; your shell decides whether to source it for one session or install it in a startup directory.
 
+Shell generators also accept --output to save the script and --mode to select file permissions. They reject --input because the script comes from NPC's command tree.
+
 ## Choose your shell
 
 Run npc completion for the shell generator reference.

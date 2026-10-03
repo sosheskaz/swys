@@ -71,11 +71,21 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	keygen, convert, inspect := newAESKeygenCmd(), newAESKeyConvertCmd(), newAESKeyInspectCmd()
 	aesCmd.AddCommand(encrypt, decrypt, keygen, convert, inspect)
 	prepared := func(*cobra.Command) bool { return true }
-	lifecycle.Register(keygen, commandio.Behavior{Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput, PreparesOutput: prepared})
-	lifecycle.Register(convert, commandio.Behavior{Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion, PreparesOutput: prepared})
-	lifecycle.Register(inspect, commandio.Behavior{Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection, PreparesOutput: prepared})
+	lifecycle.Register(keygen, commandio.Behavior{
+		SupportsOutput: true, Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput, PreparesOutput: prepared,
+	})
+	lifecycle.Register(convert, commandio.Behavior{
+		SupportsInput: true, SupportsOutput: true,
+		Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion, PreparesOutput: prepared,
+	})
+	lifecycle.Register(inspect, commandio.Behavior{
+		SupportsInput: true, SupportsOutput: true,
+		Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection, PreparesOutput: prepared,
+	})
 	for _, command := range []*cobra.Command{encrypt, decrypt} {
-		lifecycle.Register(command, commandio.Behavior{Validate: validateAESFlagsBeforeIO, PrepareInput: prepareAESOperation})
+		lifecycle.Register(command, commandio.Behavior{
+			SupportsInput: true, SupportsOutput: true, Validate: validateAESFlagsBeforeIO, PrepareInput: prepareAESOperation,
+		})
 	}
 	lifecycle.RegisterCompletion(prepareAESCompletion)
 	if err := help.RegisterGuides(aesCmd, aesGuideFiles); err != nil {

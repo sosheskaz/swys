@@ -87,6 +87,32 @@ func TestDNSRejectsInvalidOptionsBeforeOpeningOutput(t *testing.T) {
 	}
 }
 
+func TestDNSRejectsExplicitInputBeforeQuery(t *testing.T) {
+	t.Parallel()
+	var queries atomic.Int64
+	root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+		System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+			queries.Add(1)
+			return nil, errTestDNSLookupFailed
+		}},
+	})
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input")
+	outputPath := filepath.Join(dir, "output")
+	require.NoError(t, os.WriteFile(inputPath, []byte("unused input"), 0o600))
+	require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+	stdout, stderr, err := executeRootCommandStreams(t, root,
+		"dns", "example.test", "--input", inputPath, "--output", outputPath,
+	)
+	assert.Zero(t, queries.Load(), "irrelevant input reached DNS preparation")
+	contents, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserve", string(contents))
+	assert.Empty(t, stdout)
+	assert.Empty(t, stderr)
+	require.ErrorContains(t, err, "--input")
+}
+
 func TestDNSInvalidEncodingRejectsBeforeQuery(t *testing.T) {
 	t.Parallel()
 	var queries atomic.Int64

@@ -66,17 +66,19 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps he
 		dns.NewCommand(lifecycle, dnsDeps), grpccommand.NewCommand(lifecycle),
 	)
 	http.RegisterBodyCompletionGroups(httpCmd)
-	configureFishCompletionGeneration(rootCmd)
-	help.Configure(rootCmd, guideDeps, presentReferenceHelp)
-	registerSharedCompletions(rootCmd)
+	configureCompletionGeneration(rootCmd)
+	help.Configure(rootCmd, guideDeps, func(command *cobra.Command, render func()) {
+		presentReferenceHelp(lifecycle, command, render)
+	})
+	registerSharedCompletions(rootCmd, lifecycle)
 	if err := help.RegisterGuides(rootCmd, rootGuideFiles); err != nil {
 		panic(err)
 	}
 	return rootCmd
 }
 
-func presentReferenceHelp(command *cobra.Command, referenceHelp func()) {
-	net.ReferenceHelp(command, referenceHelp)
+func presentReferenceHelp(lifecycle *commandio.Lifecycle, command *cobra.Command, referenceHelp func()) {
+	net.ReferenceHelp(command, func() { lifecycle.ReferenceHelp(command, referenceHelp) })
 }
 
 // Execute runs the root command.

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 )
 
@@ -16,19 +17,24 @@ var outputModeCompletions = []string{
 	cobra.CompletionWithDesc("0644", "owner read/write and group/world read"),
 }
 
-func registerSharedCompletions(root *cobra.Command) {
+func registerSharedCompletions(root *cobra.Command, lifecycle *commandio.Lifecycle) {
 	root.InitDefaultCompletionCmd()
+	root.InitDefaultHelpCmd()
 	for _, command := range root.Commands() {
-		if command.Name() == "completion" {
+		if command.Name() == completionCommandName {
 			help.ConfigureBranch(command)
-			break
+			for _, shell := range command.Commands() {
+				lifecycle.Register(shell, commandio.Behavior{SupportsOutput: true})
+			}
+		}
+		if help.IsGuideCommand(command) {
+			lifecycle.Register(command, commandio.Behavior{SkipIO: true})
 		}
 	}
-	root.InitDefaultHelpCmd()
-	registerCommandCompletions(root)
+	registerCommandCompletions(root, lifecycle)
 }
 
-func registerCommandCompletions(command *cobra.Command) {
+func registerCommandCompletions(command *cobra.Command, lifecycle *commandio.Lifecycle) {
 	command.InitDefaultHelpFlag()
 	command.InitDefaultVersionFlag()
 	command.Flags().VisitAll(func(flag *pflag.Flag) {
@@ -36,8 +42,19 @@ func registerCommandCompletions(command *cobra.Command) {
 			return
 		}
 		switch {
+		case flag.Name == "input" || flag.Name == "output":
+			name := flag.Name
+			mustRegisterSharedFlagCompletion(command, name, func(target *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+				if !lifecycle.SupportsFlag(target, name) || target.Flag(name).Hidden {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
+				return nil, cobra.ShellCompDirectiveDefault
+			})
 		case flag.Name == "mode":
-			mustRegisterSharedFlagCompletion(command, flag.Name, func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			mustRegisterSharedFlagCompletion(command, flag.Name, func(target *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				if !lifecycle.SupportsFlag(target, "mode") {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
 				return filterDescribedCompletions(outputModeCompletions, toComplete), cobra.ShellCompDirectiveNoFileComp
 			})
 		case flag.Value.Type() == "bool":
@@ -47,7 +64,7 @@ func registerCommandCompletions(command *cobra.Command) {
 		}
 	})
 	for _, child := range command.Commands() {
-		registerCommandCompletions(child)
+		registerCommandCompletions(child, lifecycle)
 	}
 }
 

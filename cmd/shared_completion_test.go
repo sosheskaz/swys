@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -62,4 +63,56 @@ func TestSharedCompletionPreservesPathsAndManualModes(t *testing.T) {
 	assert.Equal(t, ":4\n", executeSharedCompletion(t, "__complete", "http", "--mode", "075"), "manual mode completion")
 	_, _, err := executeRootStreams(t, "http", "--follow", "--help")
 	require.NoError(t, err, "bare boolean flag changed")
+}
+
+func TestSharedIOCapabilitiesRestoreHelpAndCompletion(t *testing.T) {
+	t.Parallel()
+	root := NewCommand()
+	root.SetIn(guidePanicReader{})
+	for _, test := range []struct {
+		args         []string
+		want, absent []string
+	}{
+		{args: []string{"aes", "keygen"}, want: []string{"--output", "--mode"}, absent: []string{"--input"}},
+		{args: []string{"help"}, absent: []string{"--input", "--output", "--mode"}},
+		{args: []string{"completion"}, want: []string{"--output", "--mode"}, absent: []string{"--input"}},
+		{args: []string{"aes"}, want: []string{"--input", "--output"}},
+		{want: []string{"--input", "--output"}},
+		{args: []string{"cert", "create"}, want: []string{"--input", "--output"}},
+		{args: []string{"net", "connect"}, want: []string{"--input", "--output", "--cert", "--udp", "--tls"}},
+		{args: []string{"hash", "sha256"}, want: []string{"--input", "--output", "--mode"}},
+	} {
+		command, _, err := root.Find(test.args)
+		require.NoError(t, err)
+		var output bytes.Buffer
+		root.SetOut(&output)
+		require.NoError(t, command.Help())
+		for _, flag := range test.want {
+			assert.Contains(t, output.String(), flag, "reference %q", test.args)
+		}
+		for _, flag := range test.absent {
+			assert.NotContains(t, output.String(), flag, "reference %q", test.args)
+		}
+	}
+	for _, test := range []struct {
+		args   []string
+		want   string
+		absent []string
+	}{
+		{args: []string{"aes", "keygen", "--i"}, absent: []string{"--input"}},
+		{args: []string{"aes", "keygen", "--o"}, want: "--output"},
+		{args: []string{"help", "--"}, absent: []string{"--input", "--output", "--mode"}},
+		{args: []string{"completion", "--i"}, absent: []string{"--input"}},
+		{args: []string{"completion", "--o"}, want: "--output"},
+		{args: []string{"hash", "sha256", "--i"}, want: "--input"},
+	} {
+		output, _, err := executeRootCommandStreams(t, root, append([]string{"__complete"}, test.args...)...)
+		require.NoError(t, err)
+		if test.want != "" {
+			assert.Contains(t, output, test.want, "complete %q", test.args)
+		}
+		for _, flag := range test.absent {
+			assert.NotContains(t, output, flag, "complete %q", test.args)
+		}
+	}
 }

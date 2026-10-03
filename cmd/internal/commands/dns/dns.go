@@ -129,6 +129,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 		},
 	}
 	lifecycle.Register(command, commandio.Behavior{
+		SupportsOutput: true,
 		BeforeIO: func(cmd *cobra.Command, args []string) (func(error) error, error) {
 			query, err := parseDNSQuery(cmd, args, options)
 			if err != nil {

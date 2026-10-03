@@ -2,6 +2,8 @@
 
 Resolve common names through the operating system or query DNS servers directly. The system resolver is the default for ordinary A, AAAA, and PTR lookups.
 
+Use --output to save the lookup result and --mode to select file permissions. DNS reads its query from command arguments, so an explicit --input is an error.
+
 ## Use the system resolver
 
 ```sh

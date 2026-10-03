@@ -94,6 +94,8 @@ func newHashAlgorithmCmd(lifecycle *commandio.Lifecycle, name, description strin
 		panic(err)
 	}
 	lifecycle.Register(command, commandio.Behavior{
+		SupportsInput:  true,
+		SupportsOutput: true,
 		Prepare:        func(_ *cobra.Command, input io.Reader) ([]byte, error) { return prepareHashOutput(name, input) },
 		PreparesOutput: func(*cobra.Command) bool { return true },
 		OutputEncoder:  hashOutputEncoder,

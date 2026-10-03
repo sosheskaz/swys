@@ -4,6 +4,8 @@ Retrieve certificates from a TLS endpoint, inspect their details, or export thei
 
 ## Export a certificate or CA
 
+Use --output to save the retrieved certificates and --mode to select file permissions. This operation reads the server's certificates, so an explicit --input is an error.
+
 ```sh
 npc cert connect example.com:443 -f pem -o server.pem
 npc cert connect example.com:443 --select chain -f pem -o issuers.pem
