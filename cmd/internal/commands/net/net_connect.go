@@ -33,6 +33,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		Use:     "net",
 		Short:   "Exchange bytes over network transports",
 	}
+	help.ConfigureBranch(netCmd)
 	netCmd.AddCommand(newNetConnectCmd(lifecycle), newNetListenCmd(lifecycle))
 	if err := help.RegisterGuides(netCmd, netGuideFiles); err != nil {
 		panic(err)

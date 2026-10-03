@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 )
 
 var outputModeCompletions = []string{
@@ -16,6 +18,12 @@ var outputModeCompletions = []string{
 
 func registerSharedCompletions(root *cobra.Command) {
 	root.InitDefaultCompletionCmd()
+	for _, command := range root.Commands() {
+		if command.Name() == "completion" {
+			help.ConfigureBranch(command)
+			break
+		}
+	}
 	root.InitDefaultHelpCmd()
 	registerCommandCompletions(root)
 }

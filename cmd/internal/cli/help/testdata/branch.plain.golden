@@ -6,6 +6,8 @@ server's certificates, use certificate connect.
 
 Choose an operation
 
+Run npc net for the operation reference.
+
 • connect contacts a remote endpoint and exchanges bytes.
 • listen accepts one connection, or one UDP request and response.
 

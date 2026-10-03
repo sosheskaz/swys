@@ -4,6 +4,8 @@ Generate a completion script for the shell that will load it. NPC writes the scr
 
 ## Choose your shell
 
+Run npc completion for the shell generator reference.
+
 - **bash** generates Bash completion.
 - **fish** generates Fish completion.
 - **powershell** generates PowerShell completion.

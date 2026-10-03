@@ -134,6 +134,29 @@ func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
 	assert.NotContains(t, stdout, "Exchange bytes over verified TLS", "runnable leaf unexpectedly fell back to guide")
 }
 
+func TestBareBranchHelpRestoresArgumentValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, branch := range []string{"cert", "net", "completion"} {
+		t.Run(branch, func(t *testing.T) {
+			t.Parallel()
+			root := NewCommand()
+			root.SetIn(guidePanicReader{})
+			stdout, stderr, err := executeRootCommandStreams(t, root, branch)
+			require.NoError(t, err)
+			assert.Contains(t, stdout, "Usage:\n  npc "+branch+" [command]")
+			assert.NotContains(t, stdout, "\n  npc "+branch+" [flags]", "branch reference must not advertise an operation")
+			assert.Contains(t, stdout, "For a usage guide, run 'npc help "+branch+"'.")
+			assert.Empty(t, stderr)
+
+			stdout, stderr, err = executeRootCommandStreams(t, root, branch, "typo")
+			require.ErrorContains(t, err, `unknown command "typo" for "npc `+branch+`"`)
+			assert.Empty(t, stdout, "help presentation must restore child validation")
+			assert.Empty(t, stderr)
+		})
+	}
+}
+
 func TestReferenceGuidePointerUsesStdoutWithDefaultStreams(t *testing.T) {
 	t.Parallel()
 

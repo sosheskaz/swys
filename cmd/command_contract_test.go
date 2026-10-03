@@ -22,15 +22,73 @@ import (
 
 func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"aes", "cert", "net"} {
-		t.Run(name, func(t *testing.T) {
+	for _, name := range []string{"", "aes", "cert", "net", "completion"} {
+		testName := name
+		if testName == "" {
+			testName = "root"
+		}
+		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
-			path := filepath.Join(t.TempDir(), "should-not-exist")
-			output, err := executeRoot(t, name, "--output", path)
+			dir := t.TempDir()
+			path := filepath.Join(dir, "should-not-exist")
+			args := []string{"--input", filepath.Join(dir, "missing-input"), "--output", path}
+			if name != "" {
+				args = append([]string{name}, args...)
+			}
+			root := NewCommand()
+			root.SetIn(guidePanicReader{})
+			output, err := executeRootCommand(t, root, args...)
 			require.NoError(t, err)
 			assert.Contains(t, output, "Usage:", "command help")
 			_, err = os.Stat(path)
 			assert.ErrorIs(t, err, os.ErrNotExist, "output file should not exist")
+		})
+	}
+}
+
+func TestBranchesRejectUnknownChildrenBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		branch        string
+		wantErr       string
+		ancestorFlags bool
+	}{
+		{name: "root", wantErr: `unknown command "typo" for "npc"`},
+		{name: "aes", branch: "aes", wantErr: `unknown command "typo" for "npc aes"`},
+		{name: "cert", branch: "cert", wantErr: `unknown command "typo" for "npc cert"`},
+		{name: "certificate alias", branch: "x509", wantErr: `unknown command "typo" for "npc cert"`, ancestorFlags: true},
+		{name: "net", branch: "net", wantErr: `unknown command "typo" for "npc net"`},
+		{name: "network alias", branch: "nc", wantErr: `unknown command "typo" for "npc net"`},
+		{name: "completion", branch: "completion", wantErr: `unknown command "typo" for "npc completion"`, ancestorFlags: true},
+		{name: "hash keeps algorithm error", branch: "hash", wantErr: `unknown hash algorithm "typo"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			outputPath := filepath.Join(dir, "output")
+			require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+			flags := []string{"--input", filepath.Join(dir, "missing-input"), "--output", outputPath}
+			args := []string{"typo"}
+			if test.branch != "" {
+				args = append([]string{test.branch}, args...)
+			}
+			if test.ancestorFlags {
+				args = append(flags, args...)
+			} else {
+				args = append(args, flags...)
+			}
+			root := NewCommand()
+			root.SetIn(guidePanicReader{})
+			stdout, stderr, err := executeRootCommandStreams(t, root, args...)
+			require.ErrorContains(t, err, test.wantErr)
+			assert.Empty(t, stdout, "invalid child must not fall back to help")
+			assert.Empty(t, stderr, "root returns diagnostics to its caller")
+			contents, readErr := os.ReadFile(outputPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(contents), "invalid child changed output")
 		})
 	}
 }

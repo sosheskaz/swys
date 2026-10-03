@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	guideCommandShape = "guide"
-	defaultGuideWidth = 80
+	guideCommandShape   = "guide"
+	commandShapeEnabled = "true"
+	defaultGuideWidth   = 80
 )
 
 // Dependencies supplies environment, terminal, and process hooks for help.
@@ -56,11 +57,13 @@ func Configure(root *cobra.Command, dependencies Dependencies, referencePresenta
 	dependencies = dependencies.WithDefaults()
 	referenceHelp := root.HelpFunc()
 	root.SetHelpFunc(func(command *cobra.Command, args []string) {
-		if referencePresentation != nil {
-			referencePresentation(command, func() { referenceHelp(command, args) })
-		} else {
-			referenceHelp(command, args)
-		}
+		branchReferenceHelp(command, func() {
+			if referencePresentation != nil {
+				referencePresentation(command, func() { referenceHelp(command, args) })
+			} else {
+				referenceHelp(command, args)
+			}
+		})
 		key := canonicalGuideKey(root, command)
 		if _, ok := guideSource(command); !ok {
 			return
@@ -112,7 +115,7 @@ Use a command's --help flag for its generated arguments and flags reference.`,
 	command.Flags().BoolVar(&plain, "plain", false, "force plain rendered text")
 	command.Flags().BoolVar(&noPager, "no-pager", false, "write directly instead of using PAGER")
 	command.MarkFlagsMutuallyExclusive("rich", "plain")
-	command.Annotations = map[string]string{guideCommandShape: "true"}
+	command.Annotations = map[string]string{guideCommandShape: commandShapeEnabled}
 	return command
 }
 
@@ -337,5 +340,5 @@ func writeGuide(writer io.Writer, contents []byte) error {
 
 // IsGuideCommand reports whether command is the curated guide command.
 func IsGuideCommand(command *cobra.Command) bool {
-	return command.Annotations[guideCommandShape] == "true"
+	return command.Annotations[guideCommandShape] == commandShapeEnabled
 }

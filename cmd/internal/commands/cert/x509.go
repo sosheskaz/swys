@@ -24,8 +24,8 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		Aliases: []string{"x509", "certificate", "x.509"},
 		Use:     "cert",
 		Short:   "Manage X.509 certificates and asymmetric keys",
-		Args:    cobra.NoArgs,
 	}
+	help.ConfigureBranch(certCmd)
 	inspect := newCertInspectCmd()
 	connect := newConnectCmd()
 	create := newCertCreateCmd()

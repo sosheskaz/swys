@@ -4,6 +4,8 @@ Use the certificate family to inspect existing certificates, retrieve a server c
 
 ## Choose an operation
 
+Run npc cert for the operation reference.
+
 - **inspect** reads one or more PEM certificates from stdin or a file.
 - **connect** retrieves certificates presented by a TLS endpoint.
 - **create** makes a self-signed test certificate, a test CA, or a leaf signed by that CA.

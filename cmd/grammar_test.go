@@ -78,7 +78,7 @@ func TestCommandTreeScopesHashAlgorithmsToRootGroup(t *testing.T) {
 	}
 }
 
-func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
+func TestCommandTreeScopesRunnableGroupsToRoot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -88,11 +88,19 @@ func TestCommandTreeScopesRunnableHashGroupToRoot(t *testing.T) {
 		nested bool
 	}{
 		{name: "root hash group", group: "hash"},
+		{name: "root certificate help branch", group: "cert"},
+		{name: "root network help branch", group: "net"},
 		{
 			name:   "nested hash group",
 			group:  "hash",
 			nested: true,
 			want:   []string{`group command "root crypto hash" must not be runnable`},
+		},
+		{
+			name:   "nested certificate group",
+			group:  "cert",
+			nested: true,
+			want:   []string{`group command "root crypto cert" must not be runnable`},
 		},
 		{
 			name:  "unrelated root group",
@@ -159,9 +167,9 @@ func commandTreeViolations(root *cobra.Command) []string {
 
 			if child.HasSubCommands() {
 				isRunnableRootHash := command == root && child.Name() == "hash"
-				// AES is technically runnable so Cobra validates removed nested commands;
-				// its argument contract returns help before I/O for the bare noun.
-				isHelpOnlyParent := command == root && child.Name() == "aes"
+				// These branches are runnable so Cobra validates unknown children;
+				// their argument contracts return help before I/O for the bare noun.
+				isHelpOnlyParent := command == root && (child.Name() == "aes" || child.Name() == "cert" || child.Name() == "net")
 				if (child.Run != nil || child.RunE != nil) && !isRunnableRootHash && !isHelpOnlyParent {
 					violations = append(violations, fmt.Sprintf("group command %q must not be runnable", child.CommandPath()))
 				}

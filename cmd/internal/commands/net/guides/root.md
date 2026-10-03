@@ -4,6 +4,8 @@ Use the network family when you want to send or receive application bytes yourse
 
 ## Choose an operation
 
+Run npc net for the operation reference.
+
 - **connect** contacts a remote endpoint and exchanges bytes.
 - **listen** accepts one connection, or one UDP request and response.
 
