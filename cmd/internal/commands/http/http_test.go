@@ -827,12 +827,12 @@ func TestHTTPRequestTimeout(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	_, done := startCancellableHTTPRequest(t, server, nil,
-		"http", server.URL, "--request-timeout", "50ms")
+		"http", server.URL, "-t", "50ms")
 	select {
 	case err := <-done:
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(2 * time.Second):
-		t.Fatal("--request-timeout did not stop the request")
+		t.Fatal("--timeout did not stop the request")
 	}
 }
 
@@ -913,7 +913,7 @@ func TestHTTPSetupTimeoutStopsBlockedTLSHandshake(t *testing.T) {
 		_, _, requestErr := executeRootStreams(
 			t,
 			"http", "https://"+listener.Addr().String(),
-			"--insecure", "--timeout", "50ms", "--request-timeout", "0",
+			"--insecure", "-c", "50ms", "--timeout", "0",
 		)
 		requestDone <- requestErr
 	}()
@@ -935,7 +935,7 @@ func TestHTTPSetupTimeoutStopsBlockedTLSHandshake(t *testing.T) {
 			t.Fatalf("error = %v, want a setup timeout", requestErr)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("--timeout did not stop the blocked TLS handshake")
+		t.Fatal("--connect-timeout did not stop the blocked TLS handshake")
 	}
 	select {
 	case <-serverDone:

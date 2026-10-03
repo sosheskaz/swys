@@ -29,7 +29,7 @@ func newNetListenCmd(lifecycle *commandio.Lifecycle) *cobra.Command {
 
 TCP and TLS accept one stream connection; --recv-only reads peer data without
 sending input. UDP writes the first request datagram and sends one decoded
-response datagram to its peer. UDP uses --timeout for the first datagram and
+response datagram to its peer. UDP uses --connect-timeout for the first datagram and
 does not accept --wait. TLS requires --cert and --key for the server identity;
 --ca requires and verifies a client certificate. Omit the host to bind all
 available local IPv4 and IPv6 addresses.`,
@@ -40,7 +40,7 @@ available local IPv4 and IPv6 addresses.`,
 	command.Flags().BoolP(netProtocolTLS, "T", false, "use a verified TLS stream instead of TCP")
 	command.Flags().Lookup(netCloseWriteFlagName).Usage += netStreamOnlyHelp
 	command.Flags().Lookup(netDuplexFlagName).Usage += netStreamOnlyHelp
-	command.Flags().Lookup(netWaitFlagName).Usage += " (TCP/TLS only; UDP listener uses --timeout)"
+	command.Flags().Lookup(netWaitFlagName).Usage += " (TCP/TLS only; UDP listener uses --connect-timeout)"
 	command.Flags().BoolP(netRecvOnlyFlagName, "r", false, "receive peer data without reading or sending input (TCP/TLS only)")
 	command.Flags().String(tlsconfig.CertFlagName, "", "TLS server certificate chain PEM path (TLS only; required)")
 	command.Flags().StringP(tlsconfig.KeyFlagName, "k", "", "TLS server private key path (TLS only; required)")
@@ -169,9 +169,9 @@ type networkDatagramListenOptions struct {
 }
 
 func networkDatagramListenOptionsFromCommand(cmd *cobra.Command) (networkDatagramListenOptions, error) {
-	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
+	timeout, err := cmd.Flags().GetDuration(netConnectTimeoutFlagName)
 	if err != nil {
-		return networkDatagramListenOptions{}, fmt.Errorf("read timeout flag: %w", err)
+		return networkDatagramListenOptions{}, fmt.Errorf("read connect-timeout flag: %w", err)
 	}
 	verbose, err := cmd.Flags().GetBool("verbose")
 	if err != nil {

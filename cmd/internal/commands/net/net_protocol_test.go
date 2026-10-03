@@ -34,7 +34,7 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 		{
 			name:   "UDP connect",
 			args:   []string{"net", "connect", "--udp", "--"},
-			shown:  []string{"--wait", "--timeout"},
+			shown:  []string{"--wait", "--connect-timeout"},
 			hidden: []string{"--tls", "--close-write", "--duplex", "--cert", "--ca", "--alpn"},
 		},
 		{
@@ -58,7 +58,7 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 		{
 			name:   "UDP listen",
 			args:   []string{"net", "listen", "--udp", "--"},
-			shown:  []string{"--timeout"},
+			shown:  []string{"--connect-timeout"},
 			hidden: []string{"--tls", "--wait", "--close-write", "--duplex", "--recv-only", "--cert", "--ca", "--alpn"},
 		},
 		{
@@ -76,7 +76,7 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 		{
 			name:   "false TLS selector keeps UDP completion",
 			args:   []string{"net", "listen", "--tls=false", "--udp", "--"},
-			shown:  []string{"--timeout"},
+			shown:  []string{"--connect-timeout"},
 			hidden: []string{"--wait", "--close-write", "--recv-only", "--cert", "--ca"},
 		},
 	} {
@@ -202,14 +202,14 @@ func TestNetProtocolHelpDocumentsFullFlagUnion(t *testing.T) {
 		{
 			verb: "connect",
 			flags: []string{
-				"--udp", "--tls", "--timeout", "--wait", "--close-write", "--duplex",
+				"--udp", "--tls", "--connect-timeout", "--wait", "--close-write", "--duplex",
 				"--cert", "--key", "--ca", "--system-ca", "--alpn", "--servername", "--insecure",
 			},
 		},
 		{
 			verb: "listen",
 			flags: []string{
-				"--udp", "--tls", "--timeout", "--wait", "--close-write", "--duplex", "--recv-only",
+				"--udp", "--tls", "--connect-timeout", "--wait", "--close-write", "--duplex", "--recv-only",
 				"--cert", "--key", "--ca", "--system-ca", "--alpn",
 			},
 		},

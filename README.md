@@ -275,8 +275,8 @@ With Fish, Cobra may display an additional candidate ending in `.` when a
 single ALPN match must leave the argument open for a comma. That dotted entry
 is a completion workaround; select the undotted protocol identifier.
 
-`--timeout` bounds only TCP setup and the TLS handshake (5 seconds by
-default); established streaming is not timed out. After input EOF, `--wait`
+`--connect-timeout/-c` bounds only TCP setup and the TLS handshake (5 seconds by
+default); established streaming is not timed out. After input EOF, `--wait/-w`
 defaults to 0, so npc drains until the peer closes. Set a positive `--wait`
 to bound response draining for a protocol that keeps connections open. With `--close-write`, npc
 half-closes before starting that drain period. If a finite wait expires, the
@@ -284,7 +284,7 @@ command closes the connection and exits nonzero with a drain-timeout error.
 Bytes already written to stdout or `--output` remain available, but are a
 partial response and must not be treated as complete. The aliases `npc nc` and
 `npc netcat` select the same `net` command tree.
-Completion offers `0`, `1s`, `5s`, `10s`, and `30s` for existing `--timeout`
+Completion offers `0`, `1s`, `5s`, `10s`, and `30s` for existing `--connect-timeout`
 and `--wait` flags; other valid Go durations remain accepted. No command gains
 a new timeout or wait control from these suggestions.
 
@@ -306,7 +306,7 @@ redirect an empty input to send a zero-length datagram:
 npc net connect --udp 127.0.0.1:9000 </dev/null
 ```
 
-For UDP, `--timeout` uses the 5-second setup default and covers address
+For UDP, `--connect-timeout` uses the 5-second setup default and covers address
 resolution and socket setup. `--wait` allows up to 5 seconds for the one
 response datagram; `--wait 0` waits indefinitely. UDP rejects an explicit
 `--close-write` because it has no stream write side to half-close. The connector
@@ -347,7 +347,7 @@ reading stdin or sending a response. Its write half remains open until peer EOF.
 This is useful at the receiving end of a circular pipeline.
 
 The listener waits indefinitely for its connection by default. Set a positive
-`--timeout` to bound address resolution, binding, and accepting. Port `0` asks
+`--connect-timeout` to bound address resolution, binding, and accepting. Port `0` asks
 the operating system to choose an available port; use `--verbose` to print the
 bound address before the accept begins. Supply only a numeric port to listen on
 all available local IPv4 (`0.0.0.0`) and IPv6 (`::`) addresses; the `:port`
@@ -380,7 +380,7 @@ printf 'authenticated response\n' | npc net listen --tls 127.0.0.1:9443 \
 
 Without `--ca`, the listener does not request a client certificate. It
 advertises no ALPN protocols unless `--alpn` is supplied. Listener TLS setup
-must finish before any stdin payload is relayed; a positive `--timeout` covers
+must finish before any stdin payload is relayed; a positive `--connect-timeout` covers
 binding, accepting, and the handshake, while established relay draining remains
 governed only by `--wait`.
 
@@ -400,7 +400,7 @@ printf 'ping' | npc net connect --udp 127.0.0.1:9000
 
 Like the TCP and TLS listeners, a bare numeric UDP port binds all available
 local IPv4 and IPv6 addresses, `:port` remains accepted, and an explicit host
-restricts the bind. Its `--timeout` defaults to `0` and, when positive, covers
+restricts the bind. Its `--connect-timeout` defaults to `0` and, when positive, covers
 binding and receipt of the first datagram. Reading the response payload from
 stdin and sending it happen outside that setup timeout. The listener sends a
 zero-length response when its decoded input is empty; it rejects explicit
@@ -437,7 +437,7 @@ A bare `npc http` shows help. URLs without a scheme default to HTTPS:
 `http://` URL for plain HTTP; failed HTTPS requests never retry as HTTP.
 
 Choose one body source: `--input FILE` for raw file bytes, `--input -` for
-stdin, `--data/-d STRING` for literal bytes, or `--json JSON|@FILE|@-` for a JSON
+stdin, `--data/-d STRING` for literal bytes, or `--json/-j JSON|@FILE|@-` for a JSON
 body with `Content-Type: application/json`. JSON convenience sets the content
 type without parsing or rewriting the payload. `--input-encoding` decodes raw
 and JSON body sources using the same encodings as other npc commands.
@@ -481,8 +481,8 @@ may close it to interrupt an upload on cancellation or an early response.
 HTTPS verifies certificates and hostnames by default and negotiates HTTP/1.1
 or HTTP/2. The existing `--ca`, `--system-ca`, `--cert`, `--key`, `--servername`,
 and `--insecure` controls apply. HTTP uses normal environment proxy settings.
-`--timeout` defaults to 10 seconds for dialing and TLS handshaking;
-`--request-timeout` optionally bounds the whole exchange, including upload and
+`--connect-timeout/-c` defaults to 10 seconds for dialing and TLS handshaking;
+`--timeout/-t` optionally bounds the whole exchange, including upload and
 response transfer, and defaults to `0` (disabled).
 
 Use repeatable `--resolve HOST:PORT:ADDRESS[,ADDRESS]` rules to connect a URL's
@@ -596,7 +596,7 @@ packages are direct dependencies so wire behavior, reflection, dynamic schema
 resolution, and protobuf JSON semantics follow the maintained protocol
 implementations instead of local codecs.
 
-One `--timeout` covers connection setup, reflection, and invocation and defaults
+One `--timeout/-t` covers connection setup, reflection, and invocation and defaults
 to 10 seconds; `0` disables the deadline. `--max-message-size` defaults to 16
 MiB and limits invoked request and response protobuf messages. Request JSON is
 limited to four times that value with overflow-safe validation. Descriptor data

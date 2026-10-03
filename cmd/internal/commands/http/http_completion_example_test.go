@@ -233,8 +233,8 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 		{"--form", "name=value", ""},
 		{"--resolve", "example.test:443:192.0.2.1", ""},
 		{"--servername", "example.test", ""},
-		{"--timeout", "1s", ""},
-		{"--request-timeout", "2s", ""},
+		{"--connect-timeout", "1s", ""},
+		{"--timeout", "2s", ""},
 		{"--max-redirects", "3", ""},
 	} {
 		_, directive := completeHTTPCommand(t, args...)

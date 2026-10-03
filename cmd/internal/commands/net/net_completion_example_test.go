@@ -95,27 +95,27 @@ func TestNetworkDurationCompletion(t *testing.T) {
 		name, zero string
 		args       []string
 	}{
-		{name: "connect TCP timeout", args: []string{"net", "connect", "--timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
+		{name: "connect TCP timeout", args: []string{"net", "connect", "--connect-timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
 		{name: "connect TLS wait", args: []string{"net", "connect", "--tls", "--wait", ""}, zero: "Wait indefinitely while draining the response"},
 		{
 			name: "connect UDP timeout",
-			args: []string{"net", "connect", "--udp", "--timeout", ""},
+			args: []string{"net", "connect", "--udp", "--connect-timeout", ""},
 			zero: "Disable UDP address resolution and socket setup timeout",
 		},
 		{name: "connect UDP wait", args: []string{"net", "connect", "--udp", "--wait", ""}, zero: "Wait indefinitely for a response datagram"},
-		{name: "listen TCP timeout", args: []string{"net", "listen", "--timeout", ""}, zero: "Disable bind resolution and accept timeout"},
+		{name: "listen TCP timeout", args: []string{"net", "listen", "--connect-timeout", ""}, zero: "Disable bind resolution and accept timeout"},
 		{name: "listen TCP wait", args: []string{"net", "listen", "--wait", ""}, zero: "Wait indefinitely while draining the response"},
 		{
 			name: "listen TLS timeout",
-			args: []string{"net", "listen", "--tls", "--timeout", ""},
+			args: []string{"net", "listen", "--tls", "--connect-timeout", ""},
 			zero: "Disable bind resolution, accept, and TLS handshake timeout",
 		},
 		{
 			name: "listen UDP timeout",
-			args: []string{"net", "listen", "--udp", "--timeout", ""},
+			args: []string{"net", "listen", "--udp", "--connect-timeout", ""},
 			zero: "Disable bind resolution and first datagram timeout",
 		},
-		{name: "certificate connect timeout", args: []string{"cert", "connect", "--timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
+		{name: "certificate connect timeout", args: []string{"cert", "connect", "--connect-timeout", ""}, zero: "Disable TCP setup and TLS handshake timeout"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -134,12 +134,12 @@ func TestNetworkDurationCompletion(t *testing.T) {
 		})
 	}
 	command := newNetConnectTestCommand(t)
-	require.NoError(t, command.Flags().Set("timeout", "250ms"), "set arbitrary duration")
-	if got, err := command.Flags().GetDuration("timeout"); err != nil || got.String() != "250ms" {
+	require.NoError(t, command.Flags().Set("connect-timeout", "250ms"), "set arbitrary duration")
+	if got, err := command.Flags().GetDuration("connect-timeout"); err != nil || got.String() != "250ms" {
 		t.Fatalf("arbitrary duration = %s, error %v", got, err)
 	}
 	wantPrefix := []string{"1s\tOne second", "10s\tTen seconds", ":36"}
-	if got := completionLines(completeCommand(t, "net", "connect", "--timeout", "1")); !slices.Equal(got, wantPrefix) {
+	if got := completionLines(completeCommand(t, "net", "connect", "--connect-timeout", "1")); !slices.Equal(got, wantPrefix) {
 		t.Fatalf("duration prefix completion = %q", got)
 	}
 	if newNetListenTestCommand(t, "udp").Flags().Lookup("wait") == nil {

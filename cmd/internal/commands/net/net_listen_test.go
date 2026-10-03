@@ -31,8 +31,8 @@ import (
 
 func TestNetStreamTimeoutAndDrainDefaults(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "0s", newNetListenTestCommand(t, "tcp").Flags().Lookup("timeout").DefValue, "listen timeout default")
-	assert.Equal(t, "5s", newNetConnectTestCommand(t).Flags().Lookup("timeout").DefValue, "connect timeout default")
+	assert.Equal(t, "0s", newNetListenTestCommand(t, "tcp").Flags().Lookup("connect-timeout").DefValue, "listen timeout default")
+	assert.Equal(t, "5s", newNetConnectTestCommand(t).Flags().Lookup("connect-timeout").DefValue, "connect timeout default")
 	for _, test := range []struct {
 		command *cobra.Command
 		name    string
@@ -80,7 +80,7 @@ func TestNetListenTCPPositiveAcceptTimeout(t *testing.T) {
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", "127.0.0.1:0",
-		"--timeout", "30ms",
+		"--connect-timeout", "30ms",
 	)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Contains(t, err.Error(), "accept TCP connection on")
@@ -99,7 +99,7 @@ func TestNetListenTCPAcceptsColonPortCompatibility(t *testing.T) {
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", ":0",
-		"--timeout", "30ms",
+		"--connect-timeout", "30ms",
 	)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
@@ -176,7 +176,7 @@ func TestNetListenTCPTimeoutOnlyCoversSetup(t *testing.T) {
 		t,
 		strings.NewReader("request"),
 		"net", "listen", "127.0.0.1:0",
-		"--timeout", "1s",
+		"--connect-timeout", "1s",
 		"--verbose",
 		"--wait", "5s",
 	)
@@ -475,7 +475,7 @@ func TestNetListenTLSRejectsMissingAndUntrustedClientsWithoutPayload(t *testing.
 				"--cert", serverIdentity.serverCert,
 				"--key", serverIdentity.serverKey,
 				"--ca", serverIdentity.caCert,
-				"--timeout", "1s",
+				"--connect-timeout", "1s",
 				"--verbose",
 			)
 			address := readExampleListeningAddress(t, run.stderr, "listening tls ")
@@ -516,7 +516,7 @@ func TestNetListenTLSHandshakeTimeoutClosesConnection(t *testing.T) {
 		"net", "listen", "--tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
-		"--timeout", "50ms",
+		"--connect-timeout", "50ms",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tls ")
@@ -551,7 +551,7 @@ func TestNetListenTLSFlagValidation(t *testing.T) {
 	}{
 		{name: "system CA without bundle", args: []string{"--system-ca"}},
 		{name: "ALPN with whitespace", args: []string{"--alpn", "h2, http/1.1"}},
-		{name: "negative timeout", args: []string{"--timeout", "-1s"}},
+		{name: "negative timeout", args: []string{"--connect-timeout", "-1s"}},
 		{name: "negative wait", args: []string{"--wait", "-1s"}},
 	}
 	for _, test := range tests {

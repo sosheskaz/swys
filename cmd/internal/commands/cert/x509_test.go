@@ -208,7 +208,7 @@ func TestCertificateInspectSelectionIsIndependentOfFormat(t *testing.T) {
 	for _, selection := range []string{"leaf", "chain", "fullchain", "root", "0", "1"} {
 		t.Run(selection, func(t *testing.T) {
 			t.Parallel()
-			pemOutput, _, err := executeCertTestWithInput(t, input, "cert", "inspect", "--select", selection, "-f", "pem")
+			pemOutput, _, err := executeCertTestWithInput(t, input, "cert", "inspect", "-s", selection, "-f", "pem")
 			require.NoError(t, err)
 			jsonOutput, stderr, err := executeCertTestWithInput(t, input, "cert", "inspect", "--select", selection, "-f", "json")
 			require.NoError(t, err)

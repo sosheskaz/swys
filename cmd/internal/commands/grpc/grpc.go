@@ -229,7 +229,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.StringVarP(&options.data, "data", "d", "", "literal protobuf JSON request")
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request metadata (name: value); repeatable")
 	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (text, json); defaults to text for discovery and json for invocation")
-	flags.DurationVar(&options.timeout, "timeout", commandio.DefaultNetworkTimeout, "overall connection, reflection, and invocation timeout (0 disables)")
+	flags.DurationVarP(&options.timeout, "timeout", "t", commandio.DefaultNetworkTimeout, "overall connection, reflection, and invocation timeout (0 disables)")
 	flags.IntVar(&options.maxMessageSize, "max-message-size", grpcDefaultMessageSize, "maximum sent and received protobuf message size in bytes")
 	flags.BoolVar(&options.plaintext, "plaintext", false, "use plaintext HTTP/2 instead of TLS")
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")

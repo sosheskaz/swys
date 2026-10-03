@@ -184,7 +184,7 @@ func TestGRPCCommandContract(t *testing.T) {
 		{name: "header", shorthand: "H"},
 		{name: "verbose", shorthand: "v"},
 		{name: "encoding", shorthand: "e", value: "raw"},
-		{name: "timeout", value: "10s"},
+		{name: "timeout", shorthand: "t", value: "10s"},
 		{name: "max-message-size", value: "16777216"},
 	} {
 		flag := command.Flags().Lookup(test.name)
@@ -1174,7 +1174,7 @@ func TestGRPCTimeoutBoundsInvocation(t *testing.T) {
 	stdout, stderr, err := executeRootStreams(
 		t,
 		"grpc", address, grpcFixtureMethodName, "--plaintext", "--protoset", protoset,
-		"--timeout", "1s", "-d", `{"delayMillis":5000}`,
+		"-t", "1s", "-d", `{"delayMillis":5000}`,
 	)
 	require.Error(t, err)
 	if elapsed := time.Since(started); elapsed > 3*time.Second {

@@ -21,7 +21,7 @@ import (
 func TestNetConnectUDPRejectsNegativeDurations(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"net", "connect", "--udp", "127.0.0.1:53", "--timeout", "-1s"},
+		{"net", "connect", "--udp", "127.0.0.1:53", "--connect-timeout", "-1s"},
 		{"net", "connect", "--udp", "127.0.0.1:53", "--wait", "-1s"},
 	} {
 		_, _, err := executeRootStreams(t, args...)

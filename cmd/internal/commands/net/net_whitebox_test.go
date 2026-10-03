@@ -40,7 +40,7 @@ func TestNetProtocolDependentDefaultsDoNotMutate(t *testing.T) {
 		wait, err := netConnectWait(connect)
 		require.NoError(t, err)
 		assert.Equal(t, test.wait, wait, "%s wait", test.protocol)
-		timeout, err := connect.Flags().GetDuration("timeout")
+		timeout, err := connect.Flags().GetDuration("connect-timeout")
 		require.NoError(t, err)
 		assert.Equal(t, 5*time.Second, timeout, "%s connector timeout", test.protocol)
 	}
@@ -55,7 +55,7 @@ func TestNetProtocolDependentDefaultsDoNotMutate(t *testing.T) {
 	}
 
 	listen := newNetListenCmd(commandio.NewLifecycle())
-	if timeout, err := listen.Flags().GetDuration("timeout"); err != nil || timeout != 0 {
+	if timeout, err := listen.Flags().GetDuration("connect-timeout"); err != nil || timeout != 0 {
 		t.Fatalf("listener timeout = %s, error %v; want 0", timeout, err)
 	}
 }

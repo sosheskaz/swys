@@ -206,7 +206,7 @@ func netDurationZeroDescription(command *cobra.Command, name, fallback string) s
 			return "Wait indefinitely for a response datagram"
 		}
 		return "Wait indefinitely while draining the response"
-	case netTimeoutFlagName:
+	case netConnectTimeoutFlagName:
 		if command.Name() == netConnectCommandName {
 			if protocol == netProtocolUDP {
 				return "Disable UDP address resolution and socket setup timeout"

@@ -22,7 +22,7 @@ import (
 func TestNetListenUDPFlagAndAddressContract(t *testing.T) {
 	t.Parallel()
 	netListenUDPCmd := newNetListenTestCommand(t, "udp")
-	assert.Equal(t, "0s", netListenUDPCmd.Flags().Lookup("timeout").DefValue, "timeout default")
+	assert.Equal(t, "0s", netListenUDPCmd.Flags().Lookup("connect-timeout").DefValue, "timeout default")
 	for _, name := range []string{"wait", "close-write"} {
 		assert.NotNil(t, netListenUDPCmd.Flags().Lookup(name), "net listen union has no --%s flag", name)
 	}
@@ -33,7 +33,7 @@ func TestNetListenUDPFlagAndAddressContract(t *testing.T) {
 		_, _, err := executeRootStreams(t, "net", "listen", "--udp", address)
 		require.ErrorIs(t, err, errInvalidHostPort)
 	}
-	_, _, err = executeRootStreams(t, "net", "listen", "--udp", "0", "--timeout", "-1s")
+	_, _, err = executeRootStreams(t, "net", "listen", "--udp", "0", "--connect-timeout", "-1s")
 	require.ErrorIs(t, err, errInvalidNetworkFlags)
 }
 
@@ -43,7 +43,7 @@ func TestNetListenUDPPositiveFirstDatagramTimeoutClosesSocket(t *testing.T) {
 		t,
 		strings.NewReader("response"),
 		"net", "listen", "--udp", "127.0.0.1:0",
-		"--timeout", "30ms",
+		"--connect-timeout", "30ms",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")
@@ -63,7 +63,7 @@ func TestNetListenUDPAcceptsColonPortCompatibility(t *testing.T) {
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", "--udp", ":0",
-		"--timeout", "25ms",
+		"--connect-timeout", "25ms",
 	)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
@@ -115,7 +115,7 @@ func TestNetListenUDPBindFailure(t *testing.T) {
 	_, _, err := executeRootStreams(
 		t,
 		"net", "listen", "--udp", occupied.LocalAddr().String(),
-		"--timeout", "25ms",
+		"--connect-timeout", "25ms",
 	)
 	require.ErrorContains(t, err, "listen on UDP endpoint")
 }
@@ -270,7 +270,7 @@ func TestNetListenUDPTimeoutOnlyCoversSetupAndFirstDatagram(t *testing.T) {
 		t,
 		responseReader,
 		"net", "listen", "--udp", "127.0.0.1:0",
-		"--timeout", "1s",
+		"--connect-timeout", "1s",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening udp ")

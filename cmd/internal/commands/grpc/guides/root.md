@@ -35,7 +35,7 @@ npc grpc 127.0.0.1:1 --protoset service.protoset
 
 ## Understand limits and remote effects
 
-The RPC message limit applies to invoked request and response protobuf messages. Descriptor processing has separate limits: 16 MiB total, 1,024 files, and 100 nested message levels. After request input, including FIFO input, is collected, one overall timeout covers connection setup, reflection, and invocation. Use an external process timeout when input collection must share the same fixed deadline as network work.
+The RPC message limit applies to invoked request and response protobuf messages. Descriptor processing has separate limits: 16 MiB total, 1,024 files, and 100 nested message levels. After request input, including FIFO input, is collected, one overall --timeout (-t) covers connection setup, reflection, and invocation. It defaults to ten seconds; zero disables it. Use an external process timeout when input collection must share the same fixed deadline as network work.
 
 Verbose reflection diagnostics include response headers immediately. Reflection trailers are available only after a receive error ends the stream; a successful reflection response does not wait for the server to close the stream, so trailers are unavailable in that case.
 

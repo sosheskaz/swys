@@ -798,7 +798,7 @@ func TestDNSTimeoutAndExchangeErrorsPreserveCause(t *testing.T) {
 				return nil, fmt.Errorf("silent DNS server: %w", ctx.Err())
 			}},
 		})
-		_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--timeout", "10ms")
+		_, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "-t", "10ms")
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 	t.Run("direct exchange", func(t *testing.T) {

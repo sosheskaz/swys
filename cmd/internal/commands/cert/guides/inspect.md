@@ -13,7 +13,7 @@ npc cert inspect --input chain.pem --select root -f pem -e base64
 
 The default **text** format displays detailed certificate metadata, validity dates, fingerprints, and certificate verification.
 
-**--select leaf|chain|fullchain|root** chooses the certificate material independently of **--format text|json|pem**. **chain** excludes the first certificate; **fullchain** preserves all supplied certificates without adding roots. **root** exports CA trust anchors from verified chains, or a supplied self-signed CA connected by a leaf-first signature chain when trust verification fails. Multiple verified roots are deduplicated and sorted by SHA-256 fingerprint. Unavailable selections return an error and preserve existing output files.
+**--select leaf|chain|fullchain|root** (or **-s**) chooses the certificate material independently of **--format text|json|pem**. **chain** excludes the first certificate; **fullchain** preserves all supplied certificates without adding roots. **root** exports CA trust anchors from verified chains, or a supplied self-signed CA connected by a leaf-first signature chain when trust verification fails. Multiple verified roots are deduplicated and sorted by SHA-256 fingerprint. Unavailable selections return an error and preserve existing output files.
 
 A non-negative integer selects one certificate from a complete, unambiguous chain in root-to-leaf order: **0** is the root, **1** is the next certificate toward the leaf, and **n-1** is the leaf for a chain of **n** certificates. NPC uses a verified chain when available, otherwise a complete supplied signature chain. Missing roots, multiple distinct verified paths, and out-of-range indexes are errors; named selections retain their behavior.
 

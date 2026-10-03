@@ -166,7 +166,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	flags.Var(&dnsResolverFlagValue{command: command, target: &options.resolver}, "resolver", "resolver mode (system, dns)")
 	flags.IntVarP(&options.port, "port", "p", 53, "direct DNS server port")
 	flags.BoolVarP(&options.reverse, "reverse", "x", false, "perform a PTR lookup for an IP address")
-	flags.DurationVar(&options.timeout, "timeout", commandio.DefaultNetworkTimeout, "whole lookup timeout (0 disables)")
+	flags.DurationVarP(&options.timeout, "timeout", "t", commandio.DefaultNetworkTimeout, "whole lookup timeout (0 disables)")
 	flags.StringVar(&options.selectMode, "select", dnsSelectResult, "result selection (result, values)")
 	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", dnsFormatText, "result format (text, json)")
 	commandio.AddOutputEncodingFlag(command)

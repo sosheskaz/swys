@@ -33,9 +33,9 @@ func prepareConnectedCertificates(cmd *cobra.Command, _ io.Reader) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("parse TLS address %q: %w", address, err)
 	}
-	timeout, err := cmd.Flags().GetDuration(commandio.TimeoutFlagName)
+	timeout, err := cmd.Flags().GetDuration(commandio.ConnectTimeoutFlagName)
 	if err != nil {
-		return nil, fmt.Errorf("read timeout flag: %w", err)
+		return nil, fmt.Errorf("read connect-timeout flag: %w", err)
 	}
 	// Preparation precedes RunE, so its connection needs its own setup deadline.
 	ctx, cancel := commandio.NetworkSetupContext(cmd.Context(), timeout)

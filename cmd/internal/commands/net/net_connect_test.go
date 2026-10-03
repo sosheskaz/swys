@@ -50,7 +50,7 @@ func TestNetConnectTCPRelaysEncodedPayload(t *testing.T) {
 		"--input", inputPath,
 		"--input-encoding", "base64",
 		"--encoding", "base64",
-		"--timeout", "0",
+		"--connect-timeout", "0",
 		"--wait", "1s",
 	)
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestNetConnectTCPTimeoutOnlyCoversSetup(t *testing.T) {
 		t,
 		"net", "connect", address,
 		"--input", inputPath,
-		"--timeout", "1s",
+		"--connect-timeout", "1s",
 		"--wait", "5s",
 		"--verbose",
 	)
@@ -98,7 +98,7 @@ func TestNetConnectTCPDrainTimeoutPreservesPartialOutputFile(t *testing.T) {
 		"net", "connect", address,
 		"--output", outputPath,
 		"--close-write=false",
-		"--wait", "50ms",
+		"-w", "50ms",
 	)
 	require.ErrorIs(t, err, netconn.ErrDrainTimeout)
 	assert.Contains(t, err.Error(), "50ms")
@@ -285,7 +285,7 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 		{name: "insecure with system CA", args: []string{"--insecure", "--system-ca"}},
 		{name: "ALPN with whitespace", args: []string{"--alpn", "h2, http/1.1"}},
 		{name: "negative wait", args: []string{"--wait", "-1s"}},
-		{name: "negative timeout", args: []string{"--timeout", "-1s"}},
+		{name: "negative timeout", args: []string{"--connect-timeout", "-1s"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -302,7 +302,7 @@ func TestCertConnectVerificationStatusRemainsNonFatal(t *testing.T) {
 	server := newChainTLSServer(t)
 	stdout, _, err := executeRootStreams(
 		t,
-		"cert", "connect", server.Listener.Addr().String(), "--format", "json", "--timeout", "0",
+		"cert", "connect", server.Listener.Addr().String(), "--format", "json", "--connect-timeout", "0",
 	)
 	require.NoError(t, err)
 	var report struct {
@@ -344,7 +344,7 @@ func TestCertConnectPositiveTimeoutCoversTLSHandshake(t *testing.T) {
 	defer cancel()
 	root := newRootCmd()
 	root.SetContext(parent)
-	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", listener.Addr().String(), "--timeout", "20ms", "-o", path)
+	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", listener.Addr().String(), "--connect-timeout", "20ms", "-o", path)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NoError(t, parent.Err(), "the command must use its own setup timeout during preparation")
 	require.NoError(t, listener.Close())
@@ -366,7 +366,7 @@ func TestCertConnectConnectionRefusedDoesNotRetry(t *testing.T) {
 	root := newRootCmd()
 	root.SetContext(ctx)
 
-	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", address, "--timeout", "0")
+	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", address, "--connect-timeout", "0")
 	require.ErrorIs(t, err, syscall.ECONNREFUSED)
 	if ctx.Err() != nil {
 		t.Fatalf("certificate connection refusal exhausted the caller context: %v", ctx.Err())

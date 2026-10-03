@@ -199,9 +199,9 @@ func exchangeUDPDatagram(
 }
 
 func networkDatagramConnectOptionsFromCommand(cmd *cobra.Command) (networkDatagramConnectOptions, error) {
-	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
+	timeout, err := cmd.Flags().GetDuration(netConnectTimeoutFlagName)
 	if err != nil {
-		return networkDatagramConnectOptions{}, fmt.Errorf("read timeout flag: %w", err)
+		return networkDatagramConnectOptions{}, fmt.Errorf("read connect-timeout flag: %w", err)
 	}
 	wait, err := netConnectWait(cmd)
 	if err != nil {
@@ -244,9 +244,9 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 }
 
 func networkStreamOptionsFromCommand(cmd *cobra.Command) (networkStreamOptions, error) {
-	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
+	timeout, err := cmd.Flags().GetDuration(netConnectTimeoutFlagName)
 	if err != nil {
-		return networkStreamOptions{}, fmt.Errorf("read timeout flag: %w", err)
+		return networkStreamOptions{}, fmt.Errorf("read connect-timeout flag: %w", err)
 	}
 	wait, err := cmd.Flags().GetDuration(netWaitFlagName)
 	if err != nil {
@@ -410,12 +410,12 @@ func validateNetFlagsBeforeIO(cmd *cobra.Command) error {
 	if !commandio.HasShape(cmd, networkShape) {
 		return nil
 	}
-	timeout, err := cmd.Flags().GetDuration(netTimeoutFlagName)
+	timeout, err := cmd.Flags().GetDuration(netConnectTimeoutFlagName)
 	if err != nil {
-		return fmt.Errorf("read timeout flag: %w", err)
+		return fmt.Errorf("read connect-timeout flag: %w", err)
 	}
 	if timeout < 0 {
-		return fmt.Errorf("%w: --timeout cannot be negative", ErrInvalidFlags)
+		return fmt.Errorf("%w: --connect-timeout cannot be negative", ErrInvalidFlags)
 	}
 	if cmd.Flags().Lookup(netWaitFlagName) != nil {
 		wait, err := cmd.Flags().GetDuration(netWaitFlagName)

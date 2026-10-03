@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TimeoutFlagName and its peers name shared network timing and stream flags.
+// ConnectTimeoutFlagName and its peers name shared network timing and stream flags.
 const (
-	TimeoutFlagName             = "timeout"
+	ConnectTimeoutFlagName      = "connect-timeout"
 	WaitFlagName                = "wait"
 	CloseWriteFlagName          = "close-write"
 	DuplexFlagName              = "duplex"
@@ -30,12 +30,12 @@ var (
 
 // ValidateNetworkTimeout rejects a negative network setup timeout.
 func ValidateNetworkTimeout(command *cobra.Command) error {
-	timeout, err := command.Flags().GetDuration(TimeoutFlagName)
+	timeout, err := command.Flags().GetDuration(ConnectTimeoutFlagName)
 	if err != nil {
-		return fmt.Errorf("read timeout flag: %w", err)
+		return fmt.Errorf("read connect-timeout flag: %w", err)
 	}
 	if timeout < 0 {
-		return fmt.Errorf("%w: --timeout cannot be negative", ErrInvalidNetworkFlags)
+		return fmt.Errorf("%w: --connect-timeout cannot be negative", ErrInvalidNetworkFlags)
 	}
 	return nil
 }
@@ -57,17 +57,17 @@ func NetworkSetupContext(parent context.Context, timeout time.Duration) (context
 // NetworkCommand adds shared network setup behavior and flags.
 func NetworkCommand(command *cobra.Command) *cobra.Command {
 	AddShape(command, "network")
-	command.Flags().Duration(TimeoutFlagName, DefaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
-	RegisterDurationCompletion(command, TimeoutFlagName, "Disable TCP setup and TLS handshake timeout", NetworkCompletion{})
+	command.Flags().DurationP(ConnectTimeoutFlagName, "c", DefaultNetworkTimeout, "TCP setup and TLS handshake timeout (0 disables)")
+	RegisterDurationCompletion(command, ConnectTimeoutFlagName, "Disable TCP setup and TLS handshake timeout", NetworkCompletion{})
 	command.Args = NetworkAddressArgs(command.Args, false)
 	if command.RunE == nil {
 		panic(fmt.Sprintf("networkCommand: %q has no RunE; wrap a command that uses RunE, not Run", command.Use))
 	}
 	originalRunE := command.RunE
 	command.RunE = func(cmd *cobra.Command, args []string) error {
-		timeout, err := cmd.Flags().GetDuration(TimeoutFlagName)
+		timeout, err := cmd.Flags().GetDuration(ConnectTimeoutFlagName)
 		if err != nil {
-			return fmt.Errorf("read timeout flag: %w", err)
+			return fmt.Errorf("read connect-timeout flag: %w", err)
 		}
 		originalContext := cmd.Context()
 		ctx, cancel := NetworkSetupContext(originalContext, timeout)
@@ -90,10 +90,10 @@ func StreamNetworkCommandWithTimeout(
 	}
 	AddShape(command, "stream-network")
 	AddShape(command, "network")
-	command.Flags().Duration(TimeoutFlagName, defaultTimeout, timeoutHelp)
-	command.Flags().Duration(WaitFlagName, 0,
+	command.Flags().DurationP(ConnectTimeoutFlagName, "c", defaultTimeout, timeoutHelp)
+	command.Flags().DurationP(WaitFlagName, "w", 0,
 		"maximum response drain time after input EOF; expiry returns an error with partial output preserved (0 waits indefinitely)")
-	RegisterDurationCompletion(command, TimeoutFlagName, "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"), completion)
+	RegisterDurationCompletion(command, ConnectTimeoutFlagName, "Disable "+strings.TrimSuffix(timeoutHelp, " (0 disables)"), completion)
 	RegisterDurationCompletion(command, WaitFlagName, "Wait indefinitely while draining the response", completion)
 	command.Flags().Bool(CloseWriteFlagName, true, "half-close the connection write side after input EOF")
 	command.Flags().Bool(DuplexFlagName, true, "keep sending input after the peer closes its write side")

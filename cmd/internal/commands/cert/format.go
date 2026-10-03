@@ -95,7 +95,7 @@ func runPreparedInspection(cmd *cobra.Command, _ []string) error {
 }
 
 func addCertificateSelection(cmd *cobra.Command, defaultSelection string) {
-	cmd.Flags().String("select", defaultSelection, "certificates to export (leaf, chain, fullchain, root, or index: 0=root, last=leaf)")
+	cmd.Flags().StringP("select", "s", defaultSelection, "certificates to export (leaf, chain, fullchain, root, or index: 0=root, last=leaf)")
 	commandio.RegisterDescribedFlagCompletion(cmd, "select", func() []string {
 		return []string{asym.SelectLeaf, asym.SelectChain, asym.SelectFullChain, asym.SelectRoot, "0", "1"}
 	}, map[string]string{

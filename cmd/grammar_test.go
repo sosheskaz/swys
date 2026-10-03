@@ -199,8 +199,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 				}
 			}
 
-			if commandio.HasShape(child, "network") && child.Flag("timeout") == nil {
-				violations = append(violations, fmt.Sprintf("network command %q has no --timeout flag", child.CommandPath()))
+			if commandio.HasShape(child, "network") && child.Flag("connect-timeout") == nil && child.Flag("timeout") == nil {
+				violations = append(violations, fmt.Sprintf("network command %q has no --connect-timeout or --timeout flag", child.CommandPath()))
 			}
 			if commandio.HasShape(child, "sensitive-output") && !commandio.HasShape(child, "binary-output") {
 				violations = append(violations, fmt.Sprintf("sensitive command %q must have binary output", child.CommandPath()))

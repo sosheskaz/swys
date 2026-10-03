@@ -43,7 +43,7 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 	mustRegisterHTTPCompletion(cmd, "file", completeHTTPFileField)
 	mustRegisterHTTPCompletion(cmd, "header", completeHTTPHeader)
 	mustRegisterHTTPCompletion(cmd, "form", noFileHTTPCompletion)
-	for _, name := range []string{"data", "resolve", tlsconfig.ServerNameFlagName, "timeout", "request-timeout", "max-redirects"} {
+	for _, name := range []string{"data", "resolve", tlsconfig.ServerNameFlagName, commandio.ConnectTimeoutFlagName, "timeout", "max-redirects"} {
 		mustRegisterHTTPCompletion(cmd, name, noFileHTTPCompletion)
 	}
 	mustRegisterHTTPCompletion(cmd, "stdin", func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {

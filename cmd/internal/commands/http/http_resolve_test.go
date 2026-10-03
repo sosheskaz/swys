@@ -159,7 +159,7 @@ func TestHTTPResolveReportsEveryFailedAddress(t *testing.T) {
 	requestHost := net.JoinHostPort("127.0.0.4", port)
 	resolve := requestHost + ":127.0.0.2,127.0.0.3"
 
-	_, _, err = executeRootStreams(t, "http", "http://"+requestHost, "--resolve", resolve, "--timeout", "1s")
+	_, _, err = executeRootStreams(t, "http", "http://"+requestHost, "--resolve", resolve, "--connect-timeout", "1s")
 	require.Error(t, err)
 	for _, address := range []string{net.JoinHostPort("127.0.0.2", port), net.JoinHostPort("127.0.0.3", port)} {
 		assert.Contains(t, err.Error(), address)

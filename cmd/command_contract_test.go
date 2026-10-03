@@ -203,6 +203,15 @@ func TestCommonShortFlagsKeepTheirMeanings(t *testing.T) {
 		{path: []string{"net", "connect"}, name: "duplex"},
 		{path: []string{"http"}, name: "data", shorthand: "d"},
 		{path: []string{"grpc"}, name: "data", shorthand: "d"},
+		{path: []string{"net", "connect"}, name: "connect-timeout", shorthand: "c"},
+		{path: []string{"cert", "connect"}, name: "connect-timeout", shorthand: "c"},
+		{path: []string{"http"}, name: "connect-timeout", shorthand: "c"},
+		{path: []string{"http"}, name: "timeout", shorthand: "t"},
+		{path: []string{"dns"}, name: "timeout", shorthand: "t"},
+		{path: []string{"grpc"}, name: "timeout", shorthand: "t"},
+		{path: []string{"net", "connect"}, name: "wait", shorthand: "w"},
+		{path: []string{"cert", "connect"}, name: "select", shorthand: "s"},
+		{path: []string{"http"}, name: "json", shorthand: "j"},
 	} {
 		command, _, err := NewCommand().Find(test.path)
 		require.NoError(t, err)
@@ -358,11 +367,25 @@ func TestNetworkCommandRejectsNegativeTimeoutBeforeIO(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "existing")
 	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
-	_, err := executeRoot(t, "cert", "connect", "localhost:443", "--timeout", "-1s", "--output", path)
+	_, err := executeRoot(t, "cert", "connect", "localhost:443", "--connect-timeout", "-1s", "--output", path)
 	require.ErrorIs(t, err, netcmd.ErrInvalidFlags)
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	assert.Equal(t, "preserve", string(data), "preserved output")
+}
+
+func TestHTTPRejectsRemovedRequestTimeoutBeforeIO(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "existing")
+	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
+	stdout, _, err := executeRootStreams(t, "http", "http://localhost:1", "--request-timeout", "-1s",
+		"--input", filepath.Join(directory, "missing"), "--output", path)
+	assert.Empty(t, stdout)
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, []byte("preserve"), data, "preserved output")
+	require.ErrorContains(t, err, "unknown flag: --request-timeout")
 }
 
 func TestNetworkCommandAppliesTimeout(t *testing.T) {
@@ -383,13 +406,13 @@ func TestNetworkCommandAppliesTimeout(t *testing.T) {
 	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
 
-	if _, err := executeRootCommand(t, rootCmd, "network-test", "example.com:443", "--timeout", "2s"); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "network-test", "example.com:443", "--connect-timeout", "2s"); err != nil {
 		t.Fatal(err)
 	}
 	if remaining <= 0 || remaining > 2*time.Second {
 		t.Fatalf("remaining timeout = %v, want (0, 2s]", remaining)
 	}
-	if got := command.Flags().Lookup("timeout").DefValue; got != "10s" {
+	if got := command.Flags().Lookup("connect-timeout").DefValue; got != "10s" {
 		t.Fatalf("timeout default = %q, want 10s", got)
 	}
 }
@@ -409,7 +432,7 @@ func TestNetworkCommandZeroTimeoutDisablesDeadline(t *testing.T) {
 	rootCmd := newRootCmd()
 	rootCmd.AddCommand(command)
 
-	if _, err := executeRootCommand(t, rootCmd, "network-zero-timeout-test", "example.com:443", "--timeout", "0"); err != nil {
+	if _, err := executeRootCommand(t, rootCmd, "network-zero-timeout-test", "example.com:443", "--connect-timeout", "0"); err != nil {
 		t.Fatal(err)
 	}
 }

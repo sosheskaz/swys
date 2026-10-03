@@ -4,6 +4,8 @@ Resolve common names through the operating system or query DNS servers directly.
 
 Use --output to save the lookup result and --mode to select file permissions. DNS reads its query from command arguments, so an explicit --input is an error.
 
+The --timeout (-t) option covers the whole lookup, with a ten-second default; zero disables it.
+
 ## Use the system resolver
 
 ```sh

@@ -56,9 +56,9 @@ func TestExampleHTTPPostJSON(t *testing.T) {
 	stdout, stderr, err := executeRootStreams(
 		t,
 		"http", server.URL, "-X", "POST",
-		"--json", `{"name":"demo"}`,
+		"-j", `{"name":"demo"}`,
 	)
-	require.NoError(t, err, "npc http -X POST --json: %v", err)
+	require.NoError(t, err, "npc http -X POST -j: %v", err)
 	assert.Equal(t, "created\n", stdout)
 	assert.Empty(t, stderr)
 

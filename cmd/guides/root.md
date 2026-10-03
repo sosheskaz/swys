@@ -31,6 +31,8 @@ Most families use a noun followed by an operation. Net connect and net listen us
 
 Key-file options use --key (-k). AES also accepts literal base64 keys with --key-base64. Use --version (-V) for the version and --verbose (-v) where verbosity is supported. Request data uses --data (-d); network duplex uses the long --duplex flag.
 
+Setup timeouts use --connect-timeout (-c), whole-operation timeouts use --timeout (-t) where supported, and response draining uses --wait (-w). Certificate selection uses --select (-s); HTTP JSON request bodies use --json (-j).
+
 Commands that process bytes commonly read stdin and write stdout. Use the input and output flags to select files where those flags apply. An exact - selects the configured stdin or stdout; use ./- to name a file literally called -. Omitted flags keep each command's documented defaults, which can differ for commands that prepare request bodies.
 
 ## Choose your next step
