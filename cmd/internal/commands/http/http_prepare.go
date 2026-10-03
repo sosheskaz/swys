@@ -172,6 +172,7 @@ func validateHTTPBodyPaths(cmd *cobra.Command, options *httpOptions) error {
 		return err
 	}
 	output := cmd.Flag("output").Value.String()
+	output = commandio.NormalizeMainStreamPath(output)
 	for _, path := range paths {
 		if err := commandio.RejectSameFile(path, output); err != nil {
 			return err

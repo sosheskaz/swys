@@ -21,6 +21,23 @@ func TestExampleHashSHA256FromStdin(t *testing.T) {
 	assert.Equal(t, want, string(output), "npc hash sha256 output")
 }
 
+func TestExampleHashExplicitStreams(t *testing.T) { //nolint:paralleltest // isolates the literal dash fixture with t.Chdir
+	t.Chdir(t.TempDir())
+	const sentinel = "literal dash file"
+	require.NoError(t, os.WriteFile("-", []byte(sentinel), 0o600))
+	input := &hashBorrowedStream{Buffer: bytes.NewBufferString("hello")}
+	output := &hashBorrowedStream{Buffer: new(bytes.Buffer)}
+	err := runHashCommand(t, input, output, "hash", "sha256", "--input", "-", "--output", "-")
+	require.NoError(t, err)
+	const want = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n"
+	assert.Equal(t, want, output.String())
+	assert.False(t, input.closed, "borrowed stdin was closed")
+	assert.False(t, output.closed, "borrowed stdout was closed")
+	contents, err := os.ReadFile("-")
+	require.NoError(t, err)
+	assert.Equal(t, sentinel, string(contents), "explicit streams changed the literal dash file")
+}
+
 func TestExampleHashReadsAndWritesFiles(t *testing.T) {
 	t.Parallel()
 
@@ -42,4 +59,14 @@ func TestExampleHashReadsAndWritesFiles(t *testing.T) {
 	digest := sha256.Sum256(payload)
 	want := hex.EncodeToString(digest[:]) + "\n"
 	assert.Equal(t, want, string(output), "output file")
+}
+
+type hashBorrowedStream struct {
+	*bytes.Buffer
+	closed bool
+}
+
+func (stream *hashBorrowedStream) Close() error {
+	stream.closed = true
+	return nil
 }

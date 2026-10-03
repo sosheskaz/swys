@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -86,6 +87,43 @@ func TestSameInputAndOutputFileIsRejectedWithoutTruncation(t *testing.T) {
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	assert.Equal(t, original, string(data), "file content")
+}
+
+func TestMainStreamDashAndLiteralPaths(t *testing.T) { //nolint:paralleltest // literal paths require t.Chdir
+	const digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n"
+	for _, test := range []struct { //nolint:paralleltest // each subtest changes the working directory
+		name, stdin, file, wantStdout, wantFile string
+		args                                    []string
+	}{
+		{
+			name: "literal input to stdout", stdin: "wrong source", file: "hello",
+			args: []string{"--input", "./-", "--output", "-"}, wantStdout: digest, wantFile: "hello",
+		},
+		{
+			name: "stdin to literal output", stdin: "hello", file: "preserve",
+			args: []string{"--input", "-", "--output", "./-"}, wantFile: digest,
+		},
+		{
+			name: "encoded shorthand streams", stdin: "aGVsbG8=", file: "preserve",
+			args:       []string{"-i", "-", "-o", "-", "--input-encoding", "base64", "-e", "base64"},
+			wantStdout: "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=\n", wantFile: "preserve",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			require.NoError(t, os.WriteFile("-", []byte(test.file), 0o600))
+			root := NewCommand()
+			root.SetIn(strings.NewReader(test.stdin))
+			args := append([]string{"hash", "sha256"}, test.args...)
+			stdout, stderr, err := executeRootCommandStreams(t, root, args...)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantStdout, stdout)
+			assert.Empty(t, stderr)
+			contents, err := os.ReadFile("-")
+			require.NoError(t, err)
+			assert.Equal(t, test.wantFile, string(contents))
+		})
+	}
 }
 
 func TestMissingInputIsRejectedBeforeOutputOpen(t *testing.T) {
@@ -304,14 +342,33 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 	}
 }
 
-func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
-	t.Parallel()
-	_, err := executeRoot(t, "cert", "keygen", "--mode", "0640")
-	wantErr := commandio.ErrModeRequiresRegularOutput
-	if runtime.GOOS == "windows" {
-		wantErr = commandio.ErrOutputModeUnsupported
+func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) { //nolint:paralleltest // isolates a dash output if validation regresses
+	for _, destination := range []string{"omitted", "dash"} { //nolint:paralleltest // each subtest changes the working directory
+		t.Run(destination, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			input := &modeInputReader{}
+			root := NewCommand()
+			root.SetIn(input)
+			args := []string{"hash", "sha256", "--mode", "0640"}
+			if destination == "dash" {
+				args = append(args, "--output", "-")
+			}
+			_, _, err := executeRootCommandStreams(t, root, args...)
+			wantErr := commandio.ErrModeRequiresRegularOutput
+			if runtime.GOOS == "windows" {
+				wantErr = commandio.ErrOutputModeUnsupported
+			}
+			require.ErrorIs(t, err, wantErr)
+			assert.Zero(t, input.reads.Load(), "output mode validation consumed stdin")
+		})
 	}
-	assert.ErrorIs(t, err, wantErr)
+}
+
+type modeInputReader struct{ reads atomic.Int32 }
+
+func (reader *modeInputReader) Read([]byte) (int, error) {
+	reader.reads.Add(1)
+	return 0, errTestCommandFailed
 }
 
 func TestModeFlagRegisteredOnRoot(t *testing.T) {

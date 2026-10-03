@@ -28,6 +28,9 @@ func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest
 				key := bytes.Repeat([]byte{0x42}, 32)
 				require.NoError(t, os.WriteFile(keyfile, key, 0o600))
 				output := keyfile
+				if alias == "literal dash" {
+					output = "./-"
+				}
 				switch alias {
 				case "symlink":
 					output = filepath.Join(dir, "alias")
@@ -67,6 +70,19 @@ func TestAESKeyfileRoundTrip(t *testing.T) {
 	got, err := executeRoot(t, "aes", "decrypt", "--keyfile", keyfile, "--input", encrypted)
 	require.NoError(t, err)
 	assert.Equal(t, "hello", got)
+}
+
+func TestAESLiteralDashKeyfileWritesStdout(t *testing.T) { //nolint:paralleltest // the auxiliary keyfile dash is a literal path
+	t.Chdir(t.TempDir())
+	key := bytes.Repeat([]byte{0x42}, 32)
+	require.NoError(t, os.WriteFile("-", key, 0o600))
+	stdout, stderr, err := executeRootStreams(t, "aes", "encrypt", "hello", "--keyfile", "-", "--output", "-")
+	require.NoError(t, err)
+	assert.NotEmpty(t, stdout, "ciphertext must use configured stdout")
+	assert.Empty(t, stderr)
+	contents, err := os.ReadFile("-")
+	require.NoError(t, err)
+	assert.Equal(t, key, contents, "stdout selection changed the auxiliary keyfile")
 }
 
 func TestAESKeyfilePathErrorPreservesOutput(t *testing.T) {

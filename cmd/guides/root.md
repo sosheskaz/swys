@@ -29,7 +29,7 @@ The certificate names the identity; the private key proves possession of it. Kee
 
 Most families use a noun followed by an operation. Net connect and net listen use TCP by default; select UDP with --udp or TLS with --tls. DNS, gRPC, and HTTP accept their target directly.
 
-Commands that process bytes commonly read stdin and write stdout. Use the input and output file flags where applicable; individual guides explain commands with different input behavior.
+Commands that process bytes commonly read stdin and write stdout. Use the input and output flags to select files where those flags apply. An exact - selects the configured stdin or stdout; use ./- to name a file literally called -. Omitted flags keep each command's documented defaults, which can differ for commands that prepare request bodies.
 
 ## Choose your next step
 

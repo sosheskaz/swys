@@ -203,6 +203,7 @@ func validateAESKeyOutputCollision(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	output = commandio.NormalizeMainStreamPath(output)
 	if keyfile == "" || output == "" {
 		return nil
 	}

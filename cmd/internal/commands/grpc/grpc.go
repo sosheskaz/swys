@@ -482,14 +482,13 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 		if err != nil || input == "" {
 			return fmt.Errorf("%w: --input requires a path or -", ErrInvalidOptions)
 		}
-		if input != "-" {
-			identityInput = input
-		}
+		identityInput = commandio.NormalizeMainStreamPath(input)
 	}
 	output, err := cmd.Flags().GetString("output")
 	if err != nil {
 		return fmt.Errorf("read output flag: %w", err)
 	}
+	output = commandio.NormalizeMainStreamPath(output)
 	if err := commandio.RejectSameFile(identityInput, output); err != nil {
 		return err
 	}

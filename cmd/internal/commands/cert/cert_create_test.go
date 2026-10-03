@@ -355,6 +355,20 @@ func TestCertCreateProtectsInputPaths(t *testing.T) {
 	}
 }
 
+func TestCertCreateDashOutputPreservesLiteralInput(t *testing.T) { //nolint:paralleltest // isolates a literal dash key file
+	t.Chdir(t.TempDir())
+	generateTestKey(t, "ed25519", "./-")
+	key, err := os.ReadFile("-")
+	require.NoError(t, err)
+	stdout, stderr, err := executeRootStreams(t, "cert", "create", "--key", "./-", "--output", "-")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "-----BEGIN CERTIFICATE-----")
+	assert.Empty(t, stderr)
+	contents, err := os.ReadFile("-")
+	require.NoError(t, err)
+	assert.Equal(t, key, contents, "stdout selection changed the certificate key")
+}
+
 func TestCertCreateDefersMissingOutputParentToOutputOpen(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

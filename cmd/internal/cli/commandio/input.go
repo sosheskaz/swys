@@ -12,6 +12,14 @@ import (
 // ErrSameInputOutput identifies two paths that name the same file.
 var ErrSameInputOutput = errors.New("input and output refer to the same file")
 
+// NormalizeMainStreamPath treats an exact dash as the configured stdin or stdout.
+func NormalizeMainStreamPath(path string) string {
+	if path == "-" {
+		return ""
+	}
+	return path
+}
+
 // OpenInput opens a selected file without blocking context cancellation.
 func OpenInput(ctx context.Context, path string) (*os.File, error) {
 	return contextio.OpenFile(ctx, func() (*os.File, error) {

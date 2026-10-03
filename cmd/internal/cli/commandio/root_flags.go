@@ -4,11 +4,11 @@ import "github.com/spf13/cobra"
 
 // AddRootFlags registers the persistent flags used by the shared I/O lifecycle.
 func AddRootFlags(root *cobra.Command) {
-	root.PersistentFlags().StringP("input", "i", "", "redirect stdin from this file")
+	root.PersistentFlags().StringP("input", "i", "", "read stdin from this file; use - for stdin")
 	if err := root.MarkPersistentFlagFilename("input"); err != nil {
 		panic(err)
 	}
-	root.PersistentFlags().StringP("output", "o", "", "redirect stdout to this file")
+	root.PersistentFlags().StringP("output", "o", "", "write stdout to this file; use - for stdout")
 	if err := root.MarkPersistentFlagFilename("output"); err != nil {
 		panic(err)
 	}

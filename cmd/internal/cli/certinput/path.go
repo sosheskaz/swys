@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 )
 
 // ErrPathCollision identifies an output that would overwrite a certificate input.
@@ -46,6 +47,7 @@ func certificateInputPaths(cmd *cobra.Command, sourceFlags []string) ([]namedCer
 	if err != nil {
 		return nil, fmt.Errorf("read input flag: %w", err)
 	}
+	inputPath = commandio.NormalizeMainStreamPath(inputPath)
 	if inputPath != "" {
 		inputs = append(inputs, namedCertificatePath{name: "--input", path: inputPath})
 	}
@@ -58,6 +60,7 @@ func certificateOutputPaths(cmd *cobra.Command) ([]namedCertificatePath, error) 
 	if err != nil {
 		return nil, fmt.Errorf("read output flag: %w", err)
 	}
+	outputPath = commandio.NormalizeMainStreamPath(outputPath)
 	if outputPath != "" {
 		outputs = append(outputs, namedCertificatePath{name: "--output", path: outputPath})
 	}

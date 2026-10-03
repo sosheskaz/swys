@@ -158,6 +158,7 @@ func runCertKeygen(cmd *cobra.Command, _ []string) error {
 		if flagErr != nil {
 			return errors.Join(err, fmt.Errorf("read output flag: %w", flagErr))
 		}
+		privateOut = commandio.NormalizeMainStreamPath(privateOut)
 		if privateOut == "" {
 			return fmt.Errorf("write generated public key after emitting private key: %w", err)
 		}
@@ -260,6 +261,7 @@ func validateKeyPublicOutput(cmd *cobra.Command, publicOut string) error {
 	if err != nil {
 		return fmt.Errorf("read output flag: %w", err)
 	}
+	output = commandio.NormalizeMainStreamPath(output)
 	if output != "" {
 		same, err := artifact.SamePath(output, publicOut)
 		if err != nil {

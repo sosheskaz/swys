@@ -131,6 +131,7 @@ func readIOSetup(cmd *cobra.Command, behavior *Behavior) (ioSetup, error) {
 	if err != nil {
 		return ioSetup{}, fmt.Errorf("read output flag: %w", err)
 	}
+	setup.outputPath = NormalizeMainStreamPath(setup.outputPath)
 	setup.outputOptions, err = commandOutputOptionsWithBehavior(cmd, behavior, runtime.GOOS)
 	if err != nil {
 		return ioSetup{}, err
@@ -174,7 +175,7 @@ func openEncodedOutput(cmd *cobra.Command, setup ioSetup, original io.Writer) (i
 
 func validateCommandOutputMode(outputPath string, options commandOutputOptions) error {
 	if options.Mode != nil && outputPath == "" {
-		return fmt.Errorf("%w: --mode requires --output", ErrModeRequiresRegularOutput)
+		return ErrModeRequiresRegularOutput
 	}
 	return nil
 }
@@ -184,7 +185,7 @@ func commandInputPath(cmd *cobra.Command) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read input flag: %w", err)
 	}
-	return path, nil
+	return NormalizeMainStreamPath(path), nil
 }
 
 func setConfiguredInput(cmd *cobra.Command, input io.Reader, preparesOutput bool) {

@@ -950,6 +950,29 @@ func TestGRPCExplicitStdinWithOutputAndFileAliasValidation(t *testing.T) {
 	})
 }
 
+func TestGRPCExplicitStreamsPreserveLiteralProtoset(t *testing.T) { //nolint:paralleltest // isolates a literal dash descriptor file
+	t.Chdir(t.TempDir())
+	_, set, _ := grpcFixtureSchema(t)
+	protoset, err := proto.Marshal(set)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile("-", protoset, 0o600))
+	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	root := newRootCmd()
+	root.SetIn(strings.NewReader(`{"text":"explicit streams"}`))
+	stdout, stderr, err := executeRootCommandStreams(
+		t, root, "grpc", address, grpcFixtureMethodName, "--plaintext",
+		"--protoset", "./-", "--input", "-", "--output", "-", "--timeout", "2s",
+	)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "explicit streams")
+	assert.Empty(t, stderr)
+	calls, _, _ := record.snapshot()
+	assert.Equal(t, 1, calls)
+	contents, err := os.ReadFile("-")
+	require.NoError(t, err)
+	assert.Equal(t, protoset, contents, "stdout selection changed the descriptor file")
+}
+
 func TestGRPCExplicitDataConflictsWithInputBeforeInvocationOrOutput(t *testing.T) {
 	t.Parallel()
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
