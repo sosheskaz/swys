@@ -2,9 +2,23 @@
 
 Show the size of a raw AES key or the primary ID, status, size, and streaming parameters of a cleartext Tink keyset. Inspection never prints key material.
 
+## Inspect a local key
+
+Create a raw key or Tink keyset first; inspection reads that key file.
+
 ```sh
+npc aes keygen --output key.bin
 npc aes key-inspect --input key.bin
+npc aes keygen --key-format tink-json --output keyset.json
 npc aes key-inspect --input keyset.json --format json
+```
+
+## Use the metadata
+
+With jq installed, extract the primary key ID for a keyset inventory:
+
+```sh
+npc aes key-inspect --input keyset.json --format json | jq '.primary_key_id'
 ```
 
 Use **--encoding base64** (or **-e base64**) to encode the entire metadata report, including any final newline. The default **raw** encoding leaves the selected format unchanged.

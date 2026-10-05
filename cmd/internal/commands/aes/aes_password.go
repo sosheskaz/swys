@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	passwordFlagName   = "password"
 	kdfMemoryFlag      = "kdf-memory"
 	kdfPassesFlag      = "kdf-passes"
 	kdfParallelismFlag = "kdf-parallelism"
@@ -27,7 +28,7 @@ var (
 	errKDFParallelism = errors.New("invalid --kdf-parallelism")
 )
 
-var passwordSources = []string{"password", "password-command", "password-env"}
+var passwordSources = []string{passwordFlagName, "password-command", "password-env"}
 
 func passwordSelected(cmd *cobra.Command) bool {
 	for _, name := range passwordSources {
@@ -39,7 +40,8 @@ func passwordSelected(cmd *cobra.Command) bool {
 }
 
 func addPasswordFlags(cmd *cobra.Command) {
-	cmd.Flags().Bool("password", false, "prompt for a password on the controlling terminal")
+	cmd.Flags().Bool(passwordFlagName, false, "prompt for a password on the controlling terminal")
+	registerAESValueCompletion(cmd, passwordFlagName, func() []string { return []string{"true"} })
 	cmd.Flags().String("password-command", "", "run a shell command whose first output line is the password")
 	cmd.Flags().String("password-env", "", "read a password from this named environment variable")
 	registerAESNoFileFlagCompletion(cmd, "password-command")
@@ -58,8 +60,8 @@ func addPasswordCostFlags(cmd *cobra.Command) {
 // validateAESPasswordFlags checks password flag combinations and KDF costs
 // before any password is requested or output is opened.
 func validateAESPasswordFlags(cmd *cobra.Command) error {
-	if cmd.Flags().Changed("password") {
-		enabled, err := cmd.Flags().GetBool("password")
+	if cmd.Flags().Changed(passwordFlagName) {
+		enabled, err := cmd.Flags().GetBool(passwordFlagName)
 		if err != nil {
 			return fmt.Errorf("read --password: %w", err)
 		}
@@ -160,7 +162,7 @@ func parseKDFCount(cmd *cobra.Command, name string, invalid error) (uint32, erro
 }
 
 func acquireAESPassword(cmd *cobra.Command) ([]byte, error) {
-	if cmd.Flags().Changed("password") {
+	if cmd.Flags().Changed(passwordFlagName) {
 		return password.Prompt(cmd.Context(), cmd.Name() != commandDecrypt)
 	}
 	if cmd.Flags().Changed("password-command") {

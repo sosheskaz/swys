@@ -30,7 +30,7 @@ var (
 	errAESInspectionFormat = errors.New("unsupported inspection format")
 )
 
-func keyFormatNames() []string { return []string{keyFormatRaw, "tink-json", "tink-binary"} }
+func keyFormatNames() []string { return []string{keyFormatRaw, keyFormatTinkJSON, keyFormatTinkBinary} }
 
 func keyFormatFlag(cmd *cobra.Command, flag string) (string, error) {
 	value, err := cmd.Flags().GetString(flag)
@@ -64,9 +64,9 @@ func detectAESKeyFormat(data []byte, format string) string {
 		return keyFormatRaw
 	}
 	if trimmed := bytes.TrimLeft(data, " \t\r\n"); len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
-		return "tink-json"
+		return keyFormatTinkJSON
 	}
-	return "tink-binary"
+	return keyFormatTinkBinary
 }
 
 func aesKeyInputLimit(format string) int64 {
@@ -86,10 +86,11 @@ func readAESKeyInput(input io.Reader, format string) ([]byte, string, error) {
 
 func addTinkParameterFlags(cmd *cobra.Command) {
 	cmd.Flags().String("chunk-size", "1MiB", "Tink ciphertext segment size (64B through 64MiB)")
+	registerAESNoFileFlagCompletion(cmd, "chunk-size")
 	cmd.Flags().String("hkdf-hash", "sha256", "Tink HKDF hash (sha256 or sha512)")
 	cmd.Flags().Int("derived-key-bits", 0, "Tink derived AES key bits (128 or 256; default matches input key)")
-	commandio.RegisterFlagCompletion(cmd, "hkdf-hash", func() []string { return []string{"sha256", "sha512"} })
-	commandio.RegisterFlagCompletion(cmd, "derived-key-bits", func() []string { return []string{"128", "256"} })
+	registerAESValueCompletion(cmd, "hkdf-hash", func() []string { return []string{"sha256", "sha512"} })
+	registerAESValueCompletion(cmd, "derived-key-bits", func() []string { return []string{"128", "256"} })
 }
 
 func tinkParamsFromCommand(cmd *cobra.Command, target string, bits int) (symkey.Parameters, error) {
@@ -180,18 +181,19 @@ func prepareAESKeygenOutput(cmd *cobra.Command, _ io.Reader) ([]byte, error) {
 
 func newAESKeyConvertCmd() *cobra.Command {
 	cmd := commandio.SensitiveBinaryOutputCommand(&cobra.Command{
-		Use: "key-convert", Short: "Convert raw AES keys and cleartext Tink keysets", Args: cobra.NoArgs,
+		Use: commandKeyConvert, Short: "Convert raw AES keys and cleartext Tink keysets", Args: cobra.NoArgs,
 		RunE: writePreparedAESKey,
 	}, true)
 	cmd.Flags().String("from", keyFormatAuto, "source key format (auto, raw, tink-json, tink-binary)")
 	cmd.Flags().String("to", "", "target key format (raw, tink-json, tink-binary)")
 	cmd.Flags().String("key-id", "", "decimal Tink key ID for raw export")
+	registerAESNoFileFlagCompletion(cmd, "key-id")
 	addTinkParameterFlags(cmd)
 	if err := cmd.MarkFlagRequired("to"); err != nil {
 		panic(err)
 	}
-	commandio.RegisterFlagCompletion(cmd, "from", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
-	commandio.RegisterFlagCompletion(cmd, "to", keyFormatNames)
+	registerAESValueCompletion(cmd, "from", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
+	registerAESValueCompletion(cmd, "to", keyFormatNames)
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd
 }
@@ -320,7 +322,7 @@ func newAESKeyInspectCmd() *cobra.Command {
 	}, func() []string { return []string{"text", inspectionJSON} }))
 	commandio.AddOutputEncodingFlag(cmd)
 	cmd.Flags().String("key-format", keyFormatAuto, "key format (auto, raw, tink-json, tink-binary)")
-	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
+	registerAESValueCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd
 }

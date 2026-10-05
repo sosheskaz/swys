@@ -8,8 +8,8 @@ AES-192 is excluded because the Tink AES-GCM-HKDF streaming primitive used by NP
 
 ```sh
 npc aes keygen --output key.bin
-printf 'example' | npc aes encrypt --key key.bin --output message.gcm
-npc aes decrypt --key key.bin --input message.gcm
+printf 'example' | npc aes encrypt --key key.bin --output message.pgp
+npc aes decrypt --key key.bin --input message.pgp
 ```
 
 Raw output is binary key material. Tink JSON and binary outputs are standard cleartext AES-GCM-HKDF streaming keysets. Their key material is also unencrypted. Keep a generated key to decrypt later messages; a new key cannot recover them. Key files use sensitive-output protections.

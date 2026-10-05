@@ -29,17 +29,21 @@ import (
 )
 
 const (
-	wireOpenPGP       = "openpgp"
-	wireTink          = "tink"
-	flagDerivedBits   = "derived-key-bits"
-	keyFlagName       = "key"
-	keyBase64FlagName = "key-base64"
-	flagHKDFHash      = "hkdf-hash"
-	flagAAD           = "aad"
-	commandDecrypt    = "decrypt"
-	keyFormatAuto     = "auto"
-	hashSHA256        = "sha256"
-	hashSHA512        = "sha512"
+	wireOpenPGP         = "openpgp"
+	wireTink            = "tink"
+	flagDerivedBits     = "derived-key-bits"
+	keyFlagName         = "key"
+	keyBase64FlagName   = "key-base64"
+	flagHKDFHash        = "hkdf-hash"
+	flagAAD             = "aad"
+	commandDecrypt      = "decrypt"
+	commandKeygen       = "keygen"
+	commandKeyConvert   = "key-convert"
+	keyFormatTinkBinary = "tink-binary"
+	keyFormatTinkJSON   = "tink-json"
+	keyFormatAuto       = "auto"
+	hashSHA256          = "sha256"
+	hashSHA512          = "sha512"
 )
 
 //go:embed guides
@@ -107,9 +111,9 @@ func addKeyFlags(cmd *cobra.Command) {
 		panic(err)
 	}
 	addPasswordFlags(cmd)
-	cmd.MarkFlagsMutuallyExclusive(keyBase64FlagName, keyFlagName, "password", "password-command", "password-env")
-	cmd.MarkFlagsOneRequired(keyBase64FlagName, keyFlagName, "password", "password-command", "password-env")
-	commandio.RegisterFlagCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
+	cmd.MarkFlagsMutuallyExclusive(keyBase64FlagName, keyFlagName, passwordFlagName, "password-command", "password-env")
+	cmd.MarkFlagsOneRequired(keyBase64FlagName, keyFlagName, passwordFlagName, "password-command", "password-env")
+	registerAESValueCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
 }
 
 func addAESWireFlags(cmd *cobra.Command) {
@@ -118,11 +122,13 @@ func addAESWireFlags(cmd *cobra.Command) {
 	cmd.Flags().String("chunk-size", "1MiB", "OpenPGP plaintext chunk or Tink ciphertext segment size")
 	cmd.Flags().String(flagHKDFHash, hashSHA256, "Tink HKDF hash (sha256 or sha512)")
 	cmd.Flags().Int(flagDerivedBits, 0, "Tink derived AES bits (default matches input key)")
-	commandio.RegisterFlagCompletion(cmd, "wire-format", func() []string { return []string{wireOpenPGP, wireTink} })
+	registerAESValueCompletion(cmd, "wire-format", func() []string { return []string{wireOpenPGP, wireTink} })
+	registerAESNoFileFlagCompletion(cmd, "key-id")
+	registerAESValueCompletion(cmd, flagDerivedBits, func() []string { return []string{"128", "256"} })
 	registerAESNoFileFlagCompletion(cmd, keyBase64FlagName)
 	registerAESNoFileFlagCompletion(cmd, flagAAD)
 	registerAESNoFileFlagCompletion(cmd, "chunk-size")
-	commandio.RegisterFlagCompletion(cmd, flagHKDFHash, func() []string { return []string{hashSHA256, hashSHA512} })
+	registerAESValueCompletion(cmd, flagHKDFHash, func() []string { return []string{hashSHA256, hashSHA512} })
 }
 
 func getAESString(cmd *cobra.Command, name string) (string, error) {

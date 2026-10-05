@@ -14,7 +14,7 @@ import (
 
 func newAESKeygenCmd() *cobra.Command {
 	cmd := commandio.SensitiveBinaryOutputCommand(&cobra.Command{
-		Use:   "keygen",
+		Use:   commandKeygen,
 		Short: "Generate a raw AES key or Tink keyset",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -35,12 +35,8 @@ func newAESKeygenCmd() *cobra.Command {
 	cmd.Flags().IntP("bits", "b", 256, "AES key size in bits (128 or 256)")
 	cmd.Flags().String("key-format", "raw", "key format ("+strings.Join(keyFormatNames(), ", ")+")")
 	addTinkParameterFlags(cmd)
-	commandio.RegisterFlagCompletion(cmd, "key-format", keyFormatNames)
-	if err := cmd.RegisterFlagCompletionFunc("bits", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return []string{"128", "256"}, cobra.ShellCompDirectiveNoFileComp
-	}); err != nil {
-		panic(err)
-	}
+	registerAESValueCompletion(cmd, "key-format", keyFormatNames)
+	registerAESValueCompletion(cmd, "bits", func() []string { return []string{"128", "256"} })
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd
 }
