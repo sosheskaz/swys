@@ -79,11 +79,30 @@ func snapshotIOFlagVisibility(command *cobra.Command) func() {
 	}
 }
 
+func snapshotCompletionFlagVisibility(root *cobra.Command) func() {
+	states := make(map[*pflag.Flag]bool)
+	var visit func(*cobra.Command)
+	visit = func(command *cobra.Command) {
+		capture := func(flag *pflag.Flag) { states[flag] = flag.Hidden }
+		command.Flags().VisitAll(capture)
+		command.PersistentFlags().VisitAll(capture)
+		for _, child := range command.Commands() {
+			visit(child)
+		}
+	}
+	visit(root)
+	return func() {
+		for flag, hidden := range states {
+			flag.Hidden = hidden
+		}
+	}
+}
+
 func (lifecycle *Lifecycle) prepareShellCompletion(command *cobra.Command, args []string) bool {
 	if command.Name() != cobra.ShellCompRequestCmd && command.Name() != cobra.ShellCompNoDescRequestCmd {
 		return false
 	}
-	restore := snapshotIOFlagVisibility(command)
+	restore := snapshotCompletionFlagVisibility(command.Root())
 	lifecycle.PrepareCompletion(command, args)
 	if len(args) > 0 {
 		if target, _, err := command.Root().Find(args[:len(args)-1]); err == nil {
@@ -91,7 +110,7 @@ func (lifecycle *Lifecycle) prepareShellCompletion(command *cobra.Command, args 
 		}
 	}
 	// Cobra's internal completion command runs after the pre-run hook and parses
-	// its target's flags there. Keep shared flag visibility scoped to that run.
+	// its target's flags there. Keep shared and family flag visibility scoped to that run.
 	run := command.Run
 	command.Run = func(cmd *cobra.Command, args []string) {
 		defer func() {

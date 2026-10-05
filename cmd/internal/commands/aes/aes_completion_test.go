@@ -1,6 +1,7 @@
 package aes_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,32 @@ func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
 			assertCompletionDirective(t, output, ":4")
 		})
 	}
+}
+
+func TestAESCompletionRestoresReferenceHelpWithoutIO(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	outputPath := filepath.Join(directory, "output")
+	require.NoError(t, os.WriteFile(outputPath, []byte("preserve"), 0o600))
+	root := rootcmd.NewCommand()
+	input := strings.NewReader("operational input")
+	before := input.Len()
+	output, _, err := testcmd.RunStreams(t, root, input,
+		"__complete", "aes", "encrypt", "--password-env", "NPC_AES_COMPLETION_MISSING_PASSWORD",
+		"--output", outputPath, "--")
+	require.NoError(t, err)
+	assert.NotContains(t, string(output), "--key-format", "password completion narrows the interface")
+	assert.Equal(t, before, input.Len(), "completion consumed operational stdin")
+	contents, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("preserve"), contents, "completion changed operational output")
+	command, _, err := root.Find([]string{"aes", "encrypt"})
+	require.NoError(t, err)
+	var reference bytes.Buffer
+	root.SetOut(&reference)
+	require.NoError(t, command.Help())
+	assert.Contains(t, reference.String(), "--key-format", "reference help must retain the complete interface")
+	assert.Contains(t, reference.String(), "--aad", "reference help must retain Tink options")
 }
 
 func TestAESCompletionSuppressesFilesForLiteralValues(t *testing.T) {
