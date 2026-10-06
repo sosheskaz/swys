@@ -1,6 +1,7 @@
 package net
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
@@ -92,6 +93,90 @@ func TestValidateTLSServerIdentityAcceptsPresentedOrder(t *testing.T) {
 	certificates, privateKey := newListenTestIntermediateChain(t)
 	identity := tls.Certificate{Certificate: certificates, PrivateKey: privateKey}
 	require.NoError(t, validateTLSServerIdentity(&identity))
+}
+
+func TestUDPOperationsCloseOwnedSocketOnFailure(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		want      error
+		name      string
+		connector bool
+		timeout   bool
+	}{
+		{name: "listener first datagram timeout", timeout: true, want: context.DeadlineExceeded},
+		{name: "listener response input cancellation", want: context.Canceled},
+		{name: "connector input cancellation", connector: true, want: context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(t.Context())
+			t.Cleanup(cancel)
+			input, writer := io.Pipe()
+			t.Cleanup(func() {
+				if err := input.Close(); err != nil {
+					t.Errorf("close UDP input: %v", err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Errorf("close UDP input writer: %v", err)
+				}
+			})
+			command := newNetListenTestCommand(t, netProtocolUDP)
+			command.SetContext(ctx)
+			command.SetIn(input)
+			command.SetOut(io.Discard)
+			connection := listenUDPTest(t)
+			if test.connector {
+				var err error
+				connection, err = netconn.DialUDP(ctx, connection.LocalAddr().String())
+				require.NoError(t, err)
+				t.Cleanup(func() { closeUDPTest(t, connection) })
+			}
+			setupContext, cancelSetup := context.WithCancel(ctx)
+			if test.timeout {
+				cancelSetup()
+				setupContext, cancelSetup = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+			}
+			t.Cleanup(cancelSetup)
+			done := make(chan error, 1)
+			go func() {
+				if test.connector {
+					done <- runUDPConnection(ctx, command, connection, networkDatagramConnectOptions{})
+					return
+				}
+				done <- receiveAndRespondUDPDatagram(ctx, setupContext, cancelSetup, command, connection, false)
+			}()
+			if !test.timeout {
+				if !test.connector {
+					client, err := netconn.DialUDP(ctx, connection.LocalAddr().String())
+					require.NoError(t, err)
+					t.Cleanup(func() { closeUDPTest(t, client) })
+					require.NoError(t, netconn.SendUDP(ctx, client, []byte("request")))
+				}
+				written := make(chan error, 1)
+				go func() {
+					_, err := writer.Write([]byte("partial"))
+					written <- err
+				}()
+				select {
+				case err := <-written:
+					require.NoError(t, err)
+				case err := <-done:
+					t.Fatalf("UDP operation stopped before reading input: %v", err)
+				case <-time.After(time.Second):
+					t.Fatal("UDP operation did not begin reading input")
+				}
+				cancel()
+			}
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, test.want)
+			case <-time.After(time.Second):
+				t.Fatal("UDP operation did not stop")
+			}
+			// The released port may already belong to another socket. Check the original.
+			require.ErrorIs(t, connection.SetReadDeadline(time.Time{}), net.ErrClosed)
+		})
+	}
 }
 
 func TestRespondUDPDatagramReturnsOutputFailureBeforeSending(t *testing.T) {

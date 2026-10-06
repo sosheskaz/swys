@@ -140,24 +140,34 @@ func runNetListenUDP(cmd *cobra.Command, args []string) error {
 		cancel()
 		return err
 	}
-	if options.verbose {
+	return receiveAndRespondUDPDatagram(cmd.Context(), setupContext, cancel, cmd, listener, options.verbose)
+}
+
+func receiveAndRespondUDPDatagram(
+	ctx, setupContext context.Context,
+	cancelSetup context.CancelFunc,
+	cmd *cobra.Command,
+	listener *net.UDPConn,
+	verbose bool,
+) error {
+	if verbose {
 		if err := writeUDPListeningDetails(cmd.ErrOrStderr(), listener); err != nil {
-			cancel()
+			cancelSetup()
 			return errors.Join(err, listener.Close())
 		}
 	}
 	request, peer, err := netconn.ReceiveUDPFrom(setupContext, listener)
-	cancel()
+	cancelSetup()
 	if err != nil {
 		return errors.Join(err, listener.Close())
 	}
-	if options.verbose {
+	if verbose {
 		if err := writeUDPReceivedDetails(cmd.ErrOrStderr(), listener.LocalAddr(), peer); err != nil {
 			return errors.Join(err, listener.Close())
 		}
 	}
 	exchangeErr := respondUDPDatagram(
-		cmd.Context(),
+		ctx,
 		listener,
 		peer,
 		request,

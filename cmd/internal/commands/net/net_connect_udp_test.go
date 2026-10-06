@@ -159,7 +159,7 @@ func TestNetConnectUDPRejectsOversizedInputBeforeSending(t *testing.T) {
 	}
 }
 
-func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
+func TestNetConnectUDPCancellationWhileReadingInput(t *testing.T) {
 	t.Parallel()
 	listener := listenUDPTest(t)
 	input, inputWriter := io.Pipe()
@@ -198,10 +198,11 @@ func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
 	if !found {
 		t.Fatalf("diagnostic = %q, want connected UDP endpoints", line)
 	}
-	localAddress, _, found := strings.Cut(connection, " -> ")
+	_, _, found = strings.Cut(connection, " -> ")
 	if !found {
 		t.Fatalf("diagnostic = %q, want local and remote UDP endpoints", line)
 	}
+	waitForUDPInputRead(t, inputWriter, done)
 
 	cancel()
 	select {
@@ -210,12 +211,6 @@ func TestNetConnectUDPCancellationWhileReadingInputClosesSocket(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("connector did not stop after cancellation while reading input")
 	}
-
-	resolved, err := net.ResolveUDPAddr("udp", localAddress)
-	require.NoError(t, err)
-	rebound, err := net.ListenUDP("udp", resolved)
-	require.NoError(t, err, "rebind connector socket after cancellation: %v", err)
-	closeUDPTest(t, rebound)
 }
 
 func listenUDPTest(t *testing.T) *net.UDPConn {
