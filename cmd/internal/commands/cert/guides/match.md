@@ -26,6 +26,12 @@ Use **-** for at most one operand to read it from stdin. **--input** can redirec
 npc cert match --cert server.pem --key - < server-key.pem
 ```
 
+**--input-encoding** requires exactly one operand set to **-** and decodes only that operand. Named files remain raw. To read a wrapped key from a file:
+
+```sh
+npc cert match --cert server.pem --key - --input server-key.pem.b64 --input-encoding base64
+```
+
 A completed mismatch produces a report with **match: false** and a nonzero exit status. Reports contain public fingerprints and never private key material.
 
 ## Reference

@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
 	"github.com/sosheskaz-systems/npc/internal/asym"
@@ -158,6 +157,7 @@ func newCertInspectCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  runPreparedInspection,
 	}, certFormatNames)
+	commandio.AddInputEncodingFlag(certInspectCmd)
 	commandio.AddOutputEncodingFlag(certInspectCmd)
 	addCertificateSelection(certInspectCmd, asym.SelectFullChain)
 	certInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
@@ -169,7 +169,7 @@ func prepareInspectedCertificates(cmd *cobra.Command, input io.Reader) ([]byte, 
 	if err != nil {
 		return nil, fmt.Errorf("read certificate input: %w", err)
 	}
-	certs, err := certinput.ParsePEMCertificates(data)
+	certs, err := parseCertificateArtifact(data)
 	if err != nil {
 		return nil, err
 	}

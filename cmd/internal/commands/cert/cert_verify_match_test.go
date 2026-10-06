@@ -10,6 +10,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -162,6 +163,18 @@ func TestCertVerifyReadsCustomRootsFromStdin(t *testing.T) {
 			assertCertBooleanReport(t, stdout, "verified", true)
 		})
 	}
+
+	t.Run("encoded main file with raw CA stdin", func(t *testing.T) {
+		t.Parallel()
+		encodedChain := base64.StdEncoding.EncodeToString(append(bytes.Clone(fixture.leafPEM), fixture.intermediatePEM...))
+		encodedPath := writeCertTestFile(t, t.TempDir(), "chain.b64", []byte(encodedChain))
+		stdout, stderr, err := executeRootStreamsWithInput(t, bytes.NewReader(fixture.rootPEM),
+			"cert", "verify", "--input", encodedPath, "--input-encoding", "base64", "--ca", "-",
+			"--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json",
+		)
+		require.NoError(t, err, "encoded main with raw CA stdin: stderr %q", stderr)
+		assertCertBooleanReport(t, stdout, "verified", true)
+	})
 }
 
 func TestCertVerifyRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
@@ -776,6 +789,43 @@ func TestCertMatchStdinSelection(t *testing.T) {
 	require.NoError(t, err, "redirected stdin operand: %v", err)
 	assertCertBooleanReport(t, stdout, "match", true)
 
+	encodedKey := []byte(base64.StdEncoding.EncodeToString(fixture.leafKeyPKCS8PEM))
+	for _, test := range []struct {
+		name  string
+		input []byte
+		args  []string
+	}{
+		{name: "encoded stdin", input: encodedKey},
+		{
+			name: "encoded redirected input", input: []byte("ignored invalid stdin"),
+			args: []string{"--input", writeCertTestFile(t, dir, "key.b64", encodedKey)},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := []string{"cert", "match", "--cert", certPath, "--key", "-", "--input-encoding", "base64", "--format", "json"}
+			reportOutput, _, matchErr := executeCertTestWithInput(t, test.input, append(args, test.args...)...)
+			require.NoError(t, matchErr)
+			assertCertBooleanReport(t, reportOutput, "match", true)
+		})
+	}
+
+	t.Run("encoding requires a stdin operand before IO", func(t *testing.T) {
+		t.Parallel()
+		outputPath := fixturePath(t, t.TempDir(), "output", []byte("preserve"))
+		root := newRootCmd()
+		input := &certVerifyReadCounter{}
+		root.SetIn(input)
+		_, _, err := executeRootCommandStreams(t, root,
+			"cert", "match", "--cert", certPath, "--key", keyPath, "--input-encoding", "base64", "--output", outputPath,
+		)
+		require.ErrorIs(t, err, errCertificateInputSelection)
+		require.Zero(t, input.count.Load())
+		contents, readErr := os.ReadFile(outputPath)
+		require.NoError(t, readErr)
+		require.Equal(t, []byte("preserve"), contents)
+	})
+
 	if _, _, err = executeCertTestWithInput(t, fixture.leafPEM, "cert", "match", "--cert", "-", "--key", "-"); err == nil {
 		t.Fatal("multiple stdin operands returned success")
 	}
@@ -796,12 +846,24 @@ func TestCertVerifyAndMatchArtifactLimits(t *testing.T) {
 
 	certificateAtLimit := writeCertTestFile(t, dir, "cert-at-limit", bytes.Repeat([]byte{'x'}, int(artifact.MaxCertificateBytes)))
 	certificateOverLimit := writeCertTestFile(t, dir, "cert-over-limit", bytes.Repeat([]byte{'x'}, int(artifact.MaxCertificateBytes+1)))
-	_, _, err := executeRootStreams(t, "cert", "verify", "--input", certificateAtLimit, "--ca", rootPath)
+	atLimitData, err := os.ReadFile(certificateAtLimit)
+	require.NoError(t, err)
+	_, _, err = executeRootStreamsWithInput(t, strings.NewReader(base64.StdEncoding.EncodeToString(atLimitData)),
+		"cert", "verify", "--input-encoding", "base64", "--ca", rootPath,
+	)
 	if err == nil || errors.Is(err, artifact.ErrTooLarge) {
 		t.Fatalf("certificate at limit error = %v, want parse error without size rejection", err)
 	}
-	_, _, err = executeRootStreams(t, "cert", "verify", "--input", certificateOverLimit, "--ca", rootPath)
+	overLimitData, err := os.ReadFile(certificateOverLimit)
+	require.NoError(t, err)
+	outputPath := fixturePath(t, dir, "output", []byte("preserve"))
+	_, _, err = executeRootStreamsWithInput(t, strings.NewReader(base64.StdEncoding.EncodeToString(overLimitData)),
+		"cert", "verify", "--input-encoding", "base64", "--ca", rootPath, "--output", outputPath,
+	)
 	require.ErrorIs(t, err, artifact.ErrTooLarge, "certificate over limit error = %v, want artifact.ErrTooLarge", err)
+	contents, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	require.Equal(t, []byte("preserve"), contents)
 	_, _, err = executeRootStreams(t, "cert", "match", "--cert", certificateAtLimit, "--key", keyPath)
 	if err == nil || errors.Is(err, artifact.ErrTooLarge) {
 		t.Fatalf("match certificate at limit error = %v, want parse error without size rejection", err)

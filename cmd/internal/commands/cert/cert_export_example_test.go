@@ -24,6 +24,10 @@ func TestExampleConnectExportsRootAsBase64PEM(t *testing.T) {
 	assert.Equal(t, certificates[len(certificates)-1], block.Bytes)
 	assert.Empty(t, rest)
 	assert.Contains(t, diagnostics, "not verified")
+
+	inspected, _, err := executeCertTestWithInput(t, []byte(output), "cert", "inspect", "--input-encoding", "base64", "-f", "pem")
+	require.NoError(t, err, "inspect the encoded certificate export")
+	assert.Equal(t, string(decoded), inspected)
 }
 
 func TestExampleConnectExtractsPEMFromJSON(t *testing.T) {

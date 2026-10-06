@@ -36,6 +36,39 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 	assert.Empty(t, output, "output = %q, want no output for invalid input", output)
 }
 
+func TestCertificateInspectAcceptsDERAndPreservesFraming(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	for _, test := range []struct {
+		wantErr error
+		name    string
+		data    []byte
+		reject  bool
+	}{
+		{name: "single DER certificate", data: fixture.leafDER},
+		{name: "DER trailing whitespace", data: append(bytes.Clone(fixture.leafDER), '\n'), reject: true},
+		{
+			name: "PEM trailing data", data: append(bytes.Clone(fixture.leafPEM), []byte("trailing data")...),
+			reject: true, wantErr: errTrailingCertificateData,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stdout, _, err := executeCertTestWithInput(t, test.data, "cert", "inspect", "-f", "pem")
+			if test.reject {
+				require.Error(t, err)
+				if test.wantErr != nil {
+					require.ErrorIs(t, err, test.wantErr)
+				}
+				assert.Empty(t, stdout)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, string(fixture.leafPEM), stdout)
+		})
+	}
+}
+
 func TestCertificateSupportedFormatsDriveHelpErrorsAndCompletion(t *testing.T) {
 	t.Parallel()
 	wantFormats := []string{"json", "pem", "text"}

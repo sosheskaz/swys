@@ -1,6 +1,6 @@
 # Inspect certificates from a file or stdin
 
-Read PEM certificates and report identity, validity, fingerprints, and verification information. By default, all supplied certificates are displayed as text, in input order; verification describes the first certificate.
+Read a PEM certificate bundle or one DER certificate and report identity, validity, fingerprints, and verification information. By default, all supplied certificates are displayed as text, in input order; verification describes the first certificate.
 
 ## Inspect or export certificates
 
@@ -9,6 +9,19 @@ npc cert inspect --input chain.pem --format text
 npc cert inspect --input chain.pem --format json
 npc cert inspect --input chain.pem --select leaf -f pem -o server.pem
 npc cert inspect --input chain.pem --select root -f pem -e base64
+```
+
+PEM and DER are recognized automatically. Use **--input-encoding** to decode wrapped certificate bytes before parsing; the default **raw** reads them unchanged.
+
+```sh
+npc cert inspect --input certificate.der --format json
+npc cert inspect --input chain.pem.b64 --input-encoding base64 --format json
+```
+
+For a reachable TLS endpoint, decode an encoded certificate export directly:
+
+```sh
+npc cert connect api.example.com:443 --select leaf -f pem -e base64 | npc cert inspect --input-encoding base64
 ```
 
 The default **text** format displays detailed certificate metadata, validity dates, fingerprints, and certificate verification.

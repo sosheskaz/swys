@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
@@ -19,13 +20,16 @@ func TestExampleCertVerifyCustomRoot(t *testing.T) {
 	t.Parallel()
 	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
 	dir := t.TempDir()
-	chainPath := writeCertTestFile(t, dir, "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
+	chainPath := writeCertTestFile(t, dir, "leaf.b64", []byte(base64.StdEncoding.EncodeToString(fixture.leafPEM)))
 	rootPath := writeCertTestFile(t, dir, "root.pem", fixture.rootPEM)
+	intermediatePath := writeCertTestFile(t, dir, "intermediate.pem", fixture.intermediatePEM)
 
 	stdout, stderr, err := executeRootStreams(t,
 		"cert", "verify",
 		"--input", chainPath,
+		"--input-encoding", "base64",
 		"--ca", rootPath,
+		"--intermediates", intermediatePath,
 		"--hostname", certTestDNSName,
 		"--at", certTestCurrentTime.Format(certTestRFC3339),
 		"--format", "json",
@@ -78,6 +82,30 @@ func TestExampleCertReportsEncodeCompleteStdout(t *testing.T) {
 			encoded, stderr, err := executeRootStreams(t, append(append([]string{}, tc.args...), "--encoding", "base64")...)
 			require.NoError(t, err, "encoded report: stderr %q", stderr)
 			require.Equal(t, base64.StdEncoding.EncodeToString([]byte(plain)), encoded)
+		})
+	}
+}
+
+func TestCertificateInputDecodeFailurePreservesOutput(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	certPath := writeCertTestFile(t, t.TempDir(), "cert.pem", fixture.leafPEM)
+	for _, invocation := range [][]string{
+		{"cert", "inspect"},
+		{"cert", "verify"},
+		{"cert", "match", "--cert", certPath, "--key", "-"},
+	} {
+		t.Run(invocation[1], func(t *testing.T) {
+			t.Parallel()
+			outputPath := writeCertTestFile(t, t.TempDir(), "output", []byte("preserve"))
+			args := append(append([]string{}, invocation...), "--input-encoding", "base64", "--output", outputPath)
+			stdout, _, err := executeCertTestWithInput(t, []byte("%%%%"), args...)
+			var decodeErr base64.CorruptInputError
+			require.ErrorAs(t, err, &decodeErr)
+			assert.Empty(t, stdout)
+			contents, readErr := os.ReadFile(outputPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, []byte("preserve"), contents)
 		})
 	}
 }

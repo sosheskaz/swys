@@ -70,6 +70,7 @@ func newCertVerifyCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  runPreparedCertificateReport,
 	}, certificateReportFormatNames)
+	commandio.AddInputEncodingFlag(command)
 	commandio.AddOutputEncodingFlag(command)
 	command.Flags().String("ca", "", "PEM or DER trust anchors path, or - for stdin (replaces system roots unless --system-ca is set)")
 	command.Flags().Bool("system-ca", false, "combine system roots with --ca")
@@ -93,6 +94,7 @@ func newCertMatchCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  runPreparedCertificateReport,
 	}, certificateReportFormatNames)
+	commandio.AddInputEncodingFlag(command)
 	commandio.AddOutputEncodingFlag(command)
 	command.Flags().String(tlsconfig.CertFlagName, "", "certificate path, or - for stdin")
 	command.Flags().StringP(tlsconfig.KeyFlagName, "k", "", "public or private key path, or - for stdin")

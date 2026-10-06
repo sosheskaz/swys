@@ -20,6 +20,12 @@ cat root.pem | npc cert verify --input chain.pem --ca - --hostname api.example.c
 
 Standard input has one owner. When **--ca -** is used, the certificate chain must come from a file through **--input**; the default chain input and **--input -** are rejected.
 
+**--input-encoding** decodes only the main certificate chain. Named CA and intermediate files, and CA standard input selected by **--ca -**, remain raw certificate bytes.
+
+```sh
+cat root.pem | npc cert verify --input chain.pem.b64 --input-encoding base64 --ca - --hostname api.example.com
+```
+
 Use **--purpose client** for a client certificate or **--purpose any** to accept any extended key usage. Use **--at** with an RFC 3339 timestamp for reproducible checks.
 
 ```sh
