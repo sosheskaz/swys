@@ -20,9 +20,10 @@ third-party notices and license terms applicable to that revision.
 attribution, and patent notices for the current binary distribution, including
 the Go runtime. Its dependency versions do not describe every historical
 revision. The bundle also preserves certificate-source notices for the
-explicitly identified reviewed OCI base. Other container base components remain
-subject to their own terms; the bundle does not claim complete base notice
-coverage.
+explicitly identified reviewed OCI base. [Container-base metadata](licenses/oci/README.md)
+includes verified upstream SPDX inventories, source references, and the open
+Wolfi attribution question. Other container base components remain subject to
+their own terms; this does not claim complete base notice coverage.
 
 When changing the Go toolchain or runtime dependencies, review and update the
 notice bundle from their corresponding source versions. Preserve upstream
@@ -32,5 +33,7 @@ resolved container base for each release.
 Release archives include `LICENSE`, `LICENSING.md`, and
 `THIRD_PARTY_NOTICES.txt` alongside the README and changelog, when present.
 The release build stages copies of these canonical files in `kodata/licenses/`;
-ko places them at `/var/run/ko/licenses/` in the application image. The generated
-staging tree is not a second source of license text.
+ko places them at `/var/run/ko/licenses/` in the application image. Container-base
+metadata is also included in every archive under `licenses/oci/` and in images
+under `/var/run/ko/licenses/oci/`. The generated staging tree is
+not a second source of license text.

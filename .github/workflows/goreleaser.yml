@@ -17,6 +17,7 @@ on:
       - LICENSE
       - LICENSING.md
       - THIRD_PARTY_NOTICES.txt
+      - licenses/oci/**
   push:
     branches: [main]
 

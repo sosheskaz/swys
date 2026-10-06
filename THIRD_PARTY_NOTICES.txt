@@ -1757,7 +1757,7 @@ SHA-256 of original notice block: 115b35d4c33d49499560fed05811e006e92db5c1416c6a
 ========================================================================
 OCI-base certificate data — reviewed Chainguard static base
 
-Base reference: cgr.dev/chainguard/static:latest
+Base reference: cgr.dev/chainguard/static@sha256:fe55470f22d3259488d9d3739168d8f04da67755f0b69382bc26eda4a7d3d327
 Reviewed index digest: sha256:fe55470f22d3259488d9d3739168d8f04da67755f0b69382bc26eda4a7d3d327
 Reviewed platforms: linux/amd64 and linux/arm64.
 
