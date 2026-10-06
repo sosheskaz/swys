@@ -43,7 +43,7 @@ func prepareCertificateFromCSR(cmd *cobra.Command, input io.Reader) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read csr flag: %w", err)
 	}
-	requestData, err := readCertificateArtifactFrom(input, "--csr", requestPath, artifact.MaxKeyBytes)
+	requestData, err := readCertificateArtifactFrom(cmd, input, "--csr", requestPath, artifact.MaxKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +325,7 @@ func certificateIssuerFromCommandInput(cmd *cobra.Command, input io.Reader) (*x5
 	if err != nil {
 		return nil, nil, fmt.Errorf("read issuer-key flag: %w", err)
 	}
-	issuerData, err := readCertificateArtifactFrom(input, "--issuer-cert", issuerCertPath, artifact.MaxCertificateBytes)
+	issuerData, err := readCertificateArtifactFrom(cmd, input, "--issuer-cert", issuerCertPath, artifact.MaxCertificateBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -336,23 +336,15 @@ func certificateIssuerFromCommandInput(cmd *cobra.Command, input io.Reader) (*x5
 	if len(issuers) != 1 {
 		return nil, nil, fmt.Errorf("parse --issuer-cert: %w: issuer input must contain exactly one certificate, found %d", certinput.ErrTrailingData, len(issuers))
 	}
-	issuerKey, err := readCertificateKey(input, "--issuer-key", issuerKeyPath)
+	issuerKey, err := readCertificateKey(cmd, input, "--issuer-key", issuerKeyPath)
 	if err != nil {
 		return nil, nil, err
 	}
 	return issuers[0], issuerKey, nil
 }
 
-func readCertificateArtifactFrom(input io.Reader, flagName, source string, limit int64) ([]byte, error) {
-	if source == "-" {
-		data, err := artifact.Read(input, limit)
-		if err != nil {
-			return nil, fmt.Errorf("read %s from stdin: %w", flagName, err)
-		}
-		return data, nil
-	}
-	// The path is intentionally supplied by the CLI user.
-	data, err := artifact.ReadFile(source, limit)
+func readCertificateArtifactFrom(cmd *cobra.Command, input io.Reader, flagName, source string, limit int64) ([]byte, error) {
+	data, err := readCertificateEncodedOperand(cmd, input, strings.TrimPrefix(flagName, "--"), source, limit)
 	if err != nil {
 		return nil, fmt.Errorf("read %s %q: %w", flagName, source, err)
 	}

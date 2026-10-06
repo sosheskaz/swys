@@ -1,7 +1,9 @@
 package cert_test
 
 import (
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"os"
@@ -21,15 +23,17 @@ func TestExampleCertVerifyCustomRoot(t *testing.T) {
 	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
 	dir := t.TempDir()
 	chainPath := writeCertTestFile(t, dir, "leaf.b64", []byte(base64.StdEncoding.EncodeToString(fixture.leafPEM)))
-	rootPath := writeCertTestFile(t, dir, "root.pem", fixture.rootPEM)
-	intermediatePath := writeCertTestFile(t, dir, "intermediate.pem", fixture.intermediatePEM)
+	rootPath := writeCertTestFile(t, dir, "root.hex", []byte(hex.EncodeToString(fixture.rootPEM)))
+	intermediatePath := writeCertTestFile(t, dir, "intermediate.b32", []byte(base32.StdEncoding.EncodeToString(fixture.intermediatePEM)))
 
 	stdout, stderr, err := executeRootStreams(t,
 		"cert", "verify",
 		"--input", chainPath,
 		"--input-encoding", "base64",
 		"--ca", rootPath,
+		"--ca-encoding", "hex",
 		"--intermediates", intermediatePath,
+		"--intermediates-encoding", "base32",
 		"--hostname", certTestDNSName,
 		"--at", certTestCurrentTime.Format(certTestRFC3339),
 		"--format", "json",
@@ -39,15 +43,17 @@ func TestExampleCertVerifyCustomRoot(t *testing.T) {
 	assertCertReportPublicDetails(t, stdout)
 }
 
-func TestExampleCertMatchCertificateAndPrivateKey(t *testing.T) {
+func TestExampleCertMatchEncodedCertificateKeyAndCSR(t *testing.T) {
 	t.Parallel()
 	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
 	dir := t.TempDir()
-	certPath := writeCertTestFile(t, dir, "leaf.pem", fixture.leafPEM)
-	keyPath := writeCertTestFile(t, dir, "leaf-key.pem", fixture.leafKeyPKCS8PEM)
+	certPath := writeCertTestFile(t, dir, "leaf.b64url", []byte(base64.RawURLEncoding.EncodeToString(fixture.leafDER)))
+	keyPath := writeCertTestFile(t, dir, "leaf-key.hex", []byte(hex.EncodeToString(fixture.leafKeyPKCS8PEM)))
+	csrPath := writeCertTestFile(t, dir, "leaf.csr.b64", []byte(base64.StdEncoding.EncodeToString(fixture.leafCSRPEM)))
 
 	stdout, stderr, err := executeRootStreams(t,
-		"cert", "match", "--cert", certPath, "--key", keyPath, "--format", "json",
+		"cert", "match", "--cert", certPath, "--cert-encoding", "base64url",
+		"--key", keyPath, "--key-encoding", "hex", "--csr", csrPath, "--csr-encoding", "b64", "--format", "json",
 	)
 	require.NoError(t, err, "npc cert match: %v (stderr %q)", err, stderr)
 	assertCertBooleanReport(t, stdout, "match", true)

@@ -40,6 +40,24 @@ npc cert create --csr leaf.csr --issuer-cert ca.pem --issuer-key ca-key.pem > cs
 npc cert verify --ca ca.pem --hostname localhost < csr-leaf.pem
 ```
 
+## Read independently encoded artifacts
+
+Use **--key-encoding**, **--csr-encoding**, **--issuer-cert-encoding**, and **--issuer-key-encoding** to describe each artifact's outer byte encoding. Each defaults to **raw**; supported codecs are raw, hex, base64 (also b64), base64url, and base32. PEM's internal Base64 is part of PEM and needs no outer codec.
+
+This complete local issuance workflow stores the request and issuer certificate as Base64 and the issuer key as hex:
+
+```sh
+umask 077
+npc cert keygen --encoding base64 --output encoded-leaf-key.b64
+npc cert csr --key encoded-leaf-key.b64 --key-encoding base64 --dns localhost --encoding base64 --output encoded-leaf.csr.b64
+npc cert keygen --encoding hex --output encoded-ca-key.hex
+npc cert create --ca --key encoded-ca-key.hex --key-encoding hex --subject 'CN=Encoded Test CA' --encoding base64 --output encoded-ca.b64
+npc cert create --csr encoded-leaf.csr.b64 --csr-encoding base64 --issuer-cert encoded-ca.b64 --issuer-cert-encoding base64 --issuer-key encoded-ca-key.hex --issuer-key-encoding hex --output encoded-leaf.pem
+npc cert verify --input encoded-leaf.pem --ca encoded-ca.b64 --ca-encoding base64 --hostname localhost
+```
+
+At most one artifact may use **-**. **--input** redirects that operand from a file. For that operand, choose either its companion encoding flag or **--input-encoding**; explicitly setting both is rejected, even for raw or identical codecs. Encodings on other named files remain independent. An explicitly selected companion codec requires a nonempty corresponding artifact source, and invalid selections fail before reading artifacts or opening output.
+
 ## Related guides
 
 ```sh

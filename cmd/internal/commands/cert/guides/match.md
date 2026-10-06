@@ -31,11 +31,23 @@ Use **-** for at most one operand to read it from stdin. **--input** can redirec
 npc cert match --cert server.pem --key - < server-key.pem
 ```
 
-**--input-encoding** requires exactly one operand set to **-** and decodes only that operand. Named files remain raw. For a base64-wrapped copy of server-key.pem in server-key.pem.b64:
+**--input-encoding** requires exactly one operand set to **-** and decodes only that operand. Named files use their own companion codecs, which default to raw. For a base64-wrapped copy of server-key.pem in server-key.pem.b64:
 
 ```sh
 npc cert match --cert server.pem --key - --input server-key.pem.b64 --input-encoding base64
 ```
+
+**--cert-encoding**, **--key-encoding**, and **--csr-encoding** decode each artifact independently. Supported codecs are raw, hex, base64 (also b64), base64url, and base32. These describe outer byte encoding; PEM's internal Base64 needs no codec.
+
+Use the identity created above to prepare independently encoded inputs:
+
+```sh
+npc cert inspect --input server.pem --format pem --encoding base64 --output server.pem.b64
+npc cert key-convert --input server-key.pem --to pkcs8-pem --encoding hex --output server-key.hex
+npc cert match --cert server.pem.b64 --cert-encoding base64 --key server-key.hex --key-encoding hex --csr server.csr --format json
+```
+
+For an operand selected with **-**, choose either its companion codec or **--input-encoding**. Explicitly setting both is rejected, even with raw or identical codecs. A companion codec requires a nonempty source. Invalid selections fail before artifact reads or output mutation.
 
 A completed mismatch produces a report with **match: false** and a nonzero exit status. Reports contain public fingerprints and never private key material.
 

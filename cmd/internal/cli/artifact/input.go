@@ -2,10 +2,14 @@
 package artifact
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	"github.com/sosheskaz-systems/npc/internal/contextio"
 )
 
 // Artifact limits bound key and certificate parsing before output is opened.
@@ -38,6 +42,31 @@ func ReadFile(path string, limit int64) ([]byte, error) {
 	}
 	data, readErr := Read(file, limit)
 	if err := errors.Join(readErr, file.Close()); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// ReadEncodedSource decodes a selected file or borrowed stream before applying the decoded-byte limit.
+// An exact dash selects input; other paths, including ./-, name files.
+func ReadEncodedSource(ctx context.Context, input io.Reader, path string, decoder encoding.InputDecoder, limit int64) ([]byte, error) {
+	if path == "-" {
+		readContext, cancel := context.WithCancel(ctx)
+		defer cancel()
+		return Read(decoder(contextio.NewReader(readContext, input)), limit)
+	}
+	file, err := contextio.OpenFile(ctx, func() (*os.File, error) {
+		return os.Open(path) //nolint:gosec // explicitly selected CLI artifact
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open artifact: %w", err)
+	}
+	owned, err := contextio.NewOwnedFileReader(ctx, file)
+	if err != nil {
+		return nil, fmt.Errorf("prepare artifact input: %w", err)
+	}
+	data, readErr := Read(decoder(owned), limit)
+	if err := errors.Join(readErr, owned.Close()); err != nil {
 		return nil, err
 	}
 	return data, nil

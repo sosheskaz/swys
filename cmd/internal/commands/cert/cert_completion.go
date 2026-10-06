@@ -117,7 +117,15 @@ func completeCertificatePaths(prefix string) ([]string, bool) {
 }
 
 func certificateStdinOwnedByOtherFlag(command *cobra.Command, completing string) bool {
-	for _, name := range []string{tlsconfig.KeyFlagName, csrFlagName, issuerCertFlagName, issuerKeyFlagName} {
+	if command.Name() == certVerifyCommandName {
+		path, err := command.Flags().GetString("input")
+		if err != nil || path == "" || path == "-" {
+			return true
+		}
+	}
+
+	sources := []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, csrFlagName, issuerCertFlagName, issuerKeyFlagName, "ca", certIntermediatesFlagName}
+	for _, name := range sources {
 		if name == completing || command.Flags().Lookup(name) == nil {
 			continue
 		}
@@ -270,4 +278,55 @@ func certificateCompletionMode(command *cobra.Command) (certificateCompletionMod
 		return certificateCompletionModeState{}, false
 	}
 	return mode, true
+}
+
+func prepareCertificateArtifactEncodingCompletion(completionCmd *cobra.Command, args []string) {
+	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
+		return
+	}
+	completed := args[:len(args)-1]
+	actual, _, err := completionCmd.Root().Find(completed)
+	if err != nil {
+		return
+	}
+	switch actual.Name() {
+	case "create", csrFlagName, "match", certVerifyCommandName:
+	default:
+		return
+	}
+	// Probe flags without reading files or mutating the target command's parsed state.
+	probeRoot := commandio.NewProbeRoot()
+	probeRoot.AddCommand(NewCommand(commandio.NewLifecycle()))
+	probe, probeArgs, err := probeRoot.Find(completed)
+	if err != nil {
+		return
+	}
+	if !parseCertificateCompletionFlags(probe, probeArgs) {
+		return
+	}
+
+	for _, name := range []string{"cert", "key", csrFlagName, "issuer-cert", "issuer-key", "ca", certIntermediatesFlagName} {
+		if flag := actual.Flags().Lookup(name + "-encoding"); flag != nil {
+			flag.Hidden = !certificateArtifactEncodingApplicable(probe, name)
+			if probe.Name() != certVerifyCommandName {
+				source, err := probe.Flags().GetString(name)
+				if err == nil && source == "-" && probe.Flags().Changed(name+"-encoding") {
+					actual.Flags().Lookup(commandio.InputEncodingFlagName).Hidden = true
+				}
+			}
+		}
+	}
+}
+
+func parseCertificateCompletionFlags(probe *cobra.Command, probeArgs []string) bool {
+	// The final flag may be waiting for the value being completed.
+	if len(probeArgs) > 0 {
+		last := probeArgs[len(probeArgs)-1]
+		if strings.HasPrefix(last, "--") && !strings.Contains(last, "=") {
+			if flag := probe.Flags().Lookup(strings.TrimPrefix(last, "--")); flag != nil && flag.NoOptDefVal == "" {
+				probeArgs = probeArgs[:len(probeArgs)-1]
+			}
+		}
+	}
+	return probe.ParseFlags(probeArgs) == nil
 }

@@ -66,13 +66,14 @@ CA only in an explicitly selected test store, never system-wide.`,
 	certCreateCmd.MarkFlagsMutuallyExclusive("server-only", "client-only")
 	registerCertificateIdentityCompletions(certCreateCmd)
 	registerCertificateCreateCompletions(certCreateCmd)
+	addCertificateArtifactEncodingFlags(certCreateCmd, "key", csrFlagName, issuerCertFlagName, issuerKeyFlagName)
 
 	return certCreateCmd
 }
 
 func newCertCSRCmd() *cobra.Command {
 	certCSRCmd := commandio.BinaryOutputCommand(&cobra.Command{
-		Use:   "csr",
+		Use:   csrFlagName,
 		Short: "Create a PKCS #10 certificate signing request",
 		Long: `Create a minimal PKCS #10 certificate signing request from an existing
 private key. The request contains only its subject and requested DNS/IP SANs.
@@ -87,6 +88,7 @@ to the intended CA, or sign it locally with npc cert create --csr and an issuer 
 		panic(err)
 	}
 	registerCertificateIdentityCompletions(certCSRCmd)
+	addCertificateArtifactEncodingFlags(certCSRCmd, "key")
 	return certCSRCmd
 }
 
@@ -132,7 +134,7 @@ func certificateSubjectKeyFromCommand(cmd *cobra.Command, input io.Reader) (*asy
 	if err != nil {
 		return nil, fmt.Errorf("read key flag: %w", err)
 	}
-	key, err := readCertificateKey(input, "--key", keyPath)
+	key, err := readCertificateKey(cmd, input, "--key", keyPath)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +164,7 @@ func prepareCertificateRequestOutput(cmd *cobra.Command, input io.Reader) ([]byt
 	if err != nil {
 		return nil, fmt.Errorf("read key flag: %w", err)
 	}
-	key, err := readCertificateKey(input, "--key", keyPath)
+	key, err := readCertificateKey(cmd, input, "--key", keyPath)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +176,9 @@ func prepareCertificateRequestOutput(cmd *cobra.Command, input io.Reader) ([]byt
 }
 
 func validateCertificateCSRFlags(cmd *cobra.Command) error {
+	if err := validateCertificateArtifactEncodings(cmd, "key"); err != nil {
+		return err
+	}
 	if _, err := certificateRequestOptionsFromCommand(cmd); err != nil {
 		return err
 	}
@@ -187,6 +192,9 @@ func validateCertificateCSRFlags(cmd *cobra.Command) error {
 }
 
 func validateCertificateCreateFlags(cmd *cobra.Command) error {
+	if err := validateCertificateArtifactEncodings(cmd, "key", csrFlagName, issuerCertFlagName, issuerKeyFlagName); err != nil {
+		return err
+	}
 	csr, err := cmd.Flags().GetString(csrFlagName)
 	if err != nil {
 		return fmt.Errorf("read csr flag: %w", err)
@@ -473,6 +481,9 @@ func validateCertificateInputSelection(cmd *cobra.Command, sourceFlags ...string
 			return fmt.Errorf("read %s flag: %w", name, err)
 		}
 		if value == "-" {
+			if cmd.Flags().Changed(commandio.InputEncodingFlagName) && cmd.Flags().Changed(name+"-encoding") {
+				return fmt.Errorf("%w: --input-encoding and --%s-encoding select the same stream", ErrCertificateInputSelection, name)
+			}
 			stdinOwners++
 		}
 	}
@@ -488,8 +499,8 @@ func validateCertificateInputSelection(cmd *cobra.Command, sourceFlags ...string
 	return nil
 }
 
-func readCertificateKey(input io.Reader, flagName, source string) (*asym.Key, error) {
-	data, err := readCertificateArtifactFrom(input, flagName, source, artifact.MaxKeyBytes)
+func readCertificateKey(cmd *cobra.Command, input io.Reader, flagName, source string) (*asym.Key, error) {
+	data, err := readCertificateArtifactFrom(cmd, input, flagName, source, artifact.MaxKeyBytes)
 	if err != nil {
 		return nil, err
 	}

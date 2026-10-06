@@ -95,11 +95,15 @@ func TestCertificateCompletionPreservesEmptySliceHelpDefaults(t *testing.T) {
 
 	stdout, _, err := executeRootStreams(t, "cert", "create", "--help")
 	require.NoError(t, err)
+	helpLines := strings.Split(stdout, "\n")
+	for index, line := range helpLines {
+		helpLines[index] = strings.Join(strings.Fields(line), " ")
+	}
 	for _, line := range []string{
-		"--dns stringArray         DNS subject alternative name (repeatable)",
-		"--ip stringArray          IP subject alternative name (repeatable)",
+		"--dns stringArray DNS subject alternative name (repeatable)",
+		"--ip stringArray IP subject alternative name (repeatable)",
 	} {
-		assert.Contains(t, stdout, line, "help missing unchanged flag usage")
+		assert.Contains(t, helpLines, line, "help missing unchanged flag usage")
 	}
 	assert.NotContains(t, stdout, "(default [])", "help exposes empty slice implementation default")
 }
@@ -180,6 +184,7 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{name: "create issuer certificate", args: []string{"cert", "create", "--issuer-cert", ""}},
 		{name: "create issuer key", args: []string{"cert", "create", "--issuer-key", ""}},
 		{name: "CSR key", args: []string{"cert", "csr", "--key", ""}},
+		{name: "verify intermediate", args: []string{"cert", "verify", "--input", "chain.pem", "--intermediates", ""}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -194,6 +199,9 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{"cert", "create", "--key", "-", "--issuer-cert", ""},
 		{"cert", "create", "--issuer-cert", "-", "--issuer-key", ""},
 		{"cert", "create", "--issuer-key", "-", "--key", ""},
+		{"cert", "verify", "--intermediates", ""},
+		{"cert", "verify", "--input", "chain.pem", "--ca", "-", "--intermediates", ""},
+		{"cert", "verify", "--input", "chain.pem", "--intermediates", "-", "--ca", ""},
 	} {
 		got, _ := executeCertificateCompletion(t, args...)
 		if certificateCompletionContains(got, "-") {
@@ -337,4 +345,84 @@ func TestCertKeygenCompletion(t *testing.T) {
 			require.Contains(t, values, test.want, "completion %v", test.args)
 		}
 	}
+}
+
+func TestCertificateArtifactEncodingCompletion(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		operation string
+		source    string
+	}{
+		{operation: "create", source: "key"},
+		{operation: "create", source: "csr"},
+		{operation: "create", source: "issuer-cert"},
+		{operation: "create", source: "issuer-key"},
+		{operation: "csr", source: "key"},
+		{operation: "match", source: "cert"},
+		{operation: "match", source: "key"},
+		{operation: "match", source: "csr"},
+		{operation: "verify", source: "ca"},
+		{operation: "verify", source: "intermediates"},
+	} {
+		t.Run(test.operation+"/"+test.source, func(t *testing.T) {
+			t.Parallel()
+			values, directive := executeCertificateCompletion(t, "cert", test.operation,
+				"--"+test.source, "missing-artifact", "--"+test.source+"-encoding", "b")
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+			assert.Len(t, values, 4)
+			for _, name := range []string{"b64", "base64", "base64url", "base32"} {
+				assert.True(t, certificateCompletionContains(values, name), "missing %s in %q", name, values)
+			}
+			for _, value := range values {
+				parts := strings.SplitN(value, "\t", 2)
+				require.Len(t, parts, 2, "encoding completion needs a description: %q", value)
+				assert.NotEmpty(t, parts[1])
+			}
+		})
+	}
+}
+
+func TestCertificateCompletionHidesInapplicableArtifactEncodings(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		flag string
+		args []string
+	}{
+		{args: []string{"cert", "create"}, flag: "key-encoding"},
+		{args: []string{"cert", "csr"}, flag: "key-encoding"},
+		{args: []string{"cert", "match", "--cert", "missing.pem"}, flag: "csr-encoding"},
+		{args: []string{"cert", "verify"}, flag: "ca-encoding"},
+		{args: []string{"cert", "verify", "--intermediates="}, flag: "intermediates-encoding"},
+		{args: []string{"cert", "create", "--ca", "--issuer-cert", "missing.pem"}, flag: "issuer-cert-encoding"},
+		{args: []string{"cert", "create", "--csr", "missing.csr", "--key", "missing.key"}, flag: "key-encoding"},
+		{args: []string{"cert", "create", "--key", "-", "--input-encoding", "base64"}, flag: "key-encoding"},
+		{args: []string{"cert", "create", "--key", "-", "--key-encoding", "raw"}, flag: "input-encoding"},
+	} {
+		values, _ := executeCertificateCompletion(t, append(slices.Clone(test.args), "--")...)
+		assert.False(t, completionContainsFlag(values, "--"+test.flag), "inapplicable companion for %q: %q", test.args, values)
+		values, directive := executeCertificateCompletion(t, append(slices.Clone(test.args), "--"+test.flag, "")...)
+		assert.Empty(t, values, "typed inapplicable companion for %q", test.args)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	}
+	values, _ := executeCertificateCompletion(t, "cert", "create", "--key", "missing.key", "--")
+	assert.True(t, completionContainsFlag(values, "--key-encoding"), "applicable companion must remain visible")
+	assert.False(t, completionContainsFlag(values, "--ca-encoding"), "create --ca is a boolean mode")
+	independent := []string{
+		"cert", "create", "--key", "missing.key", "--issuer-cert", "-",
+		"--issuer-key", "missing-issuer.key", "--input-encoding", "base64",
+	}
+	values, _ = executeCertificateCompletion(t, append(slices.Clone(independent), "--")...)
+	assert.True(t, completionContainsFlag(values, "--key-encoding"), "independent named-file codec must remain visible")
+	values, directive := executeCertificateCompletion(t, append(independent, "--key-encoding", "b")...)
+	assert.Len(t, values, 4, "independent named-file codec must retain encoding suggestions")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
+	source := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(source, []byte("not parsed during completion"), 0o600))
+	values, directive = executeCertificateCompletion(t, "cert", "verify", "--input", "chain.pem", "--intermediates", source)
+	if directive == cobra.ShellCompDirectiveDefault {
+		return // Cobra filename completion may delegate enumeration to the shell.
+	}
+	assert.True(t, certificateCompletionContains(values, source), "source paths must remain completable")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }

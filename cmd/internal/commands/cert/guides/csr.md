@@ -29,6 +29,18 @@ npc cert verify --ca ca.pem --hostname service.example.test < server-cert.pem
 
 This does not install the CA in a trust store. Keep both private keys local and select ca.pem explicitly when trusting this test identity.
 
+## Read an encoded private key
+
+**--key-encoding** describes the key's outer byte encoding and defaults to **raw**. Supported codecs are raw, hex, base64 (also b64), base64url, and base32. PEM's internal Base64 needs no outer codec.
+
+```sh
+umask 077
+npc cert keygen --encoding base64url --output encoded-server-key.b64url
+npc cert csr --key encoded-server-key.b64url --key-encoding base64url --dns service.example.test --output encoded-server.csr
+```
+
+Use **--key -** to read stdin, or pair it with **--input** to read a selected file. Choose either **--key-encoding** or **--input-encoding** for that stream; explicitly setting both is rejected, including raw or identical codecs. A companion codec requires a nonempty key source. Invalid selections fail before reading the key or opening output.
+
 ## Related guides
 
 ```sh

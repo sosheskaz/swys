@@ -25,6 +25,8 @@ import (
 
 const (
 	maxChainDiagnosticCertificates = 64
+	certVerifyCommandName          = "verify"
+	certIntermediatesFlagName      = "intermediates"
 	certPurposeAny                 = "any"
 	certPurposeServer              = "server"
 	certPurposeClient              = "client"
@@ -68,7 +70,7 @@ func (report certificateReport) MarshalJSON() ([]byte, error) {
 
 func newCertVerifyCmd() *cobra.Command {
 	command := commandio.StructuredOutputCommand(&cobra.Command{
-		Use:   "verify",
+		Use:   certVerifyCommandName,
 		Short: "Verify an X.509 certificate chain",
 		Args:  cobra.NoArgs,
 		RunE:  runPreparedCertificateReport,
@@ -77,11 +79,11 @@ func newCertVerifyCmd() *cobra.Command {
 	commandio.AddOutputEncodingFlag(command)
 	command.Flags().String("ca", "", "PEM or DER trust anchors path, or - for stdin (replaces system roots unless --system-ca is set)")
 	command.Flags().Bool("system-ca", false, "combine system roots with --ca")
-	command.Flags().String("intermediates", "", "PEM untrusted intermediate certificates")
+	command.Flags().String(certIntermediatesFlagName, "", "PEM untrusted intermediate certificates path, or - for stdin")
 	command.Flags().String("purpose", certPurposeServer, "verification purpose (server, client, any)")
 	command.Flags().String("hostname", "", "DNS name or IP address to verify")
 	command.Flags().String("at", "", "verification time in RFC 3339 format")
-	for _, name := range []string{"ca", "intermediates"} {
+	for _, name := range []string{"ca", certIntermediatesFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
@@ -95,6 +97,10 @@ func newCertVerifyCmd() *cobra.Command {
 	})
 	for _, name := range []string{"at", "hostname"} {
 		mustRegisterCertificateCompletion(command, name, cobra.NoFileCompletions)
+	}
+	addCertificateArtifactEncodingFlags(command, "ca", certIntermediatesFlagName)
+	for _, name := range []string{"ca", certIntermediatesFlagName} {
+		mustRegisterCertificateCompletion(command, name, completeCertificateArtifact(name))
 	}
 	command.ValidArgsFunction = cobra.NoFileCompletions
 	return command
@@ -118,6 +124,7 @@ func newCertMatchCmd() *cobra.Command {
 			panic(err)
 		}
 	}
+	addCertificateArtifactEncodingFlags(command, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, csrFlagName)
 	return command
 }
 
@@ -142,6 +149,9 @@ func runPreparedCertificateReport(cmd *cobra.Command, _ []string) error {
 }
 
 func validateCertVerifyFlags(cmd *cobra.Command) error {
+	if err := validateCertificateArtifactEncodings(cmd, "ca", certIntermediatesFlagName); err != nil {
+		return err
+	}
 	if _, err := certVerificationPurpose(cmd); err != nil {
 		return err
 	}
@@ -151,7 +161,7 @@ func validateCertVerifyFlags(cmd *cobra.Command) error {
 	if err := validateCertVerifyInputSelection(cmd); err != nil {
 		return err
 	}
-	if err := certinput.ValidatePaths(cmd, "ca", "intermediates"); err != nil {
+	if err := certinput.ValidatePaths(cmd, "ca", certIntermediatesFlagName); err != nil {
 		return err
 	}
 	format, err := cmd.Flags().GetString(commandio.FormatFlagName)
@@ -165,21 +175,33 @@ func validateCertVerifyFlags(cmd *cobra.Command) error {
 }
 
 func validateCertVerifyInputSelection(cmd *cobra.Command) error {
-	caPath, err := cmd.Flags().GetString("ca")
-	if err != nil {
-		return fmt.Errorf("read ca flag: %w", err)
-	}
 	inputPath, err := cmd.Flags().GetString("input")
 	if err != nil {
 		return fmt.Errorf("read input flag: %w", err)
 	}
-	if caPath == "-" && (inputPath == "" || inputPath == "-") {
-		return fmt.Errorf("%w: certificate chain and --ca cannot both use stdin", ErrCertificateInputSelection)
+	owners := 0
+	if inputPath == "" || inputPath == "-" {
+		owners++
+	}
+	for _, name := range []string{"ca", certIntermediatesFlagName} {
+		path, err := cmd.Flags().GetString(name)
+		if err != nil {
+			return fmt.Errorf("read %s flag: %w", name, err)
+		}
+		if path == "-" {
+			owners++
+		}
+	}
+	if owners > 1 {
+		return fmt.Errorf("%w: certificate chain, --ca, and --intermediates must have at most one stdin owner", ErrCertificateInputSelection)
 	}
 	return nil
 }
 
 func validateCertMatchFlags(cmd *cobra.Command) error {
+	if err := validateCertificateArtifactEncodings(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, csrFlagName); err != nil {
+		return err
+	}
 	count := 0
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, csrFlagName} {
 		value, err := cmd.Flags().GetString(name)
@@ -235,12 +257,12 @@ func prepareCertVerifyReport(cmd *cobra.Command, input io.Reader) (certificateRe
 	for _, certificate := range certificates[1:] {
 		intermediates.AddCert(certificate)
 	}
-	intermediatePath, err := cmd.Flags().GetString("intermediates")
+	intermediatePath, err := cmd.Flags().GetString(certIntermediatesFlagName)
 	if err != nil {
 		return certificateReport{}, false, fmt.Errorf("read intermediates flag: %w", err)
 	}
 	if intermediatePath != "" {
-		additional, readErr := readCertificateFile(intermediatePath)
+		additional, readErr := readCertificateBundle(cmd, certIntermediatesFlagName, intermediatePath)
 		if readErr != nil {
 			return certificateReport{}, false, fmt.Errorf("read --intermediates: %w", readErr)
 		}
@@ -434,7 +456,7 @@ func prepareCertMatchReport(cmd *cobra.Command, input io.Reader) (certificateRep
 		if path == "" {
 			continue
 		}
-		der, err := readCertMatchPublicKey(input, name, path)
+		der, err := readCertMatchPublicKey(cmd, input, name, path)
 		if err != nil {
 			return certificateReport{}, false, err
 		}
@@ -463,12 +485,12 @@ func prepareCertMatchReport(cmd *cobra.Command, input io.Reader) (certificateRep
 	return certificateReport{Match: matching, Details: details, Fingerprints: fingerprints}, matching, nil
 }
 
-func readCertMatchPublicKey(input io.Reader, name, path string) ([]byte, error) {
+func readCertMatchPublicKey(cmd *cobra.Command, input io.Reader, name, path string) ([]byte, error) {
 	limit := artifact.MaxKeyBytes
 	if name == tlsconfig.CertFlagName {
 		limit = artifact.MaxCertificateBytes
 	}
-	data, err := readCertificateOperand(input, path, limit)
+	data, err := readCertificateEncodedOperand(cmd, input, name, path, limit)
 	if err != nil {
 		return nil, fmt.Errorf("read --%s: %w", name, err)
 	}
@@ -570,26 +592,20 @@ func certVerificationRoots(cmd *cobra.Command) (*x509.CertPool, error) {
 }
 
 func readCertVerificationRoots(cmd *cobra.Command, path string) ([]*x509.Certificate, error) {
-	if path != "-" {
-		return readCertificateFile(path)
-	}
-	data, err := artifact.Read(cmd.InOrStdin(), artifact.MaxCertificateBytes)
-	if err != nil {
-		return nil, fmt.Errorf("read from stdin: %w", err)
-	}
-	return parseCertificateArtifact(data)
+	return readCertificateBundle(cmd, "ca", path)
 }
 
-func readCertificateFile(path string) ([]*x509.Certificate, error) {
-	data, err := artifact.ReadFile(path, artifact.MaxCertificateBytes)
+func readCertificateBundle(cmd *cobra.Command, name, path string) ([]*x509.Certificate, error) {
+	// Verify's main chain is a separate stream; supplemental stdin retains its own codec.
+	decoder, err := certificateArtifactDecoder(cmd, name)
 	if err != nil {
 		return nil, err
 	}
-	certificates, err := parseCertificateArtifact(data)
+	data, err := artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), path, decoder, artifact.MaxCertificateBytes)
 	if err != nil {
 		return nil, err
 	}
-	return certificates, nil
+	return parseCertificateArtifact(data)
 }
 
 func parseCertificateArtifact(data []byte) ([]*x509.Certificate, error) {
@@ -622,13 +638,6 @@ func parseCertificateRequestArtifact(data []byte) (*x509.CertificateRequest, err
 		return nil, fmt.Errorf("parse certificate request: %w", err)
 	}
 	return request, nil
-}
-
-func readCertificateOperand(input io.Reader, path string, limit int64) ([]byte, error) {
-	if path == "-" {
-		return artifact.Read(input, limit)
-	}
-	return artifact.ReadFile(path, limit)
 }
 
 func encodeCertificateReport(cmd *cobra.Command, report certificateReport) ([]byte, error) {

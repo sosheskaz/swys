@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base32"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
 	"net"
 	"os"
 	"path/filepath"
@@ -23,12 +27,22 @@ func TestCertCreateFromCSRExample(t *testing.T) {
 		IPAddresses: []net.IP{net.ParseIP("192.0.2.25")},
 	})
 	request := parseCSRIssueRequest(t, requestDER)
-	requestPath := fixture.writeRequest(t, "service.csr", requestDER, "CERTIFICATE REQUEST")
+	requestPath := fixture.writeDER(t, "service.csr.b64", []byte(base64.StdEncoding.EncodeToString(requestDER)))
 	requestBefore, err := os.ReadFile(requestPath)
 	require.NoError(t, err)
+	issuerPEM, err := os.ReadFile(fixture.caCertPath)
+	require.NoError(t, err)
+	issuerKeyPEM, err := os.ReadFile(fixture.caKeyPath)
+	require.NoError(t, err)
+	issuerPath := fixture.writeDER(t, "issuer.hex", []byte(hex.EncodeToString(issuerPEM)))
+	issuerKeyPath := fixture.writeDER(t, "issuer-key.b32", []byte(base32.StdEncoding.EncodeToString(issuerKeyPEM)))
 	certificatePath := filepath.Join(t.TempDir(), "service.pem")
 
-	args := append(fixture.issueArgs(requestPath), "--output", certificatePath)
+	args := []string{
+		"cert", "create", "--csr", requestPath, "--csr-encoding", "base64",
+		"--issuer-cert", issuerPath, "--issuer-cert-encoding", "hex",
+		"--issuer-key", issuerKeyPath, "--issuer-key-encoding", "base32", "--output", certificatePath,
+	}
 	if _, _, err := executeRootStreams(t, args...); err != nil {
 		t.Fatal(err)
 	}
@@ -55,5 +69,34 @@ func TestCertCreateFromCSRExample(t *testing.T) {
 	require.NoError(t, err)
 	if !bytes.Equal(requestAfter, requestBefore) {
 		t.Fatal("CSR source changed during issuance")
+	}
+}
+
+func TestExampleCertCreateAndCSRFromEncodedKey(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	keyPath := writeCertTestFile(t, t.TempDir(), "service-key.b64url", []byte(base64.RawURLEncoding.EncodeToString(fixture.leafKeyPKCS8PEM)))
+
+	for _, operation := range []string{"create", "csr"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr, err := executeRootStreams(t, "cert", operation,
+				"--key", keyPath, "--key-encoding", "base64url", "--dns", "service.example",
+			)
+			require.NoError(t, err, "stderr %q", stderr)
+			if operation == "create" {
+				certificate := parseCSRIssueCertificatePEM(t, []byte(stdout))
+				require.Equal(t, fixture.leaf.RawSubjectPublicKeyInfo, certificate.RawSubjectPublicKeyInfo)
+				require.Equal(t, []string{"service.example"}, certificate.DNSNames)
+				return
+			}
+			block, rest := pem.Decode([]byte(stdout))
+			require.NotNil(t, block)
+			require.Empty(t, rest)
+			request := parseCSRIssueRequest(t, block.Bytes)
+			require.NoError(t, request.CheckSignature())
+			require.Equal(t, fixture.leaf.RawSubjectPublicKeyInfo, request.RawSubjectPublicKeyInfo)
+			require.Equal(t, []string{"service.example"}, request.DNSNames)
+		})
 	}
 }

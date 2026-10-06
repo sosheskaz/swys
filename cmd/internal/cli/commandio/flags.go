@@ -119,7 +119,10 @@ func CommandInput(command *cobra.Command, args []string) (io.Reader, error) {
 
 func registerEncodingCompletion(command *cobra.Command, flagName string) {
 	if err := command.RegisterFlagCompletionFunc(flagName,
-		func(_ *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		func(command *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+			if flag := command.Flag(flagName); flag != nil && flag.Hidden {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
 			values := make([]string, 0, len(encoding.Names()))
 			for _, name := range encoding.Names() {
 				if strings.HasPrefix(name, prefix) {

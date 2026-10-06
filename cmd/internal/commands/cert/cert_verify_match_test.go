@@ -2,6 +2,7 @@ package cert_test
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -11,10 +12,12 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -24,8 +27,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -33,6 +39,7 @@ import (
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 )
 
 const (
@@ -175,16 +182,32 @@ func TestCertVerifyReadsCustomRootsFromStdin(t *testing.T) {
 		require.NoError(t, err, "encoded main with raw CA stdin: stderr %q", stderr)
 		assertCertBooleanReport(t, stdout, "verified", true)
 	})
+	t.Run("independently encoded main file and CA stdin", func(t *testing.T) {
+		t.Parallel()
+		encodedChain := base64.StdEncoding.EncodeToString(append(bytes.Clone(fixture.leafPEM), fixture.intermediatePEM...))
+		encodedPath := writeCertTestFile(t, t.TempDir(), "chain.b64", []byte(encodedChain))
+		stdout, stderr, err := executeRootStreamsWithInput(t, strings.NewReader(hex.EncodeToString(fixture.rootPEM)),
+			"cert", "verify", "--input", encodedPath, "--input-encoding", "base64",
+			"--ca", "-", "--ca-encoding", "hex", "--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json",
+		)
+		require.NoError(t, err, "stderr %q", stderr)
+		assertCertBooleanReport(t, stdout, "verified", true)
+	})
 }
 
 func TestCertVerifyRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
 	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	chainPath := writeCertTestFile(t, t.TempDir(), "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
 	for _, test := range []struct {
 		name string
 		args []string
 	}{
 		{name: "default chain stdin", args: []string{"cert", "verify", "--ca", "-"}},
 		{name: "explicit chain stdin", args: []string{"cert", "verify", "--input", "-", "--ca", "-"}},
+		{name: "default chain with intermediate stdin", args: []string{"cert", "verify", "--intermediates", "-"}},
+		{name: "explicit chain with intermediate stdin", args: []string{"cert", "verify", "--input", "-", "--intermediates", "-"}},
+		{name: "two supplemental stdin sources", args: []string{"cert", "verify", "--input", chainPath, "--ca", "-", "--intermediates", "-"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1251,4 +1274,315 @@ func executeCertTestWithInput(t *testing.T, input []byte, args ...string) (strin
 	root := newRootCmd()
 	root.SetIn(bytes.NewReader(input))
 	return executeRootCommandStreams(t, root, args...)
+}
+
+func TestCertVerifyReadsIntermediateStdin(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	dir := t.TempDir()
+	chainPath := writeCertTestFile(t, dir, "leaf.b64", []byte(base64.StdEncoding.EncodeToString(fixture.leafPEM)))
+	caPath := writeCertTestFile(t, dir, "root.pem", fixture.rootPEM)
+	for _, test := range []struct {
+		name     string
+		encoding string
+		input    []byte
+	}{
+		{name: "raw default", input: fixture.intermediatePEM},
+		{name: "encoded DER", input: []byte(hex.EncodeToString(fixture.intermediate.Raw)), encoding: "hex"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := []string{
+				"cert", "verify", "--input", chainPath, "--input-encoding", "base64",
+				"--ca", caPath, "--intermediates", "-", "--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json",
+			}
+			if test.encoding != "" {
+				args = append(args, "--intermediates-encoding", test.encoding)
+			}
+			stdout, stderr, err := executeCertTestWithInput(t, test.input, args...)
+			require.NoError(t, err, "stderr %q", stderr)
+			assertCertBooleanReport(t, stdout, "verified", true)
+		})
+	}
+	literalPath := writeCertTestFile(t, dir, "-", fixture.intermediatePEM)
+	stdout, stderr, err := executeRootStreams(t, "cert", "verify", "--input", chainPath, "--input-encoding", "base64",
+		"--ca", caPath, "--intermediates", literalPath, "--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json")
+	require.NoError(t, err, "literal dash file: stderr %q", stderr)
+	assertCertBooleanReport(t, stdout, "verified", true)
+}
+
+func TestCertOperandCompanionEncodingUsesMainInputOnce(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	dir := t.TempDir()
+	certPath := writeCertTestFile(t, dir, "leaf.hex", []byte(hex.EncodeToString(fixture.leafPEM)))
+	encodedKey := []byte(base64.StdEncoding.EncodeToString(fixture.leafKeyPKCS8PEM))
+	keyPath := writeCertTestFile(t, dir, "key.b64", encodedKey)
+	for _, operation := range []string{"create", "csr", "match"} {
+		for _, redirected := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/redirected=%t", operation, redirected), func(t *testing.T) {
+				t.Parallel()
+				args := []string{"cert", operation, "--key", "-", "--key-encoding", "base64"}
+				if operation == "match" {
+					args = append(args, "--cert", certPath, "--cert-encoding", "hex", "--format", "json")
+				}
+				input := encodedKey
+				if redirected {
+					args = append(args, "--input", keyPath)
+					input = []byte("unused invalid stdin")
+				}
+				stdout, stderr, err := executeCertTestWithInput(t, input, args...)
+				require.NoError(t, err, "stderr %q", stderr)
+				if operation == "match" {
+					assertCertBooleanReport(t, stdout, "match", true)
+				} else {
+					block, rest := pem.Decode([]byte(stdout))
+					require.NotNil(t, block)
+					require.Empty(t, rest)
+					if operation == "create" {
+						certificate, parseErr := x509.ParseCertificate(block.Bytes)
+						require.NoError(t, parseErr)
+						require.Equal(t, fixture.leaf.RawSubjectPublicKeyInfo, certificate.RawSubjectPublicKeyInfo)
+					} else {
+						request := parseCSRIssueRequest(t, block.Bytes)
+						require.NoError(t, request.CheckSignature())
+						require.Equal(t, fixture.leaf.RawSubjectPublicKeyInfo, request.RawSubjectPublicKeyInfo)
+					}
+				}
+			})
+		}
+	}
+	t.Run("main alias independent of named file codec", func(t *testing.T) {
+		t.Parallel()
+		stdout, stderr, err := executeCertTestWithInput(t, encodedKey, "cert", "match",
+			"--key", "-", "--input-encoding", "base64", "--cert", certPath, "--cert-encoding", "hex", "--format", "json")
+		require.NoError(t, err, "stderr %q", stderr)
+		assertCertBooleanReport(t, stdout, "match", true)
+	})
+}
+
+func TestCertOperandRejectsTwoExplicitCodecsForOneStream(t *testing.T) {
+	t.Parallel()
+	inputPath := fixturePath(t, t.TempDir(), "request.b64", []byte("must not be read"))
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "same raw", args: []string{"create", "--key", "-", "--input-encoding", "raw", "--key-encoding", "raw"}},
+		{name: "same base64", args: []string{"csr", "--key", "-", "--input-encoding", "base64", "--key-encoding", "base64"}},
+		{name: "explicit main raw", args: []string{"match", "--cert", "missing.pem", "--key", "-", "--input-encoding", "raw", "--key-encoding", "hex"}},
+		{name: "explicit companion raw", args: []string{"match", "--key", "missing.key", "--csr", "-", "--input-encoding", "base64", "--csr-encoding", "raw"}},
+		{name: "redirected stream", args: []string{
+			"create", "--csr", "-", "--issuer-cert", "missing.pem", "--issuer-key", "missing.key",
+			"--input", inputPath, "--input-encoding", "base64", "--csr-encoding", "hex",
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := assertCertArtifactPreIOFailure(t, append([]string{"cert"}, test.args...))
+			require.ErrorIs(t, err, errCertificateInputSelection)
+		})
+	}
+}
+
+func TestCertArtifactEncodingsValidateBeforeIO(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		flag     string
+		encoding string
+		args     []string
+	}{
+		{name: "create CSR without source", args: []string{"create", "--key", "-"}, flag: "csr", encoding: "raw"},
+		{name: "create issuer certificate without source", args: []string{"create", "--key", "-"}, flag: "issuer-cert", encoding: "raw"},
+		{name: "create issuer key without source", args: []string{"create", "--key", "-"}, flag: "issuer-key", encoding: "raw"},
+		{name: "match certificate without source", args: []string{"match", "--key", "-", "--csr", "missing.csr"}, flag: "cert", encoding: "raw"},
+		{name: "match key without source", args: []string{"match", "--cert", "-", "--csr", "missing.csr"}, flag: "key", encoding: "raw"},
+		{name: "match CSR with empty source", args: []string{"match", "--cert", "-", "--key", "missing.key", "--csr="}, flag: "csr", encoding: "raw"},
+		{name: "verify CA without source", args: []string{"verify"}, flag: "ca", encoding: "raw"},
+		{name: "verify intermediates without source", args: []string{"verify"}, flag: "intermediates", encoding: "raw"},
+		{name: "create unknown key codec", args: []string{"create", "--key", "-"}, flag: "key", encoding: "missing"},
+		{name: "CSR unknown key codec", args: []string{"csr", "--key", "-"}, flag: "key", encoding: "missing"},
+		{name: "match unknown CSR codec", args: []string{"match", "--cert", "-", "--csr", "missing.csr"}, flag: "csr", encoding: "missing"},
+		{name: "verify unknown CA codec", args: []string{"verify", "--ca", "missing.pem"}, flag: "ca", encoding: "missing"},
+		{name: "verify unknown intermediate codec", args: []string{"verify", "--intermediates", "missing.pem"}, flag: "intermediates", encoding: "missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"cert"}, test.args...)
+			err := assertCertArtifactPreIOFailure(t, append(args, "--"+test.flag+"-encoding", test.encoding))
+			if test.encoding == "missing" {
+				require.ErrorIs(t, err, byteencoding.ErrUnknownInputEncoding)
+			} else {
+				require.ErrorContains(t, err, "--"+test.flag)
+			}
+		})
+	}
+}
+
+func assertCertArtifactPreIOFailure(t *testing.T, args []string) error {
+	t.Helper()
+	output := fixturePath(t, t.TempDir(), "output", []byte("preserve"))
+	root := newRootCmd()
+	input := &certVerifyReadCounter{}
+	root.SetIn(input)
+	stdout, _, err := executeRootCommandStreams(t, root, append(args, "--output", output)...)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "unknown flag", "companion flag must be recognized")
+	require.NotErrorIs(t, err, os.ErrNotExist, "validation must precede opening operands")
+	require.Zero(t, input.count.Load(), "validation must precede reading stdin")
+	require.Empty(t, stdout)
+	contents, readErr := os.ReadFile(output)
+	require.NoError(t, readErr)
+	require.Equal(t, []byte("preserve"), contents)
+	return err
+}
+
+func TestCertArtifactDecoderPreservesFailuresAndOutput(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	chainPath := writeCertTestFile(t, t.TempDir(), "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
+	for _, test := range []struct {
+		input io.Reader
+		name  string
+		args  []string
+		fault bool
+		raw   bool
+	}{
+		{
+			name: "raw outer encoding is not sniffed", args: []string{"csr", "--key", "-"},
+			input: strings.NewReader(base64.StdEncoding.EncodeToString(fixture.leafKeyPKCS8PEM)), raw: true,
+		},
+		{name: "malformed CA stdin", args: []string{"verify", "--input", chainPath, "--ca", "-", "--ca-encoding", "base64"}, input: strings.NewReader("%%%%")},
+		{name: "malformed key stdin", args: []string{"csr", "--key", "-", "--key-encoding", "base64"}, input: strings.NewReader("%%%%")},
+		{
+			name: "CA source failure", args: []string{"verify", "--input", chainPath, "--ca", "-", "--ca-encoding", "base64"},
+			input: iotest.ErrReader(errUnexpectedCertVerifyStdinRead), fault: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output := fixturePath(t, t.TempDir(), "output", []byte("preserve"))
+			args := append([]string{"cert"}, test.args...)
+			stdout, _, err := executeRootStreamsWithInput(t, test.input, append(args, "--output", output)...)
+			switch {
+			case test.raw:
+				require.Error(t, err, "raw default must not decode an outer Base64 layer")
+			case test.fault:
+				require.ErrorIs(t, err, errUnexpectedCertVerifyStdinRead)
+			default:
+				var decodeErr base64.CorruptInputError
+				require.ErrorAs(t, err, &decodeErr)
+			}
+			require.Empty(t, stdout)
+			contents, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			require.Equal(t, []byte("preserve"), contents)
+		})
+	}
+}
+
+func TestCertArtifactLimitsApplyToDecodedBytes(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	dir := t.TempDir()
+	keyAtLimit := append(bytes.Clone(fixture.leafKeyPKCS8PEM), bytes.Repeat([]byte{'\n'}, int(artifact.MaxKeyBytes)-len(fixture.leafKeyPKCS8PEM))...)
+	keyPath := writeCertTestFile(t, dir, "key.b64", []byte(base64.StdEncoding.EncodeToString(keyAtLimit)))
+	atLimitOutput, _, atLimitErr := executeRootStreams(t, "cert", "csr", "--key", keyPath, "--key-encoding", "base64")
+	require.NoError(t, atLimitErr, "encoded source larger than decoded limit must remain valid")
+	require.Contains(t, atLimitOutput, "BEGIN CERTIFICATE REQUEST")
+	for _, test := range []struct {
+		name string
+		data []byte
+		args []string
+	}{
+		{name: "key", data: append(keyAtLimit, '\n'), args: []string{"csr", "--key", "-", "--key-encoding", "base64"}},
+		{name: "CA", data: bytes.Repeat([]byte{'x'}, int(artifact.MaxCertificateBytes)+1), args: []string{
+			"verify",
+			"--input", writeCertTestFile(t, dir, "chain.pem", fixture.leafPEM, fixture.intermediatePEM), "--ca", "-", "--ca-encoding", "base64",
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output := fixturePath(t, t.TempDir(), "output", []byte("preserve"))
+			input := strings.NewReader(base64.StdEncoding.EncodeToString(test.data))
+			args := append([]string{"cert"}, test.args...)
+			stdout, _, err := executeRootStreamsWithInput(t, input, append(args, "--output", output)...)
+			require.ErrorIs(t, err, artifact.ErrTooLarge)
+			require.Empty(t, stdout)
+			contents, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			require.Equal(t, []byte("preserve"), contents)
+		})
+	}
+}
+
+func TestCertVerifyCanceledSupplementalStdinRemainsBorrowed(t *testing.T) {
+	t.Parallel()
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	chainPath := writeCertTestFile(t, t.TempDir(), "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		input := &certArtifactGatedReader{entered: make(chan struct{}), release: make(chan struct{})}
+		root := newRootCmd()
+		var stdout, stderr bytes.Buffer
+		root.SetContext(ctx)
+		root.SetIn(input)
+		root.SetOut(&stdout)
+		root.SetErr(&stderr)
+		root.SetArgs([]string{"cert", "verify", "--input", chainPath, "--ca", "-", "--ca-encoding", "base64"})
+		done := make(chan error, 1)
+		observed := false
+		defer func() {
+			cancel(context.Canceled)
+			close(input.release)
+			synctest.Wait()
+			if !observed {
+				<-done
+			}
+		}()
+		go func() { done <- executeCommand(root) }()
+		select {
+		case <-input.entered:
+		case err := <-done:
+			observed = true
+			t.Fatalf("command finished before entering supplemental stdin: %v", err)
+		}
+		synctest.Wait()
+		select {
+		case err := <-done:
+			observed = true
+			t.Fatalf("command completed before cancellation: %v", err)
+		default:
+		}
+		cancel(errUnexpectedCertVerifyStdinRead)
+		synctest.Wait()
+		select {
+		case err := <-done:
+			observed = true
+			require.ErrorIs(t, err, errUnexpectedCertVerifyStdinRead)
+		default:
+			t.Error("cancellation did not release the supplemental artifact read")
+		}
+		require.False(t, input.closed.Load(), "cancellation must not close borrowed stdin")
+		require.Empty(t, stdout.String())
+	})
+}
+
+type certArtifactGatedReader struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+	closed  atomic.Bool
+}
+
+func (reader *certArtifactGatedReader) Read([]byte) (int, error) {
+	reader.once.Do(func() { close(reader.entered) })
+	<-reader.release
+	return 0, io.EOF
+}
+
+func (reader *certArtifactGatedReader) Close() error {
+	reader.closed.Store(true)
+	return nil
 }

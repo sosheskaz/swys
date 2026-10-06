@@ -26,15 +26,31 @@ To read trust anchors from standard input while the chain comes from a file:
 cat root.pem | npc cert verify --input chain.pem --ca - --hostname api.example.test
 ```
 
-Standard input has one owner. When **--ca -** is used, the certificate chain must come from a file through **--input**; the default chain input and **--input -** are rejected.
+Standard input has one owner. When **--ca -** or **--intermediates -** is used, the certificate chain must come from a file through **--input**; the default chain input and **--input -** are rejected.
 
-**--input-encoding** decodes only the main certificate chain. Named CA and intermediate files, and CA standard input selected by **--ca -**, remain raw certificate bytes.
+**--input-encoding** decodes only the main certificate chain. **--ca-encoding** and **--intermediates-encoding** independently decode their selected sources, including stdin. Both default to raw and support raw, hex, base64 (also b64), base64url, and base32. These describe outer byte encoding; PEM's internal Base64 needs no outer codec. A companion codec requires a nonempty corresponding source; invalid selections fail before reading artifacts or opening output.
 
 For a base64-wrapped chain file in chain.pem.b64:
 
 ```sh
 cat root.pem | npc cert verify --input chain.pem.b64 --input-encoding base64 --ca - --hostname api.example.test
 ```
+
+To independently decode the main chain and CA stdin, prepare encoded copies of the artifacts created above:
+
+```sh
+npc cert inspect --input chain.pem --format pem --encoding base64 --output chain.pem.b64
+npc cert inspect --input root.pem --format pem --encoding hex --output root.pem.hex
+npc cert verify --input chain.pem.b64 --input-encoding base64 --ca - --ca-encoding hex --hostname api.example.test < root.pem.hex
+```
+
+**--intermediates -** reads untrusted intermediate certificates from stdin. The main chain must come from a file, and **--ca** must use a file or system roots. For the same local identity, the issuer can also be supplied to the untrusted pool while root.pem remains the explicit trust anchor:
+
+```sh
+npc cert verify --input chain.pem --ca root.pem --intermediates - --hostname api.example.test < root.pem
+```
+
+An exact **-** selects stdin; **./-** names a literal file.
 
 Check that the issued certificate also belongs to the intended key:
 
