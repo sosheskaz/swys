@@ -5,8 +5,8 @@ request merges, it creates the tag and GitHub Release; GoReleaser then builds
 archives and publishes OCI images. These are separate checkpoints: passing a
 snapshot build does not establish that any artifact has been published.
 
-The initial version is **0.1.0**. The repository remains private during
-preparation, and publishing workflows remain disabled until launch is approved.
+The initial version is **0.1.0**. Source is public; publishing workflows remain
+disabled until the first release is separately authorized.
 
 ## Validate a candidate without publishing
 

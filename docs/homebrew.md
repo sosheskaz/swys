@@ -35,18 +35,18 @@ checks. Installing from the public URL requires a published release.
 Do not install a missing release or change the tap to test a snapshot. A local
 installation probe must use local archive URLs and an isolated Homebrew prefix.
 
-## Activate after public launch
+## Activate release publishing
 
-1. Keep the Release and Release Please workflows disabled while the repository
-   is private. Leave `homebrew_casks[].skip_upload: true` in
+1. Keep the Release and Release Please workflows disabled until release
+   publishing is authorized. Leave `homebrew_casks[].skip_upload: true` in
    `.config/goreleaser.yaml` until anonymous release downloads have been verified.
 2. Provision the repository secret `BREW_PAT` privately. Use a fine-grained PAT
    restricted to `sosheskaz/homebrew-tap`, with Contents read/write. The selected
    direct cask update does not require Pull requests permission. Set an expiry
    and rotate it privately; do not put tokens in workflow inputs or source.
 3. Follow the [first-release sequence](releasing.md#first-release) for the
-   initial release. After authorization, make the repository public, set
-   `RELEASE_ENABLED=true`, and enable the artifact Release workflow. Keep the
+   initial release. After release authorization, set `RELEASE_ENABLED=true`
+   and enable the artifact Release workflow. Keep the
    combined Release Please workflow disabled until the curated first release
    has been verified; subsequent releases can enable both workflows. Publishing
    jobs require main, an explicitly public event repository, and this opt-in.
