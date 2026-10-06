@@ -1,6 +1,8 @@
 # Homebrew distribution
 
-Homebrew publishing is prepared and disabled. GoReleaser renders
+The [SwYS cask](https://github.com/sosheskaz/homebrew-tap/blob/main/Casks/swys.rb)
+is published. Stable releases update the tap directly; prereleases are skipped.
+GoReleaser renders
 `dist/homebrew/Casks/swys.rb` from the checksummed macOS/Linux arm64 and amd64
 archives. The cask installs `swys` and packaged Bash, Zsh, and Fish completions.
 GoReleaser generates those scripts from the source command before archiving;
@@ -10,9 +12,11 @@ The macOS install hook removes `com.apple.quarantine` from the staged binary.
 This matches the existing tap's behavior and bypasses that Gatekeeper check; it
 is not Developer ID signing or notarization. GoReleaser 2.18.2 renders this hook
 as Homebrew's deprecated `postflight` stanza, which Homebrew 7 flags with
-`Cask/InstallSteps`. Keep this finding visible and recheck native validation when
-GoReleaser supports the declarative replacement. Its current `custom_block`
-appears before `version` and fails Homebrew stanza ordering.
+`Cask/InstallSteps`. Native style checks also flag completion stanza ordering and
+a missing frozen-string-literal header in the generated cask. Installation and
+completion linking passed on macOS arm64 despite these style findings. Recheck
+native validation when GoReleaser supports the declarative replacement. Its
+current `custom_block` appears before `version` and fails Homebrew stanza ordering.
 
 ## Validate without publishing
 
@@ -30,15 +34,20 @@ brew untap local/swys-validation
 ```
 
 Snapshot URLs describe unpublished artifacts. The checks above include the
-known hook-style finding; a passing audit and actual installation remain launch
-checks. Installing from the public URL requires a published release.
+known generated-style findings; they do not replace an actual install check.
+Installing from the public URL requires a published release.
 Do not install a missing release or change the tap to test a snapshot. A local
 installation probe must use local archive URLs and an isolated Homebrew prefix.
 
-## Activate release publishing
+## Release publishing configuration
+
+The initial activation is complete. The steps below document the gating and
+credential setup for recovery or a future repository migration. The 0.1.0 cask
+was published after anonymous archive verification; the first automatic update
+with `BREW_PAT`, and Linux installation, still require live validation.
 
 1. Keep the Release and Release Please workflows disabled until release
-   publishing is authorized. Leave `homebrew_casks[].skip_upload: true` in
+   publishing is authorized. Set `homebrew_casks[].skip_upload: true` in
    `.config/goreleaser.yaml` until anonymous release downloads have been verified.
 2. Provision the repository secret `BREW_PAT` privately. Use a fine-grained PAT
    restricted to `sosheskaz/homebrew-tap`, with Contents read/write. The selected
@@ -69,7 +78,7 @@ installation probe must use local archive URLs and an isolated Homebrew prefix.
    swys --help
    ```
 
-Credential permissions, authenticated release/tap writes, public downloads,
-and installation from a published release remain activation-time checks.
+For each release, verify hosted publication, anonymous downloads, and the tap
+commit before testing installation or upgrade.
 Disable the workflows and clear `RELEASE_ENABLED` to stop automation; restoring
 `skip_upload: true` also stops GoReleaser tap writes.

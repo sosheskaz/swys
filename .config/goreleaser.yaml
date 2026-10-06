@@ -93,8 +93,8 @@ homebrew_casks:
       owner: sosheskaz
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    # Enable only after public launch and anonymous release-download validation.
-    skip_upload: true
+    # Publish stable releases; leave prereleases out of the tap.
+    skip_upload: auto
     hooks:
       post:
         install: |

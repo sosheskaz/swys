@@ -9,8 +9,8 @@ If the form is unavailable, do not post sensitive details publicly.
 
 Include the affected version or commit, operating system, expected and observed
 behavior, and a minimal reproduction using disposable data. Describe the impact
-and any workaround you have verified. SwYS is currently pre-release; no stable
-release is available yet.
+and any workaround you have verified. Include the output of `swys --version`
+to identify the exact build.
 
 Cryptographic operations can leave output after a late error: streaming AES
 decryption emits each authenticated chunk as it completes. Callers must check
