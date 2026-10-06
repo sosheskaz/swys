@@ -3,10 +3,9 @@
 Do not post suspected vulnerabilities, exploit details, private keys, passwords,
 or tokens in public issues or pull requests.
 
-At public launch, private vulnerability reporting will be available through
+Report suspected vulnerabilities privately through
 [GitHub's report form](https://github.com/sosheskaz/swys/security/advisories/new).
-While the repository is private, use your existing private contact with the
-maintainer. If the form is unavailable, do not post sensitive details publicly.
+If the form is unavailable, do not post sensitive details publicly.
 
 Include the affected version or commit, operating system, expected and observed
 behavior, and a minimal reproduction using disposable data. Describe the impact
