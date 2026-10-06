@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 	"github.com/sosheskaz-systems/npc/internal/version"
 )
 
@@ -1300,4 +1301,93 @@ func newTruncatedHTTPServer(t *testing.T) *httptest.Server {
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+func TestHTTPTLSArtifactStdinWithLiteralBodyAndRedirect(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	ca, err := os.ReadFile(identity.caCert)
+	require.NoError(t, err)
+	serverIdentity, err := tls.LoadX509KeyPair(identity.serverCert, identity.serverKey)
+	require.NoError(t, err)
+	requests := make(chan string, 1)
+	secure := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, readErr := io.ReadAll(request.Body)
+		if readErr != nil {
+			http.Error(writer, "body read failed", http.StatusBadRequest)
+			return
+		}
+		requests <- string(body)
+		writeHTTPTestString(t, writer, "secure response")
+	}))
+	secure.TLS = &tls.Config{Certificates: []tls.Certificate{serverIdentity}, MinVersion: tls.VersionTLS12}
+	secure.StartTLS()
+	t.Cleanup(secure.Close)
+	redirect := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, secure.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirect.Close)
+	stdout, stderr, err := executeHTTPStreamsWithInput(t, strings.NewReader(base64.StdEncoding.EncodeToString(ca)),
+		"http", "-X", "POST", redirect.URL, "--data", "@-", "--ca", "-", "--ca-encoding", "base64", "--servername", "localhost", "--timeout", "5s")
+	require.NoError(t, err)
+	assert.Equal(t, "secure response", stdout)
+	assert.Empty(t, stderr)
+	select {
+	case body := <-requests:
+		assert.Equal(t, "@-", body)
+	default:
+		t.Fatal("HTTPS request was not observed")
+	}
+	stdout, stderr, err = executeHTTPStreamsWithInput(t, strings.NewReader(base64.StdEncoding.EncodeToString(ca)),
+		"http", "-X", "POST", redirect.URL, "--stdin", "never", "--ca", "-", "--ca-encoding", "base64", "--servername", "localhost", "--timeout", "5s")
+	require.NoError(t, err)
+	assert.Equal(t, "secure response", stdout)
+	assert.Empty(t, stderr)
+	select {
+	case body := <-requests:
+		assert.Empty(t, body, "--stdin never leaves credentials as the sole stdin owner")
+	default:
+		t.Fatal("HTTPS request with disabled payload stdin was not observed")
+	}
+}
+
+func TestHTTPTLSArtifactValidationPrecedesIO(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	t.Cleanup(server.Close)
+	for _, test := range []struct {
+		name    string
+		flags   []string
+		unknown bool
+	}{
+		{name: "explicit raw needs source", flags: []string{"--ca-encoding", "raw"}},
+		{name: "unknown codec", flags: []string{"--ca", "missing", "--ca-encoding", "invalid"}, unknown: true},
+		{name: "implicit POST payload", flags: []string{"--ca", "-"}},
+		{name: "explicit input payload", flags: []string{"--ca", "-", "--input", "-"}},
+		{name: "JSON payload", flags: []string{"--ca", "-", "--json", "@-"}},
+		{name: "always payload", flags: []string{"--ca", "-", "--stdin", "always"}},
+		{name: "two credentials", flags: []string{"--ca", "-", "--cert", "-", "--key", "missing", "--stdin", "never"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			input := &countingReader{source: strings.NewReader("not credentials or payload")}
+			output := filepath.Join(t.TempDir(), "output")
+			require.NoError(t, os.WriteFile(output, []byte("preserved"), 0o600))
+			args := append([]string{"http", "-X", "POST", server.URL, "--output", output}, test.flags...)
+			stdout, _, err := executeHTTPStreamsWithInput(t, input, args...)
+			require.Error(t, err)
+			if test.unknown {
+				require.ErrorIs(t, err, encoding.ErrUnknownInputEncoding)
+			} else {
+				require.ErrorIs(t, err, errInvalidHTTPFlags)
+			}
+			assert.Zero(t, input.reads.Load())
+			assert.Empty(t, stdout)
+			data, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserved", string(data))
+			assert.Zero(t, requests.Load(), "validation reached HTTP")
+		})
+	}
 }

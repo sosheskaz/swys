@@ -28,6 +28,8 @@ const networkNoValue = "(none)"
 
 // NewCommand constructs the network command family for one root lifecycle.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
+	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
+		func() *cobra.Command { return NewCommand(commandio.NewLifecycle()) }, netTLSCompletionApplicable)
 	netCmd := &cobra.Command{
 		Aliases: []string{"nc", "netcat"},
 		Use:     "net",
@@ -73,6 +75,7 @@ protocols explicitly; it does not transform the application payload.`,
 	registerNoFileFlagCompletion(command, tlsconfig.ServerNameFlagName)
 	registerALPNCompletion(command)
 	configureTLSConnectFlagCompletion(command)
+	tlsconfig.AddArtifactEncodingFlags(command, netTLSCompletionApplicable)
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
@@ -82,7 +85,10 @@ protocols explicitly; it does not transform the application payload.`,
 	configureNetProtocolCompletion(command, false)
 	commandio.AddShape(command, netProtocolShape)
 	command.Args = netProtocolAddressArgs(nil, false)
-	lifecycle.Register(command, commandio.Behavior{SupportsInput: true, SupportsOutput: true, Validate: validateNetCommand, PrepareInput: prepareNetConnectTLS})
+	lifecycle.Register(command, commandio.Behavior{
+		SupportsInput: true, SupportsOutput: true, Validate: validateNetCommand,
+		BeforeIO: prepareNetTLSBeforeIO(prepareNetConnectTLS),
+	})
 	return command
 }
 

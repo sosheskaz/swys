@@ -34,6 +34,18 @@ npc dns @1.1.1.1 example.com TXT --select values --format json --encoding base64
 
 Unsupported output encodings and invalid **--mode** values are rejected before a DNS query. **--mode** requires **--output**.
 
+## Use encoded TLS credentials
+
+For DNS over TLS or HTTPS, --ca supplies a trust bundle; --cert and --key supply a matching client identity together. Each source has an independent raw-default companion: --ca-encoding, --cert-encoding, and --key-encoding. These decode the outer source bytes before certificate or key parsing. --encoding still selects lookup output encoding.
+
+With a Base64-encoded CA bundle for a local encrypted resolver already running:
+
+```sh
+npc dns @https://localhost:8443/dns-query example.test --ca ca.pem.b64 --ca-encoding base64
+```
+
+An exact - selects original stdin for one credential; ./- names a file. DNS has no payload stdin, so one credential may use it. Multiple credential stdin sources are rejected before reading. An explicit companion flag requires its corresponding source, and TLS controls require a TLS or HTTPS endpoint.
+
 ## Related command
 
 Use HTTP when the task is an application request rather than a name lookup.

@@ -2,12 +2,16 @@ package net_test
 
 import (
 	"context"
+	"encoding/base32"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,4 +203,55 @@ func listenExampleTCP(t *testing.T) net.Listener {
 		}
 	})
 	return listener
+}
+
+func TestExampleNetConnectIndependentlyEncodedTLSArtifacts(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	ca, err := os.ReadFile(identity.caCert)
+	require.NoError(t, err)
+	cert, err := os.ReadFile(identity.clientCert)
+	require.NoError(t, err)
+	key, err := os.ReadFile(identity.clientKey)
+	require.NoError(t, err)
+	directory := t.TempDir()
+	certPath, keyPath, payloadPath := filepath.Join(directory, "cert"), filepath.Join(directory, "key"), filepath.Join(directory, "payload")
+	require.NoError(t, os.WriteFile(certPath, []byte(base64.StdEncoding.EncodeToString(cert)), 0o600))
+	require.NoError(t, os.WriteFile(keyPath, []byte(base32.StdEncoding.EncodeToString(key)), 0o600))
+	require.NoError(t, os.WriteFile(payloadPath, []byte(base64.StdEncoding.EncodeToString([]byte("request"))), 0o600))
+	var serverResult <-chan exchangeResult
+	received := false
+	t.Cleanup(func() {
+		if received || serverResult == nil {
+			return
+		}
+		select {
+		case <-serverResult:
+		case <-time.After(7 * time.Second):
+			t.Error("TLS fixture worker did not exit")
+		}
+	})
+	address, result := startTLSExchangeServer(t, &identity, true, nil)
+	serverResult = result
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	command := newRootCmd()
+	command.SetContext(ctx)
+	command.SetIn(strings.NewReader(hex.EncodeToString(ca)))
+	stdout, stderr, err := executeRootCommandStreams(t, command,
+		"net", "connect", "--tls", address, "--servername", "localhost",
+		"--ca", "-", "--ca-encoding", "hex", "--cert", certPath, "--cert-encoding", "base64",
+		"--key", keyPath, "--key-encoding", "base32", "--input", payloadPath, "--input-encoding", "base64")
+	require.NoError(t, err)
+	assert.Equal(t, "response", stdout)
+	assert.Empty(t, stderr)
+	select {
+	case got := <-serverResult:
+		received = true
+		require.NoError(t, got.err)
+		assert.Equal(t, "request", got.request)
+		assert.True(t, got.clientVerified, "server verified the independently decoded client identity")
+	case <-ctx.Done():
+		t.Fatal("TLS fixture did not report the exchange")
+	}
 }

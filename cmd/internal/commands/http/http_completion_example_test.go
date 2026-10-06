@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -373,4 +374,18 @@ func assertHTTPDirectiveAllowsSpace(t *testing.T, got cobra.ShellCompDirective) 
 func writeCompletionFixture(t *testing.T, name string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Clean(name), []byte("completion must not read this content"), 0o600))
+}
+
+func TestHTTPTLSArtifactEncodingCompletion(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{"ca", "cert", "key"} {
+		values, directive := completeHTTPCommand(t, "--"+source+"-encoding", "ba")
+		assert.Empty(t, values)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		values, directive = completeHTTPCommand(t, "--"+source, "missing", "--"+source+"-encoding", "ba")
+		assertHTTPCompletions(t, values, "base64", "base32")
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		_, directive = completeHTTPCommand(t, "--"+source, "")
+		assert.Zero(t, directive&cobra.ShellCompDirectiveNoFileComp, "credential paths retain filename fallback")
+	}
 }

@@ -65,11 +65,27 @@ func prepareHTTPBody(cmd *cobra.Command, options *httpOptions, method string) (*
 	if len(options.forms) != 0 {
 		return httpFormBody(options.forms)
 	}
-	autoInput := options.stdin == httpStdinAuto && method != http.MethodGet && method != http.MethodHead && !commandio.InputIsTerminal(cmd.InOrStdin())
-	if options.stdin == httpStdinAlways || autoInput {
+	if httpBodyUsesStdin(cmd, options, method) {
 		return httpSourceBody(cmd.Context(), "-", cmd.InOrStdin(), decoder, options.inputEncoding == httpEncodingRaw)
 	}
 	return &httpBody{reader: http.NoBody}, nil
+}
+
+func httpBodyUsesStdin(cmd *cobra.Command, options *httpOptions, method string) bool {
+	if cmd.Flags().Changed("input") {
+		return cmd.Flag("input").Value.String() == "-"
+	}
+	if cmd.Flags().Changed("data") {
+		return false
+	}
+	if cmd.Flags().Changed(httpFormatJSON) {
+		return options.jsonData == "@-"
+	}
+	if len(options.files) != 0 || len(options.forms) != 0 {
+		return false
+	}
+	return options.stdin == httpStdinAlways || options.stdin == httpStdinAuto &&
+		method != http.MethodGet && method != http.MethodHead && !commandio.InputIsTerminal(cmd.InOrStdin())
 }
 
 func httpLiteralBody(value string, decoder encoding.InputDecoder, raw bool) *httpBody {

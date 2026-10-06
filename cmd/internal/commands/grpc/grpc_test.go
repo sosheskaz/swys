@@ -1832,3 +1832,72 @@ func TestGRPCBinaryMetadataUsesStandardBase64(t *testing.T) {
 		t.Fatalf("binary metadata = %q, want %x", got, value)
 	}
 }
+
+func TestGRPCTLSArtifactStdinWithExplicitPayloadAndDiscovery(t *testing.T) {
+	t.Parallel()
+	for _, selector := range []string{"invoke", "discover"} {
+		t.Run(selector, func(t *testing.T) {
+			t.Parallel()
+			address, caPath, certPath, keyPath, record := startGRPCMTLSFixture(t)
+			ca, err := os.ReadFile(caPath)
+			require.NoError(t, err)
+			root := newRootCmd()
+			root.SetIn(strings.NewReader(base64.StdEncoding.EncodeToString(ca)))
+			args := []string{"grpc", address, "--ca", "-", "--ca-encoding", "base64", "--cert", certPath, "--key", keyPath, "--timeout", "2s"}
+			if selector == "invoke" {
+				args = append(args, grpcFixtureMethodName, "-d", `{}`)
+			}
+			stdout, stderr, err := executeRootCommandStreams(t, root, args...)
+			require.NoError(t, err)
+			assert.Empty(t, stderr)
+			calls, _, _ := record.snapshot()
+			if selector == "invoke" {
+				assert.JSONEq(t, `{}`, stdout)
+				assert.Equal(t, 1, calls)
+			} else {
+				assert.Contains(t, stdout, grpcFixtureServiceName)
+				assert.Zero(t, calls)
+			}
+		})
+	}
+}
+
+func TestGRPCTLSArtifactValidationPrecedesIO(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		flags   []string
+		unknown bool
+	}{
+		{name: "explicit raw needs source", flags: []string{"--ca-encoding", "raw"}},
+		{name: "unknown codec", flags: []string{"--ca", "missing", "--ca-encoding", "invalid"}, unknown: true},
+		{name: "plaintext codec", flags: []string{"--plaintext", "--ca", "missing", "--ca-encoding", "raw"}},
+		{name: "implicit payload", flags: []string{"--ca", "-"}},
+		{name: "explicit stdin payload", flags: []string{"--ca", "-", "--input", "-"}},
+		{name: "two credentials", flags: []string{"--ca", "-", "--cert", "-", "--key", "missing", "-d", `{}`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+			input := &countingReader{source: strings.NewReader("not credentials or payload")}
+			root := newRootCmd()
+			root.SetIn(input)
+			output := filepath.Join(t.TempDir(), "output")
+			require.NoError(t, os.WriteFile(output, []byte("preserved"), 0o600))
+			args := append([]string{"grpc", address, grpcFixtureMethodName, "--output", output}, test.flags...)
+			stdout, _, err := executeRootCommandStreams(t, root, args...)
+			require.Error(t, err)
+			if test.unknown {
+				require.ErrorIs(t, err, encoding.ErrUnknownInputEncoding)
+			} else {
+				require.ErrorIs(t, err, errInvalidGRPCOptions)
+			}
+			assert.Zero(t, input.reads.Load())
+			assert.Empty(t, stdout)
+			assert.Zero(t, record.connectionCount())
+			data, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserved", string(data))
+		})
+	}
+}

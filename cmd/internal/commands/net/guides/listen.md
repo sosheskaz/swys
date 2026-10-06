@@ -38,6 +38,19 @@ TLS listener mode requires --cert and --key. Supplying --ca requires and verifie
 
 NPC loads and validates local TLS CA and identity files before opening the output destination or reading payload bytes. Local credential failures leave an existing output file unchanged. Later network, handshake, or stream failures may leave partial output.
 
+## Decode credentials separately from payload
+
+--ca-encoding, --cert-encoding, and --key-encoding independently decode outer TLS source bytes and default to raw. --input-encoding decodes outgoing payload bytes; --encoding encodes received output. Explicit companion flags require their corresponding source and --tls.
+
+An exact - selects original stdin for one credential; ./- names a file. Listeners normally own stdin for outgoing payload, including with --duplex=false. --input with a file or --recv-only releases it for one credential. Multiple stdin owners fail before reads or binding.
+
+With a certificate for localhost and its matching Base64-encoded private key, receive one TLS stream without sending payload:
+
+```sh
+npc net listen --tls localhost:9443 --recv-only \
+  --cert server-cert.pem --key - --key-encoding base64 < server-key.pem.b64
+```
+
 ## Next steps
 
 ```sh

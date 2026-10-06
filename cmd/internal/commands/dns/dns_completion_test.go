@@ -166,3 +166,20 @@ func TestDNSCompletionFlagsFollowFinalResolver(t *testing.T) {
 		assert.NotContains(t, joined, "--transport", "flags after resolvers %q", resolvers)
 	}
 }
+
+func TestDNSTLSArtifactEncodingCompletion(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{"ca", "cert", "key"} {
+		values, directive := executeDNSCompletion(t, "dns", "@tls://localhost", "--"+source+"-encoding", "ba")
+		assert.Empty(t, values)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		values, directive = executeDNSCompletion(t, "dns", "@tls://localhost", "--"+source, "missing", "--"+source+"-encoding", "ba")
+		candidates := strings.Join(values, "\n")
+		assert.Contains(t, candidates, "base64")
+		assert.Contains(t, candidates, "base32")
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		values, directive = executeDNSCompletion(t, "dns", "@udp://localhost", "--"+source, "missing", "--"+source+"-encoding", "ba")
+		assert.Empty(t, values)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	}
+}

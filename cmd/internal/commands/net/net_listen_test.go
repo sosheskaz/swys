@@ -770,3 +770,54 @@ func TestNetListenTLSCredentialFailurePreservesOutputAndInput(t *testing.T) {
 	assert.Equal(t, "sentinel", string(remaining))
 	assert.Equal(t, len("payload"), payload.Len())
 }
+
+func TestNetListenTLSReceiveOnlyAllowsCredentialStdin(t *testing.T) {
+	t.Parallel()
+	identity := createNetworkTestIdentity(t)
+	key, err := os.ReadFile(identity.serverKey)
+	require.NoError(t, err)
+	run := startExampleListenCommand(t, strings.NewReader(base64.StdEncoding.EncodeToString(key)),
+		"net", "listen", "--tls", "127.0.0.1:0", "--recv-only", "--verbose", "--connect-timeout", "2s",
+		"--cert", identity.serverCert, "--key", "-", "--key-encoding", "base64")
+	finished, stderrRead := false, false
+	var stderr <-chan string
+	t.Cleanup(func() {
+		run.cancel()
+		if stderr == nil {
+			stderr = drainExampleStderr(run.stderr)
+		}
+		if !finished {
+			select {
+			case <-run.done:
+			case <-time.After(3 * time.Second):
+				t.Error("listener command did not exit")
+			}
+		}
+		if !stderrRead {
+			select {
+			case <-stderr:
+			case <-time.After(3 * time.Second):
+				t.Error("listener diagnostics did not close")
+			}
+		}
+	})
+	address := readExampleListeningAddress(t, run.stderr, "listening tls ")
+	stderr = drainExampleStderr(run.stderr)
+	connection := dialListenTestTLS(t, address, tlsClientConfig(t, &identity, nil, nil))
+	exchangeExampleReceiveOnlyRequest(t, connection, []byte("credential stdin is not payload"))
+	select {
+	case err := <-run.done:
+		finished = true
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("receive-only listener did not finish")
+	}
+	assert.Equal(t, "credential stdin is not payload", run.stdout.String())
+	select {
+	case text := <-stderr:
+		stderrRead = true
+		assert.NotContains(t, text, "error")
+	case <-time.After(3 * time.Second):
+		t.Fatal("listener diagnostics did not finish")
+	}
+}

@@ -241,6 +241,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
 	registerGRPCCompletion(command, options)
 	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string { return []string{grpcFormatText, grpcFormatJSON} })
+	tlsconfig.AddArtifactEncodingFlags(command, grpcTLSCompletionApplicable)
+	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
+		func() *cobra.Command { return NewCommand(commandio.NewLifecycle()) }, grpcTLSCompletionApplicable)
 	for _, name := range []string{tlsconfig.CAFlagName, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, "protoset"} {
 		if err := command.MarkPersistentFlagFilename(name); err != nil {
 			panic(err)
@@ -475,6 +478,9 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if err := validateGRPCTLSOptionCombinations(options); err != nil {
 		return err
 	}
+	if err := tlsconfig.ValidateArtifactSources(cmd, !options.plaintext, selectorPresent && grpcRequestUsesStdin(cmd), ErrInvalidOptions); err != nil {
+		return err
+	}
 	if err := certinput.ValidatePaths(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName); err != nil {
 		return err
 	}
@@ -626,6 +632,16 @@ func grpcTransportCredentials(cmd *cobra.Command, endpoint string, options *grpc
 	return credentials.NewTLS(config), nil
 }
 
+func grpcRequestUsesStdin(cmd *cobra.Command) bool {
+	if cmd.Flags().Changed("data") {
+		return false
+	}
+	if cmd.Flags().Changed("input") {
+		return cmd.Flag("input").Value.String() == "-"
+	}
+	return !commandio.InputIsTerminal(cmd.InOrStdin())
+}
+
 func readGRPCRequest(ctx context.Context, cmd *cobra.Command, options *grpcOptions) ([]byte, error) {
 	limit := int64(options.maxMessageSize) * 4
 	if cmd.Flags().Changed("data") {
@@ -643,7 +659,7 @@ func readGRPCRequest(ctx context.Context, cmd *cobra.Command, options *grpcOptio
 		if path != "-" {
 			return readGRPCRequestFile(ctx, path, limit)
 		}
-	} else if commandio.InputIsTerminal(reader) {
+	} else if !grpcRequestUsesStdin(cmd) {
 		return []byte("{}"), nil
 	}
 	return readGRPCRequestReader(ctx, reader, limit)

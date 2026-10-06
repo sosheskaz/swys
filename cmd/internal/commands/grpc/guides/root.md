@@ -33,6 +33,19 @@ The protoset flag replaces reflection. Service listing and description then use 
 npc grpc 127.0.0.1:1 --protoset service.protoset
 ```
 
+## Decode TLS credentials independently
+
+--ca-encoding, --cert-encoding, and --key-encoding select independent outer decoding for --ca, --cert, and --key and default to raw. They decode credential bytes before parsing; request JSON and the whole-output --encoding remain separate. Explicit companion flags require their source and conflict with --plaintext.
+
+With a local TLS gRPC service running and encoded credentials:
+
+```sh
+npc grpc localhost:9443 example.v1.EchoService/Echo -d '{"text":"hello"}' \
+  --ca ca.pem.b64 --ca-encoding base64 --cert client.pem.hex --cert-encoding hex --key client-key.pem
+```
+
+An exact - selects original stdin for one credential; ./- names a file. Invocation owns non-terminal stdin implicitly, and --input - owns it explicitly. Use a literal --data request or an input file to release stdin for credentials. Implicit terminal input defaults to an empty object; discovery has no request stdin. Multiple stdin owners fail before reads or connections. Reflection completion stays quiet when any credential selects stdin.
+
 ## Understand limits and remote effects
 
 The RPC message limit applies to invoked request and response protobuf messages. Descriptor processing has separate limits: 16 MiB total, 1,024 files, and 100 nested message levels. After request input, including FIFO input, is collected, one overall --timeout (-t) covers connection setup, reflection, and invocation. It defaults to ten seconds; zero disables it. Use an external process timeout when input collection must share the same fixed deadline as network work.

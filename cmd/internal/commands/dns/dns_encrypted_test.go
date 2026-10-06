@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/pem"
 	"errors"
@@ -34,6 +35,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 	"github.com/sosheskaz-systems/npc/internal/dnsquery"
 )
 
@@ -1346,4 +1348,67 @@ func differentPort(port string) string {
 		return "65534"
 	}
 	return strconv.Itoa(parsed + 1)
+}
+
+func TestDNSOverHTTPSAllowsEncodedCredentialStdin(t *testing.T) {
+	t.Parallel()
+	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
+	ca, err := os.ReadFile(identity.caCertPath)
+	require.NoError(t, err)
+	server := startDoHTestServer(t, identity, false, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		message, readErr := readDoHTestRequest(request)
+		if readErr != nil {
+			http.Error(writer, "invalid DNS request", http.StatusBadRequest)
+			return
+		}
+		writeDoHTestResponse(t, writer, standardDNSReply(message))
+	}))
+	root := newRootCmd()
+	root.SetIn(strings.NewReader(base64.StdEncoding.EncodeToString(ca)))
+	stdout, stderr, err := executeRootCommandStreams(t, root,
+		"dns", server.endpoint("localhost", ""), "example.test",
+		"--ca", "-", "--ca-encoding", "base64", "--select", "values", "--timeout", "2s")
+	require.NoError(t, err)
+	assert.Equal(t, "192.0.2.44\n", stdout)
+	assert.Empty(t, stderr)
+}
+
+func TestDNSTLSArtifactValidationPrecedesIO(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		flags    []string
+		unknown  bool
+	}{
+		{name: "explicit raw needs source", endpoint: "@tls://127.0.0.1:9", flags: []string{"--ca-encoding", "raw"}},
+		{name: "unknown codec", endpoint: "@https://127.0.0.1:9", flags: []string{"--ca", "missing", "--ca-encoding", "invalid"}, unknown: true},
+		{name: "UDP codec", endpoint: "@udp://127.0.0.1:9", flags: []string{"--ca", "missing", "--ca-encoding", "raw"}},
+		{name: "TCP codec", endpoint: "@tcp://127.0.0.1:9", flags: []string{"--ca", "missing", "--ca-encoding", "raw"}},
+		{name: "two credentials", endpoint: "@tls://127.0.0.1:9", flags: []string{"--ca", "-", "--cert", "-", "--key", "missing"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(context.Context, *dns.Msg, dnsquery.Transport, string) (*dns.Msg, error) {
+					t.Error("invalid credentials reached DNS exchange")
+					return nil, errUnexpectedSystemLookup
+				},
+			})
+			input := strings.NewReader("must not be consumed")
+			root.SetIn(input)
+			output := writeExistingDNSOutput(t)
+			args := append([]string{"dns", test.endpoint, "example.test", "--output", output}, test.flags...)
+			stdout, _, err := executeRootCommandStreams(t, root, args...)
+			require.Error(t, err)
+			if test.unknown {
+				require.ErrorIs(t, err, encoding.ErrUnknownInputEncoding)
+			} else {
+				require.ErrorIs(t, err, errInvalidDNSOptions)
+			}
+			assert.Equal(t, len("must not be consumed"), input.Len(), "credential input consumed before validation")
+			assert.Empty(t, stdout)
+			assertExistingDNSOutput(t, output)
+		})
+	}
 }

@@ -17,11 +17,14 @@ import (
 
 // Shared flag names keep TLS configuration consistent across command families.
 const (
-	CertFlagName       = "cert"
-	KeyFlagName        = "key"
-	CAFlagName         = "ca"
-	ServerNameFlagName = "servername"
-	SystemCAFlagName   = "system-ca"
+	CAEncodingFlagName   = "ca-encoding"
+	CertEncodingFlagName = "cert-encoding"
+	KeyEncodingFlagName  = "key-encoding"
+	CertFlagName         = "cert"
+	KeyFlagName          = "key"
+	CAFlagName           = "ca"
+	ServerNameFlagName   = "servername"
+	SystemCAFlagName     = "system-ca"
 )
 
 // ErrClientKeyMismatch identifies a client certificate whose public key differs from --key.
@@ -61,7 +64,7 @@ func CAPoolFromCommand(cmd *cobra.Command) (*x509.CertPool, bool, error) {
 		}
 		roots = systemRoots.Clone()
 	}
-	data, err := ReadArtifact("--ca", caPath, artifact.MaxCertificateBytes)
+	data, err := readCommandArtifact(cmd, CAFlagName, caPath, artifact.MaxCertificateBytes)
 	if err != nil {
 		return nil, false, err
 	}
@@ -94,7 +97,7 @@ func IdentityFromCommand(cmd *cobra.Command, mismatchError error) (tls.Certifica
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("read key flag: %w", err)
 	}
-	certData, err := ReadArtifact("--cert", certPath, artifact.MaxCertificateBytes)
+	certData, err := readCommandArtifact(cmd, CertFlagName, certPath, artifact.MaxCertificateBytes)
 	if err != nil {
 		return tls.Certificate{}, false, err
 	}
@@ -102,7 +105,7 @@ func IdentityFromCommand(cmd *cobra.Command, mismatchError error) (tls.Certifica
 	if err != nil {
 		return tls.Certificate{}, false, fmt.Errorf("parse --cert: %w", err)
 	}
-	keyData, err := ReadArtifact("--key", keyPath, artifact.MaxKeyBytes)
+	keyData, err := readCommandArtifact(cmd, KeyFlagName, keyPath, artifact.MaxKeyBytes)
 	if err != nil {
 		return tls.Certificate{}, false, err
 	}

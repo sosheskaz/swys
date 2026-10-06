@@ -36,6 +36,20 @@ Server certificates and hostnames are verified by default. --ca replaces system 
 
 NPC loads and validates local TLS CA and identity files before opening the output destination or reading payload bytes. Local credential failures leave an existing output file unchanged. Later network, handshake, or stream failures may leave partial output.
 
+## Decode credentials separately from payload
+
+--ca-encoding, --cert-encoding, and --key-encoding independently decode the outer bytes of their TLS sources and default to raw. --input-encoding decodes payload bytes; --encoding encodes received output. An explicit companion flag requires its source and --tls.
+
+An exact - selects original stdin for one credential; ./- names a file. Connect normally owns stdin for payload, including with --duplex=false. Select a payload file to leave stdin available for one credential. Multiple stdin owners fail before reads or connection setup.
+
+With a local TLS service running, a hex CA bundle, Base64 client certificate and payload, and Base32 client key:
+
+```sh
+npc net connect --tls localhost:9443 --ca - --ca-encoding hex \
+  --cert client.pem.b64 --cert-encoding base64 --key client-key.pem.b32 --key-encoding base32 \
+  --input request.b64 --input-encoding base64 < ca.pem.hex
+```
+
 ## Next steps
 
 ```sh

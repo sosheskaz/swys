@@ -1,12 +1,16 @@
 package net_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
 )
 
 func TestNetProtocolCompletionContract(t *testing.T) {
@@ -260,5 +264,74 @@ func TestNetCompletionDoesNotSuggestLegacyTransportSubcommands(t *testing.T) {
 				t.Fatalf("%s completion suggests removed transport subcommand %q", verb, value)
 			}
 		}
+	}
+}
+
+func TestNetTLSArtifactValidationPrecedesIO(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		args    []string
+		unknown bool
+	}{
+		{name: "explicit raw needs source", args: []string{"connect", "--tls", "--ca-encoding", "raw"}},
+		{name: "unknown codec", args: []string{"connect", "--tls", "--ca", "missing", "--ca-encoding", "invalid"}, unknown: true},
+		{name: "plaintext codec", args: []string{"connect", "--ca", "missing", "--ca-encoding", "raw"}},
+		{name: "implicit payload", args: []string{"connect", "--tls", "--ca", "-"}},
+		{name: "explicit payload", args: []string{"connect", "--tls", "--ca", "-", "--input", "-"}},
+		{name: "nonduplex payload", args: []string{"connect", "--tls", "--ca", "-", "--duplex=false"}},
+		{name: "listen payload", args: []string{"listen", "--tls", "--cert", "-", "--key", "missing"}},
+		{name: "two credentials", args: []string{"listen", "--tls", "--recv-only", "--cert", "-", "--key", "-"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			input := &unexpectedListenerInputReader{}
+			root := newRootCmd()
+			root.SetIn(input)
+			output := filepath.Join(t.TempDir(), "output")
+			require.NoError(t, os.WriteFile(output, []byte("preserved"), 0o600))
+			args := append([]string{"net"}, test.args...)
+			args = append(args, "127.0.0.1:9", "--output", output)
+			stdout, _, err := executeRootCommandStreams(t, root, args...)
+			require.Error(t, err)
+			if test.unknown {
+				require.ErrorIs(t, err, encoding.ErrUnknownInputEncoding)
+			} else {
+				require.ErrorIs(t, err, errInvalidNetworkFlags)
+			}
+			assert.Zero(t, input.reads.Load(), "validation read payload or credentials")
+			assert.Empty(t, stdout)
+			data, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserved", string(data))
+		})
+	}
+}
+
+func TestNetTLSArtifactEncodingCompletion(t *testing.T) {
+	t.Parallel()
+	for _, verb := range []string{"connect", "listen"} {
+		for _, source := range []string{"ca", "cert", "key"} {
+			assert.Equal(t, []string{":4"}, completionLines(completeCommand(t, "net", verb, "--tls", "--"+source+"-encoding", "ba")), "codec without source")
+			values := completionLines(completeCommand(t, "net", verb, "--tls", "--"+source, "missing", "--"+source+"-encoding", "ba"))
+			assert.Contains(t, strings.Join(values, "\n"), "base64")
+			assert.Contains(t, strings.Join(values, "\n"), "base32")
+			assert.Equal(t, ":4", values[len(values)-1])
+			assert.Equal(t, []string{":4"}, completionLines(completeCommand(t, "net", verb, "--"+source, "missing", "--"+source+"-encoding", "ba")), "plaintext codec")
+		}
+	}
+	assert.Contains(t, completeCommand(t, "net", "connect", "--tls", "--ca", "missing", "--ca-"), "--ca-encoding\t")
+	for _, source := range []string{"ca", "cert", "key"} {
+		names := completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", "--insecure", "--"+source+"-")
+		values := completionLines(completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", "--insecure", "--"+source+"-encoding", "ba"))
+		if source == "ca" {
+			assert.Equal(t, []string{":4"}, completionLines(names), "insecure mode suppresses the CA companion name")
+			assert.Equal(t, []string{":4"}, values, "insecure mode suppresses CA codecs without filename fallback")
+			continue
+		}
+		assert.Contains(t, names, "--"+source+"-encoding\t", "insecure mode retains client identity companion names")
+		assert.Contains(t, strings.Join(values, "\n"), "base64")
+		assert.Contains(t, strings.Join(values, "\n"), "base32")
+		assert.Equal(t, ":4", values[len(values)-1])
 	}
 }

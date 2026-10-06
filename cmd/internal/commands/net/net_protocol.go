@@ -54,8 +54,12 @@ func validateNetProtocolFlagsBeforeIO(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	if err := tlsconfig.ValidateArtifactSources(cmd, protocol == netProtocolTLS, netPayloadUsesStdin(cmd), ErrInvalidFlags); err != nil {
+		return err
+	}
 	for _, name := range []string{
 		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName,
+		tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName, tlsconfig.CAEncodingFlagName,
 		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName, netInsecureFlagName,
 		netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName, netWaitFlagName,
 	} {
@@ -80,6 +84,7 @@ func validateNetProtocolFlagsBeforeIO(cmd *cobra.Command) error {
 func isNetTLSFlag(name string) bool {
 	switch name {
 	case tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName,
+		tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName, tlsconfig.CAEncodingFlagName,
 		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName, netInsecureFlagName:
 		return true
 	default:
@@ -120,7 +125,11 @@ func netProtocolAddressArgs(original cobra.PositionalArgs, listen bool) cobra.Po
 		if _, err := networkProtocolFromCommand(cmd); err != nil {
 			return err
 		}
-		return validated(cmd, args)
+		if err := validated(cmd, args); err != nil {
+			return err
+		}
+		// BeforeIO preflights shared paths before its callback; preserve flag validation first.
+		return validateNetCommand(cmd)
 	}
 }
 
@@ -143,6 +152,43 @@ func netConnectWait(cmd *cobra.Command) (time.Duration, error) {
 
 // ErrInvalidFlags identifies incompatible network flag combinations.
 var ErrInvalidFlags = commandio.ErrInvalidNetworkFlags
+
+func prepareNetTLSBeforeIO(prepare func(*cobra.Command) error) func(*cobra.Command, []string) (func(error) error, error) {
+	return func(cmd *cobra.Command, _ []string) (func(error) error, error) {
+		if err := validateNetCommand(cmd); err != nil {
+			return nil, err
+		}
+		original := cmd.Context()
+		if err := prepare(cmd); err != nil {
+			cmd.SetContext(original)
+			return nil, err
+		}
+		return func(err error) error {
+			if err != nil {
+				cmd.SetContext(original)
+			} else {
+				commandio.AppendCleanup(cmd, func() { cmd.SetContext(original) })
+			}
+			return err
+		}, nil
+	}
+}
+
+func netPayloadUsesStdin(cmd *cobra.Command) bool {
+	if cmd.Name() == "listen" {
+		receiveOnly := cmd.Flag(netRecvOnlyFlagName).Value.String() == completionBoolTrue
+		if receiveOnly {
+			return false
+		}
+	}
+	input := cmd.Flag("input").Value.String()
+	return commandio.NormalizeMainStreamPath(input) == ""
+}
+
+func netTLSCompletionApplicable(cmd *cobra.Command, _ []string) bool {
+	protocol, err := networkProtocolFromCommand(cmd)
+	return err == nil && protocol == netProtocolTLS
+}
 
 func validateNetCommand(cmd *cobra.Command) error {
 	if err := validateNetFlagsBeforeIO(cmd); err != nil {

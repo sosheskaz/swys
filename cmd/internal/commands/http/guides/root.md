@@ -27,6 +27,24 @@ Tracing writes connection and timing diagnostics to stderr, leaving ordinary bod
 
 The default selection is body, and its default format is raw bytes. Select response to include status and headers; its default text format places a blank line before the body. The --format json option works with either selection and stores body bytes as base64 without interpreting application JSON. The --encoding option transforms the complete stdout stream in every supported format. A HEAD request has an empty body by default; select response to see its headers. The --trace option always writes diagnostics to stderr.
 
+## Use encoded TLS credentials
+
+--ca supplies a trust bundle, while --cert and --key supply a matching client identity together. --ca-encoding, --cert-encoding, and --key-encoding independently decode outer credential bytes and default to raw. --input-encoding decodes request bytes; --encoding encodes response output. Credential decoding does not select HTTPS or change verification.
+
+With a local HTTPS service running and an encoded CA bundle:
+
+```sh
+npc http https://localhost:8443 --ca ca.pem.b64 --ca-encoding base64
+```
+
+An exact - selects original stdin for one credential; ./- names a file. Only one source may own stdin. Request bodies own it with --input -, --json @-, --stdin always, or an automatic non-GET/HEAD request reading non-terminal stdin. A literal or file body, form fields, or --stdin never can leave stdin available for a credential. --data @- is literal text. For example, with the same local service accepting POST requests:
+
+```sh
+npc http https://localhost:8443 -X POST --data '@-' --ca - --ca-encoding base64 < ca.pem.b64
+```
+
+TLS credentials also apply to HTTPS redirects from an initial HTTP URL. Explicit companion flags require their corresponding source; conflicting stdin sources fail before reads or requests.
+
 For raw application bytes over a transport, use the network family.
 
 ```sh

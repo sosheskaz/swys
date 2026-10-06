@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
 )
 
 const grpcCompletionTimeout = 2 * time.Second
@@ -26,6 +28,10 @@ const (
 	grpcCompleteService
 	grpcCompleteSymbol
 )
+
+func grpcTLSCompletionApplicable(cmd *cobra.Command, _ []string) bool {
+	return cmd.Flag("plaintext").Value.String() == "false"
+}
 
 func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
 	command.ValidArgsFunction = func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
@@ -65,7 +71,7 @@ func completeGRPC(
 	if kind == grpcCompleteSelector && !strings.Contains(prefix, "/") {
 		directive |= cobra.ShellCompDirectiveNoSpace
 	}
-	if !validGRPCCompletionEndpoint(args[0]) {
+	if tlsconfig.UsesStdin(command) || !validGRPCCompletionEndpoint(args[0]) {
 		return nil, directive
 	}
 
@@ -96,7 +102,7 @@ func grpcCompletionSchema(
 	endpoint string,
 	options *grpcOptions,
 ) (*grpcSchema, *grpc.ClientConn, context.Context) {
-	if validateGRPCTLSOptionCombinations(options) != nil {
+	if validateGRPCTLSOptionCombinations(options) != nil || tlsconfig.ValidateArtifactSources(command, !options.plaintext, false, ErrInvalidOptions) != nil {
 		return nil, nil, ctx
 	}
 	if command.Flags().Changed("protoset") {

@@ -192,6 +192,9 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 			dnsSelectResult: "complete DNS result",
 			dnsSelectValues: "answer values only",
 		})
+	tlsconfig.AddArtifactEncodingFlags(command, dnsTLSCompletionApplicable)
+	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
+		func() *cobra.Command { return NewCommand(commandio.NewLifecycle(), deps) }, dnsTLSCompletionApplicable)
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
@@ -276,6 +279,18 @@ func completeDNSArguments(command *cobra.Command, args []string, toComplete stri
 		}
 	}
 	return completed, cobra.ShellCompDirectiveNoFileComp
+}
+
+func dnsTLSCompletionApplicable(cmd *cobra.Command, args []string) bool {
+	if resolver := cmd.Flag("resolver"); resolver != nil && resolver.Value.String() == dnsResolverSystem && cmd.Flags().Changed("resolver") {
+		return false
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "@tls://") || strings.HasPrefix(arg, "@https://") {
+			return true
+		}
+	}
+	return false
 }
 
 func dnsCompletionResolver(command *cobra.Command, args []string, options *dnsOptions) (string, bool) {
@@ -444,6 +459,10 @@ func validateSystemDNSQuery(query *dnsQuery) error {
 }
 
 func validateDirectDNSOptions(cmd *cobra.Command, query *dnsQuery, tlsSelected bool) error {
+	encrypted := query.transport == dnsTransportTLS || query.transport == dnsTransportHTTPS
+	if err := tlsconfig.ValidateArtifactSources(cmd, encrypted, false, ErrInvalidDNSOptions); err != nil {
+		return err
+	}
 	if query.transport == dnsTransportUDP || query.transport == dnsTransportTCP {
 		if tlsSelected {
 			return fmt.Errorf("%w: TLS options require @tls:// or @https://", ErrInvalidDNSOptions)
@@ -462,7 +481,10 @@ func validateDirectDNSOptions(cmd *cobra.Command, query *dnsQuery, tlsSelected b
 }
 
 func dnsTLSOptionsSelected(cmd *cobra.Command) bool {
-	for _, name := range []string{tlsconfig.CAFlagName, "system-ca", tlsconfig.ServerNameFlagName, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, "insecure"} {
+	for _, name := range []string{
+		tlsconfig.CAFlagName, tlsconfig.CAEncodingFlagName, tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName,
+		"system-ca", tlsconfig.ServerNameFlagName, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, "insecure",
+	} {
 		if cmd.Flags().Changed(name) {
 			return true
 		}

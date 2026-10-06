@@ -317,6 +317,7 @@ func prepareHTTPCompletion(completionCmd *cobra.Command, args []string) {
 		}
 	}
 	prepareHTTPBodyCompletion(probeCommand, hide)
+	tlsconfig.SetArtifactEncodingVisibility(actualCommand, probeCommand, true)
 }
 
 func prepareHTTPBodyCompletion(cmd *cobra.Command, hide func(...string)) {

@@ -128,6 +128,10 @@ func effectiveHTTPFormat(options *httpOptions) string {
 }
 
 func validateHTTPTLSOptions(cmd *cobra.Command, options *httpOptions) error {
+	method := cmd.Flag("method").Value.String()
+	if err := tlsconfig.ValidateArtifactSources(cmd, true, httpBodyUsesStdin(cmd, options, method), ErrInvalidFlags); err != nil {
+		return err
+	}
 	if (options.cert == "") != (options.key == "") {
 		return fmt.Errorf("%w: --cert and --key must be specified together", ErrInvalidFlags)
 	}

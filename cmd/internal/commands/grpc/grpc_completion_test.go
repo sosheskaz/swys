@@ -288,3 +288,48 @@ func assertQuietGRPCCompletionFailure(t *testing.T, stderr string) {
 		assert.NotContains(t, lower, leaked)
 	}
 }
+
+func TestGRPCCompletionCredentialStdinIsQuietAndLiteralDashFileRemainsUsable(t *testing.T) { //nolint:paralleltest // isolates the literal dash file with Chdir
+	address, caPath, record := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
+	ca, err := os.ReadFile(caPath)
+	require.NoError(t, err)
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile("-", ca, 0o600))
+	for _, source := range []string{"-", "./-"} { //nolint:paralleltest // shares the working-directory fixture
+		t.Run(source, func(t *testing.T) {
+			root := newRootCmd()
+			input := &countingReader{source: strings.NewReader("must not be read")}
+			root.SetIn(input)
+			output := filepath.Join(t.TempDir(), "must-not-exist")
+			values, directive, stderr := completeGRPCCommandWithRoot(t, root, address, "--ca", source, "--output", output, grpcFixtureServiceName+"/E")
+			assertGRPCCompletionDirective(t, directive)
+			assertQuietGRPCCompletionFailure(t, stderr)
+			if source == "-" {
+				assert.Empty(t, values, "stdin credentials cannot be acquired during completion")
+				assert.Zero(t, record.connectionCount(), "stdin credentials reached reflection network")
+			} else {
+				assertGRPCCompletion(t, values, grpcFixtureMethodName)
+			}
+			assert.Zero(t, input.reads.Load())
+			_, statErr := os.Stat(output)
+			assert.True(t, os.IsNotExist(statErr), "completion prepared output")
+		})
+	}
+}
+
+func TestGRPCTLSArtifactEncodingCompletion(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{"ca", "cert", "key"} {
+		values, directive := completeGRPCCommand(t, "--"+source+"-encoding", "ba")
+		assert.Empty(t, values)
+		assertGRPCCompletionDirective(t, directive)
+		values, directive = completeGRPCCommand(t, "--"+source, "missing", "--"+source+"-encoding", "ba")
+		candidates := strings.Join(values, "\n")
+		assert.Contains(t, candidates, "base64")
+		assert.Contains(t, candidates, "base32")
+		assertGRPCCompletionDirective(t, directive)
+		values, directive = completeGRPCCommand(t, "--plaintext", "--"+source, "missing", "--"+source+"-encoding", "ba")
+		assert.Empty(t, values)
+		assertGRPCCompletionDirective(t, directive)
+	}
+}

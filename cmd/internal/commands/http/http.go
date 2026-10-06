@@ -167,6 +167,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")
 	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
 	registerHTTPCompletions(cmd, options)
+	tlsconfig.AddArtifactEncodingFlags(cmd, func(*cobra.Command, []string) bool { return true })
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
 		if err := cmd.MarkPersistentFlagFilename(name); err != nil {
 			panic(err)
