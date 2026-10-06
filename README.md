@@ -27,12 +27,15 @@ interfaces may change between releases.
 then install SwYS globally using its [GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html):
 
 ```sh
-mise use --global github:sosheskaz/swys@latest
+mise use --global github:sosheskaz/swys@0.1.0
 swys --version
 ```
 
 Mise selects the release archive for your platform and makes `swys` available
 on `PATH` in an activated shell. Set up SwYS completion separately below.
+Use `@latest` to select the newest release allowed by your mise release-age
+policy; an explicit version also works while a new release is inside that
+waiting period.
 
 ### Install with Homebrew
 
@@ -41,7 +44,8 @@ brew install --cask sosheskaz/tap/swys
 swys --version
 ```
 
-The cask installs Bash, Zsh, and Fish completions. On macOS it removes the
+Installation is verified on macOS arm64. The cask installs Bash, Zsh, and Fish
+completions. On macOS it removes the
 binary's quarantine attribute; the binary is not Developer ID signed or
 notarized. See [Homebrew distribution](docs/homebrew.md) for details.
 

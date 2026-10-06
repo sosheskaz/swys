@@ -96,6 +96,11 @@ Preserve verified artifacts; do not delete or move a published tag to rerun a
 job. Use the release workflow's explicit tag input to retry the intended
 artifact build only after checking the existing release and permissions.
 
+Before replaying an older tag after a newer cask is published, confirm its
+configuration skips tap upload. An older stable release with `skip_upload: auto`
+can replace the newer cask. The job reads configuration from the release tag;
+changing `main` does not change an old tag's publishing settings.
+
 Stop release automation by disabling its workflows and clearing
 `RELEASE_ENABLED`. Setting GoReleaser's cask `skip_upload` back to `true` also
 stops future tap writes. These actions do not retract artifacts already

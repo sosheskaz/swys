@@ -47,7 +47,7 @@ was published after anonymous archive verification; the first automatic update
 with `BREW_PAT`, and Linux installation, still require live validation.
 
 1. Keep the Release and Release Please workflows disabled until release
-   publishing is authorized. Leave `homebrew_casks[].skip_upload: true` in
+   publishing is authorized. Set `homebrew_casks[].skip_upload: true` in
    `.config/goreleaser.yaml` until anonymous release downloads have been verified.
 2. Provision the repository secret `BREW_PAT` privately. Use a fine-grained PAT
    restricted to `sosheskaz/homebrew-tap`, with Contents read/write. The selected
