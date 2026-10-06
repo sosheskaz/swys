@@ -27,7 +27,15 @@ printf 'hello from client\n' | npc net connect localhost:9000
 
 Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Sending and receiving are independent by default, so peer EOF does not discard unfinished local input. Explicit --duplex=false restores early exit on peer EOF and can discard outgoing data that has not yet been sent. Use --close-write=false when input EOF must leave the outgoing side open.
 
-This makes local pipelines work without startup sleeps because the connector retries a refused TCP setup within its five-second --connect-timeout (-c):
+## Encrypt a local exchange
+
+Create a key in a fresh local directory before running the encrypted pipeline. Keep this key private; a new key cannot decrypt data encrypted with the previous one.
+
+```sh
+npc aes keygen -o aes.key
+```
+
+Run the entire pipeline in one terminal. The receive-only listener reads the encrypted peer data without consuming its piped stdin. This works without startup sleeps because the connector retries a refused TCP setup within its five-second --connect-timeout (-c):
 
 ```sh
 printf 'hello, world\n' | npc aes encrypt -k aes.key | npc net connect localhost:4444 | npc net listen localhost:4444 -r | npc aes decrypt -k aes.key

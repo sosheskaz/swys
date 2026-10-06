@@ -12,6 +12,14 @@ For HTTP, use the HTTP command so request framing, redirects, content decoding, 
 
 ## TCP stream
 
+Start this listener in the first terminal:
+
+```sh
+printf 'ready\n' | npc net listen localhost:9000
+```
+
+Connect from the second terminal:
+
 ```sh
 printf 'status\n' | npc net connect localhost:9000
 ```
@@ -19,6 +27,14 @@ printf 'status\n' | npc net connect localhost:9000
 Input EOF half-closes sending by default, then NPC drains the response until EOF. A positive --wait (-w) limits that drain and returns an error with partial output preserved on expiry; zero waits indefinitely. Peer EOF waits for unfinished local input by default. --duplex=false exits on peer EOF and may discard unsent input. Use --close-write=false when input EOF must leave sending open. The five-second --connect-timeout (-c) covers address resolution and connection retries after refusal; it does not time or replay an established stream.
 
 ## UDP datagram
+
+Start this listener before the client, in a separate terminal:
+
+```sh
+printf 'ready' | npc net listen --udp localhost:9000
+```
+
+Then send one datagram:
 
 ```sh
 printf 'status' | npc net connect --udp localhost:9000
@@ -28,8 +44,10 @@ All decoded input becomes one datagram, including empty input. Input must reach 
 
 ## Verified TLS stream
 
+Use **npc help net listen** to create server-key.pem and server-cert.pem for localhost, then start its TLS listener in the first terminal. Connect from the second terminal, explicitly trusting that test certificate:
+
 ```sh
-printf 'hello\n' | npc net connect --tls service.example.test:443 --ca test-ca.pem
+printf 'hello\n' | npc net connect --tls localhost:9443 --ca server-cert.pem
 ```
 
 Server certificates and hostnames are verified by default. --ca replaces system roots unless --system-ca is also set. --cert and --key supply an optional client identity together. --servername overrides the endpoint host for SNI and verification. --insecure disables verification for controlled diagnostics and cannot be combined with --ca or --system-ca. --alpn advertises application protocols; it does not transform payload bytes. TLS uses the TCP stream lifecycle. Its five-second --connect-timeout (-c) includes the handshake.

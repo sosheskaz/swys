@@ -20,6 +20,12 @@ func TestNetCompletionExamples(t *testing.T) {
 			t.Fatalf("completion = %q, want %q", got, want)
 		}
 	})
+	t.Run("choose ALPN without descriptions", func(t *testing.T) {
+		t.Parallel()
+		stdout, _, err := executeRootStreams(t, "__completeNoDesc", "net", "connect", "--tls", "--alpn", "h")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"h2", "http/1.1", ":38"}, completionLines(stdout))
+	})
 
 	t.Run("continue an ordered ALPN list", func(t *testing.T) {
 		t.Parallel()
@@ -243,7 +249,19 @@ func TestNetTLSCompletionDoesNotChangeNormalHelp(t *testing.T) {
 			}
 		}
 	}
-	_, _, err := executeRootStreams(t, "net", "connect", "--tls", "--insecure=invalid")
+	helpArgs := []string{"net", "connect", "--tls", "--ca", "ca.pem", "--help"}
+	freshHelp, _, err := executeRootStreams(t, helpArgs...)
+	require.NoError(t, err)
+	root := newRootCmd()
+	input := &unexpectedListenerInputReader{}
+	root.SetIn(input)
+	_, _, err = executeRootCommandStreams(t, root, "__complete", "net", "connect", "--tls", "--ca", "ca.pem", "--")
+	require.NoError(t, err)
+	assert.Zero(t, input.reads.Load(), "completion stdin reads")
+	reusedHelp, _, err := executeRootCommandStreams(t, root, helpArgs...)
+	require.NoError(t, err)
+	assert.Equal(t, freshHelp, reusedHelp, "completion must preserve reused-root reference help")
+	_, _, err = executeRootStreams(t, "net", "connect", "--tls", "--insecure=invalid")
 	if err == nil || strings.Contains(err.Error(), "completion-aware") {
 		t.Errorf("boolean parser error = %v, want original parser error", err)
 	}

@@ -83,6 +83,20 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 			shown:  []string{"--connect-timeout"},
 			hidden: []string{"--wait", "--close-write", "--recv-only", "--cert", "--ca"},
 		},
+		{
+			name: "receive-only excludes sending flags",
+			args: []string{"net", "listen", "--recv-only", "--"}, hidden: []string{"--input", "--duplex", "--udp"},
+		},
+		{
+			name:  "last receive-only false restores sending flags",
+			args:  []string{"net", "listen", "--recv-only", "--recv-only=false", "--"},
+			shown: []string{"--input", "--duplex"}, hidden: []string{"--udp"},
+		},
+		{
+			name:  "flag-looking input path does not select UDP",
+			args:  []string{"net", "listen", "--input", "--udp", "--"},
+			shown: []string{"--tls", "--duplex"}, hidden: []string{"--cert"},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -152,7 +166,7 @@ func TestNetInapplicableFlagValueCompletionIsSuppressed(t *testing.T) {
 	}
 }
 
-func TestNetApplicableFlagValueCompletionRemainsAvailable(t *testing.T) {
+func TestNetFlagValueCompletionContract(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name string
@@ -188,6 +202,30 @@ func TestNetApplicableFlagValueCompletionRemainsAvailable(t *testing.T) {
 			name: "TCP listen receive-only boolean",
 			args: []string{"net", "listen", "--recv-only="},
 			want: []string{"true", "false", ":4"},
+		},
+		{
+			name: "receive-only excludes typed input",
+			args: []string{"net", "listen", "--recv-only", "--input", ""}, want: []string{":4"},
+		},
+		{
+			name: "receive-only excludes even false duplex",
+			args: []string{"net", "listen", "--recv-only", "--duplex="}, want: []string{":4"},
+		},
+		{
+			name: "explicit false duplex excludes receive-only true",
+			args: []string{"net", "listen", "--duplex=false", "--recv-only="}, want: []string{"false", ":4"},
+		},
+		{
+			name: "explicit false duplex excludes UDP true",
+			args: []string{"net", "listen", "--duplex=false", "--udp="}, want: []string{"false", ":4"},
+		},
+		{
+			name: "ancestor short empty input excludes receive-only true",
+			args: []string{"-i", "", "net", "listen", "--recv-only="}, want: []string{"false", ":4"},
+		},
+		{
+			name: "receive-only false permits typed input",
+			args: []string{"net", "listen", "--recv-only=false", "--input", ""}, want: []string{":0"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

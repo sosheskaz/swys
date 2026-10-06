@@ -37,6 +37,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	}
 	help.ConfigureBranch(netCmd)
 	netCmd.AddCommand(newNetConnectCmd(lifecycle), newNetListenCmd(lifecycle))
+	lifecycle.RegisterCompletion(prepareNetCompletion)
 	if err := help.RegisterGuides(netCmd, netGuideFiles); err != nil {
 		panic(err)
 	}
