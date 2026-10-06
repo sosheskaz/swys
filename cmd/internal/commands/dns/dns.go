@@ -150,7 +150,6 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 				return nil
 			}, nil
 		},
-		PreparesOutput: func(*cobra.Command) bool { return true },
 		Prepare: func(cmd *cobra.Command, _ io.Reader) ([]byte, error) {
 			prepared, ok := cmd.Context().Value(dnsPreparedOutputKey{}).([]byte)
 			if !ok {

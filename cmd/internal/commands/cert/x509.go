@@ -51,8 +51,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			}
 			return nil
 		},
-		Prepare:        prepareKeyPublicOutput,
-		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare: prepareKeyPublicOutput,
 	})
 	lifecycle.Register(keyInspect, commandio.Behavior{
 		SupportsInput:  true,
@@ -61,8 +60,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			_, err := keyFormatterFromCommand(cmd)
 			return err
 		},
-		Prepare:        prepareKeyInspectionOutput,
-		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare: prepareKeyInspectionOutput,
 	})
 	lifecycle.Register(keyConvert, commandio.Behavior{
 		SupportsInput:  true,
@@ -74,8 +72,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			}
 			return nil
 		},
-		Prepare:        prepareKeyConversionOutput,
-		PreparesOutput: func(*cobra.Command) bool { return true },
+		Prepare: prepareKeyConversionOutput,
 		Sensitive: func(cmd *cobra.Command) (bool, error) {
 			target, err := keyConversionTargetFromCommand(cmd)
 			if err != nil {
@@ -88,7 +85,6 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		SupportsInput:  true,
 		SupportsOutput: true,
 		Validate:       validateInspectionFlags,
-		PreparesOutput: func(*cobra.Command) bool { return true },
 		Prepare:        prepareInspectedCertificates,
 	})
 	lifecycle.Register(connect, commandio.Behavior{
@@ -99,28 +95,24 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			}
 			return validateInspectionFlags(cmd)
 		},
-		PreparesOutput: func(*cobra.Command) bool { return true },
-		Prepare:        prepareConnectedCertificates,
+		Prepare: prepareConnectedCertificates,
 	})
 	lifecycle.Register(create, commandio.Behavior{
 		SupportsInput:  true,
 		SupportsOutput: true,
 		Validate:       validateCertificateFlags(validateCertificateCreateFlags),
-		PreparesOutput: func(*cobra.Command) bool { return true },
 		Prepare:        prepareCertificateOutput,
 	})
 	lifecycle.Register(csr, commandio.Behavior{
 		SupportsInput:  true,
 		SupportsOutput: true,
 		Validate:       validateCertificateFlags(validateCertificateCSRFlags),
-		PreparesOutput: func(*cobra.Command) bool { return true },
 		Prepare:        prepareCertificateRequestOutput,
 	})
 	lifecycle.Register(verify, commandio.Behavior{
 		SupportsInput:  true,
 		SupportsOutput: true,
 		Validate:       validateCertificateFlags(validateCertVerifyFlags),
-		PreparesOutput: func(*cobra.Command) bool { return true },
 		Prepare: func(cmd *cobra.Command, input io.Reader) ([]byte, error) {
 			return prepareCertificateReport(cmd, input, prepareCertVerifyReport)
 		},
@@ -129,7 +121,6 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		SupportsInput:  true,
 		SupportsOutput: true,
 		Validate:       validateCertificateFlags(validateCertMatchFlags),
-		PreparesOutput: func(*cobra.Command) bool { return true },
 		Prepare: func(cmd *cobra.Command, input io.Reader) ([]byte, error) {
 			return prepareCertificateReport(cmd, input, prepareCertMatchReport)
 		},

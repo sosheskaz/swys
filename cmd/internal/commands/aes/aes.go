@@ -78,17 +78,16 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	encrypt, decrypt := newEncryptCmd(), newDecryptCmd()
 	keygen, convert, inspect := newAESKeygenCmd(), newAESKeyConvertCmd(), newAESKeyInspectCmd()
 	aesCmd.AddCommand(encrypt, decrypt, keygen, convert, inspect)
-	prepared := func(*cobra.Command) bool { return true }
 	lifecycle.Register(keygen, commandio.Behavior{
-		SupportsOutput: true, Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput, PreparesOutput: prepared,
+		SupportsOutput: true, Validate: validateAESKeygenFlags, Prepare: prepareAESKeygenOutput,
 	})
 	lifecycle.Register(convert, commandio.Behavior{
 		SupportsInput: true, SupportsOutput: true,
-		Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion, PreparesOutput: prepared,
+		Validate: validateAESKeyConvertFlags, Prepare: prepareAESKeyConversion,
 	})
 	lifecycle.Register(inspect, commandio.Behavior{
 		SupportsInput: true, SupportsOutput: true,
-		Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection, PreparesOutput: prepared,
+		Validate: validateAESKeyInspectFlags, Prepare: prepareAESKeyInspection,
 	})
 	for _, command := range []*cobra.Command{encrypt, decrypt} {
 		lifecycle.Register(command, commandio.Behavior{

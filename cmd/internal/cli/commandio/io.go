@@ -44,10 +44,7 @@ func configureIO(cmd *cobra.Command, behavior *Behavior, preflight *ioSetup) (fu
 	originalContext := cmd.Context()
 	originalIn := cmd.InOrStdin()
 	originalOut := cmd.OutOrStdout()
-	preparesOutput := false
-	if behavior != nil && behavior.PreparesOutput != nil {
-		preparesOutput = behavior.PreparesOutput(cmd)
-	}
+	preparesOutput := behavior != nil && behavior.Prepare != nil
 	var closers []io.Closer
 
 	cleanup := func() error {

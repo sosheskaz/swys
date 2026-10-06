@@ -210,7 +210,6 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		},
 		InputPrepared:         true,
 		ClearInheritedStreams: true,
-		PreparesOutput:        func(*cobra.Command) bool { return true },
 		Prepare: func(*cobra.Command, io.Reader) ([]byte, error) {
 			if pending == nil {
 				return nil, commandio.ErrPreparedOutputUnavailable

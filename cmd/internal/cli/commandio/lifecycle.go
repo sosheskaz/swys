@@ -18,7 +18,6 @@ type Behavior struct {
 	PrepareInput          func(*cobra.Command) error
 	OutputEncoder         func(string) (encoding.OutputEncoder, error)
 	Sensitive             func(*cobra.Command) (bool, error)
-	PreparesOutput        func(*cobra.Command) bool
 	SkipIOIf              func(*cobra.Command, []string) bool
 	SkipIO                bool
 	InputPrepared         bool
