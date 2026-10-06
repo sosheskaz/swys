@@ -26,7 +26,7 @@ docker run --rm --network=none --env "EXPECTED_RENOVATE_VERSION=$version" --entr
   if (version !== process.env.EXPECTED_RENOVATE_VERSION || regexEngineStatus.type !== "available") process.exit(1);
   console.log(JSON.stringify({renovate: version, re2: regexEngineStatus.type}));
 '
-docker run --rm "${mount[@]}" --entrypoint renovate-config-validator "$image" --strict --no-global renovate.json
+docker run --rm "${mount[@]}" --entrypoint renovate-config-validator "$image" --strict --no-global .github/renovate.json
 
 docker run --rm "${mount[@]}" --env RENOVATE_DOCKER_MAX_PAGES=10 --env LOG_FORMAT=json --env LOG_LEVEL=trace --entrypoint renovate "$image" --platform=local --dry-run=extract 2>&1 |
   node .github/scripts/renovate-evidence.cjs extract

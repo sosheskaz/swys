@@ -6,9 +6,9 @@ fail() {
   exit 1
 }
 trap 'fail "$LINENO"' ERR
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-fuzz="$root/.mise/tasks/test/fuzz"
-bench="$root/.mise/lib/bench.sh"
+task_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+fuzz="$task_dir/fuzz"
+bench="$task_dir/../../lib/bench.sh"
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/npc-task-tests.XXXXXX")"
 trap 'rm -rf -- "$temporary"' EXIT
 cd "$temporary"

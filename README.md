@@ -1063,7 +1063,7 @@ Work is organized in two tiers:
   multiple sub-issues when its predecessor work settles.
 
 Tooling is managed by [mise](https://mise.jdx.dev): `mise install` provisions
-the pinned toolchain, `mise tasks` lists every task, and `mise run
+the pinned toolchain from `.config/mise/config.toml`, `mise tasks` lists every task, and `mise run
 install:hooks` installs the pre-commit hooks. CI runs the same tasks against
 the same pins. Task names follow verb:noun; a bare verb implies "all"
 (`bench` runs every benchmark, `bench:cpu` narrows).

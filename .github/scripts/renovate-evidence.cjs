@@ -19,9 +19,9 @@ const representatives = [
   ["gomod", "go.mod", "go"],
   // Recommended policy disables indirect module updates; retain extraction proof.
   ["gomod", "go.mod", "google.golang.org/genproto/googleapis/rpc", false],
-  ["mise", "mise.toml", "go"],
-  ["mise", "mise.toml", "npm:prettier"],
-  ["mise", "mise.toml", "go:golang.org/x/vuln/cmd/govulncheck"],
+  ["mise", ".config/mise/config.toml", "go"],
+  ["mise", ".config/mise/config.toml", "npm:prettier"],
+  ["mise", ".config/mise/config.toml", "go:golang.org/x/vuln/cmd/govulncheck"],
   ["dockerfile", ".github/renovate.Dockerfile", "docker.io/renovate/renovate"],
 ];
 
@@ -103,7 +103,7 @@ lines.on("line", (line) => {
     failed = true;
     return;
   }
-  if (record.msg === "Found renovate.json config file") discovered = true;
+  if (record.msg === "Found .github/renovate.json config file") discovered = true;
   if (record.msg === "packageFiles") {
     inspect(record.config, false);
     extracted = true;

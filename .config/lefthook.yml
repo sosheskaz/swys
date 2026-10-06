@@ -37,7 +37,7 @@ pre-commit:
       run: mise exec -- taplo lint {staged_files}
 
     - name: shfmt
-      glob: "{.mise/tasks/**,**/*.sh}"
+      glob: "{.config/mise/tasks/**,**/*.sh}"
       run: mise exec -- shfmt -d {staged_files}
 
     # SHELLCHECK_FORMAT is a repo-local variable (default: shellcheck's tty
@@ -45,7 +45,7 @@ pre-commit:
     # like SHELLCHECK_OPTS would leak into actionlint's embedded shellcheck,
     # which requires JSON output.
     - name: shellcheck
-      glob: "{.mise/tasks/**,**/*.sh}"
+      glob: "{.config/mise/tasks/**,**/*.sh}"
       run: mise exec -- shellcheck -f "${SHELLCHECK_FORMAT:-tty}" -S error {staged_files}
 
     - name: yamllint
@@ -53,7 +53,7 @@ pre-commit:
       run: mise exec -- yamllint -c .yamllint.yaml {staged_files}
 
     - name: goreleaser-check
-      glob: ".goreleaser.{yml,yaml}"
+      glob: ".config/goreleaser.{yml,yaml}"
       run: mise exec -- goreleaser check
 
     - name: golangci-lint-config-verify
@@ -61,7 +61,7 @@ pre-commit:
       run: mise exec -- golangci-lint config verify
 
     - name: renovate-config-validator
-      glob: "{renovate.json,.github/renovate.Dockerfile,.github/scripts/renovate-evidence.cjs,.mise/tasks/lint/renovate}"
+      glob: "{.github/renovate.json,.github/renovate.Dockerfile,.github/scripts/renovate-evidence.cjs,.config/mise/tasks/lint/renovate}"
       run: mise run lint:renovate
 
 commit-msg:

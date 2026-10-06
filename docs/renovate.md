@@ -1,7 +1,8 @@
 # Renovate
 
 Renovate runs from the official Docker Hub version-and-digest-pinned image in
-`.github/renovate.Dockerfile`. GitHub-hosted PR validation checks the proposed
+`.github/renovate.Dockerfile`, with repository policy in `.github/renovate.json`.
+GitHub-hosted PR validation checks the proposed
 checkout with a read-only token. It validates repository config, proves native
 config discovery and nonempty dependency extraction, and looks up public
 releases. It does not run artifact updates or publish dependency PRs.

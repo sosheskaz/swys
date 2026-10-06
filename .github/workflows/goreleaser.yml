@@ -7,12 +7,12 @@ on:
   workflow_dispatch: {}
   pull_request:
     paths:
-      - .goreleaser.yaml
-      - mise.toml
+      - .config/goreleaser.yaml
+      - .config/mise/config.toml
       - .github/workflows/goreleaser.yml
       - .github/workflows/release.yml
       - .release-please-manifest.json
-      - .mise/tasks/test/release
+      - .config/mise/tasks/test/release
   push:
     branches: [main]
 

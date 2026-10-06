@@ -9,7 +9,7 @@ and explicit error handling.
 ## Commands
 
 Tasks are managed by mise (`mise tasks` lists everything; scripts live in
-`.mise/tasks/`). Tool versions are pinned in `mise.toml` and shared with CI.
+`.config/mise/tasks/`). Tool versions are pinned in `.config/mise/config.toml` and shared with CI.
 
 ```fish
 mise run build:dev       # development binary

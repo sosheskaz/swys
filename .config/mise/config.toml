@@ -1,6 +1,6 @@
 # Tool and task definitions for npc. CI installs these same pins via
 # jdx/mise-action, so local and CI toolchains cannot drift.
-# Tasks live in .mise/tasks/ as standalone scripts; run `mise tasks` to list.
+# Tasks live in .config/mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
 go = "1.27.1"
 gh = "2.100.0"
@@ -41,7 +41,7 @@ flag "--count <count>" help="Repeat each benchmark" default="1"
 flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="NPC_TEST_PACKAGE_WORKERS"
 flag "--list" help="List top-level benchmarks in selected packages without running them"
 '''
-run = "bash .mise/lib/bench.sh run"
+run = "bash .config/mise/lib/bench.sh run"
 
 [tasks.check]
 description = "Run all local validation (lint + test)"

@@ -3,9 +3,7 @@ name: Renovate config dry run
 on:
   pull_request:
     paths:
-      - renovate.json
       - .github/renovate.json
-      - mise.toml
       - .config/mise/config.toml
       - '**/go.mod'
       - '**/go.sum'
@@ -14,13 +12,11 @@ on:
       - .github/workflows/*
       - .github/renovate.Dockerfile
       - .github/scripts/renovate-evidence.cjs
-      - .mise/tasks/lint/renovate
+      - .config/mise/tasks/lint/renovate
   push:
     branches: [main]
     paths:
-      - renovate.json
       - .github/renovate.json
-      - mise.toml
       - .config/mise/config.toml
       - '**/go.mod'
       - '**/go.sum'
@@ -29,7 +25,7 @@ on:
       - .github/workflows/*
       - .github/renovate.Dockerfile
       - .github/scripts/renovate-evidence.cjs
-      - .mise/tasks/lint/renovate
+      - .config/mise/tasks/lint/renovate
   workflow_dispatch: {}
 
 permissions:
