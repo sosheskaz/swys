@@ -48,7 +48,9 @@ func TestEmbeddedGuidesCoverEveryPublicCommand(t *testing.T) {
 		}
 
 		reference := "npc --help"
-		if path != "" {
+		if help.IsGuideCommand(command) {
+			reference = "npc help --help"
+		} else if path != "" {
 			reference = "npc " + path + " --help"
 		}
 		assert.True(t, sourceHasCommand(source, reference), "guide %q lacks reference invocation %q", guideDisplayPath(path), reference)
@@ -257,18 +259,26 @@ func TestHelpRejectsOperationalIOFlagsWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
-	for _, flag := range []string{"input", "output", "mode"} {
-		t.Run(flag, func(t *testing.T) {
+	for _, test := range []struct {
+		flag string
+		path []string
+	}{
+		{"input", []string{"help", "cert", "connect"}},
+		{"output", []string{"help", "cert", "connect"}},
+		{"mode", []string{"help", "cert", "connect"}},
+		{"output", []string{"cert", "help", "connect"}},
+	} {
+		t.Run(strings.Join(test.path, "_")+"_"+test.flag, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(directory, flag)
+			path := filepath.Join(directory, strings.Join(test.path, "_")+"_"+test.flag)
 			value := path
-			if flag == "mode" {
+			if test.flag == "mode" {
 				value = "0600"
 			}
 			root := newGuideTestRoot(false, 0, nil)
 			root.SetIn(guidePanicReader{})
-			_, _, err := executeRootCommandStreams(t, root, "help", "cert", "connect", "--"+flag, value)
+			_, _, err := executeRootCommandStreams(t, root, append(test.path, "--"+test.flag, value)...)
 			require.ErrorIs(t, err, errGuideOperationalFlag)
 			if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("operational flag touched %q: %v", path, statErr)

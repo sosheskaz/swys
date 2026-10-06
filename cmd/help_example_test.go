@@ -31,6 +31,31 @@ func TestExampleHelpSelectsCanonicalGuideThroughAlias(t *testing.T) {
 	assert.Empty(t, stderr, "want no diagnostics")
 }
 
+func TestExampleGroupHelpSelectsRelativeGuides(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		args      []string
+		canonical []string
+	}{
+		{[]string{"cert", "help", "connect"}, []string{"cert", "connect"}},
+		{[]string{"x509", "help", "conn"}, []string{"cert", "connect"}},
+		{[]string{"cert", "help"}, []string{"cert"}},
+		{[]string{"aes", "help", "encrypt"}, []string{"aes", "encrypt"}},
+		{[]string{"net", "help", "listen"}, []string{"net", "listen"}},
+		{[]string{"completion", "help", "fish"}, []string{"completion", "fish"}},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			t.Parallel()
+			want, _, err := executeRootCommandStreams(t, newGuideTestRoot(), append([]string{"help"}, test.canonical...)...)
+			require.NoError(t, err)
+			got, stderr, err := executeRootCommandStreams(t, newGuideTestRoot(), test.args...)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+			assert.Empty(t, stderr)
+		})
+	}
+}
+
 func readSingleCertificate(t *testing.T, path string) *x509.Certificate {
 	t.Helper()
 	data, err := os.ReadFile(path)

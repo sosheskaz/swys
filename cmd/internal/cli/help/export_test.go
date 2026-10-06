@@ -27,6 +27,11 @@ func LoadEmbeddedGuidesForTest(root *cobra.Command) (map[string][]byte, error) {
 	var walk func(*cobra.Command) error
 	walk = func(tree *cobra.Command) error {
 		base := canonicalGuideKey(root, tree)
+		if IsGuideCommand(tree) && tree.Parent() != root {
+			if source, ok := guideSource(tree); ok {
+				guides[base] = source
+			}
+		}
 		for annotation, source := range tree.Annotations {
 			if !strings.HasPrefix(annotation, guideSourceAnnotation) {
 				continue

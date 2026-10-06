@@ -65,6 +65,8 @@ func TestHelpRejectsUnknownAndSurplusPathComponents(t *testing.T) {
 		wantErr string
 		args    []string
 	}{
+		{name: "unknown-scoped-child", args: []string{"cert", "help", "missing"}, wantErr: "try 'npc help cert'"},
+		{name: "surplus-scoped-child", args: []string{"cert", "help", "connect", "extra"}, wantErr: "try 'npc help cert connect'"},
 		{name: "unknown-root", args: []string{"help", "missing"}, wantErr: "try 'npc help'"},
 		{name: "unknown-child", args: []string{"help", "cert", "missing"}, wantErr: "try 'npc help cert'"},
 		{name: "surplus-after-leaf", args: []string{"help", "cert", "connect", "extra"}, wantErr: "try 'npc help cert connect'"},
@@ -82,26 +84,31 @@ func TestHelpRejectsUnknownAndSurplusPathComponents(t *testing.T) {
 func TestHelpDoesNotRunTargetHooksOrHandlers(t *testing.T) {
 	t.Parallel()
 
-	root := newGuideTestRoot()
-	target, _, err := root.Find([]string{"cert", "connect"})
-	require.NoError(t, err)
-	preRunCalled := false
-	runCalled := false
-	target.PreRunE = func(*cobra.Command, []string) error {
-		preRunCalled = true
-		return errGuideTargetPreRun
+	for _, args := range [][]string{{"help", "x509", "connect", "--plain"}, {"x509", "help", "connect", "--plain"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			root := newGuideTestRoot()
+			target, _, err := root.Find([]string{"cert", "connect"})
+			require.NoError(t, err)
+			preRunCalled := false
+			runCalled := false
+			target.PreRunE = func(*cobra.Command, []string) error {
+				preRunCalled = true
+				return errGuideTargetPreRun
+			}
+			target.RunE = func(*cobra.Command, []string) error {
+				runCalled = true
+				return errGuideTargetRun
+			}
+			root.SetIn(guidePanicReader{})
+			stdout, stderr, err := executeRootCommandStreams(t, root, args...)
+			require.NoError(t, err)
+			assert.False(t, preRunCalled, "target pre-run executed")
+			assert.False(t, runCalled, "target handler executed")
+			assert.NotEmpty(t, stdout, "guide output")
+			assert.Empty(t, stderr, "guide diagnostics")
+		})
 	}
-	target.RunE = func(*cobra.Command, []string) error {
-		runCalled = true
-		return errGuideTargetRun
-	}
-	root.SetIn(guidePanicReader{})
-	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "x509", "connect", "--plain")
-	require.NoError(t, err)
-	assert.False(t, preRunCalled, "target pre-run executed")
-	assert.False(t, runCalled, "target handler executed")
-	assert.NotEmpty(t, stdout, "guide output")
-	assert.Empty(t, stderr, "guide diagnostics")
 }
 
 func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
@@ -235,6 +242,29 @@ func TestHelpCompletesCanonicalCommandPaths(t *testing.T) {
 	})
 	if !hasCert {
 		t.Fatalf("alias completions = %q, want canonical cert path", completions)
+	}
+}
+
+func TestGroupHelpCompletionAndOperandBoundaries(t *testing.T) {
+	t.Parallel()
+	root := initializedGuideRoot()
+	command, rest, err := root.Find([]string{"cert", "help"})
+	require.NoError(t, err)
+	require.Empty(t, rest)
+	require.NotNil(t, command.ValidArgsFunction)
+	completions, directive := command.ValidArgsFunction(command, nil, "conn")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	require.Len(t, completions, 1)
+	assert.True(t, strings.HasPrefix(completions[0], "connect\t"), "canonical completion with description: %q", completions)
+	completions, directive = command.ValidArgsFunction(command, []string{"missing"}, "")
+	assert.Empty(t, completions)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
+	for _, path := range [][]string{{"dns"}, {"http"}, {"cert", "connect"}} {
+		command, rest, err = root.Find(append(path, "help"))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"help"}, rest, "help remains an operand under %v", path)
+		assert.False(t, help.IsGuideCommand(command))
 	}
 }
 

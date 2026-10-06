@@ -77,10 +77,25 @@ func Configure(root *cobra.Command, dependencies Dependencies, referencePresenta
 		}
 	})
 
-	root.SetHelpCommand(newGuideCommand(root, dependencies))
+	configureGuideCommands(root, root, dependencies)
 }
 
-func newGuideCommand(root *cobra.Command, dependencies Dependencies) *cobra.Command {
+func configureGuideCommands(root, scope *cobra.Command, dependencies Dependencies) {
+	for _, child := range scope.Commands() {
+		if IsGuideCommand(child) {
+			scope.RemoveCommand(child)
+			continue
+		}
+		configureGuideCommands(root, child, dependencies)
+	}
+	if scope != root && (!scope.HasSubCommands() || (scope.Runnable() && !isBranchCommand(scope))) {
+		return
+	}
+	scope.SetHelpCommand(newGuideCommand(root, scope, dependencies))
+	scope.InitDefaultHelpCmd()
+}
+
+func newGuideCommand(root, scope *cobra.Command, dependencies Dependencies) *cobra.Command {
 	var rich bool
 	var plain bool
 	var noPager bool
@@ -90,10 +105,11 @@ func newGuideCommand(root *cobra.Command, dependencies Dependencies) *cobra.Comm
 		Short: "Read a curated guide for a command",
 		Long: `Read a curated guide for an npc command.
 
-Use a command's --help flag for its generated arguments and flags reference.`,
+Paths are relative to the command group containing help. With no path, read
+that group's guide. Use a command's --help flag for its arguments and flags.`,
 		Args: cobra.ArbitraryArgs,
 		ValidArgsFunction: func(_ *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
-			parent, err := resolveGuideTarget(root, args)
+			parent, err := resolveGuideTarget(root, scopedGuidePath(root, scope, args))
 			if err != nil {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
@@ -106,7 +122,7 @@ Use a command's --help flag for its generated arguments and flags reference.`,
 			return completions, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(command *cobra.Command, args []string) error {
-			return runGuide(command, root, dependencies, args, guideOptions{
+			return runGuide(command, root, dependencies, scopedGuidePath(root, scope, args), guideOptions{
 				rich: rich, plain: plain, noPager: noPager,
 			})
 		},
@@ -117,6 +133,10 @@ Use a command's --help flag for its generated arguments and flags reference.`,
 	command.MarkFlagsMutuallyExclusive("rich", "plain")
 	command.Annotations = map[string]string{guideCommandShape: commandShapeEnabled}
 	return command
+}
+
+func scopedGuidePath(root, scope *cobra.Command, args []string) []string {
+	return append(strings.Fields(canonicalGuideKey(root, scope)), args...)
 }
 
 type guideOptions struct {

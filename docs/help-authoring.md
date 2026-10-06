@@ -6,7 +6,7 @@ NPC ships curated usage guides inside the binary. The guides orient readers towa
 
 Write for experienced operators who want a quick working example and for readers with basic command-line familiarity who need help choosing the next command. Use precise task language. Name a concept when the reader may need to learn it and link selectively to an authoritative explanation; do not teach networking, cryptography, certificate formats, or protocol internals inside a guide.
 
-The 80/20 rule limits depth on each page. It does not permit missing pages: the root and every public command path, including generated help and completion commands, have a guide. Hidden and deprecated commands are excluded because they are not part of the discoverable public tree. Aliases reuse the canonical command's guide and never receive separate files.
+The 80/20 rule limits depth on each page. It does not permit missing pages: the root and every public command path, including generated help and completion commands, have a guide. Hidden and deprecated commands are excluded because they are not part of the discoverable public tree. Aliases reuse the canonical command's guide and never receive separate files. Scoped help commands, such as `cert help`, share the root `help` guide and its `npc help --help` reference. Register them only on non-runnable command groups; their guide paths and completions are relative to the group.
 
 ## Editorial contract
 

@@ -24,17 +24,19 @@ func registerSharedCompletions(root *cobra.Command, lifecycle *commandio.Lifecyc
 		if command.Name() == completionCommandName {
 			help.ConfigureBranch(command)
 			for _, shell := range command.Commands() {
-				lifecycle.Register(shell, commandio.Behavior{SupportsOutput: true})
+				if !help.IsGuideCommand(shell) {
+					lifecycle.Register(shell, commandio.Behavior{SupportsOutput: true})
+				}
 			}
-		}
-		if help.IsGuideCommand(command) {
-			lifecycle.Register(command, commandio.Behavior{SkipIO: true})
 		}
 	}
 	registerCommandCompletions(root, lifecycle)
 }
 
 func registerCommandCompletions(command *cobra.Command, lifecycle *commandio.Lifecycle) {
+	if help.IsGuideCommand(command) {
+		lifecycle.Register(command, commandio.Behavior{SkipIO: true})
+	}
 	command.InitDefaultHelpFlag()
 	command.InitDefaultVersionFlag()
 	command.Flags().VisitAll(func(flag *pflag.Flag) {

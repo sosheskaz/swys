@@ -85,6 +85,11 @@ func canonicalGuidePathExists(tree *cobra.Command, key string) bool {
 }
 
 func guideSource(command *cobra.Command) ([]byte, bool) {
+	// Scoped help commands share the root help guide rather than duplicate it.
+	if IsGuideCommand(command) {
+		source, ok := command.Root().Annotations[guideSourceAnnotation+"help"]
+		return []byte(source), ok
+	}
 	for tree := command; tree != nil; tree = tree.Parent() {
 		key := strings.ReplaceAll(canonicalGuideKey(tree, command), " ", "/")
 		if key == "" {

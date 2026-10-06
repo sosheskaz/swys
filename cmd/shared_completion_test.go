@@ -61,6 +61,7 @@ func TestSharedCompletionPreservesPathsAndManualModes(t *testing.T) {
 		assert.Equal(t, ":0\n", output, "%s filesystem fallback", flag)
 	}
 	assert.Equal(t, ":4\n", executeSharedCompletion(t, "__complete", "http", "--mode", "075"), "manual mode completion")
+	assert.Equal(t, ":4\n", executeSharedCompletion(t, "__complete", "cert", "help", "--output", ""), "guides do not offer file completion")
 	_, _, err := executeRootStreams(t, "http", "--follow", "--help")
 	require.NoError(t, err, "bare boolean flag changed")
 }
@@ -120,6 +121,8 @@ func TestSharedIOCapabilitiesRestoreHelpAndCompletion(t *testing.T) {
 	}{
 		{args: []string{"aes", "keygen"}, want: []string{"--output", "--mode"}, absent: []string{"--input"}},
 		{args: []string{"help"}, absent: []string{"--input", "--output", "--mode"}},
+		{args: []string{"cert", "help"}, absent: []string{"--input", "--output", "--mode"}},
+		{args: []string{"completion", "help"}, absent: []string{"--input", "--output", "--mode"}},
 		{args: []string{"completion"}, want: []string{"--output", "--mode"}, absent: []string{"--input"}},
 		{args: []string{"aes"}, want: []string{"--input", "--output"}},
 		{want: []string{"--input", "--output"}},
@@ -147,6 +150,7 @@ func TestSharedIOCapabilitiesRestoreHelpAndCompletion(t *testing.T) {
 		{args: []string{"aes", "keygen", "--i"}, absent: []string{"--input"}},
 		{args: []string{"aes", "keygen", "--o"}, want: "--output"},
 		{args: []string{"help", "--"}, absent: []string{"--input", "--output", "--mode"}},
+		{args: []string{"cert", "help", "--"}, absent: []string{"--input", "--output", "--mode"}},
 		{args: []string{"completion", "--i"}, absent: []string{"--input"}},
 		{args: []string{"completion", "--o"}, want: "--output"},
 		{args: []string{"hash", "sha256", "--i"}, want: "--input"},

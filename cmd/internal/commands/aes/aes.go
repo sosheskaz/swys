@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/tink-crypto/tink-go/v2/keyset"
 	commonpb "github.com/tink-crypto/tink-go/v2/proto/common_go_proto"
 	"github.com/tink-crypto/tink-go/v2/streamingaead"
@@ -66,15 +65,9 @@ type aesOperationContextKey struct{}
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	aesCmd := &cobra.Command{
 		Use: "aes", Short: "AES encryption and decryption",
-		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return pflag.ErrHelp
-			}
-			return cobra.NoArgs(cmd, args)
-		},
-		RunE: func(*cobra.Command, []string) error { return nil },
 		Long: "Encrypt and decrypt using standard OpenPGP or Tink streaming AES formats.",
 	}
+	help.ConfigureBranch(aesCmd)
 	encrypt, decrypt := newEncryptCmd(), newDecryptCmd()
 	keygen, convert, inspect := newAESKeygenCmd(), newAESKeyConvertCmd(), newAESKeyInspectCmd()
 	aesCmd.AddCommand(encrypt, decrypt, keygen, convert, inspect)

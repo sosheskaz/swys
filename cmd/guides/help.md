@@ -11,6 +11,15 @@ npc help net connect
 npc help x509 connect
 ```
 
+Command groups such as cert, aes, net, and completion also accept help before a relative command path. With no path, group help shows the group's overview. Runnable commands such as dns and http keep their normal operands.
+
+```sh
+npc cert help
+npc cert help connect
+npc aes help encrypt
+npc net help listen
+```
+
 ## Control presentation
 
 Direct supported terminals use styled rendering automatically. Redirected output and configured pagers receive plain rendered text by default. Rich and plain override that choice; no-pager bypasses a configured pager.
