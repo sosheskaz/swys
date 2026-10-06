@@ -10,7 +10,8 @@ permissions: {}
 jobs:
   release-please:
     name: Release PR / tag
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && toJSON(github.event.repository.private) == 'false' && vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -94,3 +95,5 @@ jobs:
       packages: write
     with:
       release_tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      BREW_PAT: ${{ secrets.BREW_PAT }}

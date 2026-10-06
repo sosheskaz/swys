@@ -19,3 +19,4 @@ coverage-base.out
 .DS_Store
 .vscode/
 /.artifacts/bench/
+/.artifacts/completions/

@@ -12,6 +12,9 @@ on:
       release_tag:
         required: true
         type: string
+    secrets:
+      BREW_PAT:
+        required: false
 
 permissions: {}
 
@@ -23,7 +26,8 @@ env:
 jobs:
   goreleaser:
     name: GoReleaser + ko
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && toJSON(github.event.repository.private) == 'false' && vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     # Serialize releases: concurrent runs would race on the ghcr.io
@@ -65,5 +69,11 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.BREW_PAT }}
         # Bound concurrent builds to fit standard hosted runners.
-        run: mise exec -- goreleaser release --clean --parallelism=2
+        run: |
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo 'Provision the BREW_PAT repository secret before enabling releases.' >&2
+            exit 1
+          fi
+          mise exec -- goreleaser release --clean --parallelism=2

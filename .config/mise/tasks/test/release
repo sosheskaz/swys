@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Verify notices in every archive and smoke test the host binary"
+#MISE description="Verify notices and completions in every archive and smoke test the host binary"
 set -euo pipefail
 
 archive=$(jq -er --arg os "$(go env GOHOSTOS)" --arg arch "$(go env GOHOSTARCH)" '
@@ -15,6 +15,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 umask 077
 payload_files=(LICENSE LICENSING.md THIRD_PARTY_NOTICES.txt README.md)
+completion_files=(completions/swys.bash completions/swys.zsh completions/swys.fish)
 if [[ -f CHANGELOG.md ]]; then
   payload_files+=(CHANGELOG.md)
 fi
@@ -28,8 +29,8 @@ while IFS= read -r payload_archive; do
   payload_dir="$scratch/archive-$archive_count"
   mkdir "$payload_dir"
   case "$payload_archive" in
-    *.tar.gz) tar -xzf "$payload_archive" -C "$payload_dir" "${payload_files[@]}" ;;
-    *.zip) unzip -oq "$payload_archive" "${payload_files[@]}" -d "$payload_dir" ;;
+    *.tar.gz) tar -xzf "$payload_archive" -C "$payload_dir" "${payload_files[@]}" "${completion_files[@]}" ;;
+    *.zip) unzip -oq "$payload_archive" "${payload_files[@]}" "${completion_files[@]}" -d "$payload_dir" ;;
     *)
       printf 'unsupported archive format: %s\n' "$payload_archive" >&2
       exit 1
@@ -38,8 +39,11 @@ while IFS= read -r payload_archive; do
   for file in "${payload_files[@]}"; do
     cmp "$file" "$payload_dir/$file"
   done
+  for file in "${completion_files[@]}"; do
+    cmp ".artifacts/$file" "$payload_dir/$file"
+  done
 done <"$scratch/archives"
-printf 'Canonical notices and documentation verified in %s archives\n' "$archive_count"
+printf 'Canonical notices, documentation, and completions verified in %s archives\n' "$archive_count"
 tar -xzf "$archive" -C "$scratch" swys
 binary="$scratch/swys"
 actual_version=$("$binary" --version)

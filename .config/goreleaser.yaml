@@ -6,6 +6,11 @@ before:
   hooks:
     - go mod tidy
     - bash .config/mise/tasks/build/notices
+    - >-
+      sh -c 'mkdir -p .artifacts/completions &&
+      go run . completion bash > .artifacts/completions/swys.bash &&
+      go run . completion zsh > .artifacts/completions/swys.zsh &&
+      go run . completion fish > .artifacts/completions/swys.fish'
 
 builds:
   - binary: swys
@@ -37,6 +42,8 @@ archives:
       - THIRD_PARTY_NOTICES.txt
       - README.md
       - CHANGELOG*
+      - src: .artifacts/completions/*
+        dst: completions
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -73,5 +80,24 @@ kos:
       - linux/amd64
       - linux/arm64
 
-# No Homebrew cask while the repository is private; add one (see
-# sosheskaz/healthchecksio-cli) at public launch.
+homebrew_casks:
+  - name: swys
+    binaries: [swys]
+    homepage: https://github.com/sosheskaz/swys
+    description: "Sysadmin's Swiss Army knife"
+    repository:
+      owner: sosheskaz
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    # Enable only after public launch and anonymous release-download validation.
+    skip_upload: true
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/swys"]
+          end
+    completions:
+      bash: completions/swys.bash
+      zsh: completions/swys.zsh
+      fish: completions/swys.fish
