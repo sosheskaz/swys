@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -231,6 +232,88 @@ func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
 		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
 	}
 	require.ErrorIs(t, err, errDialWrappedCancellation)
+}
+
+func TestWithContextCausePreservesPendingSocketDeadlineCause(t *testing.T) {
+	t.Parallel()
+
+	socketErr := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	require.NotErrorIs(t, socketErr, context.DeadlineExceeded)
+	for _, test := range []struct {
+		err      error
+		name     string
+		deadline bool
+		future   bool
+		wantWait bool
+	}{
+		{name: "reached socket deadline", err: socketErr, deadline: true, wantWait: true},
+		{name: "unrelated error at deadline", err: io.ErrUnexpectedEOF, deadline: true},
+		{name: "socket timeout before deadline", err: socketErr, deadline: true, future: true},
+		{name: "socket timeout without deadline", err: socketErr},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				parent, cancel := context.WithCancelCause(t.Context())
+				defer cancel(nil)
+				ctx := pendingDialDeadlineContext{Context: parent}
+				if test.deadline {
+					ctx.deadline = time.Now()
+					if test.future {
+						ctx.deadline = ctx.deadline.Add(time.Second)
+					}
+				}
+				require.NoError(t, ctx.Err())
+				result := make(chan error, 1)
+				go func() {
+					result <- withContextCause(ctx, test.err)
+				}()
+				synctest.Wait()
+				var got error
+				returned := false
+				select {
+				case got = <-result:
+					returned = true
+				default:
+				}
+				assert.Equal(t, !test.wantWait, returned, "return before context cause publication")
+				cancel(errDialWrappedCancellation)
+				synctest.Wait()
+				if !returned {
+					select {
+					case got = <-result:
+					default:
+						t.Fatal("error helper did not return after context cause publication")
+					}
+				}
+				require.ErrorIs(t, got, test.err, "preserve original dial failure")
+				if test.wantWait {
+					require.ErrorIs(t, got, errDialWrappedCancellation)
+					require.ErrorIs(t, got, context.DeadlineExceeded)
+				} else {
+					require.NotErrorIs(t, got, errDialWrappedCancellation)
+				}
+			})
+		})
+	}
+}
+
+// The socket deadline is visible before cancellation publishes its cause.
+// Publication is explicitly released by the test rather than a scheduled timer.
+type pendingDialDeadlineContext struct {
+	context.Context //nolint:containedctx // retain standard cause values while gating deadline publication
+	deadline        time.Time
+}
+
+func (ctx pendingDialDeadlineContext) Deadline() (time.Time, bool) {
+	return ctx.deadline, !ctx.deadline.IsZero()
+}
+
+func (ctx pendingDialDeadlineContext) Err() error {
+	if ctx.Context.Err() != nil {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func TestDialTLSVerifiesPeerAndPreservesSNI(t *testing.T) {

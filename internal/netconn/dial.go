@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"time"
 )
 
@@ -64,7 +65,9 @@ func withContextCause(ctx context.Context, err error) error {
 		return errors.Join(err, cancellationError(ctx))
 	}
 	deadline, hasDeadline := ctx.Deadline()
-	if hasDeadline && !time.Now().Before(deadline) && errors.Is(err, context.DeadlineExceeded) {
+	if hasDeadline && !time.Now().Before(deadline) &&
+		(errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded)) {
+
 		<-ctx.Done()
 		return errors.Join(err, cancellationError(ctx))
 	}
