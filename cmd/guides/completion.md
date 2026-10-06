@@ -23,6 +23,17 @@ The following example is for Fish.
 npc completion fish | source
 ```
 
+## Save a script for later
+
+From a writable local directory, save the Fish script and load that file in a Fish session. Choose your shell's configured completion directory when installing it persistently.
+
+```fish
+npc completion fish > npc.fish
+source npc.fish
+```
+
+Regenerate the script after changing the installed NPC version. Completion reflects the installed command tree.
+
 ## Next steps
 
 ```sh

@@ -61,9 +61,10 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 
 func newHashAlgorithmCmd(lifecycle *commandio.Lifecycle, name, description string) *cobra.Command {
 	command := commandio.BinaryOutputCommand(&cobra.Command{
-		Use:   name,
-		Short: description,
-		Args:  cobra.NoArgs,
+		Use:               name,
+		Short:             description,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			digest, output, err := commandio.TakePrepared(cmd)
 			if err != nil {

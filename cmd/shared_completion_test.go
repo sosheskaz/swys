@@ -65,6 +65,51 @@ func TestSharedCompletionPreservesPathsAndManualModes(t *testing.T) {
 	require.NoError(t, err, "bare boolean flag changed")
 }
 
+func TestSharedCompletionPreservesNativeFlagParsing(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		want string
+		args []string
+	}{
+		{name: "pending long path", args: []string{"cert", "key-inspect", "--output", ""}, want: ":0\n"},
+		{name: "pending short encoding", args: []string{"hash", "sha256", "-e", "h"}, want: "hex\n:4\n"},
+		{name: "equals encoding", args: []string{"hash", "sha256", "--encoding=he"}, want: "hex\n:4\n"},
+		{
+			name: "flag-looking literal data",
+			args: []string{"http", "--data", "--not-a-flag", "--follow="}, want: "true\nfalse\n:4\n",
+		},
+		{name: "literal separator", args: []string{"dns", "--", "example.test", "AA"}, want: "AAAA\n:4\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, executeSharedCompletion(t, append([]string{"__completeNoDesc"}, test.args...)...))
+		})
+	}
+}
+
+func TestSharedMalformedCompletionRestoresReusedRoot(t *testing.T) {
+	t.Parallel()
+	root := NewCommand()
+	root.SetIn(guidePanicReader{})
+	stdout, _, err := executeRootCommandStreams(t, root, "__complete", "http", "--follow=invalid", "")
+	require.NoError(t, err)
+	assert.Equal(t, ":4\n", stdout)
+	stdout, _, err = executeRootCommandStreams(t, root, "__complete", "http", "--follow=")
+	require.NoError(t, err)
+	assert.Equal(t, "true\nfalse\n:4\n", stdout, "malformed-request handling must not replace later completion")
+	freshHelp, _, err := executeRootStreams(t, "http", "--help")
+	require.NoError(t, err)
+	reusedHelp, _, err := executeRootCommandStreams(t, root, "http", "--help")
+	require.NoError(t, err)
+	assert.Equal(t, freshHelp, reusedHelp, "malformed completion must preserve ordinary help")
+}
+
+func TestSharedHashCompletionDoesNotOfferFiles(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, ":4\n", executeSharedCompletion(t, "__complete", "hash", "sha256", ""))
+}
+
 func TestSharedIOCapabilitiesRestoreHelpAndCompletion(t *testing.T) {
 	t.Parallel()
 	root := NewCommand()

@@ -17,12 +17,19 @@ Use printf to avoid adding a newline to the input. Every input byte matters.
 
 ```sh
 printf 'hello' | npc hash sha256
-printf 'hello' | npc hash sha256 --input - --output -
 printf 'hello' > message.txt
-npc hash sha256 --input message.txt --output message.sha256
+npc hash sha256 < message.txt > message.sha256
 ```
 
-The first two invocations hash the same bytes; the explicit - values select stdin and stdout. The output file contains a hexadecimal digest followed by a newline. It is not a manifest for a checksum tool's check mode.
+The pipe and file invocations hash the same bytes. The output file contains a hexadecimal digest followed by a newline. It is not a manifest for a checksum tool's check mode.
+
+## Hash decoded input
+
+Decode a byte representation before hashing when the input is encoded. This produces the same digest as the message above.
+
+```sh
+printf 'aGVsbG8=' | npc hash sha256 --input-encoding base64
+```
 
 ## Next steps
 

@@ -4,9 +4,11 @@ Generate Zsh completion and load it for one session or place it in a directory o
 
 ## Load it for the current Zsh session
 
-This example requires Zsh process substitution and an initialized completion system.
+Run this in Zsh. Initialize its completion system before sourcing the generated script.
 
 ```sh
+autoload -Uz compinit
+compinit
 source <(npc completion zsh)
 ```
 

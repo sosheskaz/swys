@@ -14,16 +14,27 @@ Use NPC to inspect network services, exchange bytes, and work with keys and cert
 
 ## Try an offline workflow
 
-Create a key and a certificate for a local test service, then inspect their metadata without printing the private material.
+Use a fresh local directory. Create a key and a certificate for a local test service, then inspect their metadata without printing the private material.
 
 ```sh
-npc cert keygen --output private.pem
-npc cert key-inspect --input private.pem
-npc cert create --key private.pem --dns localhost --output localhost.pem
-npc cert inspect --input localhost.pem
+umask 077
+npc cert keygen > private.pem
+npc cert key-inspect < private.pem
+npc cert create --key private.pem --dns localhost > localhost.pem
+npc cert inspect < localhost.pem
 ```
 
 The certificate names the identity; the private key proves possession of it. Keep the key private. This self-signed certificate is for explicit local testing, not automatic trust by other clients.
+
+## Compose commands with pipes
+
+Export the certificate as PEM and compute a digest of those exact bytes. Both commands work offline with the certificate created above.
+
+```sh
+npc cert inspect --format pem < localhost.pem | npc hash sha256
+```
+
+This hashes the exported PEM bytes, including their line breaks. A digest identifies bytes for comparison; it does not establish trust in the certificate.
 
 ## Follow the command hierarchy
 

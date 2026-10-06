@@ -50,6 +50,9 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps he
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if prepareQuietCompletion(cmd, args) {
+				return nil
+			}
 			if help.IsGuideCommand(cmd) {
 				lifecycle.PrepareCompletion(cmd, args)
 				return nil

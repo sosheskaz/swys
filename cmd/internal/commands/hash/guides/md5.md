@@ -8,7 +8,7 @@ Create a small file and save its digest. Hash the same bytes through stdin when 
 
 ```sh
 printf 'hello' > message.txt
-npc hash md5 --input message.txt --output message.md5
+npc hash md5 < message.txt > message.md5
 printf 'hello' | npc hash md5
 ```
 
@@ -19,7 +19,7 @@ The default result is hexadecimal followed by a newline, with no filename attach
 Use raw output when a peer needs the 16 digest bytes rather than hexadecimal text. No newline is appended in raw mode.
 
 ```sh
-npc hash md5 --input message.txt --encoding raw --output digest.bin
+npc hash md5 --encoding raw < message.txt > digest.bin
 ```
 
 ## Related guides and reference
