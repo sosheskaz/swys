@@ -2,6 +2,7 @@
 /swys
 /cryptool
 /dist/
+/kodata/
 *.test
 *.prof
 coverage.out

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Smoke test the host-platform archive from a GoReleaser snapshot"
+#MISE description="Verify notices in every archive and smoke test the host binary"
 set -euo pipefail
 
 archive=$(jq -er --arg os "$(go env GOHOSTOS)" --arg arch "$(go env GOHOSTARCH)" '
@@ -14,6 +14,32 @@ release_date=$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --forma
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 umask 077
+payload_files=(LICENSE LICENSING.md THIRD_PARTY_NOTICES.txt README.md)
+if [[ -f CHANGELOG.md ]]; then
+  payload_files+=(CHANGELOG.md)
+fi
+jq -er '
+  [.[] | select(.type == "Archive")]
+  | if length > 0 then .[].path else error("expected release archives") end
+' dist/artifacts.json >"$scratch/archives"
+archive_count=0
+while IFS= read -r payload_archive; do
+  archive_count=$((archive_count + 1))
+  payload_dir="$scratch/archive-$archive_count"
+  mkdir "$payload_dir"
+  case "$payload_archive" in
+    *.tar.gz) tar -xzf "$payload_archive" -C "$payload_dir" "${payload_files[@]}" ;;
+    *.zip) unzip -oq "$payload_archive" "${payload_files[@]}" -d "$payload_dir" ;;
+    *)
+      printf 'unsupported archive format: %s\n' "$payload_archive" >&2
+      exit 1
+      ;;
+  esac
+  for file in "${payload_files[@]}"; do
+    cmp "$file" "$payload_dir/$file"
+  done
+done <"$scratch/archives"
+printf 'Canonical notices and documentation verified in %s archives\n' "$archive_count"
 tar -xzf "$archive" -C "$scratch" swys
 binary="$scratch/swys"
 actual_version=$("$binary" --version)

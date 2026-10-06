@@ -13,6 +13,10 @@ on:
       - .github/workflows/release.yml
       - .release-please-manifest.json
       - .config/mise/tasks/test/release
+      - .config/mise/tasks/build/notices
+      - LICENSE
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.txt
   push:
     branches: [main]
 
@@ -24,9 +28,9 @@ permissions:
   contents: read
 
 env:
-  CGO_ENABLED: '0'
-  MISE_EXEC_AUTO_INSTALL: 'false'
-  MISE_TASK_RUN_AUTO_INSTALL: 'false'
+  CGO_ENABLED: "0"
+  MISE_EXEC_AUTO_INSTALL: "false"
+  MISE_TASK_RUN_AUTO_INSTALL: "false"
 
 jobs:
   snapshot:
@@ -44,7 +48,7 @@ jobs:
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.6
-          install_args: 'go jq goreleaser ko'
+          install_args: "go jq goreleaser ko"
           cache: true
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
@@ -55,5 +59,5 @@ jobs:
         # Bound concurrent builds to fit standard hosted runners.
         run: mise exec -- goreleaser release --snapshot --clean --parallelism=2
 
-      - name: Smoke test packaged binary
+      - name: Verify packaged notices and host binary
         run: mise run test:release

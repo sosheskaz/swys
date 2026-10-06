@@ -5,6 +5,7 @@ project_name: swys
 before:
   hooks:
     - go mod tidy
+    - bash .config/mise/tasks/build/notices
 
 builds:
   - binary: swys
@@ -26,10 +27,16 @@ builds:
       - -X github.com/sosheskaz/swys/internal/version.version={{ .Version }}
       - -X github.com/sosheskaz/swys/internal/version.commit={{ .FullCommit }}
       - -X github.com/sosheskaz/swys/internal/version.date={{ .CommitDate }}
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - formats: [tar.gz]
+    files:
+      - LICENSE
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.txt
+      - README.md
+      - CHANGELOG*
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
