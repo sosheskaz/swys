@@ -61,16 +61,8 @@ pre-commit:
       run: mise exec -- golangci-lint config verify
 
     - name: renovate-config-validator
-      glob: "renovate.json"
-      # renovate is preinstalled on CI runners, not mise-managed (it is a
-      # ~200MB npm package). Locally this degrades to a warning; CI validates
-      # for real in .github/workflows/renovate.yml.
-      run: |
-        if command -v renovate-config-validator >/dev/null 2>&1; then
-          renovate-config-validator renovate.json
-        else
-          echo "warn: renovate-config-validator not installed; validated in CI" >&2
-        fi
+      glob: "{renovate.json,.github/renovate.Dockerfile,.github/scripts/renovate-evidence.cjs,.mise/tasks/lint/renovate}"
+      run: mise run lint:renovate
 
 commit-msg:
   commands:

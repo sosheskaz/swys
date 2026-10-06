@@ -1,52 +1,37 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>sosheskaz-systems/reno#v1.4.0",
-    "github>sosheskaz-systems/reno:github-actions#v1.4.0",
-    "github>sosheskaz-systems/reno:mise#v1.4.0",
-    "github>sosheskaz-systems/reno:go#v1.4.0"
+    "config:recommended",
+    ":semanticCommitTypeAll(deps)",
+    "helpers:pinGitHubActionDigestsToSemver"
   ],
   "semanticCommits": "enabled",
   "semanticCommitType": "deps",
-  "gitAuthor": "sosheskaz-renovate[bot] <268189871+sosheskaz-renovate[bot]@users.noreply.github.com>",
   "schedule": ["at any time"],
+  "prConcurrentLimit": 10,
   "prHourlyLimit": 0,
+  "ignorePaths": [".worktrees/**", ".baseline-backup-*/**"],
+  "internalChecksFilter": "strict",
+  "separateMajorMinor": true,
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "automerge": false,
+  "dependencyDashboard": true,
   "osvVulnerabilityAlerts": true,
+  "dependencyDashboardOSVVulnerabilitySummary": "unresolved",
+  "vulnerabilityAlerts": {
+    "automerge": false,
+    "prConcurrentLimit": 0
+  },
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
   "packageRules": [
     {
-      "description": [
-        "Baseline soak. Waiting out the window in which a compromised or broken release gets yanked is a supply-chain control, not just stability hygiene. Security updates are exempt: vulnerabilityAlerts defaults to minimumReleaseAge=null and prCreation=immediate."
-      ],
-      "matchUpdateTypes": ["patch", "minor"],
-      "minimumReleaseAge": "1 week"
+      "matchManagers": ["mise"],
+      "minimumReleaseAge": "7 days",
+      "separateMinorPatch": false,
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "mise"
     },
     {
-      "description": [
-        "Majors soak twice as long; they carry the most behavioural risk."
-      ],
-      "matchUpdateTypes": ["major"],
-      "minimumReleaseAge": "2 weeks"
-    },
-    {
-      "description": [
-        "High-trust upstreams soak for 3 days rather than a week. The bar is a publisher with a published security process and staged rollout, whose patch releases are themselves frequently the security fix -- for those, a full week delays the fix more than it guards against a bad release. The Go toolchain is the only member today; both the mise pin and the go.mod directive are covered so the grouped PR below cannot half-unblock. Majors are excluded and keep the 2-week tier."
-      ],
-      "matchManagers": ["mise", "gomod"],
-      "matchDepNames": ["go"],
-      "matchUpdateTypes": ["patch", "minor"],
-      "minimumReleaseAge": "3 days"
-    },
-    {
-      "description": [
-        "Renovate defaults minimumReleaseAgeBehaviour to timestamp-required, which holds an update forever when its datasource publishes no release timestamp, rather than soaking it. Observed here for go:golang.org/x/vuln/cmd/govulncheck, which a dry run reported as having no releaseTimestamp. Relaxed only here: gomod keeps the strict default because those modules link into the shipped binary and the Go module proxy always supplies a timestamp, so there is no starvation risk to trade against."
-      ],
-      "matchManagers": ["mise", "github-actions"],
-      "minimumReleaseAgeBehaviour": "timestamp-optional"
-    },
-    {
-      "description": [
-        "GitHub Actions are CI plumbing, so scope them ci(actions). Digest pinning stops a moved tag from changing what executes in a release-signing workflow."
-      ],
       "matchManagers": ["github-actions"],
       "semanticCommitType": "ci",
       "semanticCommitScope": "actions",
@@ -54,26 +39,36 @@
       "versioning": "semver"
     },
     {
-      "description": [
-        "mise.toml pins the toolchain shared by local dev and CI, so scope it ci(mise)."
-      ],
-      "matchManagers": ["mise"],
-      "semanticCommitType": "ci",
-      "semanticCommitScope": "mise",
-      "separateMajorMinor": true
-    },
-    {
-      "description": [
-        "Go modules link into the npc binary, so scope them deps(go)."
-      ],
       "matchManagers": ["gomod"],
       "semanticCommitScope": "go",
-      "postUpdateOptions": ["gomodTidy"]
+      "addLabels": ["runtime"]
     },
     {
-      "description": [
-        "Automerge non-major action updates; CI gates the merge, so a bad bump fails its own PR rather than landing on main. Deliberately excludes the digest updateType: a digest that moves under an unchanged tag is the exact substitution pinDigests exists to catch, so it gets a human."
-      ],
+      "matchManagers": ["mise", "github-actions"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "matchUpdateTypes": ["patch", "minor"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "14 days",
+      "addLabels": ["MAJOR UPDATE"]
+    },
+    {
+      "matchManagers": ["mise", "gomod"],
+      "matchDepNames": ["go"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["google.golang.org/genproto/googleapis/**"],
+      "groupName": "Google APIs Go modules"
+    },
+    {
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "minor"],
       "automerge": true,
@@ -82,9 +77,6 @@
       "addLabels": ["automerge", "ci"]
     },
     {
-      "description": [
-        "Automerge non-major lint, hook, and scanner tooling. None of it ships in the binary, and `mise run check` gates the PR. Enumerated rather than negated so that adding a tool to mise.toml forces a deliberate decision about whether it may automerge."
-      ],
       "matchManagers": ["mise"],
       "matchDepNames": [
         "golangci-lint",
@@ -102,40 +94,25 @@
       "addLabels": ["automerge", "toolchain"]
     },
     {
-      "description": [
-        "Release tooling stays manual. A goreleaser or ko regression corrupts published artifacts at tag time, which is downstream of every CI gate that would otherwise catch it."
-      ],
       "matchManagers": ["mise"],
       "matchDepNames": ["goreleaser", "ko"],
-      "automerge": false,
       "addLabels": ["release"]
     },
     {
-      "description": [
-        "Runtime dependencies stay manual. npc is a cryptographic tool and these are the modules linked into what users execute."
-      ],
-      "matchManagers": ["gomod"],
-      "automerge": false,
-      "addLabels": ["runtime"]
-    },
-    {
-      "description": [
-        "GOTOOLCHAIN=local makes the mise pin the toolchain outright, so the go.mod directive and mise.toml must move together or the build fails on a version mismatch. One grouped PR keeps them consistent and reviewable."
-      ],
+      "description": "Update the installed Go toolchain and go.mod directive together.",
       "matchManagers": ["mise", "gomod"],
       "matchDepNames": ["go"],
       "groupName": "go",
       "semanticCommitType": "deps",
       "semanticCommitScope": "go",
-      "automerge": false,
       "addLabels": ["toolchain"]
     },
     {
-      "description": [
-        "Last rule wins: no major update automerges, whatever the per-manager grants above allow."
-      ],
-      "matchUpdateTypes": ["major"],
-      "automerge": false
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": [".github/renovate.Dockerfile"],
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "renovate",
+      "pinDigests": true
     }
   ]
 }

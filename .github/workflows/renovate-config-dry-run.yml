@@ -1,16 +1,70 @@
 name: Renovate config dry run
 
-# Automated triggers return with the self-contained Renovate workflows.
 on:
+  pull_request:
+    paths:
+      - renovate.json
+      - .github/renovate.json
+      - mise.toml
+      - .config/mise/config.toml
+      - '**/go.mod'
+      - '**/go.sum'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - .github/workflows/*
+      - .github/renovate.Dockerfile
+      - .github/scripts/renovate-evidence.cjs
+      - .mise/tasks/lint/renovate
+  push:
+    branches: [main]
+    paths:
+      - renovate.json
+      - .github/renovate.json
+      - mise.toml
+      - .config/mise/config.toml
+      - '**/go.mod'
+      - '**/go.sum'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - .github/workflows/*
+      - .github/renovate.Dockerfile
+      - .github/scripts/renovate-evidence.cjs
+      - .mise/tasks/lint/renovate
   workflow_dispatch: {}
 
-permissions: {}
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  disabled:
-    name: Temporarily disabled
+  validate:
+    name: Validate config and dependency lookup
     runs-on: ubuntu-24.04
-    timeout-minutes: 1
+    timeout-minutes: 15
+    env:
+      MISE_EXEC_AUTO_INSTALL: 'false'
+      MISE_TASK_RUN_AUTO_INSTALL: 'false'
     steps:
-      - name: Report disabled automation
-        run: echo 'Renovate automation is disabled during the hosted CI migration.'
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.9.6
+          install_args: node
+          cache: true
+          cache_save: false
+
+      - name: Record checked revision
+        run: git rev-parse HEAD
+
+      - name: Validate and look up dependencies
+        env:
+          GITHUB_COM_TOKEN: ${{ github.token }}
+        run: mise run lint:renovate --lookup

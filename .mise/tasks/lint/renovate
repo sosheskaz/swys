@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#MISE description="Validate Renovate config and native dependency extraction (requires Docker)"
+set -euo pipefail
+
+lookup=false
+if [[ ${1:-} == --lookup && $# == 1 ]]; then
+  lookup=true
+elif [[ $# != 0 ]]; then
+  echo 'usage: mise run lint:renovate [--lookup]' >&2
+  exit 2
+fi
+
+image=$(awk '$1 == "FROM" { print $2 }' .github/renovate.Dockerfile)
+if [[ ! $image =~ ^docker\.io/renovate/renovate:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
+  echo 'expected a version-and-digest-pinned official Renovate image' >&2
+  exit 1
+fi
+version=${image#*:}
+version=${version%%@*}
+mount=(--volume "$PWD:/workspace:ro" --workdir /workspace)
+
+docker run --rm --network=none --env "EXPECTED_RENOVATE_VERSION=$version" --entrypoint node "$image" --input-type=module -e '
+  import fs from "node:fs";
+  import {regexEngineStatus} from "/usr/local/renovate/dist/util/regex.js";
+  const version = JSON.parse(fs.readFileSync("/usr/local/renovate/package.json")).version;
+  if (version !== process.env.EXPECTED_RENOVATE_VERSION || regexEngineStatus.type !== "available") process.exit(1);
+  console.log(JSON.stringify({renovate: version, re2: regexEngineStatus.type}));
+'
+docker run --rm "${mount[@]}" --entrypoint renovate-config-validator "$image" --strict --no-global renovate.json
+
+docker run --rm "${mount[@]}" --env RENOVATE_DOCKER_MAX_PAGES=10 --env LOG_FORMAT=json --env LOG_LEVEL=trace --entrypoint renovate "$image" --platform=local --dry-run=extract 2>&1 |
+  node .github/scripts/renovate-evidence.cjs extract
+
+if $lookup; then
+  if [[ -z ${GITHUB_COM_TOKEN:-} ]]; then
+    echo 'lookup requires GITHUB_COM_TOKEN with read-only GitHub access' >&2
+    exit 1
+  fi
+  docker run --rm "${mount[@]}" --env GITHUB_COM_TOKEN --env RENOVATE_DOCKER_MAX_PAGES=10 --env LOG_FORMAT=json --env LOG_LEVEL=trace --entrypoint renovate "$image" --platform=local --dry-run=lookup 2>&1 |
+    node .github/scripts/renovate-evidence.cjs lookup
+fi
