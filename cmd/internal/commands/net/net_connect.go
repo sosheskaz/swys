@@ -161,13 +161,17 @@ func runNetConnectUDP(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	return runUDPConnection(cmd.Context(), cmd, connection, options)
+}
+
+func runUDPConnection(ctx context.Context, cmd *cobra.Command, connection *net.UDPConn, options networkDatagramConnectOptions) error {
 	if options.verbose {
 		if err := writeUDPConnectionDetails(cmd.ErrOrStderr(), connection); err != nil {
 			return errors.Join(err, connection.Close())
 		}
 	}
 	exchangeErr := exchangeUDPDatagram(
-		cmd.Context(),
+		ctx,
 		connection,
 		cmd.InOrStdin(),
 		cmd.OutOrStdout(),
