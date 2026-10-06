@@ -2,6 +2,14 @@
 
 Retrieve certificates from a TLS endpoint, inspect their details, or export their complete PEM bytes. The default **text** format displays detailed leaf metadata, validity dates, fingerprints, and certificate verification. **--format json|pem** selects structured JSON or complete PEM bytes.
 
+## Inspect a reachable endpoint
+
+The endpoint must be reachable and speak TLS. Replace example.com:443 with your server:
+
+```sh
+npc cert connect example.com:443
+```
+
 The --connect-timeout (-c) option bounds TCP setup and the TLS handshake, with a ten-second default; zero disables it.
 
 ## Export a certificate or CA
@@ -14,7 +22,13 @@ npc cert connect example.com:443 --select chain -f pem -o issuers.pem
 npc cert connect example.com:443 --select root -f pem -e base64
 ```
 
-The last command produces standard, padded Base64 of the complete PEM, including its delimiters and newlines. Verification diagnostics go to stderr, separately from the exported bytes.
+To inspect an encoded export with the offline certificate reader:
+
+```sh
+npc cert connect example.com:443 --select leaf -f pem -e base64 | npc cert inspect --input-encoding base64 --format json
+```
+
+The encoded exports produce standard, padded Base64 of the complete PEM, including its delimiters and newlines. Verification diagnostics go to stderr, separately from the exported bytes.
 
 **--select** (or **-s**) chooses the certificate material. **leaf** selects the first certificate; **chain** selects supplied certificates after the leaf; **fullchain** selects all supplied certificates in their original order. These selections never silently append a missing root. An empty selection is an error.
 

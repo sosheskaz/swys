@@ -77,8 +77,8 @@ func newCertCSRCmd() *cobra.Command {
 		Long: `Create a minimal PKCS #10 certificate signing request from an existing
 private key. The request contains only its subject and requested DNS/IP SANs.
 Its subject defaults to the first --dns value, or CN=localhost; with no subject
-or SAN flags, localhost is also added as a DNS SAN. npc does not sign CSRs;
-submit the emitted request to the intended CA.`,
+or SAN flags, localhost is also added as a DNS SAN. Submit the emitted request
+to the intended CA, or sign it locally with npc cert create --csr and an issuer identity.`,
 		Args: cobra.NoArgs,
 		RunE: runCertCSR,
 	}, true)

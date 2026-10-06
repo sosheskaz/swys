@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
+	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
 )
 
@@ -48,7 +48,6 @@ func registerCertificateCreateCompletions(command *cobra.Command) {
 	for _, name := range []string{"ca", certServerOnlyFlagName, certClientOnlyFlagName} {
 		mustRegisterCertificateCompletion(command, name, completeCertificateBoolean(name))
 	}
-	configureCertificateModeFlagCompletion(command)
 }
 
 func mustRegisterCertificateCompletion(command *cobra.Command, name string, completion cobra.CompletionFunc) {
@@ -67,10 +66,8 @@ func completeCertificateSubject(_ *cobra.Command, _ []string, toComplete string)
 
 func completeCertificateArtifact(name string) cobra.CompletionFunc {
 	return func(command *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if name == issuerCertFlagName || name == issuerKeyFlagName || name == csrFlagName {
-			if mode, ok := certificateCompletionMode(command); ok && mode.isCA {
-				return nil, cobra.ShellCompDirectiveNoFileComp
-			}
+		if mode, ok := certificateCompletionMode(command); ok && !mode.artifactAllowed(name) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		values, directoriesOnly := completeCertificatePaths(toComplete)
 		if (toComplete == "" || toComplete == "-") && !certificateStdinOwnedByOtherFlag(command, name) {
@@ -143,89 +140,30 @@ func completionPrefixMatches(values []string, prefix string) []string {
 	return matches
 }
 
-type certificateCompletionValue struct {
-	pflag.Value
-	afterSet func()
-}
-
-// Set delegates parsing and refreshes completion-only flag visibility.
-func (value certificateCompletionValue) Set(input string) error {
-	if err := value.Value.Set(input); err != nil {
-		return err //nolint:wrapcheck // Preserve the underlying flag parser's error text.
+func prepareCertificateCompletion(completionCmd *cobra.Command, args []string, create *cobra.Command) {
+	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
+		return
 	}
-	value.afterSet()
-	return nil
-}
-
-type certificateCompletionBoolValue struct {
-	certificateCompletionValue
-}
-
-// IsBoolFlag preserves pflag's optional-value behavior for wrapped booleans.
-func (certificateCompletionBoolValue) IsBoolFlag() bool { return true }
-
-type certificateCompletionSliceValue struct {
-	certificateCompletionValue
-	pflag.SliceValue
-}
-
-// Append preserves repeated slice-flag parsing and refreshes visibility.
-func (value certificateCompletionSliceValue) Append(input string) error {
-	if err := value.SliceValue.Append(input); err != nil {
-		return err //nolint:wrapcheck // Preserve the underlying flag parser's error text.
+	completedArgs := args[:len(args)-1]
+	actual, _, err := completionCmd.Root().Find(completedArgs)
+	if err != nil || actual != create {
+		return
 	}
-	value.afterSet()
-	return nil
-}
-
-// Replace preserves slice-flag replacement and refreshes visibility.
-func (value certificateCompletionSliceValue) Replace(inputs []string) error {
-	if err := value.SliceValue.Replace(inputs); err != nil {
-		return err //nolint:wrapcheck // Preserve the underlying flag parser's error text.
+	probeRoot := commandio.NewProbeRoot()
+	probeRoot.AddCommand(NewCommand(commandio.NewLifecycle()))
+	probe, probeArgs, err := probeRoot.Find(completedArgs)
+	if err != nil || probe.ParseFlags(probeArgs) != nil {
+		return
 	}
-	value.afterSet()
-	return nil
-}
-
-func configureCertificateModeFlagCompletion(command *cobra.Command) {
-	update := func() {
-		if !certificateCompletionRequested(command) {
-			return
-		}
-		mode, ok := certificateCompletionMode(command)
-		if !ok {
-			return
-		}
-		command.Flags().Lookup(tlsconfig.KeyFlagName).Hidden = mode.csr != ""
-		command.Flags().Lookup(csrFlagName).Hidden = mode.key != "" || mode.isCA
-		command.Flags().Lookup("ca").Hidden = mode.hasLeafOptions() || mode.csr != ""
-		for _, name := range []string{certDNSFlagName, "ip", issuerCertFlagName, issuerKeyFlagName, certServerOnlyFlagName, certClientOnlyFlagName} {
-			command.Flags().Lookup(name).Hidden = mode.isCA
-		}
+	mode, ok := certificateCompletionMode(probe)
+	if !ok {
+		return
 	}
-	for _, name := range []string{tlsconfig.KeyFlagName, csrFlagName, issuerCertFlagName, issuerKeyFlagName} {
-		flag := command.Flags().Lookup(name)
-		flag.Value = certificateCompletionValue{Value: flag.Value, afterSet: update}
-	}
-	for _, name := range []string{"ca", certServerOnlyFlagName, certClientOnlyFlagName} {
-		flag := command.Flags().Lookup(name)
-		flag.Value = certificateCompletionBoolValue{certificateCompletionValue{Value: flag.Value, afterSet: update}}
-	}
-	for _, name := range []string{certDNSFlagName, "ip"} {
-		flag := command.Flags().Lookup(name)
-		sliceValue, ok := flag.Value.(pflag.SliceValue)
-		if !ok {
-			panic("certificate completion expected a slice flag: " + name)
-		}
-		flag.Value = certificateCompletionSliceValue{
-			certificateCompletionValue: certificateCompletionValue{Value: flag.Value, afterSet: update},
-			SliceValue:                 sliceValue,
-		}
-		// pflag recognizes "[]" as zero only for its concrete slice types. The
-		// wrapper preserves the value but needs the generic zero spelling for help.
-		if flag.DefValue == "[]" {
-			flag.DefValue = ""
-		}
+	create.Flags().Lookup(tlsconfig.KeyFlagName).Hidden = !mode.artifactAllowed(tlsconfig.KeyFlagName)
+	create.Flags().Lookup(csrFlagName).Hidden = !mode.artifactAllowed(csrFlagName)
+	create.Flags().Lookup("ca").Hidden = !mode.caAllowed()
+	for _, name := range []string{certDNSFlagName, "ip", issuerCertFlagName, issuerKeyFlagName, certServerOnlyFlagName, certClientOnlyFlagName} {
+		create.Flags().Lookup(name).Hidden = mode.isCA
 	}
 }
 
@@ -238,7 +176,7 @@ func completeCertificateBoolean(name string) cobra.CompletionFunc {
 		conflict := mode.isCA
 		switch name {
 		case "ca":
-			conflict = mode.hasLeafOptions()
+			conflict = !mode.caAllowed()
 		case certServerOnlyFlagName:
 			if command.Flags().Changed(certClientOnlyFlagName) {
 				return nil, cobra.ShellCompDirectiveNoFileComp
@@ -269,6 +207,23 @@ type certificateCompletionModeState struct {
 	isCA        bool
 	serverOnly  bool
 	clientOnly  bool
+}
+
+func (mode *certificateCompletionModeState) caAllowed() bool {
+	return mode.csr == "" && !mode.hasLeafOptions()
+}
+
+func (mode *certificateCompletionModeState) artifactAllowed(name string) bool {
+	switch name {
+	case tlsconfig.KeyFlagName:
+		return mode.csr == ""
+	case csrFlagName:
+		return mode.key == "" && !mode.isCA
+	case issuerCertFlagName, issuerKeyFlagName:
+		return !mode.isCA
+	default:
+		return true
+	}
 }
 
 func (mode *certificateCompletionModeState) hasLeafOptions() bool {
@@ -315,13 +270,4 @@ func certificateCompletionMode(command *cobra.Command) (certificateCompletionMod
 		return certificateCompletionModeState{}, false
 	}
 	return mode, true
-}
-
-func certificateCompletionRequested(command *cobra.Command) bool {
-	for _, child := range command.Root().Commands() {
-		if child.Name() == cobra.ShellCompRequestCmd || child.Name() == cobra.ShellCompNoDescRequestCmd {
-			return true
-		}
-	}
-	return false
 }

@@ -46,6 +46,9 @@ func TestCertificateCompletionRejectsConflictingValues(t *testing.T) {
 		{args: []string{"--ca", "--client-only="}, want: []string{"false"}},
 		{args: []string{"--ca=false", "--server-only="}, want: []string{"true", "false"}},
 		{args: []string{"--client-only=false", "--server-only="}},
+		{args: []string{"--csr", "request.csr", "--ca="}, want: []string{"false"}},
+		{args: []string{"--csr", "request.csr", "--ca", "--ca="}, want: []string{"false"}},
+		{args: []string{"--ca", "--ca=false", "--server-only="}, want: []string{"true", "false"}},
 	} {
 		args := append([]string{"cert", "create"}, test.args...)
 		values, directive := executeCertificateCompletion(t, args...)
@@ -53,6 +56,23 @@ func TestCertificateCompletionRejectsConflictingValues(t *testing.T) {
 			t.Errorf("completion %q = %q, %v; want %q without files", args, values, directive, test.want)
 		}
 	}
+}
+
+func TestCertificateCompletionPreservesReusedRootReferenceHelp(t *testing.T) {
+	t.Parallel()
+	helpArgs := []string{"cert", "create", "--csr", "missing.csr", "--help"}
+	freshHelp, _, err := executeRootStreams(t, helpArgs...)
+	require.NoError(t, err)
+
+	root := newRootCmd()
+	input := &certVerifyReadCounter{}
+	root.SetIn(input)
+	_, _, err = executeRootCommandStreams(t, root, "__complete", "cert", "create", "--csr", "missing.csr", "--")
+	require.NoError(t, err)
+	reusedHelp, _, err := executeRootCommandStreams(t, root, helpArgs...)
+	require.NoError(t, err)
+	assert.Equal(t, freshHelp, reusedHelp, "completion must preserve the full reference help on later executions")
+	assert.Zero(t, input.count.Load(), "completion and reference help must not read payload input")
 }
 
 func TestCertificateCompletionPreservesParserErrors(t *testing.T) {
@@ -134,6 +154,23 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		t.Fatalf("file completions = %q, want terminal file", values)
 	}
 	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive, "want terminal file completion")
+
+	for _, args := range [][]string{
+		{"cert", "create", "--csr", "missing.csr", "--key", prefix},
+		{"cert", "create", "--key", fileWithSpaces, "--csr", prefix},
+	} {
+		candidates, pathDirective := executeCertificateCompletion(t, args...)
+		assert.Empty(t, candidates, "incompatible artifact values for %q", args)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, pathDirective, "incompatible artifacts must not fall back to files")
+	}
+	for _, args := range [][]string{
+		{"cert", "create", "--ca", "--ca=false", "--csr", prefix},
+		{"cert", "create", "--csr", "missing.csr", "--csr", "", "--key", prefix},
+	} {
+		candidates, pathDirective := executeCertificateCompletion(t, args...)
+		assert.True(t, certificateCompletionContains(candidates, fileWithSpaces), "effective values permit artifact paths for %q: %q", args, candidates)
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, pathDirective)
+	}
 
 	for _, test := range []struct {
 		name string
@@ -222,6 +259,10 @@ func TestCertificateCompletionSuppressesNonPathFilenameFallback(t *testing.T) {
 		{"cert", "create", "--key", "key.pem", ""},
 		{"cert", "csr", "--key", "key.pem", ""},
 		{"cert", "inspect", ""},
+		{"cert", "verify", ""},
+		{"cert", "match", ""},
+		{"cert", "verify", "--hostname", ""},
+		{"cert", "verify", "--at", ""},
 		{"cert", "connect", ""},
 		{"cert", "c", ""},
 		{"cert", "conn", ""},

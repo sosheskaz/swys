@@ -11,13 +11,29 @@ npc cert create --key private.pem --dns localhost --output localhost.pem
 
 The private key is PKCS#8 PEM and goes to --output/-o, or stdout when omitted. --public-out/-P optionally writes the matching public key to a separate file. --public-format selects pkix-pem (default), pkix-der, or openssh for that public key. Private output is sensitive; existing files must have acceptable permissions.
 
+## Choose an algorithm or public container
+
+- **ed25519** is the default signing key.
+- **p256** and **p384** select ECDSA on the corresponding NIST curve.
+- **rsa2048** and **rsa4096** select RSA with the named modulus size.
+
+Choose the algorithm required by the certificate consumer. The default private container remains PKCS#8 PEM.
+
 ```sh
 npc cert keygen --algorithm p256 --output p256.pem
 npc cert keygen --algorithm rsa2048 --output rsa.pem
 ```
 
+Use **cert key-public** to export the public key later, and **cert key-inspect** for metadata without printing private bytes.
+
+```sh
+npc cert key-inspect --input private.pem --format json
+```
+
 ## Reference
 
 ```sh
+npc help cert key-public
+npc help cert key-inspect
 npc cert keygen --help
 ```

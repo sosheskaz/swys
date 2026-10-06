@@ -4,6 +4,8 @@ Read a PEM certificate bundle or one DER certificate and report identity, validi
 
 ## Inspect or export certificates
 
+The examples below require a certificate or leaf-first bundle in chain.pem. Use **npc help cert create** to create a local test identity, or export a reachable endpoint's certificates with **cert connect**.
+
 ```sh
 npc cert inspect --input chain.pem --format text
 npc cert inspect --input chain.pem --format json

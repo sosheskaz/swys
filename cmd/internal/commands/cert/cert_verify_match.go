@@ -25,6 +25,9 @@ import (
 
 const (
 	maxChainDiagnosticCertificates = 64
+	certPurposeAny                 = "any"
+	certPurposeServer              = "server"
+	certPurposeClient              = "client"
 )
 
 var (
@@ -75,7 +78,7 @@ func newCertVerifyCmd() *cobra.Command {
 	command.Flags().String("ca", "", "PEM or DER trust anchors path, or - for stdin (replaces system roots unless --system-ca is set)")
 	command.Flags().Bool("system-ca", false, "combine system roots with --ca")
 	command.Flags().String("intermediates", "", "PEM untrusted intermediate certificates")
-	command.Flags().String("purpose", "server", "verification purpose (server, client, any)")
+	command.Flags().String("purpose", certPurposeServer, "verification purpose (server, client, any)")
 	command.Flags().String("hostname", "", "DNS name or IP address to verify")
 	command.Flags().String("at", "", "verification time in RFC 3339 format")
 	for _, name := range []string{"ca", "intermediates"} {
@@ -83,7 +86,17 @@ func newCertVerifyCmd() *cobra.Command {
 			panic(err)
 		}
 	}
-	commandio.RegisterFlagCompletion(command, "purpose", func() []string { return []string{"server", "client", "any"} })
+	commandio.RegisterDescribedFlagCompletion(command, "purpose", func() []string {
+		return []string{certPurposeServer, certPurposeClient, certPurposeAny}
+	}, map[string]string{
+		certPurposeServer: "TLS server authentication (default)",
+		certPurposeClient: "TLS client authentication",
+		certPurposeAny:    "Any extended key usage",
+	})
+	for _, name := range []string{"at", "hostname"} {
+		mustRegisterCertificateCompletion(command, name, cobra.NoFileCompletions)
+	}
+	command.ValidArgsFunction = cobra.NoFileCompletions
 	return command
 }
 
@@ -99,6 +112,7 @@ func newCertMatchCmd() *cobra.Command {
 	command.Flags().String(tlsconfig.CertFlagName, "", "certificate path, or - for stdin")
 	command.Flags().StringP(tlsconfig.KeyFlagName, "k", "", "public or private key path, or - for stdin")
 	command.Flags().String(csrFlagName, "", "certificate request path, or - for stdin")
+	command.ValidArgsFunction = cobra.NoFileCompletions
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, csrFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
@@ -498,11 +512,11 @@ func certVerificationPurpose(cmd *cobra.Command) (x509.ExtKeyUsage, error) {
 		return 0, fmt.Errorf("read purpose flag: %w", err)
 	}
 	switch value {
-	case "server":
+	case certPurposeServer:
 		return x509.ExtKeyUsageServerAuth, nil
-	case "client":
+	case certPurposeClient:
 		return x509.ExtKeyUsageClientAuth, nil
-	case "any":
+	case certPurposeAny:
 		return x509.ExtKeyUsageAny, nil
 	default:
 		return 0, fmt.Errorf("%w: --purpose must be server, client, or any", errInvalidCertificateFlags)

@@ -36,6 +36,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	keyInspect := newKeyInspectCmd()
 	keyConvert := newKeyConvertCmd()
 	certCmd.AddCommand(inspect, connect, create, csr, verify, match, keygen, keyPublic, keyInspect, keyConvert)
+	lifecycle.RegisterCompletion(func(command *cobra.Command, args []string) {
+		prepareCertificateCompletion(command, args, create)
+	})
 	lifecycle.Register(keygen, commandio.Behavior{SupportsOutput: true, Validate: validateCertificateFlags(validateCertKeygenFlags)})
 	lifecycle.Register(keyPublic, commandio.Behavior{
 		SupportsInput:  true,
