@@ -5,8 +5,9 @@ request merges, it creates the tag and GitHub Release; GoReleaser then builds
 archives and publishes OCI images. These are separate checkpoints: passing a
 snapshot build does not establish that any artifact has been published.
 
-The initial version is **0.1.0**. Source is public; publishing workflows remain
-disabled until the first release is separately authorized.
+[**0.1.0**](https://github.com/sosheskaz/swys/releases/tag/v0.1.0) is published.
+Release Please and Release are enabled; follow the later-release process below
+for subsequent versions.
 
 ## Validate a candidate without publishing
 
@@ -25,6 +26,10 @@ OCI images separately: snapshot mode disables image publication. Keep local
 validation and actual hosted publication evidence distinct.
 
 ## First release
+
+The 0.1.0 launch completed this one-time sequence. Preserve it as the record of
+the initial publication checkpoints; do not repeat the manual note curation for
+later releases.
 
 1. Finish source and documentation review, including the complete preserved Git
    history. Repository visibility and real publication require an explicit

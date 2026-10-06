@@ -17,12 +17,13 @@ resolve a name, exchange bytes, or prepare a local test identity.
 
 ## Install
 
-SwYS is pre-release; release archives and a Homebrew cask are not available yet.
-Use the source-build instructions below until the first release is published.
+[Release archives](https://github.com/sosheskaz/swys/releases/latest) are available
+for macOS, Linux, Windows, and FreeBSD on arm64 and amd64. SwYS is pre-1.0;
+interfaces may change between releases.
 
 ### Install a release with mise
 
-After the first release, [install and activate mise for your shell](https://mise.jdx.dev/getting-started.html),
+[Install and activate mise for your shell](https://mise.jdx.dev/getting-started.html),
 then install SwYS globally using its [GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html):
 
 ```sh
@@ -32,6 +33,17 @@ swys --version
 
 Mise selects the release archive for your platform and makes `swys` available
 on `PATH` in an activated shell. Set up SwYS completion separately below.
+
+### Install with Homebrew
+
+```sh
+brew install --cask sosheskaz/tap/swys
+swys --version
+```
+
+The cask installs Bash, Zsh, and Fish completions. On macOS it removes the
+binary's quarantine attribute; the binary is not Developer ID signed or
+notarized. See [Homebrew distribution](docs/homebrew.md) for details.
 
 ### Build from source
 
@@ -48,13 +60,11 @@ mise run build:dev
 
 The build writes `swys` into the checkout. Put it on your `PATH`, or replace
 `swys` with `./swys` in the examples below. Runtime use does not require mise.
-The planned Homebrew command is `brew install --cask sosheskaz/tap/swys`; it
-will become usable when the cask is published.
 
 ### Shell completion
 
 Once `swys` is on `PATH`, run the setup for your shell. These instructions work
-with mise or a source build. The planned Homebrew cask installs them automatically.
+with mise or a source build. The Homebrew cask installs them automatically.
 Open a new shell after setup, and regenerate the files after upgrading SwYS.
 
 <details>
