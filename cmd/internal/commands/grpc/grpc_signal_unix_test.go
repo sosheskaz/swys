@@ -288,6 +288,10 @@ func TestGRPCRequestFileCancellationClosesFIFOReaderBeforeProcessExit(t *testing
 	fifo := filepath.Join(t.TempDir(), "request.fifo")
 	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
 	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// Filling the FIFO proves reads occurred; it does not measure cancellation latency.
+	setupDeadline := time.NewTimer(10 * time.Second)
+	defer setupDeadline.Stop()
 	readResult := make(chan error, 1)
 	go func() {
 		_, err := grpccommand.ExportReadRequestFile(ctx, fifo, 2*grpcSignalInputSize)
@@ -311,7 +315,7 @@ func TestGRPCRequestFileCancellationClosesFIFOReaderBeforeProcessExit(t *testing
 			t.Fatalf("open FIFO lifecycle writer after reader handshake: %v", result.err)
 		}
 		writer = result.file
-	case <-time.After(2 * time.Second):
+	case <-setupDeadline.C:
 		t.Fatal("gRPC request reader did not open FIFO")
 	}
 	t.Cleanup(func() {
@@ -327,7 +331,7 @@ func TestGRPCRequestFileCancellationClosesFIFOReaderBeforeProcessExit(t *testing
 	select {
 	case err := <-writeDone:
 		require.NoError(t, err, "fill FIFO before cancellation: %v", err)
-	case <-time.After(2 * time.Second):
+	case <-setupDeadline.C:
 		t.Fatal("gRPC request reader did not drain FIFO input")
 	}
 	cancel()
