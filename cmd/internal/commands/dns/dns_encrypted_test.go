@@ -996,10 +996,8 @@ func TestEncryptedDNSOverallTimeouts(t *testing.T) {
 				http.Error(writer, readErr.Error(), http.StatusBadRequest)
 				return
 			}
-			select {
-			case <-request.Context().Done():
-			case <-releaseHandler:
-			}
+			// Returning on client cancellation lets net/http synthesize an empty 200 response.
+			<-releaseHandler
 		}))
 		started := time.Now()
 		commandResult := make(chan error, 1)
