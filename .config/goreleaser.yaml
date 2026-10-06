@@ -42,6 +42,8 @@ archives:
       - THIRD_PARTY_NOTICES.txt
       - README.md
       - CHANGELOG*
+      - src: licenses/oci/*
+        dst: licenses/oci
       - src: .artifacts/completions/*
         dst: completions
     name_template: >-
@@ -64,8 +66,10 @@ changelog:
 
 # Multi-arch OCI images to GHCR, built by ko through goreleaser.
 # Disabled for snapshot builds so PR validation never pushes.
+# Refresh licenses/oci and the base-derived notices when updating this digest.
 kos:
-  - repositories:
+  - base_image: cgr.dev/chainguard/static@sha256:fe55470f22d3259488d9d3739168d8f04da67755f0b69382bc26eda4a7d3d327
+    repositories:
       - ghcr.io/sosheskaz/swys
     disable: "{{ .IsSnapshot }}"
     tags:

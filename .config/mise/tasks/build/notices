@@ -1,45 +1,51 @@
 #!/usr/bin/env bash
-#MISE description="Stage canonical project and runtime notices for ko images"
+#MISE description="Stage canonical project and container-base notices for ko images"
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 cd "$root"
-notices=(LICENSE LICENSING.md THIRD_PARTY_NOTICES.txt)
+notices=(
+  LICENSE LICENSING.md THIRD_PARTY_NOTICES.txt
+  licenses/oci/README.md
+  licenses/oci/linux-amd64.spdx.json
+  licenses/oci/linux-arm64.spdx.json
+)
+destinations=()
 for notice in "${notices[@]}"; do
   if [[ ! -f "$notice" || -L "$notice" ]]; then
     printf 'expected a canonical regular notice file: %s\n' "$notice" >&2
     exit 1
   fi
+  destinations+=("kodata/licenses/${notice#licenses/}")
 done
 
 # ko includes the entire kodata tree, so keep this generated tree allowlisted.
-if [[ -L kodata || (-e kodata && ! -d kodata) ]]; then
-  printf 'expected a generated kodata directory\n' >&2
-  exit 1
-fi
-shopt -s nullglob dotglob
-for entry in kodata/*; do
-  if [[ "$entry" != kodata/licenses || ! -d "$entry" || -L "$entry" ]]; then
-    printf 'unexpected entry in generated kodata: %s\n' "$entry" >&2
+directories=(kodata kodata/licenses kodata/licenses/oci)
+for directory in "${directories[@]}"; do
+  if [[ -L "$directory" || (-e "$directory" && ! -d "$directory") ]]; then
+    printf 'expected a generated notice directory: %s\n' "$directory" >&2
     exit 1
   fi
 done
-for entry in kodata/licenses/*; do
+shopt -s nullglob dotglob
+for entry in kodata/* kodata/licenses/* kodata/licenses/oci/*; do
   case "$entry" in
-    kodata/licenses/LICENSE | kodata/licenses/LICENSING.md | kodata/licenses/THIRD_PARTY_NOTICES.txt)
-      if [[ ! -f "$entry" || -L "$entry" ]]; then
-        printf 'expected a generated regular notice file: %s\n' "$entry" >&2
-        exit 1
-      fi
-      ;;
-    *)
-      printf 'unexpected entry in generated notices: %s\n' "$entry" >&2
-      exit 1
-      ;;
+    kodata/licenses | kodata/licenses/oci) continue ;;
   esac
+  allowed=false
+  for destination in "${destinations[@]}"; do
+    if [[ "$entry" == "$destination" && -f "$entry" && ! -L "$entry" ]]; then
+      allowed=true
+      break
+    fi
+  done
+  if [[ "$allowed" != true ]]; then
+    printf 'unexpected entry in generated notices: %s\n' "$entry" >&2
+    exit 1
+  fi
 done
-mkdir -p kodata/licenses
-for notice in "${notices[@]}"; do
-  cp "$notice" "kodata/licenses/$notice"
-  chmod 0644 "kodata/licenses/$notice"
+mkdir -p kodata/licenses/oci
+for i in "${!notices[@]}"; do
+  cp "${notices[$i]}" "${destinations[$i]}"
+  chmod 0644 "${destinations[$i]}"
 done

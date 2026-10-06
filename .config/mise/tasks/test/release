@@ -14,7 +14,12 @@ release_date=$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --forma
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 umask 077
-payload_files=(LICENSE LICENSING.md THIRD_PARTY_NOTICES.txt README.md)
+payload_files=(
+  LICENSE LICENSING.md THIRD_PARTY_NOTICES.txt README.md
+  licenses/oci/README.md
+  licenses/oci/linux-amd64.spdx.json
+  licenses/oci/linux-arm64.spdx.json
+)
 completion_files=(completions/swys.bash completions/swys.zsh completions/swys.fish)
 if [[ -f CHANGELOG.md ]]; then
   payload_files+=(CHANGELOG.md)
