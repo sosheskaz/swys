@@ -221,7 +221,7 @@ never fixture data; generate ephemeral private fixtures during test setup.
 | Policy                                | Enforced by                                                                                                         |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Suite passes, raced + shuffled        | `ci.yml` test steps on every PR                                                                                     |
-| Coverage changes investigated         | CI sticky PR comment; investigate unexpected deltas and explain meaningful losses                                   |
+| Coverage changes investigated         | CI summary and artifact; sticky comment for same-repository PRs; explain meaningful losses                          |
 | Benchmarks don't rot                  | CI benchmark smoke run (`-benchtime=1x`)                                                                            |
 | Runnable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target)                                                    |
 | Vulnerable dependencies               | `govulncheck` per PR + weekly scheduled run                                                                         |

@@ -15,6 +15,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions: {}
+
 env:
   CGO_ENABLED: '0'
   MISE_EXEC_AUTO_INSTALL: 'false'
@@ -23,12 +25,15 @@ env:
 jobs:
   core:
     name: Go build, coverage, lint
-    runs-on: sosheskaz
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
       actions: read # download the coverage baseline from main runs
-      pull-requests: write # sticky coverage comment
+    outputs:
+      baseline_run: ${{ steps.coverage-base.outputs.run_id }}
+      baseline_artifact: ${{ steps.coverage-base.outputs.artifact_id }}
+      report_attempt: ${{ steps.coverage-report.outputs.attempt }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,7 +49,8 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: 'go jq golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
+          version: 2026.9.6
+          install_args: 'go jq gh node golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
           cache: true
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
@@ -92,6 +98,9 @@ jobs:
       - name: Test task workflows
         run: mise run test:tasks
 
+      - name: Test coverage reporting
+        run: 'mise run test:coverage-report ::: test:coverage-publisher'
+
       - name: Vulnerability scan
         run: mise run scan:vuln
 
@@ -124,6 +133,7 @@ jobs:
           mise run report:coverage-baseline "$BASE_SHA" coverage-base.out
 
       - name: Coverage report
+        id: coverage-report
         if: github.event_name == 'pull_request'
         env:
           COVERAGE_BASE_ARTIFACT_ID: ${{ steps.coverage-base.outputs.artifact_id }}
@@ -133,9 +143,19 @@ jobs:
           COVERAGE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           COVERAGE_RUN_ID: ${{ github.run_id }}
           COVERAGE_RUN_ATTEMPT: ${{ github.run_attempt }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: mise run report:coverage coverage.out coverage-base.out
+        shell: bash
+        run: |
+          echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          mise run --raw report:coverage coverage.out coverage-base.out | tee coverage-report.md
+
+      - name: Upload PR coverage report
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report-${{ github.run_id }}-${{ steps.coverage-report.outputs.attempt }}
+          path: coverage-report.md
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Save Go caches
         if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
@@ -147,9 +167,96 @@ jobs:
             ~/.cache/golangci-lint
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
+  coverage-comment:
+    name: Publish trusted PR coverage
+    needs: core
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    concurrency:
+      group: coverage-comment-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      # Download data only. This job never checks out or executes PR source.
+      - name: Download coverage report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-report-${{ github.run_id }}-${{ needs.core.outputs.report_attempt }}
+          path: ${{ runner.temp }}/coverage-report
+
+      - name: Update coverage comment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          COVERAGE_PRODUCER_ATTEMPT: ${{ needs.core.outputs.report_attempt }}
+          COVERAGE_REPORT_PATH: ${{ runner.temp }}/coverage-report/coverage-report.md
+          COVERAGE_BASE_RUN_ID: ${{ needs.core.outputs.baseline_run }}
+          COVERAGE_BASE_ARTIFACT_ID: ${{ needs.core.outputs.baseline_artifact }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- npc-coverage-bot:v1 -->';
+            const pr = context.payload.pull_request;
+            if (!pr || pr.head.repo.full_name !== context.repo.owner + '/' + context.repo.repo) {
+              throw new Error('Coverage publication requires a same-repository PR');
+            }
+            const path = process.env.COVERAGE_REPORT_PATH;
+            const file = fs.lstatSync(path);
+            if (!file.isFile() || file.size > 60 * 1024) {
+              throw new Error('Coverage report must be a regular file of at most 60 KiB');
+            }
+            const body = new TextDecoder('utf-8', {fatal: true}).decode(fs.readFileSync(path));
+            const run = process.env.GITHUB_RUN_ID;
+            const attempt = process.env.COVERAGE_PRODUCER_ATTEMPT;
+            if (!/^\d+$/.test(run) || !/^\d+$/.test(attempt) || body.includes('\0')) {
+              throw new Error('Invalid coverage publication metadata');
+            }
+            const baselineRun = process.env.COVERAGE_BASE_RUN_ID || 'unavailable';
+            const baselineArtifact = process.env.COVERAGE_BASE_ARTIFACT_ID || 'unavailable';
+            if (![baselineRun, baselineArtifact].every(value => /^(\d+|unavailable)$/.test(value))) {
+              throw new Error('Invalid coverage baseline metadata');
+            }
+            const runMarker = `<!-- npc-coverage-run:${run}:${attempt} -->`;
+            const provenance = `<sub>checkout: \`${context.sha}\`; PR head: \`${pr.head.sha}\`; ` +
+              `recorded base: \`${pr.base.sha}\`; PR run: \`${run}\` attempt \`${attempt}\`; ` +
+              `baseline run: \`${baselineRun}\`; baseline artifact: \`${baselineArtifact}\`</sub>`;
+            if (!body.startsWith(`${marker}\n${runMarker}\n## Coverage\n`) ||
+                !body.endsWith(`${provenance}\n`)) {
+              throw new Error('Coverage report provenance does not match this run');
+            }
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha) {
+              core.info('Skipping coverage from a stale PR head');
+              return;
+            }
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo, issue_number: pr.number, per_page: 100
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' &&
+              comment.body?.startsWith(marker + '\n'));
+            if (existing) {
+              const order = existing.body.match(/^<!-- npc-coverage-run:(\d+):(\d+) -->$/m);
+              if (order && (BigInt(order[1]) > BigInt(run) ||
+                  (BigInt(order[1]) === BigInt(run) && BigInt(order[2]) > BigInt(attempt)))) {
+                core.info('Skipping coverage older than the published run');
+                return;
+              }
+              await github.rest.issues.updateComment({
+                ...context.repo, comment_id: existing.id, body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: pr.number, body
+              });
+            }
+
   platforms:
     name: Go platform vet
-    runs-on: sosheskaz
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -165,6 +272,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
+          version: 2026.9.6
           install_args: 'go'
           cache: true
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -202,7 +310,7 @@ jobs:
 
   race-fuzz:
     name: Go race and fuzz
-    runs-on: sosheskaz
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -218,6 +326,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
+          version: 2026.9.6
           install_args: 'go jq'
           cache: true
           cache_save: false
@@ -260,7 +369,7 @@ jobs:
     name: Build, test, lint
     needs: [core, platforms, race-fuzz]
     if: ${{ always() }}
-    runs-on: sosheskaz
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:

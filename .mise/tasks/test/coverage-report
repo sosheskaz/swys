@@ -70,33 +70,6 @@ elif [[ "$1" == api ]]; then
     if [[ "${FAKE_NO_ARTIFACT:-}" != 1 ]]; then
       printf '987654321\n'
     fi
-  elif [[ "$endpoint" == */pulls/* ]]; then
-    if [[ "${FAKE_FAIL_API:-}" == pull ]]; then
-      exit 42
-    fi
-    printf '%s\n' "$FAKE_CURRENT_HEAD"
-  elif [[ "$endpoint" == */issues/comments/* ]]; then
-    if [[ " $* " == *" --method PATCH "* ]]; then
-      if [[ "${FAKE_FAIL_API:-}" == patch ]]; then
-        exit 42
-      fi
-    else
-      if [[ "${FAKE_FAIL_API:-}" == body ]]; then
-        exit 42
-      fi
-      printf '%s\n' "${FAKE_EXISTING_BODY:-}"
-    fi
-  elif [[ "$endpoint" == */issues/*/comments ]]; then
-    if [[ " $* " == *" --method POST "* ]]; then
-      if [[ "${FAKE_FAIL_API:-}" == post ]]; then
-        exit 42
-      fi
-    else
-      if [[ "${FAKE_FAIL_API:-}" == comments ]]; then
-        exit 42
-      fi
-      printf '%s\n' "${FAKE_EXISTING_ID:-}"
-    fi
   else
     exit 2
   fi
@@ -114,6 +87,21 @@ else
 fi
 EOF
 chmod +x "${fake_bin}/gh"
+
+# PR checks publish a summary without invoking any comment API.
+: >"$fake_log"
+summary="${temp_dir}/step-summary"
+PATH="${fake_bin}:${PATH}" \
+  FAKE_GH_LOG="$fake_log" \
+  GITHUB_REPOSITORY='owner/project' \
+  GITHUB_STEP_SUMMARY="$summary" \
+  PR_NUMBER=123 \
+  "$reporter" "$head_profile" "$base_profile" >"${temp_dir}/report.md"
+cmp "$summary" "${temp_dir}/report.md"
+if [[ -s "$fake_log" ]]; then
+  echo 'summary-only coverage reporting called the GitHub API' >&2
+  exit 1
+fi
 
 baseline_output="${temp_dir}/coverage-base.out"
 github_output="${temp_dir}/github-output"
@@ -188,100 +176,5 @@ fi
 # shellcheck disable=SC2016 # Markdown code spans are intentional literals.
 if ! grep -Fq -- 'checkout: `1111111111111111111111111111111111111111`; PR head: `2222222222222222222222222222222222222222`; recorded base: `0123456789abcdef0123456789abcdef01234567`; PR run: `333333333` attempt `2`; baseline run: `123456789`; baseline artifact: `987654321`' <<<"$metadata_output"; then
   echo "coverage report did not include auditable run identities" >&2
-  exit 1
-fi
-
-publish_report() {
-  local current_run="$1"
-  local current_attempt="$2"
-  local current_head="${3:-2222222222222222222222222222222222222222}"
-  local current_base="${4:-1111111111111111111111111111111111111111}"
-  PATH="${fake_bin}:${PATH}" \
-    FAKE_GH_LOG="$fake_log" \
-    FAKE_CURRENT_HEAD="$current_head" \
-    FAKE_EXISTING_ID="${FAKE_EXISTING_ID-999}" \
-    FAKE_EXISTING_BODY="${FAKE_EXISTING_BODY:-}" \
-    FAKE_FAIL_API="${FAKE_FAIL_API:-}" \
-    GITHUB_REPOSITORY='sosheskaz-systems/npc' \
-    PR_NUMBER=123 \
-    COVERAGE_BASE_SHA="$current_base" \
-    COVERAGE_HEAD_SHA='2222222222222222222222222222222222222222' \
-    COVERAGE_RUN_ID="$current_run" \
-    COVERAGE_RUN_ATTEMPT="$current_attempt" \
-    "$reporter" "$head_profile" >/dev/null
-}
-
-assert_not_patched() {
-  if grep -Fq -- '--method PATCH' "$fake_log"; then
-    echo 'coverage reporter overwrote a newer sticky comment' >&2
-    return 1
-  fi
-}
-
-: >"$fake_log"
-# shellcheck disable=SC2016 # Markdown code spans are intentional literals.
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:1 -->
-<sub>recorded base: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`</sub>' \
-  publish_report 100 2 \
-  2222222222222222222222222222222222222222 \
-  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-assert_not_patched
-
-: >"$fake_log"
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:3 -->' publish_report 200 2
-assert_not_patched
-
-: >"$fake_log"
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:1 -->' publish_report 200 2
-grep -Fq -- '--method PATCH' "$fake_log"
-
-: >"$fake_log"
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:2 -->' publish_report 200 2
-grep -Fq -- '--method PATCH' "$fake_log"
-
-: >"$fake_log"
-# shellcheck disable=SC2016 # Markdown code spans are intentional literals.
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:9 -->
-<sub>recorded base: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`</sub>' \
-  publish_report 201 1 \
-  2222222222222222222222222222222222222222 \
-  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-grep -Fq -- '--method PATCH' "$fake_log"
-
-: >"$fake_log"
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->' publish_report 100 1
-grep -Fq -- '--method PATCH' "$fake_log"
-
-: >"$fake_log"
-FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:1 -->' \
-  publish_report 201 1 3333333333333333333333333333333333333333
-assert_not_patched
-if grep -Fq -- '/issues/123/comments' "$fake_log"; then
-  echo 'stale-head coverage reporter read or changed the sticky comment' >&2
-  exit 1
-fi
-
-for failure in pull comments body patch; do
-  : >"$fake_log"
-  if FAKE_FAIL_API="$failure" \
-    FAKE_EXISTING_BODY='<!-- npc-coverage-bot:v1 -->
-<!-- npc-coverage-run:200:1 -->' \
-    publish_report 201 1; then
-    echo "coverage reporter ignored ${failure} API failure" >&2
-    exit 1
-  fi
-done
-
-: >"$fake_log"
-if FAKE_FAIL_API=post \
-  FAKE_EXISTING_ID='' \
-  publish_report 201 1; then
-  echo 'coverage reporter ignored post API failure' >&2
   exit 1
 fi

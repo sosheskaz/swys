@@ -1,26 +1,16 @@
 name: Renovate
 
+# Automated triggers return with the self-contained Renovate workflows.
 on:
-  schedule:
-    - cron: "0 */6 * * *"
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      log_level:
-        description: Renovate log verbosity (repository uses RENOVATE_LOG_LEVEL, then info)
-        type: choice
-        options: [repository, info, debug]
-        default: repository
+  workflow_dispatch: {}
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  renovate:
-    uses: sosheskaz-systems/reno/.github/workflows/renovate.yml@74a1469c4712351f95ac039a9e214200da2bfa81 # v1.4.0
-    with:
-      install-go: true
-      log-level: ${{ inputs.log_level != 'repository' && inputs.log_level || vars.RENOVATE_LOG_LEVEL || 'info' }}
-    secrets:
-      RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+  disabled:
+    name: Temporarily disabled
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Report disabled automation
+        run: echo 'Renovate automation is disabled during the hosted CI migration.'

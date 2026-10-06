@@ -1,5 +1,0 @@
-# Self-hosted ARC runner scale sets (defined in thousand-sunny/github-runners)
-self-hosted-runner:
-  labels:
-    - sosheskaz
-    - sosheskaz-buildkit

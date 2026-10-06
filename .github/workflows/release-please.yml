@@ -5,10 +5,13 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+permissions: {}
+
 jobs:
   release-please:
     name: Release PR / tag
-    runs-on: sosheskaz
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -23,6 +26,18 @@ jobs:
       releases_created: ${{ steps.publish.outputs.releases_created }}
       tag_name: ${{ steps.publish.outputs.tag_name }}
     steps:
+      - name: Checkout release configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.9.6
+          install_args: 'node gh npm:release-please'
+          cache: false
+
       - name: Publish merged release
         id: publish
         env:

@@ -1,25 +1,16 @@
 name: Renovate config dry run
 
+# Automated triggers return with the self-contained Renovate workflows.
 on:
-  pull_request:
-    paths:
-      - renovate.json
-      - mise.toml
-      - .github/workflows/renovate.yml
-      - .github/workflows/renovate-config-dry-run.yml
+  workflow_dispatch: {}
 
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions: {}
 
 jobs:
-  renovate:
-    uses: sosheskaz-systems/reno/.github/workflows/renovate-config-dry-run.yml@74a1469c4712351f95ac039a9e214200da2bfa81 # v1.4.0
-    with:
-      install-go: true
-      log-level: ${{ vars.RENOVATE_LOG_LEVEL || 'info' }}
-    secrets:
-      RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+  disabled:
+    name: Temporarily disabled
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Report disabled automation
+        run: echo 'Renovate automation is disabled during the hosted CI migration.'

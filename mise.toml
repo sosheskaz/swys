@@ -3,6 +3,10 @@
 # Tasks live in .mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
 go = "1.27.1"
+gh = "2.100.0"
+node = "24.20.0"
+"npm:prettier" = "3.9.6"
+"npm:release-please" = "17.11.2"
 jq = "1.8.2"
 golangci-lint = "2.14.0"
 goreleaser = "2.18.2"
@@ -45,6 +49,7 @@ depends = [
   "lint:go",
   "lint:platforms",
   "test:coverage-report",
+  "test:coverage-publisher",
   "test:tasks",
   "test:unit",
 ]
@@ -61,3 +66,7 @@ run = "rm -f npc cryptool *.prof *.test coverage.out coverage-base.out && rm -rf
 [tasks."install:hooks"]
 description = "Install git hooks via lefthook"
 run = "lefthook install"
+
+[tasks."test:coverage-publisher"]
+description = "Test trusted coverage publication with local API fixtures"
+run = "node .github/tests/coverage-comment.test.cjs"
