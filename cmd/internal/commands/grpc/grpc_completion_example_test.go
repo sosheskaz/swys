@@ -6,7 +6,10 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 func TestGRPCReflectionCompletionExamples(t *testing.T) {
@@ -23,6 +26,12 @@ func TestGRPCReflectionCompletionExamples(t *testing.T) {
 	assertGRPCCompletion(t, methods, grpcFixtureMethodName)
 	assertNoGRPCCompletion(t, methods, grpcFixtureServiceName+"/Watch")
 	assertGRPCCompletionDirective(t, directive)
+	unresolved, directive := completeGRPCCommand(t, address, "--plaintext", "--describe", "fixture.v1.EchoR")
+	assert.Empty(t, unresolved, "plain type prefix must not fetch additional service descriptors")
+	assertGRPCCompletionDirective(t, directive)
+	v1Calls, alphaCalls := record.reflectionCounts()
+	assert.Equal(t, 4, v1Calls, "service listing, method listing plus descriptor, and plain type listing")
+	assert.Equal(t, 0, alphaCalls)
 
 	calls, _, _ := record.snapshot()
 	if calls != 0 {
@@ -30,10 +39,12 @@ func TestGRPCReflectionCompletionExamples(t *testing.T) {
 	}
 }
 
-func TestGRPCProtosetCompletionExamples(t *testing.T) {
+func TestGRPCProtosetCompletionExamples(t *testing.T) { //nolint:tparallel // subtests finish before observing offline network effects
 	t.Parallel()
 
 	_, set, _ := grpcFixtureSchema(t)
+	request := set.File[0].MessageType[0]
+	request.NestedType = append(request.NestedType, &descriptorpb.DescriptorProto{Name: proto.String("Detail")})
 	protoset := writeGRPCFixtureProtoset(t, set)
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
 
@@ -41,6 +52,7 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) {
 		name        string
 		want        string
 		unwanted    string
+		kind        string
 		args        []string
 		wantNoSpace bool
 	}{
@@ -56,6 +68,7 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) {
 			args:     []string{address, "--protoset", protoset, grpcFixtureServiceName + "/"},
 			want:     grpcFixtureMethodName,
 			unwanted: grpcFixtureServiceName + "/Watch",
+			kind:     "unary",
 		},
 		{
 			name: "list service",
@@ -72,14 +85,45 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) {
 			args: []string{address, "--protoset", protoset, "--describe", grpcFixtureServiceName + ".E"},
 			want: grpcFixtureServiceName + ".Echo",
 		},
+		{
+			name: "describe message", args: []string{address, "--protoset", protoset, "--describe", "fixture.v1.EchoR"},
+			want: "fixture.v1.EchoRequest", kind: "message",
+		},
+		{
+			name: "describe enum", args: []string{address, "--protoset", protoset, "--describe", "fixture.v1.M"},
+			want: "fixture.v1.Mode", kind: "enum",
+		},
+		{
+			name: "describe nested user message", args: []string{address, "--protoset", protoset, "--describe", "fixture.v1.EchoRequest."},
+			want: "fixture.v1.EchoRequest.Detail", unwanted: "fixture.v1.EchoRequest.LabelsEntry", kind: "message",
+		},
+		{
+			name: "data permits later method selection",
+			args: []string{address, "--protoset", protoset, "--data", "", grpcFixtureServiceName + "/E"},
+			want: grpcFixtureMethodName,
+		},
+		{
+			name: "list value replacement remains available",
+			args: []string{address, "--protoset", protoset, "--list", "", "--list", "fixture.v1.E"},
+			want: grpcFixtureServiceName,
+		},
 	}
 
-	for _, test := range tests {
+	for _, test := range tests { //nolint:paralleltest // observe network effects after every offline completion finishes
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
 			values, directive := completeGRPCCommand(t, test.args...)
 			assertGRPCCompletion(t, values, test.want)
+			if test.kind != "" {
+				for _, value := range values {
+					candidate, description, _ := strings.Cut(value, "\t")
+					if candidate == test.want {
+						assert.Contains(t, strings.ToLower(description), test.kind, "candidate kind")
+						if test.kind == "unary" {
+							assert.GreaterOrEqual(t, strings.Count(description, "fixture.v1.EchoRequest"), 2, "input and output types")
+						}
+					}
+				}
+			}
 			if test.unwanted != "" {
 				assertNoGRPCCompletion(t, values, test.unwanted)
 			}
@@ -95,6 +139,15 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) {
 		t.Fatalf("unmatched prefix completion = %q, want none", values)
 	}
 	assertGRPCCompletionDirective(t, directive)
+	values, directive = completeGRPCCommand(t, address, "--protoset", protoset, "--list", "", grpcFixtureServiceName+"/E")
+	assert.Empty(t, values, "changed empty list excludes a method selector")
+	assertGRPCCompletionDirective(t, directive)
+	stdout, _, err := executeRootStreams(
+		t, "__completeNoDesc", "grpc", address, "--protoset", protoset, grpcFixtureServiceName+"/E",
+	)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Split(stdout, "\n"), grpcFixtureMethodName)
+	assert.NotContains(t, stdout, "\t", "NoDesc emits candidate tokens without descriptions")
 	if connections := record.connectionCount(); connections != 0 {
 		t.Fatalf("offline protoset completion opened %d network connections, want none", connections)
 	}

@@ -168,7 +168,8 @@ func TestGRPCCompletionRejectsUntrustedServiceNames(t *testing.T) {
 	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionUntrustedNamesV1, false)
 	values, directive := completeGRPCCommand(t, address, "--plaintext", "")
 	assertGRPCCompletionDirective(t, directive)
-	require.Equal(t, []string{grpcFixtureServiceName + "/"}, values)
+	require.Len(t, values, 1)
+	assertGRPCCompletion(t, values, grpcFixtureServiceName+"/")
 }
 
 func TestGRPCCompletionDoesNotPrepareCommandIO(t *testing.T) {
@@ -332,4 +333,115 @@ func TestGRPCTLSArtifactEncodingCompletion(t *testing.T) {
 		assert.Empty(t, values)
 		assertGRPCCompletionDirective(t, directive)
 	}
+}
+
+func TestGRPCCompletionFiltersContextualFlags(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		args     []string
+		want     []string
+		unwanted []string
+	}{
+		{
+			name: "plaintext excludes TLS", args: []string{"--plaintext"},
+			want: []string{"--data", "--input"}, unwanted: []string{"--ca", "--insecure", "--servername"},
+		},
+		{
+			name: "last false permits TLS", args: []string{"--plaintext", "--plaintext=false"},
+			want: []string{"--ca", "--insecure"},
+		},
+		{
+			name: "missing key remains suggestible", args: []string{"--cert", "unread-client.pem"},
+			want: []string{"--key"},
+		},
+		{
+			name: "empty list still selects discovery", args: []string{"--list", ""},
+			unwanted: []string{"--describe", "--data", "--input"},
+		},
+		{
+			name: "method selects invocation", args: []string{grpcFixtureMethodName},
+			want: []string{"--data", "--input"}, unwanted: []string{"--list", "--describe"},
+		},
+		{
+			name: "empty data still selects body", args: []string{"--data", ""},
+			unwanted: []string{"--input", "--list", "--describe"},
+		},
+		{
+			name: "file input excludes data", args: []string{"--input", "unread-request.json"},
+			unwanted: []string{"--data", "--list", "--describe"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"127.0.0.1:1"}, test.args...)
+			values, directive := completeGRPCCommand(t, append(args, "--")...)
+			for _, want := range test.want {
+				assertGRPCCompletion(t, values, want)
+			}
+			for _, unwanted := range test.unwanted {
+				assertNoGRPCCompletion(t, values, unwanted)
+			}
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+}
+
+func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "plaintext allows false replacement", args: []string{"--plaintext", "--insecure="}, want: []string{"false"}},
+		{name: "CA excludes insecure true", args: []string{"--ca", "unread-ca.pem", "--insecure="}, want: []string{"false"}},
+		{
+			name: "empty CA allows plaintext values",
+			args: []string{"--ca", "", "--plaintext="}, want: []string{"true", "false"},
+		},
+		{
+			name: "last insecure false allows system CA before partner",
+			args: []string{"--insecure", "--insecure=false", "--system-ca="}, want: []string{"true", "false"},
+		},
+		{name: "insecure blocks typed CA", args: []string{"--insecure", "--ca", ""}},
+		{name: "plaintext blocks typed key", args: []string{"--plaintext", "--key", ""}},
+		{name: "empty list blocks typed input", args: []string{"--list", "", "--input", ""}},
+		{name: "empty data blocks typed input", args: []string{"--data", "", "--input", ""}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			values, directive := completeGRPCCommand(t, append([]string{"127.0.0.1:1"}, test.args...)...)
+			if len(test.want) == 0 {
+				assert.Empty(t, values)
+			} else {
+				assert.Equal(t, test.want, values)
+			}
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+}
+
+func TestGRPCCompletionLiteralValuesDoNotOfferFiles(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--data", "--header", "--max-message-size", "--servername", "--timeout"} {
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			_, directive := completeGRPCCommand(t, "127.0.0.1:1", flag, "")
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+}
+
+func TestGRPCCompletionPreservesReusedRootReferenceHelp(t *testing.T) {
+	t.Parallel()
+	helpArgs := []string{"grpc", "127.0.0.1:1", "--plaintext", "--help"}
+	freshHelp, _, err := executeRootStreams(t, helpArgs...)
+	require.NoError(t, err)
+	root := newRootCmd()
+	_, directive, _ := completeGRPCCommandWithRoot(t, root, "127.0.0.1:1", "--plaintext", "--")
+	assertGRPCCompletionDirective(t, directive)
+	reusedHelp, _, err := executeRootCommandStreams(t, root, helpArgs...)
+	require.NoError(t, err)
+	assert.Equal(t, freshHelp, reusedHelp, "completion must preserve ordinary reference help")
 }

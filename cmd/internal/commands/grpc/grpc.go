@@ -240,6 +240,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
 	registerGRPCCompletion(command, options)
+	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) {
+		prepareGRPCCompletion(completionCmd, args, command)
+	})
 	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string { return []string{grpcFormatText, grpcFormatJSON} })
 	tlsconfig.AddArtifactEncodingFlags(command, grpcTLSCompletionApplicable)
 	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
