@@ -417,14 +417,14 @@ sending input when verification fails.
 
 ### HTTP requests
 
-A URL alone makes a GET request and streams the response body. Use an explicit
-method for requests with bodies; body flags never silently change the method:
+A URL alone makes a GET request and streams the response body. Selecting a body
+implies POST unless `--method/-X` explicitly selects another method:
 
 ```fish
 npc http https://example.com
 npc http -X GET https://example.com --output response.html
-npc http -X POST https://example.com/api --json '{"name":"demo"}'
-npc http -X POST https://example.com/api --json @payload.json
+npc http https://example.com/api --json '{"name":"demo"}'
+npc http https://example.com/api --json @payload.json
 printf 'payload' | npc http -X PUT https://example.com/object
 npc http -X PROPFIND https://example.com/files --stdin never
 ```
@@ -440,7 +440,9 @@ Choose one body source: `--input FILE` for raw file bytes, `--input -` for
 stdin, `--data/-d STRING` for literal bytes, or `--json/-j JSON|@FILE|@-` for a JSON
 body with `Content-Type: application/json`. JSON convenience sets the content
 type without parsing or rewriting the payload. `--input-encoding` decodes raw
-and JSON body sources using the same encodings as other npc commands.
+and JSON body sources using the same encodings as other npc commands. Explicit
+body selection includes empty `--data` or `--json`, input files or stdin,
+form/file fields, and `--stdin always`; an explicit method always wins.
 
 Repeated `--form name=value` fields produce a URL-encoded form. Add `--file
 name=path` for multipart fields and streamed regular-file uploads:
@@ -471,8 +473,9 @@ must be regular files; stdin uploads use the raw-body interface.
 
 With `--stdin auto` (the default), an explicit method other than GET/HEAD uses
 non-terminal stdin when no body source was supplied. Terminal stdin is left
-alone unless explicitly selected. GET shorthand never consumes stdin and
-rejects body flags; explicit GET/HEAD require explicit input to send a body.
+alone unless explicitly selected. A URL without a body source uses GET and never
+consumes stdin; explicit GET/HEAD require a body option to send a body.
+`--stdin auto` or `--stdin never` alone does not imply POST.
 Use `--stdin never` to keep inherited script input untouched, or `--stdin always`
 to select stdin regardless of terminal status. Non-terminal input can still
 block waiting for a producer. Once stdin is selected, the request owns it and
@@ -1140,9 +1143,9 @@ are bugs, and where possible they are enforced by tests rather than review.
    Nouns are resources (`cert`, `net`, `http`); verbs are actions
    (`inspect`, `generate`, `connect`, `listen`). Bare nouns print help — no
    implicit verbs. Knowledge must transfer: a user who has run `cert inspect`
-   should correctly guess `cert key-inspect`. HTTP defaults to GET when given a URL
-   and accepts custom methods through `--method` (`-X`); bare `http` still
-   shows help.
+   should correctly guess `cert key-inspect`. HTTP uses GET for a bare URL and
+   POST for an explicitly selected body unless `--method` (`-X`) overrides it;
+   custom method spelling is preserved and bare `http` still shows help.
 
    _When is an algorithm a noun?_ An algorithm appears in the command path
    when it is (a) established by out-of-band mutual agreement between the

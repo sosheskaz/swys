@@ -26,6 +26,7 @@ func TestExampleHTTPJSONFileCompletion(t *testing.T) {
 	writeCompletionFixture(t, filepath.Join(directory, "encoded.txt"))
 	require.NoError(t, os.Mkdir(filepath.Join(directory, "nested files"), 0o700))
 	symlinkCreated := os.Symlink(filepath.Join(directory, "nested files"), filepath.Join(directory, "linked files")) == nil
+	fileSymlinkCreated := os.Symlink(filepath.Join(directory, "encoded.txt"), filepath.Join(directory, "linked payload")) == nil
 	prefix := "@" + directory + string(filepath.Separator)
 
 	values, directive := completeHTTPCommand(t, "--json", prefix)
@@ -33,7 +34,10 @@ func TestExampleHTTPJSONFileCompletion(t *testing.T) {
 	if symlinkCreated {
 		assertHTTPCompletions(t, values, prefix+"linked files/")
 	}
-	assertHTTPCompletionAbsent(t, values, prefix+"notes.jsonl", prefix+"encoded.txt")
+	if fileSymlinkCreated {
+		assertHTTPCompletions(t, values, prefix+"linked payload")
+	}
+	assertHTTPCompletions(t, values, prefix+"notes.jsonl", prefix+"encoded.txt")
 	assertHTTPDirective(t, directive)
 	stdinValues, _ := completeHTTPCommand(t, "--json", "@")
 	assertHTTPCompletions(t, stdinValues, "@-")
@@ -43,6 +47,9 @@ func TestExampleHTTPJSONFileCompletion(t *testing.T) {
 
 	values, directive = completeHTTPCommand(t, "--json", prefix+"payload.json")
 	assertHTTPCompletions(t, values, prefix+"payload.json")
+	assertHTTPDirectiveAllowsSpace(t, directive)
+	values, directive = completeHTTPCommand(t, "--json", prefix+"encoded.txt")
+	assertHTTPCompletions(t, values, prefix+"encoded.txt")
 	assertHTTPDirectiveAllowsSpace(t, directive)
 	values, directive = completeHTTPCommand(t, "--json", "@-")
 	assertHTTPCompletions(t, values, "@-")
@@ -132,7 +139,7 @@ func TestHTTPGeneratedFishCompletionTraversesDirectoriesWithSpaces(t *testing.T)
 	require.NoError(t, os.MkdirAll(fixture, 0o700))
 	jsonPath := filepath.Join(fixture, "payload.json")
 	writeCompletionFixture(t, jsonPath)
-	spacedJSONPath := filepath.Join(fixture, "payload file.json")
+	spacedJSONPath := filepath.Join(fixture, "payload file.txt")
 	writeCompletionFixture(t, spacedJSONPath)
 	spacedDirectory := filepath.Join(fixture, "directory with space")
 	require.NoError(t, os.Mkdir(spacedDirectory, 0o700))
@@ -237,6 +244,7 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 		{"--connect-timeout", "1s", ""},
 		{"--timeout", "2s", ""},
 		{"--max-redirects", "3", ""},
+		{"--insecure", "--ca", ""},
 	} {
 		_, directive := completeHTTPCommand(t, args...)
 		if directive&cobra.ShellCompDirectiveNoFileComp == 0 {
@@ -282,12 +290,48 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 	assertHTTPCompletionAbsent(t, values, "Content-Type: ")
 	values, _ = completeHTTPCommand(t, "-H", "Content-Type:multipart/form-data", "-")
 	assertHTTPCompletionAbsent(t, values, "--file")
+
+	for _, test := range []struct {
+		name           string
+		args           []string
+		want, unwanted []string
+	}{
+		{
+			name: "insecure hides trust flags", args: []string{"--insecure", "--"},
+			want: []string{"--servername"}, unwanted: []string{"--ca", "--system-ca"},
+		},
+		{
+			name: "last false keeps trust flags", args: []string{"--insecure", "--insecure=false", "--"},
+			want: []string{"--ca", "--system-ca"},
+		},
+		{
+			name: "CA excludes prospective insecure true",
+			args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--insecure", "--insecure="},
+			want: []string{"false"}, unwanted: []string{"true"},
+		},
+		{
+			name: "insecure excludes system CA true", args: []string{"--insecure", "--system-ca="},
+			want: []string{"false"}, unwanted: []string{"true"},
+		},
+		{
+			name: "system CA before partner remains selectable", args: []string{"--insecure=false", "--system-ca="},
+			want: []string{"true", "false"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			candidates, directive := completeHTTPCommand(t, test.args...)
+			assertHTTPCompletions(t, candidates, test.want...)
+			assertHTTPCompletionAbsent(t, candidates, test.unwanted...)
+			assertHTTPDirectiveAllowsSpace(t, directive)
+		})
+	}
 }
 
 func TestHTTPCompletionDoesNotReadFilesOrMakeRequests(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "unreadable.json")
+	path := filepath.Join(t.TempDir(), "unreadable")
 	writeCompletionFixture(t, path)
 	require.NoError(t, os.Chmod(path, 0))
 	t.Cleanup(func() {

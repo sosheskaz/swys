@@ -44,6 +44,15 @@ func (body *httpBody) Close() error {
 	return body.closeErr
 }
 
+func httpHasBodySource(cmd *cobra.Command) bool {
+	for _, name := range []string{"input", httpDataFlagName, httpFormatJSON, "form", "file"} {
+		if cmd.Flags().Changed(name) {
+			return true
+		}
+	}
+	return false
+}
+
 func prepareHTTPBody(cmd *cobra.Command, options *httpOptions, method string) (*httpBody, error) {
 	decoder, err := encoding.GetInputDecoder(options.inputEncoding)
 	if err != nil {
@@ -53,7 +62,7 @@ func prepareHTTPBody(cmd *cobra.Command, options *httpOptions, method string) (*
 	if cmd.Flags().Changed("input") {
 		return httpSourceBody(cmd.Context(), input, cmd.InOrStdin(), decoder, options.inputEncoding == httpEncodingRaw)
 	}
-	if cmd.Flags().Changed("data") {
+	if cmd.Flags().Changed(httpDataFlagName) {
 		return httpLiteralBody(options.data, decoder, options.inputEncoding == httpEncodingRaw), nil
 	}
 	if cmd.Flags().Changed(httpFormatJSON) {

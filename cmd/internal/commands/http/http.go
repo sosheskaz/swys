@@ -21,19 +21,21 @@ import (
 var httpGuideFiles embed.FS
 
 const (
-	httpRequestShape   = "http-request"
-	httpCommandName    = "http"
-	httpFormatText     = "text"
-	httpFormatRaw      = "raw"
-	httpFormatJSON     = "json"
-	httpSelectBody     = "body"
-	httpSelectResponse = "response"
-	httpEncodingRaw    = encoding.Raw
-	httpStdinAuto      = "auto"
-	httpStdinNever     = "never"
-	httpStdinAlways    = "always"
-	httpMediaTypeJSON  = "application/json"
-	httpCodingGzip     = "gzip"
+	httpRequestShape     = "http-request"
+	httpCommandName      = "http"
+	httpFormatText       = "text"
+	httpFormatRaw        = "raw"
+	httpFormatJSON       = "json"
+	httpSelectBody       = "body"
+	httpSelectResponse   = "response"
+	httpEncodingRaw      = encoding.Raw
+	httpStdinAuto        = "auto"
+	httpStdinNever       = "never"
+	httpStdinAlways      = "always"
+	httpMediaTypeJSON    = "application/json"
+	httpCodingGzip       = "gzip"
+	httpInsecureFlagName = "insecure"
+	httpDataFlagName     = "data"
 )
 
 type httpOptions struct {
@@ -71,8 +73,10 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		Short: "Make an HTTP request, optionally tracing its connection",
 		Long: `Make an HTTP request and stream its response body.
 
-The method defaults to GET and does not consume stdin. Use --method (-X) to
-select a standard or custom HTTP method; method spelling is preserved.
+A bare URL uses GET and does not consume stdin. Explicit body selection implies
+POST unless --method (-X) selects a standard or custom HTTP method; method
+spelling is preserved. Body options include --data, --json, --input, form/file
+fields, and --stdin always.
 URLs without a scheme default to HTTPS. Use http:// for plain HTTP.
 Use --resolve HOST:PORT:ADDRESS[,ADDRESS] to override direct connection
 addresses without changing the URL host or TLS identity.
@@ -127,8 +131,8 @@ Accept-Encoding value disables automatic negotiation and decompression.`,
 
 // RegisterBodyCompletionGroups registers groups that include the root's inherited --input flag.
 func RegisterBodyCompletionGroups(command *cobra.Command) {
-	command.MarkFlagsMutuallyExclusive("input", "data", httpFormatJSON, "form")
-	command.MarkFlagsMutuallyExclusive("input", "data", httpFormatJSON, "file")
+	command.MarkFlagsMutuallyExclusive("input", httpDataFlagName, httpFormatJSON, "form")
+	command.MarkFlagsMutuallyExclusive("input", httpDataFlagName, httpFormatJSON, "file")
 }
 
 func addHTTPCommandShape(cmd *cobra.Command) {
@@ -143,7 +147,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	mustRegisterHTTPCompletion(cmd, "method", completeHTTPMethod)
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request header (Name: value); repeatable")
 	flags.StringArrayVar(&options.resolves, "resolve", nil, "resolve host:port to numeric address(es); repeatable")
-	flags.StringVarP(&options.data, "data", "d", "", "literal raw request body")
+	flags.StringVarP(&options.data, httpDataFlagName, "d", "", "literal raw request body")
 	flags.StringVarP(&options.jsonData, httpFormatJSON, "j", "", "JSON body: literal JSON, @file, or @- for stdin")
 	flags.StringArrayVar(&options.forms, "form", nil, "URL-encoded form field (name=value); repeatable")
 	flags.StringArrayVar(&options.files, "file", nil, "multipart file field (name=path); repeatable")
@@ -163,9 +167,9 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
 	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
-	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
+	flags.BoolVar(&options.systemCA, tlsconfig.SystemCAFlagName, false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
+	flags.BoolVar(&options.insecure, httpInsecureFlagName, false, "disable TLS certificate and hostname verification")
 	registerHTTPCompletions(cmd, options)
 	tlsconfig.AddArtifactEncodingFlags(cmd, func(*cobra.Command, []string) bool { return true })
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
@@ -190,6 +194,15 @@ func httpMethodURL(cmd *cobra.Command, args []string) (string, *url.URL, error) 
 	method, err := cmd.Flags().GetString("method")
 	if err != nil {
 		return "", nil, fmt.Errorf("read HTTP method: %w", err)
+	}
+	if !cmd.Flags().Changed("method") {
+		stdin, err := cmd.Flags().GetString("stdin")
+		if err != nil {
+			return "", nil, fmt.Errorf("read HTTP stdin policy: %w", err)
+		}
+		if httpHasBodySource(cmd) || stdin == httpStdinAlways {
+			method = http.MethodPost
+		}
 	}
 	if !httpToken(method) {
 		return "", nil, fmt.Errorf("%w: invalid HTTP method %q", ErrInvalidFlags, method)

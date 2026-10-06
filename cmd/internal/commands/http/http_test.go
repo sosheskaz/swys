@@ -161,6 +161,7 @@ func TestHTTPRequestBodySources(t *testing.T) {
 		stdin           string
 		wantBody        string
 		wantContentType string
+		wantMethod      string
 		args            []string
 	}{
 		{name: "literal data", args: []string{"--data", "literal bytes"}, wantBody: "literal bytes"},
@@ -169,6 +170,7 @@ func TestHTTPRequestBodySources(t *testing.T) {
 		{name: "literal json", args: []string{"--json", `{"source":"literal"}`}, wantBody: `{"source":"literal"}`, wantContentType: "application/json"},
 		{name: "json file", args: []string{"--json", "@" + jsonPath}, wantBody: `{"source":"file"}`, wantContentType: "application/json"},
 		{name: "json stdin", args: []string{"--json", "@-"}, stdin: `{"source":"stdin"}`, wantBody: `{"source":"stdin"}`, wantContentType: "application/json"},
+		{name: "explicit GET wins", args: []string{"-X", "GET", "--data", "explicit body"}, wantBody: "explicit body", wantMethod: "GET"},
 	}
 
 	for _, test := range tests {
@@ -176,13 +178,14 @@ func TestHTTPRequestBodySources(t *testing.T) {
 			t.Parallel()
 
 			type requestRecord struct {
+				method      string
 				body        string
 				contentType string
 			}
 			received := make(chan requestRecord, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				body, readErr := io.ReadAll(request.Body)
-				received <- requestRecord{body: string(body), contentType: request.Header.Get("Content-Type")}
+				received <- requestRecord{method: request.Method, body: string(body), contentType: request.Header.Get("Content-Type")}
 				if readErr != nil {
 					http.Error(writer, readErr.Error(), http.StatusInternalServerError)
 					return
@@ -191,12 +194,17 @@ func TestHTTPRequestBodySources(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			args := append([]string{"http", "-X", "POST", server.URL}, test.args...)
+			args := append([]string{"http", server.URL}, test.args...)
 			stdout, stderr, err := executeHTTPStreamsWithInput(t, strings.NewReader(test.stdin), args...)
 			require.NoError(t, err, "HTTP request")
 			require.Empty(t, stderr, "request diagnostics")
 			require.Equal(t, "received", stdout, "response body")
 			record := <-received
+			wantMethod := test.wantMethod
+			if wantMethod == "" {
+				wantMethod = http.MethodPost
+			}
+			assert.Equal(t, wantMethod, record.method, "request method")
 			assert.Equal(t, test.wantBody, record.body, "request body")
 			assert.Equal(t, test.wantContentType, record.contentType, "Content-Type")
 		})
@@ -235,26 +243,31 @@ func TestHTTPFormAndMultipartBodies(t *testing.T) {
 
 		type formRecord struct {
 			contentType string
+			method      string
 			values      []string
 		}
 		received := make(chan formRecord, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if err := request.ParseForm(); err != nil {
 				t.Errorf("parse form request: %v", err)
+				http.Error(writer, "parse form request", http.StatusInternalServerError)
 				return
 			}
-			received <- formRecord{contentType: request.Header.Get("Content-Type"), values: request.Form["name"]}
+			received <- formRecord{
+				contentType: request.Header.Get("Content-Type"), method: request.Method, values: request.Form["name"],
+			}
 			writeHTTPTestString(t, writer, "ok")
 		}))
 		t.Cleanup(server.Close)
 
 		_, _, err := executeRootStreams(
 			t,
-			"http", "-X", "POST", server.URL,
+			"http", server.URL,
 			"--form", "name=first", "--form", "name=second",
 		)
 		require.NoError(t, err, "HTTP form request")
 		record := <-received
+		assert.Equal(t, http.MethodPost, record.method, "implicit form method")
 		assert.Equal(t, "application/x-www-form-urlencoded", record.contentType, "form Content-Type")
 		assert.Equal(t, []string{"first", "second"}, record.values, "repeated form values")
 	})
@@ -266,13 +279,14 @@ func TestHTTPFormAndMultipartBodies(t *testing.T) {
 		require.NoError(t, os.WriteFile(uploadPath, []byte("report contents"), 0o600))
 		type multipartRecord struct {
 			err      error
+			method   string
 			field    string
 			filename string
 			file     string
 		}
 		received := make(chan multipartRecord, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			record := multipartRecord{}
+			record := multipartRecord{method: request.Method}
 			if err := request.ParseMultipartForm(1 << 20); err != nil {
 				record.err = err
 			} else {
@@ -294,12 +308,13 @@ func TestHTTPFormAndMultipartBodies(t *testing.T) {
 
 		_, _, err := executeRootStreams(
 			t,
-			"http", "-X", "POST", server.URL,
+			"http", server.URL,
 			"--form", "name=demo", "--file", "attachment="+uploadPath,
 		)
 		require.NoError(t, err, "HTTP multipart request")
 		record := <-received
 		require.NoError(t, record.err, "parse multipart request")
+		assert.Equal(t, http.MethodPost, record.method, "implicit multipart method")
 		assert.Equal(t, "demo", record.field, "multipart field")
 		assert.Equal(t, "report.txt", record.filename, "multipart filename")
 		assert.Equal(t, "report contents", record.file, "multipart file")
@@ -380,43 +395,58 @@ func TestHTTPStdinPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		method   string
-		stdin    string
-		flag     string
-		wantBody string
-		wantRead bool
+		name       string
+		method     string
+		wantMethod string
+		stdin      string
+		flag       string
+		wantBody   string
+		wantRead   bool
 	}{
 		{name: "auto post", method: "POST", stdin: "automatic", wantBody: "automatic", wantRead: true},
 		{name: "auto get", method: "GET", stdin: "ignored", wantBody: "", wantRead: false},
 		{name: "never post", method: "POST", stdin: "ignored", flag: "never", wantBody: "", wantRead: false},
 		{name: "always get", method: "GET", stdin: "explicit", flag: "always", wantBody: "explicit", wantRead: true},
+		{name: "bare URL stays GET", stdin: "ignored", wantMethod: "GET"},
+		{name: "auto alone stays GET", stdin: "ignored", flag: "auto", wantMethod: "GET"},
+		{name: "never alone stays GET", stdin: "ignored", flag: "never", wantMethod: "GET"},
+		{name: "always implies POST", stdin: "explicit", flag: "always", wantMethod: "POST", wantBody: "explicit", wantRead: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			received := make(chan string, 1)
+			type requestRecord struct{ method, body string }
+			received := make(chan requestRecord, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				body, err := io.ReadAll(request.Body)
 				if err != nil {
-					t.Errorf("read stdin request body: %v", err)
+					http.Error(writer, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				received <- string(body)
+				received <- requestRecord{method: request.Method, body: string(body)}
 				writeHTTPTestString(t, writer, "ok")
 			}))
 			t.Cleanup(server.Close)
 
 			input := &countingReader{source: strings.NewReader(test.stdin)}
-			args := []string{"http", "-X", test.method, server.URL}
+			args := []string{"http", server.URL}
+			if test.method != "" {
+				args = append(args, "-X", test.method)
+			}
 			if test.flag != "" {
 				args = append(args, "--stdin", test.flag)
 			}
 			_, _, err := executeHTTPStreamsWithInput(t, input, args...)
 			require.NoError(t, err, "HTTP stdin policy")
-			assert.Equal(t, test.wantBody, <-received, "request body")
+			record := <-received
+			wantMethod := test.method
+			if test.wantMethod != "" {
+				wantMethod = test.wantMethod
+			}
+			assert.Equal(t, wantMethod, record.method, "request method")
+			assert.Equal(t, test.wantBody, record.body, "request body")
 			assert.Equal(t, test.wantRead, input.reads.Load() > 0, "stdin read")
 		})
 	}
@@ -429,7 +459,7 @@ func TestHTTPBodyValidationHappensBeforeOutputIsOpened(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "GET shorthand body", args: []string{"--data", "body"}},
+		{name: "conflicting always stdin and data", args: []string{"--stdin", "always", "--data", "body"}},
 		{name: "conflicting raw and JSON", args: []string{"-X", "POST", "--data", "body", "--json", `{}`}},
 		{name: "conflicting JSON and form", args: []string{"-X", "POST", "--json", `{}`, "--form", "name=value"}},
 	}
@@ -1357,16 +1387,20 @@ func TestHTTPTLSArtifactValidationPrecedesIO(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
 	t.Cleanup(server.Close)
 	for _, test := range []struct {
-		name    string
-		flags   []string
-		unknown bool
+		name          string
+		flags         []string
+		unknown       bool
+		withoutMethod bool
 	}{
 		{name: "explicit raw needs source", flags: []string{"--ca-encoding", "raw"}},
 		{name: "unknown codec", flags: []string{"--ca", "missing", "--ca-encoding", "invalid"}, unknown: true},
-		{name: "implicit POST payload", flags: []string{"--ca", "-"}},
+		{name: "explicit POST auto payload", flags: []string{"--ca", "-"}},
 		{name: "explicit input payload", flags: []string{"--ca", "-", "--input", "-"}},
 		{name: "JSON payload", flags: []string{"--ca", "-", "--json", "@-"}},
-		{name: "always payload", flags: []string{"--ca", "-", "--stdin", "always"}},
+		{
+			name: "inferred POST payload conflicts with credential stdin", withoutMethod: true,
+			flags: []string{"--ca", "-", "--stdin", "always"},
+		},
 		{name: "two credentials", flags: []string{"--ca", "-", "--cert", "-", "--key", "missing", "--stdin", "never"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1374,7 +1408,12 @@ func TestHTTPTLSArtifactValidationPrecedesIO(t *testing.T) {
 			input := &countingReader{source: strings.NewReader("not credentials or payload")}
 			output := filepath.Join(t.TempDir(), "output")
 			require.NoError(t, os.WriteFile(output, []byte("preserved"), 0o600))
-			args := append([]string{"http", "-X", "POST", server.URL, "--output", output}, test.flags...)
+			args := []string{"http"}
+			if !test.withoutMethod {
+				args = append(args, "-X", "POST")
+			}
+			args = append(args, server.URL, "--output", output)
+			args = append(args, test.flags...)
 			stdout, _, err := executeHTTPStreamsWithInput(t, input, args...)
 			require.Error(t, err)
 			if test.unknown {

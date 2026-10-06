@@ -146,7 +146,7 @@ func validateHTTPTLSOptions(cmd *cobra.Command, options *httpOptions) error {
 
 func validateHTTPBodySelection(cmd *cobra.Command, options *httpOptions) error {
 	sources := 0
-	for _, name := range []string{"input", "data", httpFormatJSON} {
+	for _, name := range []string{"input", httpDataFlagName, httpFormatJSON} {
 		if cmd.Flags().Changed(name) {
 			sources++
 		}
@@ -157,9 +157,6 @@ func validateHTTPBodySelection(cmd *cobra.Command, options *httpOptions) error {
 	}
 	if sources > 1 {
 		return fmt.Errorf("%w: choose one of --input, --data, --json, or form/file fields", ErrInvalidFlags)
-	}
-	if !cmd.Flags().Changed("method") && (sources != 0 || options.stdin == httpStdinAlways) {
-		return fmt.Errorf("%w: request bodies require an explicit --method (-X)", ErrInvalidFlags)
 	}
 	if err := validateHTTPStdinSelection(cmd, options, sources); err != nil {
 		return err

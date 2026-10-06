@@ -35,6 +35,7 @@ func TestExampleHTTPPostJSON(t *testing.T) {
 	t.Parallel()
 
 	type receivedRequest struct {
+		method      string
 		contentType string
 		body        string
 	}
@@ -45,7 +46,7 @@ func TestExampleHTTPPostJSON(t *testing.T) {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		received <- receivedRequest{contentType: request.Header.Get("Content-Type"), body: string(body)}
+		received <- receivedRequest{method: request.Method, contentType: request.Header.Get("Content-Type"), body: string(body)}
 		writer.WriteHeader(http.StatusCreated)
 		if _, err := io.WriteString(writer, "created\n"); err != nil {
 			t.Errorf("write example response: %v", err)
@@ -55,14 +56,15 @@ func TestExampleHTTPPostJSON(t *testing.T) {
 
 	stdout, stderr, err := executeRootStreams(
 		t,
-		"http", server.URL, "-X", "POST",
+		"http", server.URL,
 		"-j", `{"name":"demo"}`,
 	)
-	require.NoError(t, err, "npc http -X POST -j: %v", err)
+	require.NoError(t, err, "npc http -j: %v", err)
 	assert.Equal(t, "created\n", stdout)
 	assert.Empty(t, stderr)
 
 	request := <-received
+	assert.Equal(t, http.MethodPost, request.method, "explicit JSON body implies POST")
 	if request.contentType != "application/json" {
 		t.Fatalf("Content-Type = %q, want application/json", request.contentType)
 	}

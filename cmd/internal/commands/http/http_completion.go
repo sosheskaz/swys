@@ -43,14 +43,31 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 	mustRegisterHTTPCompletion(cmd, "file", completeHTTPFileField)
 	mustRegisterHTTPCompletion(cmd, "header", completeHTTPHeader)
 	mustRegisterHTTPCompletion(cmd, "form", noFileHTTPCompletion)
-	for _, name := range []string{"data", "resolve", tlsconfig.ServerNameFlagName, commandio.ConnectTimeoutFlagName, "timeout", "max-redirects"} {
+	for _, name := range []string{httpDataFlagName, "resolve", tlsconfig.ServerNameFlagName, commandio.ConnectTimeoutFlagName, "timeout", "max-redirects"} {
 		mustRegisterHTTPCompletion(cmd, name, noFileHTTPCompletion)
 	}
+	for _, name := range []string{httpInsecureFlagName, tlsconfig.SystemCAFlagName} {
+		mustRegisterHTTPCompletion(cmd, name, func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+			var values []string
+			for _, value := range []string{"true", "false"} {
+				if httpTrustCompletionCompatible(cmd, name, value == "true") {
+					values = append(values, value)
+				}
+			}
+			return prefixMatches(values, prefix), cobra.ShellCompDirectiveNoFileComp
+		})
+	}
+	mustRegisterHTTPCompletion(cmd, tlsconfig.CAFlagName, func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if !httpTrustCompletionCompatible(cmd, tlsconfig.CAFlagName, true) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveDefault
+	})
 	mustRegisterHTTPCompletion(cmd, "stdin", func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		values := []string{httpStdinAuto, httpStdinNever, httpStdinAlways}
 		if httpCompletionUsesStdin(cmd, options) {
 			values = []string{httpStdinAuto, httpStdinAlways}
-		} else if httpCompletionHasBody(cmd, options) {
+		} else if httpHasBodySource(cmd) {
 			values = []string{httpStdinAuto, httpStdinNever}
 		}
 		return prefixMatches(values, toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -101,9 +118,6 @@ func completeHTTPJSON(cmd *cobra.Command, _ []string, toComplete string) ([]stri
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	allow := httpJSONPathAllowed
-	if inputEncoding, err := cmd.Flags().GetString(commandio.InputEncodingFlagName); err == nil && inputEncoding != httpEncodingRaw {
-		allow = func(string) bool { return true }
-	}
 	paths := completeHTTPPaths(toComplete[1:], allow)
 	for index := range paths {
 		paths[index] = "@" + paths[index]
@@ -121,8 +135,8 @@ func completeHTTPJSON(cmd *cobra.Command, _ []string, toComplete string) ([]stri
 	return paths, directive
 }
 
-func httpJSONPathAllowed(name string) bool {
-	return strings.EqualFold(filepath.Ext(name), ".json")
+func httpJSONPathAllowed(info os.FileInfo) bool {
+	return info != nil && info.Mode().IsRegular()
 }
 
 func completeHTTPFileField(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -130,23 +144,23 @@ func completeHTTPFileField(_ *cobra.Command, _ []string, toComplete string) ([]s
 	if !ok || name == "" {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	paths := completeHTTPPaths(path, func(string) bool { return true })
+	paths := completeHTTPPaths(path, func(os.FileInfo) bool { return true })
 	for index := range paths {
 		paths[index] = name + "=" + paths[index]
 	}
 	directive := cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
-	if httpCompletionTerminalPath(path, func(string) bool { return true }) {
+	if httpCompletionTerminalPath(path, func(os.FileInfo) bool { return true }) {
 		directive = cobra.ShellCompDirectiveNoFileComp
 	}
 	return paths, directive
 }
 
-func httpCompletionTerminalPath(path string, allowFile func(string) bool) bool {
+func httpCompletionTerminalPath(path string, allowFile func(os.FileInfo) bool) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir() && allowFile(info.Name())
+	return err == nil && !info.IsDir() && allowFile(info)
 }
 
-func completeHTTPPaths(prefix string, allowFile func(string) bool) []string {
+func completeHTTPPaths(prefix string, allowFile func(os.FileInfo) bool) []string {
 	directory, base := filepath.Split(prefix)
 	readDirectory := directory
 	if readDirectory == "" {
@@ -166,7 +180,7 @@ func completeHTTPPaths(prefix string, allowFile func(string) bool) []string {
 		info, statErr := os.Stat(filepath.Join(readDirectory, name))
 		if statErr == nil && info.IsDir() {
 			values = append(values, value+string(filepath.Separator))
-		} else if allowFile(name) {
+		} else if allowFile(info) {
 			values = append(values, value)
 		}
 	}
@@ -273,10 +287,6 @@ func prefixMatchesWithBase(values []string, base, prefix string) []string {
 	return matches
 }
 
-func httpCompletionHasBody(cmd *cobra.Command, options *httpOptions) bool {
-	return cmd.Flags().Changed("input") || cmd.Flags().Changed("data") || cmd.Flags().Changed(httpFormatJSON) || len(options.forms) != 0 || len(options.files) != 0
-}
-
 func httpCompletionUsesStdin(cmd *cobra.Command, options *httpOptions) bool {
 	return cmd.Flags().Changed("input") && cmd.Flag("input").Value.String() == "-" || cmd.Flags().Changed(httpFormatJSON) && options.jsonData == "@-"
 }
@@ -318,12 +328,34 @@ func prepareHTTPCompletion(completionCmd *cobra.Command, args []string) {
 	}
 	prepareHTTPBodyCompletion(probeCommand, hide)
 	tlsconfig.SetArtifactEncodingVisibility(actualCommand, probeCommand, true)
+	prepareHTTPTrustCompletion(probeCommand, hide)
+}
+
+func httpTrustCompletionCompatible(cmd *cobra.Command, name string, enabled bool) bool {
+	if !enabled {
+		return true
+	}
+	if name == httpInsecureFlagName {
+		systemCA, err := cmd.Flags().GetBool(tlsconfig.SystemCAFlagName)
+		return err == nil && !systemCA && httpCompletionString(cmd, tlsconfig.CAFlagName) == ""
+	}
+	insecure, err := cmd.Flags().GetBool(httpInsecureFlagName)
+	return err == nil && !insecure
+}
+
+func prepareHTTPTrustCompletion(cmd *cobra.Command, hide func(...string)) {
+	if !httpTrustCompletionCompatible(cmd, tlsconfig.CAFlagName, true) {
+		hide(tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName)
+	}
+	if !httpTrustCompletionCompatible(cmd, httpInsecureFlagName, true) {
+		hide(httpInsecureFlagName)
+	}
 }
 
 func prepareHTTPBodyCompletion(cmd *cobra.Command, hide func(...string)) {
 	stdin := httpCompletionString(cmd, "stdin")
 	if stdin == httpStdinAlways && !httpCompletionProbeUsesStdin(cmd) {
-		hide("input", "data", httpFormatJSON, "form", "file")
+		hide("input", httpDataFlagName, httpFormatJSON, "form", "file")
 	}
 	inputEncoding := httpCompletionString(cmd, commandio.InputEncodingFlagName)
 	if inputEncoding != httpEncodingRaw {

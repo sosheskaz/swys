@@ -28,26 +28,12 @@ func TestHTTPDataShortAliasPreservesExplicitEmptyData(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, _, err := executeRootStreams(t, "http", server.URL, "-X", "POST", "-d", "")
-	require.NoError(t, err, "explicit empty -d: %v", err)
-	require.Equal(t, http.MethodPost, <-requestMethod)
-	require.Empty(t, <-requestBody)
-}
-
-func TestHTTPDataShortAliasRequiresExplicitMethodLikeData(t *testing.T) {
-	t.Parallel()
-
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		requests.Add(1)
-	}))
-	t.Cleanup(server.Close)
-
-	_, _, longErr := executeRootStreams(t, "http", server.URL, "--data", "")
-	_, _, shortErr := executeRootStreams(t, "http", server.URL, "-d", "")
-	require.Error(t, longErr, "--data requires -X")
-	require.EqualError(t, shortErr, longErr.Error(), "-d and --data reject missing method identically")
-	require.Zero(t, requests.Load(), "requests")
+	for _, flag := range []string{"-d", "--data"} {
+		_, _, err := executeRootStreams(t, "http", server.URL, flag, "")
+		require.NoError(t, err, "explicit empty %s", flag)
+		require.Equal(t, http.MethodPost, <-requestMethod, "%s implies POST", flag)
+		require.Empty(t, <-requestBody, "%s preserves an empty body", flag)
+	}
 }
 
 func TestHTTPDataShortAliasConflictsWithInputBeforeRequestOrOutput(t *testing.T) {
