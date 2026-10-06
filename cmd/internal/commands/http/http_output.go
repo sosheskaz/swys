@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 func writeHTTPResponse(cmd *cobra.Command, options *httpOptions, request *http.Request, response *http.Response, requestErr error, trace *httpTrace) error {

@@ -1,4 +1,4 @@
-# Tool and task definitions for npc. CI installs these same pins via
+# Tool and task definitions for swys. CI installs these same pins via
 # jdx/mise-action, so local and CI toolchains cannot drift.
 # Tasks live in .config/mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
@@ -38,7 +38,7 @@ flag "--package <pattern>" help="Go package pattern" default="./..."
 flag "--bench <regexp>" help="Go benchmark regexp, including subbenchmarks" default="."
 flag "--benchtime <budget>" help="Duration or iterations per benchmark" default="1s"
 flag "--count <count>" help="Repeat each benchmark" default="1"
-flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="NPC_TEST_PACKAGE_WORKERS"
+flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="SWYS_TEST_PACKAGE_WORKERS"
 flag "--list" help="List top-level benchmarks in selected packages without running them"
 '''
 run = "bash .config/mise/lib/bench.sh run"
@@ -57,11 +57,11 @@ depends = [
 [tasks."test:interop:openpgp"]
 description = "Run manual OpenPGP interoperability checks"
 depends = ["build:dev"]
-run = "tests/interop/openpgp/manual.sh ./npc"
+run = "tests/interop/openpgp/manual.sh ./swys"
 
 [tasks."clean:artifacts"]
 description = "Remove build artifacts and coverage/profile output"
-run = "rm -f npc cryptool *.prof *.test coverage.out coverage-base.out && rm -rf .artifacts/bench"
+run = "rm -f swys cryptool *.prof *.test coverage.out coverage-base.out && rm -rf .artifacts/bench"
 
 [tasks."install:hooks"]
 description = "Install git hooks via lefthook"

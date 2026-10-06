@@ -10,10 +10,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	httpcmd "github.com/sosheskaz-systems/npc/cmd/internal/commands/http"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	httpcmd "github.com/sosheskaz/swys/cmd/internal/commands/http"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func newRootCmd() *cobra.Command { return cmd.NewCommand() }

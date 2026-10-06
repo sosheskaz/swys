@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sosheskaz-systems/npc/internal/pemstrict"
+	"github.com/sosheskaz/swys/internal/pemstrict"
 )
 
 // PEMType is the sole PEM block type accepted in certificate bundles.

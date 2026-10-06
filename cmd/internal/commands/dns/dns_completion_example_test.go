@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 func TestExampleDNSRecordTypeCompletion(t *testing.T) {

@@ -20,11 +20,11 @@ import (
 	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz-systems/npc/internal/asym"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/internal/asym"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 //go:embed guides

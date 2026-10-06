@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	commonpb "github.com/tink-crypto/tink-go/v2/proto/common_go_proto"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/internal/symkey"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/internal/symkey"
 )
 
 const (

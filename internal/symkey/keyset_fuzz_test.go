@@ -8,7 +8,7 @@ import (
 	commonpb "github.com/tink-crypto/tink-go/v2/proto/common_go_proto"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/sosheskaz-systems/npc/internal/symkey"
+	"github.com/sosheskaz/swys/internal/symkey"
 )
 
 func FuzzReadKeyset(f *testing.F) {

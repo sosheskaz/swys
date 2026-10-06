@@ -22,7 +22,7 @@ func TestCertCreateFromCSRExample(t *testing.T) {
 	t.Parallel()
 	fixture := newCSRIssueFixture(t)
 	requestDER := createCSRIssueRequest(t, &x509.CertificateRequest{
-		Subject:     pkix.Name{CommonName: "service.example", Organization: []string{"npc example"}},
+		Subject:     pkix.Name{CommonName: "service.example", Organization: []string{"swys example"}},
 		DNSNames:    []string{"service.example"},
 		IPAddresses: []net.IP{net.ParseIP("192.0.2.25")},
 	})

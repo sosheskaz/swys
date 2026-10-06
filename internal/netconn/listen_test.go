@@ -190,8 +190,8 @@ func TestAcceptTLSCompletesVerifiedServerHandshake(t *testing.T) {
 	t.Parallel()
 
 	serverConfig, clientConfig := newAcceptTLSTestConfigs(t)
-	serverConfig.NextProtos = []string{"npc-test"}
-	clientConfig.NextProtos = []string{"npc-test"}
+	serverConfig.NextProtos = []string{"swys-test"}
+	clientConfig.NextProtos = []string{"swys-test"}
 	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
 	require.NoError(t, err)
 	serverName := make(chan string, 1)
@@ -224,7 +224,7 @@ func TestAcceptTLSCompletesVerifiedServerHandshake(t *testing.T) {
 	closeTestTCPConnection(t, client)
 	require.Equal(t, "response", string(response))
 	require.Equal(t, "example.com", <-serverName, "SNI")
-	require.Equal(t, "npc-test", <-negotiated, "ALPN")
+	require.Equal(t, "swys-test", <-negotiated, "ALPN")
 	require.NoError(t, <-serverDone)
 }
 

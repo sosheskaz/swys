@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 // Configure validates flags and installs command streams and cleanup.

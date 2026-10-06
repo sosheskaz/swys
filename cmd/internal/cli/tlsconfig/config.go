@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 // Shared flag names keep TLS configuration consistent across command families.

@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	guideSourceAnnotation = "npc.help.guide.source."
+	guideSourceAnnotation = "swys.help.guide.source."
 	rootGuidePath         = "root"
 )
 

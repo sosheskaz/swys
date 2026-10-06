@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const runAsNPCEnvironment = "NPC_TEST_RUN_AS_NPC"
+const runAsSwYSEnvironment = "SWYS_TEST_RUN_AS_SWYS"
 
-// TestMain lets the tests below re-execute the test binary as the npc
+// TestMain lets the tests below re-execute the test binary as the swys
 // command, so real signals exercise the real main.
 func TestMain(m *testing.M) {
-	if arguments, ok := os.LookupEnv(runAsNPCEnvironment); ok {
-		os.Args = append([]string{"npc"}, strings.Fields(arguments)...)
+	if arguments, ok := os.LookupEnv(runAsSwYSEnvironment); ok {
+		os.Args = append([]string{"swys"}, strings.Fields(arguments)...)
 		main()
 		return
 	}
@@ -37,14 +37,14 @@ func TestSignalsEndTheProcessWithTheShellStatus(t *testing.T) {
 		signal  syscall.Signal
 		status  int
 	}{
-		{name: "interrupt", signal: syscall.SIGINT, message: "npc: interrupted", status: 130},
-		{name: "terminate", signal: syscall.SIGTERM, message: "npc: terminated", status: 143},
-		{name: "hangup", signal: syscall.SIGHUP, message: "npc: terminated", status: 129},
+		{name: "interrupt", signal: syscall.SIGINT, message: "swys: interrupted", status: 130},
+		{name: "terminate", signal: syscall.SIGTERM, message: "swys: terminated", status: 143},
+		{name: "hangup", signal: syscall.SIGHUP, message: "swys: terminated", status: 129},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			process := exec.CommandContext(t.Context(), os.Args[0])
-			process.Env = append(os.Environ(), runAsNPCEnvironment+"=net listen 127.0.0.1:0 --verbose")
+			process.Env = append(os.Environ(), runAsSwYSEnvironment+"=net listen 127.0.0.1:0 --verbose")
 			stderr, err := process.StderrPipe()
 			require.NoError(t, err)
 			require.NoError(t, process.Start())

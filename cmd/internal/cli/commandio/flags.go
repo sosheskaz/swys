@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 )
 
 // EncodingFlagName and its peers name shared encoding and format flags.
@@ -84,12 +84,12 @@ func AddShape(command *cobra.Command, shape string) {
 	if command.Annotations == nil {
 		command.Annotations = make(map[string]string)
 	}
-	command.Annotations["npc.shape."+shape] = "true"
+	command.Annotations["swys.shape."+shape] = "true"
 }
 
 // HasShape reports whether command has a presentation capability.
 func HasShape(command *cobra.Command, shape string) bool {
-	return command.Annotations["npc.shape."+shape] == "true"
+	return command.Annotations["swys.shape."+shape] == "true"
 }
 
 // InputDecoderFromCommand selects the decoder named by the input encoding flag.

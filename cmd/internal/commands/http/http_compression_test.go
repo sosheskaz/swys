@@ -149,7 +149,7 @@ func TestHTTPAutomaticCompressionSkipsIneligibleRequests(t *testing.T) {
 			received := make(chan []string, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				received <- request.Header.Values("Accept-Encoding")
-				writer.Header().Set("X-NPC-Test", "compression")
+				writer.Header().Set("X-SwYS-Test", "compression")
 				if request.Method != http.MethodHead {
 					writeHTTPTestString(t, writer, "raw")
 				}

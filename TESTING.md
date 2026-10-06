@@ -1,6 +1,6 @@
 # Testing Policy
 
-This document is normative. Tests protect NPC's observable cryptographic,
+This document is normative. Tests protect SwYS's observable cryptographic,
 wire-level, and command behavior. Choose focused evidence for the change;
 more assertions, fixtures, or coverage do not automatically mean better tests.
 
@@ -102,7 +102,7 @@ arbitrary Markdown fences.
 
 Rendering tests exercise both plain and rich output. Golden fixtures cover a
 root page, an intermediate branch, a leaf, and every supported Markdown
-construct. Plain output must contain no NPC-generated ANSI controls or leaked
+construct. Plain output must contain no SwYS-generated ANSI controls or leaked
 heading, emphasis, fence, or link presentation syntax; code punctuation and
 visible link destinations remain intact in plain output. Rich links use clickable
 labels without duplicate visible URLs, close before unrelated text and at line
@@ -159,7 +159,7 @@ A package must carry benchmarks when any of these hold:
 - It processes **unbounded or caller-controlled input sizes** (streams,
   files, network payloads) — the crypter and future compression/transport
   layers.
-- It sits on a **hot path** where npc's low-allocation goals apply
+- It sits on a **hot path** where swys's low-allocation goals apply
   (encoding pipelines, formatters invoked per-certificate, buffer
   management).
 - It makes a **tunable performance decision** (buffer sizes, pooling) —
@@ -197,7 +197,7 @@ mise run bench --help
 mise run bench -- --list
 mise run bench -- --package ./internal/contextio --bench BenchmarkReader --benchtime 1x
 mise run bench:cpu -- --package ./internal/contextio --benchtime 3s
-mise run bench:mem -- --package ./internal/contextio --output-dir /tmp/npc-profiles
+mise run bench:mem -- --package ./internal/contextio --output-dir /tmp/swys-profiles
 ```
 
 Profiles run sequentially by package and retain the matching test binary under
@@ -262,12 +262,12 @@ separate. Leave both unset to use Go's defaults, based on `GOMAXPROCS`; these ar
 not a single total worker budget. CI explicitly sets two fuzz workers and leaves
 package concurrency at Go's default.
 
-- `NPC_TEST_PACKAGE_WORKERS` supplies the package/build concurrency default for
+- `SWYS_TEST_PACKAGE_WORKERS` supplies the package/build concurrency default for
   unit, race, coverage, fuzz, and benchmark tasks.
 - Fuzz/benchmark `--package-workers` overrides that environment default.
 - Unit/race/coverage tasks retain native flags, such as
   `mise run test:unit -- -p 2 -run TestName`; explicit `-p` wins.
-- `NPC_FUZZ_WORKERS` supplies fuzz concurrency; `--fuzz-workers` overrides it.
+- `SWYS_FUZZ_WORKERS` supplies fuzz concurrency; `--fuzz-workers` overrides it.
   Neither changes ordinary tests' within-package `-parallel` setting.
 
 Worker counts must be positive integers. Limit them explicitly when running

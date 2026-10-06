@@ -13,8 +13,8 @@ import (
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/rdata"
 
-	dnscommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/dns"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	dnscommand "github.com/sosheskaz/swys/cmd/internal/commands/dns"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 const maxFuzzDNSWireSize = dns.MaxMsgSize

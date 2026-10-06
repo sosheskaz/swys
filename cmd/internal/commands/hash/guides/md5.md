@@ -8,23 +8,23 @@ Create a small file and save its digest. Hash the same bytes through stdin when 
 
 ```sh
 printf 'hello' > message.txt
-npc hash md5 < message.txt > message.md5
-printf 'hello' | npc hash md5
+swys hash md5 < message.txt > message.md5
+printf 'hello' | swys hash md5
 ```
 
-The default result is hexadecimal followed by a newline, with no filename attached. An input newline changes the digest. NPC does not automatically verify a checksum file.
+The default result is hexadecimal followed by a newline, with no filename attached. An input newline changes the digest. SwYS does not automatically verify a checksum file.
 
 ## Write a binary digest
 
 Use raw output when a peer needs the 16 digest bytes rather than hexadecimal text. No newline is appended in raw mode.
 
 ```sh
-npc hash md5 --encoding raw < message.txt > digest.bin
+swys hash md5 --encoding raw < message.txt > digest.bin
 ```
 
 ## Related guides and reference
 
 ```sh
-npc help hash sha256
-npc hash md5 --help
+swys help hash sha256
+swys hash md5 --help
 ```

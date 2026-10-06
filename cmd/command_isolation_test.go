@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 func TestCommandTreesOwnFlagsAndAnnotations(t *testing.T) {
@@ -99,11 +99,11 @@ func TestExecuteBuildsFreshTreeEachTime(t *testing.T) { //nolint:paralleltest //
 	t.Cleanup(func() { os.Args = originalArgs })
 	first := filepath.Join(t.TempDir(), "encoded.key")
 	second := filepath.Join(t.TempDir(), "raw.key")
-	os.Args = []string{"npc", "aes", "keygen", "--bits", "128", "--encoding", "hex", "--output", first}
+	os.Args = []string{"swys", "aes", "keygen", "--bits", "128", "--encoding", "hex", "--output", first}
 	if err := Execute(); err != nil {
 		t.Fatal(err)
 	}
-	os.Args = []string{"npc", "aes", "keygen", "--bits", "128", "--output", second}
+	os.Args = []string{"swys", "aes", "keygen", "--bits", "128", "--output", second}
 	if err := Execute(); err != nil {
 		t.Fatal(err)
 	}

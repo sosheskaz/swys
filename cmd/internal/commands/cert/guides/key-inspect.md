@@ -4,19 +4,19 @@ Read one supported private or public key and report its algorithm, size, and pub
 
 Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX public key in PEM or DER, or one unencrypted OpenSSH private key or authorized_keys public entry.
 
-NPC reads and formats the complete key metadata before opening the output destination. Invalid key input leaves an existing output file unchanged.
+SwYS reads and formats the complete key metadata before opening the output destination. Invalid key input leaves an existing output file unchanged.
 
 ## Inspect a key file
 
 ```sh
-npc cert key-inspect --input private.pem
-npc cert key-inspect --input public.pem --format json
+swys cert key-inspect --input private.pem
+swys cert key-inspect --input public.pem --format json
 ```
 
 Use **--encoding base64** (or **-e base64**) to encode the entire metadata report, including its final newline. The default **raw** encoding leaves the selected format unchanged.
 
 ```sh
-npc cert key-inspect --input public.pem --format json --encoding base64 --output key-report.b64
+swys cert key-inspect --input public.pem --format json --encoding base64 --output key-report.b64
 ```
 
 The **--format** flag accepts **text** (the default) or **json**. An unsupported format is rejected before opening or truncating the output file.
@@ -26,6 +26,6 @@ Inspection accepts the supported PEM, DER, and OpenSSH public containers. It doe
 Use the public operation to emit a shareable public key rather than copying information from the inspection report.
 
 ```sh
-npc help cert key-public
-npc cert key-inspect --help
+swys help cert key-public
+swys cert key-inspect --help
 ```

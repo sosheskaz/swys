@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/sosheskaz-systems/npc/internal/securefile"
+	"github.com/sosheskaz/swys/internal/securefile"
 )
 
 // ErrOutputIsDirectory identifies a directory selected as an output file.

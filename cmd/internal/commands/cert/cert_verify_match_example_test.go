@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 )
 
 func TestExampleCertVerifyCustomRoot(t *testing.T) {
@@ -38,7 +38,7 @@ func TestExampleCertVerifyCustomRoot(t *testing.T) {
 		"--at", certTestCurrentTime.Format(certTestRFC3339),
 		"--format", "json",
 	)
-	require.NoError(t, err, "npc cert verify: %v (stderr %q)", err, stderr)
+	require.NoError(t, err, "swys cert verify: %v (stderr %q)", err, stderr)
 	assertCertBooleanReport(t, stdout, "verified", true)
 	assertCertReportPublicDetails(t, stdout)
 }
@@ -55,7 +55,7 @@ func TestExampleCertMatchEncodedCertificateKeyAndCSR(t *testing.T) {
 		"cert", "match", "--cert", certPath, "--cert-encoding", "base64url",
 		"--key", keyPath, "--key-encoding", "hex", "--csr", csrPath, "--csr-encoding", "b64", "--format", "json",
 	)
-	require.NoError(t, err, "npc cert match: %v (stderr %q)", err, stderr)
+	require.NoError(t, err, "swys cert match: %v (stderr %q)", err, stderr)
 	assertCertBooleanReport(t, stdout, "match", true)
 	assertCertReportPublicDetails(t, stdout)
 }

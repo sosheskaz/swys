@@ -15,7 +15,7 @@ import (
 func TestRegisteredGuidesStayWithTheirCommandTree(t *testing.T) {
 	t.Parallel()
 	newTree := func() (*cobra.Command, *cobra.Command) {
-		root := &cobra.Command{Use: "npc"}
+		root := &cobra.Command{Use: "swys"}
 		child := &cobra.Command{Use: "net"}
 		root.AddCommand(child)
 		return root, child

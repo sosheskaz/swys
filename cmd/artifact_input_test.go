@@ -10,8 +10,8 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 var errArtifactRootReadFailure = errors.New("read failed")

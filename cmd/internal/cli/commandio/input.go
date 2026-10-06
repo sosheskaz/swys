@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 // ErrSameInputOutput identifies two paths that name the same file.

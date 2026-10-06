@@ -29,7 +29,7 @@ const (
 var (
 	// ErrInvalidArgon2Parameters reports a KDF cost that OpenPGP cannot represent exactly.
 	ErrInvalidArgon2Parameters = errors.New("invalid Argon2 parameters")
-	// ErrPasswordKDFLimit reports a KDF cost above NPC's unconditional limits.
+	// ErrPasswordKDFLimit reports a KDF cost above SwYS's unconditional limits.
 	ErrPasswordKDFLimit = errors.New("OpenPGP password KDF exceeds limit")
 	// ErrOpenPGPPassword reports a password that unlocks none of the message's wrappers.
 	ErrOpenPGPPassword = errors.New("OpenPGP password does not match")
@@ -48,7 +48,7 @@ func DefaultArgon2Parameters() Argon2Parameters {
 	return Argon2Parameters{MemoryKiB: 64 << 10, Passes: 3, Parallelism: 4}
 }
 
-// Validate rejects costs OpenPGP would round and costs above NPC's limits.
+// Validate rejects costs OpenPGP would round and costs above SwYS's limits.
 func (p Argon2Parameters) Validate() error {
 	if err := p.checkLimits(); err != nil {
 		return err

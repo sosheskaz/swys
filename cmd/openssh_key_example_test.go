@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 )
 
 func TestExampleCertificateAndTLSConsumersAcceptOpenSSHPrivateKey(t *testing.T) {

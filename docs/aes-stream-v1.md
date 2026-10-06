@@ -1,4 +1,4 @@
-> Historical format: current NPC AES commands no longer read or write this format. Use an older NPC binary for recovery.
+> Historical format: current SwYS AES commands no longer read or write this format. Use an older NPC binary for recovery.
 
 # NPC AES stream format, version 1
 

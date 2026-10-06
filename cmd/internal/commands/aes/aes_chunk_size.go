@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sosheskaz-systems/npc/internal/crypter"
+	"github.com/sosheskaz/swys/internal/crypter"
 )
 
 func parseAESChunkSize(value string) (uint32, error) {

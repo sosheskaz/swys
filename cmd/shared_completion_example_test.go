@@ -15,7 +15,7 @@ import (
 
 func TestExampleBashCompletionWritesFile(t *testing.T) {
 	t.Parallel()
-	outputPath := filepath.Join(t.TempDir(), "npc.bash")
+	outputPath := filepath.Join(t.TempDir(), "swys.bash")
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	process := newNetPipeProcess(ctx, "completion", "bash", "--output", outputPath)
@@ -27,7 +27,7 @@ func TestExampleBashCompletionWritesFile(t *testing.T) {
 	assert.Empty(t, stderr.String())
 	script, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(script), "# bash completion V2 for npc")
+	assert.Contains(t, string(script), "# bash completion V2 for swys")
 }
 
 func TestExampleSharedPermissionCompletion(t *testing.T) {
@@ -41,7 +41,7 @@ func TestExampleSharedPermissionCompletion(t *testing.T) {
 
 func TestSharedMalformedCompletionRequestsAreQuiet(t *testing.T) {
 	t.Parallel()
-	const marker = "NPC_INERT_COMPLETION_MARKER"
+	const marker = "SWYS_INERT_COMPLETION_MARKER"
 	const debugSentinel = "debug sentinel\n"
 	for _, test := range []struct {
 		name     string
@@ -50,7 +50,7 @@ func TestSharedMalformedCompletionRequestsAreQuiet(t *testing.T) {
 	}{
 		{
 			name:     "typed flag error",
-			args:     []string{"__complete", "http", "--header", "X-NPC-Test: " + marker},
+			args:     []string{"__complete", "http", "--header", "X-SwYS-Test: " + marker},
 			trailing: []string{"--follow=not-a-boolean"},
 		},
 		{
@@ -59,7 +59,7 @@ func TestSharedMalformedCompletionRequestsAreQuiet(t *testing.T) {
 		},
 		{
 			name:     "missing value before pending input",
-			args:     []string{"__complete", "grpc", "127.0.0.1:1", "--header", "X-NPC-Test: " + marker},
+			args:     []string{"__complete", "grpc", "127.0.0.1:1", "--header", "X-SwYS-Test: " + marker},
 			trailing: []string{"--list", "--input"},
 		},
 	} {

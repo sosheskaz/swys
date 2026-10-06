@@ -7,10 +7,10 @@ Show the size of a raw AES key or the primary ID, status, size, and streaming pa
 Create a raw key or Tink keyset first; inspection reads that key file.
 
 ```sh
-npc aes keygen --output key.bin
-npc aes key-inspect --input key.bin
-npc aes keygen --key-format tink-json --output keyset.json
-npc aes key-inspect --input keyset.json --format json
+swys aes keygen --output key.bin
+swys aes key-inspect --input key.bin
+swys aes keygen --key-format tink-json --output keyset.json
+swys aes key-inspect --input keyset.json --format json
 ```
 
 ## Use the metadata
@@ -18,13 +18,13 @@ npc aes key-inspect --input keyset.json --format json
 With jq installed, extract the primary key ID for a keyset inventory:
 
 ```sh
-npc aes key-inspect --input keyset.json --format json | jq '.primary_key_id'
+swys aes key-inspect --input keyset.json --format json | jq '.primary_key_id'
 ```
 
 Use **--encoding base64** (or **-e base64**) to encode the entire metadata report, including any final newline. The default **raw** encoding leaves the selected format unchanged.
 
 ```sh
-npc aes key-inspect --input keyset.json --format json --encoding base64 --output key-report.b64
+swys aes key-inspect --input keyset.json --format json --encoding base64 --output key-report.b64
 ```
 
 The input format is detected by default. Use --key-format raw, tink-json, or tink-binary to select one explicitly. Use --format text or --format json for the report.
@@ -32,5 +32,5 @@ The input format is detected by default. Use --key-format raw, tink-json, or tin
 ## Reference
 
 ```sh
-npc aes key-inspect --help
+swys aes key-inspect --help
 ```

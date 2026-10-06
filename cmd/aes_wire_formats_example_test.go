@@ -12,8 +12,8 @@ import (
 	"github.com/tink-crypto/tink-go/v2/proto/tink_go_proto"
 	"github.com/tink-crypto/tink-go/v2/streamingaead/subtle"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestExampleAESAutodetectsKeysetFiles(t *testing.T) {
@@ -157,15 +157,15 @@ func TestAESOpenPGPRejectsUnauthenticatedAndExtraPackets(t *testing.T) {
 }
 
 func TestAESPasswordOpensSequoiaArgon2Fixture(t *testing.T) {
-	t.Setenv("NPC_TEST_FIXTURE_PASSWORD", "npc synthetic fixture password")
-	t.Setenv("NPC_TEST_WRONG_PASSWORD", "npc synthetic wrong password")
+	t.Setenv("SWYS_TEST_FIXTURE_PASSWORD", "npc synthetic fixture password")
+	t.Setenv("SWYS_TEST_WRONG_PASSWORD", "npc synthetic wrong password")
 	wire := readSequoiaFixture(t, "sequoia-password-argon2.pgp")
 	opened, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-		"aes", "decrypt", "--password-env", "NPC_TEST_FIXTURE_PASSWORD")
+		"aes", "decrypt", "--password-env", "SWYS_TEST_FIXTURE_PASSWORD")
 	require.NoError(t, err)
 	require.Equal(t, []byte{0, 'O', 'p', 'e', 'n', 'P', 'G', 'P', '\n', 0xff}, opened)
 	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), bytes.NewReader(wire),
-		"aes", "decrypt", "--password-env", "NPC_TEST_WRONG_PASSWORD")
+		"aes", "decrypt", "--password-env", "SWYS_TEST_WRONG_PASSWORD")
 	require.ErrorContains(t, err, "password does not match")
 }
 

@@ -1,10 +1,10 @@
 # Work with X.509 certificates
 
-Use the certificate family to inspect existing certificates, retrieve a server chain, create short-lived test identities, and work with asymmetric keys. NPC reports certificate details but does not install trust anchors or manage a production certificate authority.
+Use the certificate family to inspect existing certificates, retrieve a server chain, create short-lived test identities, and work with asymmetric keys. SwYS reports certificate details but does not install trust anchors or manage a production certificate authority.
 
 ## Choose an operation
 
-Run npc cert for the operation reference.
+Run swys cert for the operation reference.
 
 - **inspect** reads one or more PEM certificates from stdin or a file.
 - **connect** retrieves certificates presented by a TLS endpoint.
@@ -23,9 +23,9 @@ For the certificate and path-validation model, see [RFC 5280](https://www.rfc-ed
 Generate a private key, issue a self-signed test certificate for it, then inspect the certificate's names and validity.
 
 ```sh
-npc cert keygen --output server-key.pem
-npc cert create --key server-key.pem --dns localhost --output server-cert.pem
-npc cert inspect --input server-cert.pem --format text
+swys cert keygen --output server-key.pem
+swys cert create --key server-key.pem --dns localhost --output server-cert.pem
+swys cert inspect --input server-cert.pem --format text
 ```
 
 The key stays private; the certificate can be shared with peers. Self-signing does not make it trusted by other clients. The create guide shows a small test CA when several identities need the same trust anchor.
@@ -33,9 +33,9 @@ The key stays private; the certificate can be shared with peers. Self-signing do
 ## Next steps
 
 ```sh
-npc help cert connect
-npc help cert create
-npc help cert verify
-npc help cert match
-npc cert --help
+swys help cert connect
+swys help cert create
+swys help cert verify
+swys help cert match
+swys cert --help
 ```

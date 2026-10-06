@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 )
 
 func TestExampleHelpSelectsCanonicalGuideThroughAlias(t *testing.T) {
@@ -25,9 +25,9 @@ func TestExampleHelpSelectsCanonicalGuideThroughAlias(t *testing.T) {
 		},
 	})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "help", "x509", "connect", "--plain")
-	require.NoError(t, err, "npc help x509 connect --plain")
+	require.NoError(t, err, "swys help x509 connect --plain")
 	assert.True(t, strings.HasPrefix(stdout, "Inspect a TLS server's certificates\n"), "canonical cert connect guide: %q", stdout)
-	assert.Contains(t, stdout, "npc cert connect --help", "canonical reference help")
+	assert.Contains(t, stdout, "swys cert connect --help", "canonical reference help")
 	assert.Empty(t, stderr, "want no diagnostics")
 }
 
@@ -70,11 +70,11 @@ func TestExampleReferenceHelpRemainsGenerated(t *testing.T) {
 	t.Parallel()
 
 	stdout, stderr, err := executeRootStreams(t, "cert", "connect", "--help")
-	require.NoError(t, err, "npc cert connect --help")
+	require.NoError(t, err, "swys cert connect --help")
 	for _, want := range []string{
-		"Usage:\n  npc cert connect host:port [flags]",
+		"Usage:\n  swys cert connect host:port [flags]",
 		"--select",
-		"For a usage guide, run 'npc help cert connect'.",
+		"For a usage guide, run 'swys help cert connect'.",
 	} {
 		assert.Contains(t, stdout, want)
 	}

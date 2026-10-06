@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 func Example_certKeygenCompletion() {

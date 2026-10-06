@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 func TestExampleKeyPublicDerivesOpenSSH(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 func TestKeyPublicTargetsAcrossSupportedAlgorithmsAndInputKinds(t *testing.T) {
@@ -96,7 +96,7 @@ func TestKeyConvertPreservesKeyKind(t *testing.T) {
 		target   string
 		guidance string
 	}{
-		{name: "private to public", input: []byte(privatePEM), target: "openssh", guidance: "use npc cert key-public --to openssh"},
+		{name: "private to public", input: []byte(privatePEM), target: "openssh", guidance: "use swys cert key-public --to openssh"},
 		{name: "public to private", input: publicPEM, target: "pkcs8-pem"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

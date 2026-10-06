@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/internal/asym"
-	"github.com/sosheskaz-systems/npc/internal/securefile"
+	"github.com/sosheskaz/swys/internal/asym"
+	"github.com/sosheskaz/swys/internal/securefile"
 )
 
 func TestKeyConvertOutputPermissions(t *testing.T) {

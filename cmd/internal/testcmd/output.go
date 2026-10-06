@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 // AssertWindowsModeRejection checks that a rejected mode preserves the output fixture.

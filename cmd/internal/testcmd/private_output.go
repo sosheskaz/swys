@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/sosheskaz-systems/npc/internal/securefile"
+	"github.com/sosheskaz/swys/internal/securefile"
 )
 
 // AssertPrivateOutput checks file mode and the securefile owner-only policy.

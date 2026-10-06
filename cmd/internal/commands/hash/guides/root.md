@@ -1,6 +1,6 @@
 # Compute a digest of bytes
 
-Hash a file or stdin to produce a digest for comparison. Choose the algorithm explicitly; NPC writes only the digest, without a filename or checksum-manifest record.
+Hash a file or stdin to produce a digest for comparison. Choose the algorithm explicitly; SwYS writes only the digest, without a filename or checksum-manifest record.
 
 ## Choose an algorithm
 
@@ -16,9 +16,9 @@ Prefer SHA-256 for new uses. MD5 and SHA-1 are compatibility options, not choice
 Use printf to avoid adding a newline to the input. Every input byte matters.
 
 ```sh
-printf 'hello' | npc hash sha256
+printf 'hello' | swys hash sha256
 printf 'hello' > message.txt
-npc hash sha256 < message.txt > message.sha256
+swys hash sha256 < message.txt > message.sha256
 ```
 
 The pipe and file invocations hash the same bytes. The output file contains a hexadecimal digest followed by a newline. It is not a manifest for a checksum tool's check mode.
@@ -28,12 +28,12 @@ The pipe and file invocations hash the same bytes. The output file contains a he
 Decode a byte representation before hashing when the input is encoded. This produces the same digest as the message above.
 
 ```sh
-printf 'aGVsbG8=' | npc hash sha256 --input-encoding base64
+printf 'aGVsbG8=' | swys hash sha256 --input-encoding base64
 ```
 
 ## Next steps
 
 ```sh
-npc help hash sha256
-npc hash --help
+swys help hash sha256
+swys hash --help
 ```

@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 )
 
 var (
@@ -65,11 +65,11 @@ func TestHelpRejectsUnknownAndSurplusPathComponents(t *testing.T) {
 		wantErr string
 		args    []string
 	}{
-		{name: "unknown-scoped-child", args: []string{"cert", "help", "missing"}, wantErr: "try 'npc help cert'"},
-		{name: "surplus-scoped-child", args: []string{"cert", "help", "connect", "extra"}, wantErr: "try 'npc help cert connect'"},
-		{name: "unknown-root", args: []string{"help", "missing"}, wantErr: "try 'npc help'"},
-		{name: "unknown-child", args: []string{"help", "cert", "missing"}, wantErr: "try 'npc help cert'"},
-		{name: "surplus-after-leaf", args: []string{"help", "cert", "connect", "extra"}, wantErr: "try 'npc help cert connect'"},
+		{name: "unknown-scoped-child", args: []string{"cert", "help", "missing"}, wantErr: "try 'swys help cert'"},
+		{name: "surplus-scoped-child", args: []string{"cert", "help", "connect", "extra"}, wantErr: "try 'swys help cert connect'"},
+		{name: "unknown-root", args: []string{"help", "missing"}, wantErr: "try 'swys help'"},
+		{name: "unknown-child", args: []string{"help", "cert", "missing"}, wantErr: "try 'swys help cert'"},
+		{name: "surplus-after-leaf", args: []string{"help", "cert", "connect", "extra"}, wantErr: "try 'swys help cert connect'"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -119,10 +119,10 @@ func TestReferenceHelpAndBareBranchesKeepTheirBehavior(t *testing.T) {
 		want string
 		args []string
 	}{
-		{name: "bare-root", want: "Usage:\n  npc [command]"},
-		{name: "bare-branch", args: []string{"net"}, want: "Usage:\n  npc net [command]"},
-		{name: "bare-hash", args: []string{"hash"}, want: "Usage:\n  npc hash [flags]"},
-		{name: "reference", args: []string{"net", "connect", "--tls", "--help"}, want: "Usage:\n  npc net connect host:port [flags]"},
+		{name: "bare-root", want: "Usage:\n  swys [command]"},
+		{name: "bare-branch", args: []string{"net"}, want: "Usage:\n  swys net [command]"},
+		{name: "bare-hash", args: []string{"hash"}, want: "Usage:\n  swys hash [flags]"},
+		{name: "reference", args: []string{"net", "connect", "--tls", "--help"}, want: "Usage:\n  swys net connect host:port [flags]"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -151,13 +151,13 @@ func TestBareBranchHelpRestoresArgumentValidation(t *testing.T) {
 			root.SetIn(guidePanicReader{})
 			stdout, stderr, err := executeRootCommandStreams(t, root, branch)
 			require.NoError(t, err)
-			assert.Contains(t, stdout, "Usage:\n  npc "+branch+" [command]")
-			assert.NotContains(t, stdout, "\n  npc "+branch+" [flags]", "branch reference must not advertise an operation")
-			assert.Contains(t, stdout, "For a usage guide, run 'npc help "+branch+"'.")
+			assert.Contains(t, stdout, "Usage:\n  swys "+branch+" [command]")
+			assert.NotContains(t, stdout, "\n  swys "+branch+" [flags]", "branch reference must not advertise an operation")
+			assert.Contains(t, stdout, "For a usage guide, run 'swys help "+branch+"'.")
 			assert.Empty(t, stderr)
 
 			stdout, stderr, err = executeRootCommandStreams(t, root, branch, "typo")
-			require.ErrorContains(t, err, `unknown command "typo" for "npc `+branch+`"`)
+			require.ErrorContains(t, err, `unknown command "typo" for "swys `+branch+`"`)
 			assert.Empty(t, stdout, "help presentation must restore child validation")
 			assert.Empty(t, stderr)
 		})
@@ -172,10 +172,10 @@ func TestReferenceGuidePointerUsesStdoutWithDefaultStreams(t *testing.T) {
 		wantPointer string
 		args        []string
 	}{
-		{name: "bare-root", wantPointer: "For a usage guide, run 'npc help'."},
-		{name: "bare-branch", wantPointer: "For a usage guide, run 'npc help net'.", args: []string{"net"}},
+		{name: "bare-root", wantPointer: "For a usage guide, run 'swys help'."},
+		{name: "bare-branch", wantPointer: "For a usage guide, run 'swys help net'.", args: []string{"net"}},
 		{
-			name: "leaf-reference", wantPointer: "For a usage guide, run 'npc help cert connect'.",
+			name: "leaf-reference", wantPointer: "For a usage guide, run 'swys help cert connect'.",
 			args: []string{"cert", "connect", "--help"},
 		},
 	}
@@ -183,7 +183,7 @@ func TestReferenceGuidePointerUsesStdoutWithDefaultStreams(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			arguments := []string{"-test.run=^TestGuideDefaultStreamsHelperProcess$", "--", "npc-help-default-streams"}
+			arguments := []string{"-test.run=^TestGuideDefaultStreamsHelperProcess$", "--", "swys-help-default-streams"}
 			arguments = append(arguments, test.args...)
 			process := exec.CommandContext(t.Context(), os.Args[0], arguments...)
 			var stdout bytes.Buffer
@@ -204,7 +204,7 @@ func TestReferenceGuidePointerUsesStdoutWithDefaultStreams(t *testing.T) {
 }
 
 func TestGuideDefaultStreamsHelperProcess(t *testing.T) { //nolint:paralleltest // subprocess branch exits the test process
-	markerIndex := slices.Index(os.Args, "npc-help-default-streams")
+	markerIndex := slices.Index(os.Args, "swys-help-default-streams")
 	if markerIndex < 0 {
 		t.Parallel()
 

@@ -17,21 +17,21 @@ import (
 var cheapKDF = []string{"--kdf-memory", "8KiB", "--kdf-passes", "1", "--kdf-parallelism", "1"}
 
 func TestExampleAESPasswordEnvironmentFileRoundTrip(t *testing.T) {
-	t.Setenv("NPC_TEST_AES_PASSWORD", "  correct horse 🔐  ")
+	t.Setenv("SWYS_TEST_AES_PASSWORD", "  correct horse 🔐  ")
 	directory := t.TempDir()
 	plain := filepath.Join(directory, "plain")
 	cipher := filepath.Join(directory, "cipher")
 	opened := filepath.Join(directory, "opened")
 	want := []byte("password stream example\n")
 	require.NoError(t, os.WriteFile(plain, want, 0o600))
-	_, err := executeRoot(t, "aes", "encrypt", "--password-env", "NPC_TEST_AES_PASSWORD", "--input", plain, "--output", cipher)
+	_, err := executeRoot(t, "aes", "encrypt", "--password-env", "SWYS_TEST_AES_PASSWORD", "--input", plain, "--output", cipher)
 	require.NoError(t, err)
 	wire, err := os.ReadFile(cipher)
 	require.NoError(t, err)
 	body := passwordWrapperBody(t, wire)
 	require.Equal(t, []byte{6, 9, 4}, []byte{body[0], body[2], body[5]}, "SKESK v6, AES-256, Argon2")
 	require.Equal(t, []byte{3, 4, 16}, body[22:25], "default Argon2id: 3 passes, 4 lanes, 64 MiB")
-	_, err = executeRoot(t, "aes", "decrypt", "--password-env", "NPC_TEST_AES_PASSWORD", "--input", cipher, "--output", opened)
+	_, err = executeRoot(t, "aes", "decrypt", "--password-env", "SWYS_TEST_AES_PASSWORD", "--input", cipher, "--output", opened)
 	require.NoError(t, err)
 	got, err := os.ReadFile(opened)
 	require.NoError(t, err)
@@ -57,23 +57,23 @@ func TestExampleAESPasswordCommandWithPositionalEncoding(t *testing.T) {
 }
 
 func TestAESPasswordPreflightKeepsOutput(t *testing.T) {
-	t.Setenv("NPC_TEST_AES_EMPTY", "")
-	t.Setenv("NPC_TEST_AES_PASSWORD", "synthetic password")
+	t.Setenv("SWYS_TEST_AES_EMPTY", "")
+	t.Setenv("SWYS_TEST_AES_PASSWORD", "synthetic password")
 	directory := t.TempDir()
 	output := filepath.Join(directory, "output")
 	keyset := filepath.Join(directory, "keyset.json")
 	message := filepath.Join(directory, "message.pgp")
 	_, err := executeRoot(t, "aes", "keygen", "--key-format", "tink-json", "--output", keyset)
 	require.NoError(t, err)
-	env := []string{"--password-env", "NPC_TEST_AES_PASSWORD"}
+	env := []string{"--password-env", "SWYS_TEST_AES_PASSWORD"}
 	_, err = executeRoot(t, append(append([]string{"aes", "encrypt", "payload", "--output", message}, env...), cheapKDF...)...)
 	require.NoError(t, err)
 	for _, test := range []struct {
 		want string
 		args []string
 	}{
-		{args: []string{"encrypt", "--password-env", "NPC_TEST_AES_EMPTY"}, want: "password is empty"},
-		{args: []string{"decrypt", "--password-env", "NPC_TEST_AES_EMPTY", "--input", message}, want: "password is empty"},
+		{args: []string{"encrypt", "--password-env", "SWYS_TEST_AES_EMPTY"}, want: "password is empty"},
+		{args: []string{"decrypt", "--password-env", "SWYS_TEST_AES_EMPTY", "--input", message}, want: "password is empty"},
 		{args: []string{"encrypt", "--password=false"}, want: "--password=false"},
 		{args: append([]string{"encrypt", "--wire-format", "tink"}, env...), want: "password"},
 		{args: append([]string{"encrypt", "--key", keyset, "--key-format", "tink-json"}, env...), want: "none of the others can be"},
@@ -150,18 +150,18 @@ func TestAESPasswordDecryptRejectsCostlyWrappersBeforePassword(t *testing.T) {
 }
 
 func TestAESPasswordWrongCredentialKeepsOutput(t *testing.T) {
-	t.Setenv("NPC_TEST_AES_PASSWORD", "synthetic password")
-	t.Setenv("NPC_TEST_AES_WRONG", "synthetic wrong")
+	t.Setenv("SWYS_TEST_AES_PASSWORD", "synthetic password")
+	t.Setenv("SWYS_TEST_AES_WRONG", "synthetic wrong")
 	directory := t.TempDir()
 	input := filepath.Join(directory, "message.pgp")
 	output := filepath.Join(directory, "opened")
 	_, err := executeRoot(t, append([]string{
-		"aes", "encrypt", "payload", "--password-env", "NPC_TEST_AES_PASSWORD",
+		"aes", "encrypt", "payload", "--password-env", "SWYS_TEST_AES_PASSWORD",
 		"--output", input,
 	}, cheapKDF...)...)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
-	_, err = executeRoot(t, "aes", "decrypt", "--password-env", "NPC_TEST_AES_WRONG", "--input", input, "--output", output)
+	_, err = executeRoot(t, "aes", "decrypt", "--password-env", "SWYS_TEST_AES_WRONG", "--input", input, "--output", output)
 	require.ErrorContains(t, err, "password does not match")
 	got, err := os.ReadFile(output)
 	require.NoError(t, err)

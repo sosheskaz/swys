@@ -1,5 +1,5 @@
 # Build artifacts
-/npc
+/swys
 /cryptool
 /dist/
 *.test

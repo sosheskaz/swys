@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/internal/pemstrict"
+	"github.com/sosheskaz/swys/internal/pemstrict"
 )
 
 // KeyAlgorithm identifies a private-key generation profile.

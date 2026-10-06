@@ -1,4 +1,4 @@
-// Command npc provides operator-friendly cryptographic utilities.
+// Command swys provides operator-friendly cryptographic utilities.
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sosheskaz-systems/npc/cmd"
+	"github.com/sosheskaz/swys/cmd"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func run() int {
 
 	err := cmd.ExecuteContext(ctx)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "npc: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "swys: %v\n", err)
 	}
 	return cmd.ExitCode(err)
 }

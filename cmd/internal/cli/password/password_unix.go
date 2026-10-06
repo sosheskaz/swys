@@ -19,7 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 var (

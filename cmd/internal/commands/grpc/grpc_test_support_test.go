@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
+	"github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 )
 
 func newRootCmd() *cobra.Command { return cmd.NewCommand() }

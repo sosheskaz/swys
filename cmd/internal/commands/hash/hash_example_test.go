@@ -18,7 +18,7 @@ func TestExampleHashSHA256FromStdin(t *testing.T) {
 	output, err := executeHashCommand(t, bytes.NewBufferString("hello"), "hash", "sha256")
 	require.NoError(t, err)
 	const want = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n"
-	assert.Equal(t, want, string(output), "npc hash sha256 output")
+	assert.Equal(t, want, string(output), "swys hash sha256 output")
 }
 
 func TestExampleHashExplicitStreams(t *testing.T) { //nolint:paralleltest // isolates the literal dash fixture with t.Chdir

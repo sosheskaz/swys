@@ -39,13 +39,13 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz-systems/npc/internal/asym"
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/internal/asym"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 //go:embed guides

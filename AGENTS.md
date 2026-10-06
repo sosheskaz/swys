@@ -2,7 +2,7 @@
 
 ## Project and layout
 
-NPC is a Go CLI for networking, protocols, cryptography, and X.509 tasks.
+SwYS is a Go CLI for networking, protocols, cryptography, and X.509 tasks.
 It uses Cobra; `.config/mise/config.toml` defines the toolchain and task configuration.
 
 - `cmd/` assembles and executes the root command. Each command family lives in
@@ -82,7 +82,7 @@ and applicable facilities in the pinned Go version over custom timing machinery.
 tink` selects native Tink AES-GCM-HKDF. Decryption requires explicit format
   selection and verifies final authentication and EOF. Earlier authenticated
   plaintext may remain after a later failure.
-- Historical NPC v1/v2, raw GCM, and CBC ciphertext require an older binary.
+- Historical SwYS v1/v2, raw GCM, and CBC ciphertext require an older binary.
 - Passwords use native OpenPGP AES-256 SKESK v6 with Argon2id and the SEIPDv2
   reader. Check stored KDF costs, per wrapper and cumulatively, before asking
   for a password, deriving, or opening output; there is no override. Password

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 var errExampleCommandFailed = errors.New("test command failed")
@@ -74,7 +74,7 @@ func TestInterruptExamples(t *testing.T) {
 
 	t.Run("a failure without a signal keeps exit status 1", func(t *testing.T) {
 		t.Parallel()
-		run := startInterruptibleCommand(t, strings.NewReader(""), "hash", "sha256", "--input", "/nonexistent/npc-input")
+		run := startInterruptibleCommand(t, strings.NewReader(""), "hash", "sha256", "--input", "/nonexistent/swys-input")
 
 		err := waitForInterruptedRun(t, run.done)
 

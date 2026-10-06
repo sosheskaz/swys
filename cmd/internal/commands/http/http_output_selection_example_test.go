@@ -17,7 +17,7 @@ func TestExampleHTTPOutputSelection(t *testing.T) {
 
 	body := []byte{'{', '"', 'n', '"', ':', '1', '}', '\n', 0x00, 0xff}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("X-NPC-Test", "selected")
+		writer.Header().Set("X-SwYS-Test", "selected")
 		if request.URL.Path == "/application-json" {
 			writer.Header().Set("Content-Type", "application/json")
 			writeHTTPTestString(t, writer, "{ \"n\" : 1 }\n")
@@ -54,7 +54,7 @@ func TestExampleHTTPOutputSelection(t *testing.T) {
 	require.NoError(t, err)
 	envelope := decodeHTTPEnvelope(t, stdout)
 	assert.Equal(t, http.StatusOK, envelope.StatusCode)
-	assert.Equal(t, []string{"selected"}, envelope.Headers["X-Npc-Test"])
+	assert.Equal(t, []string{"selected"}, envelope.Headers["X-Swys-Test"])
 	assert.Equal(t, base64.StdEncoding.EncodeToString(body), envelope.Body)
 	assert.True(t, envelope.Complete)
 }
@@ -63,7 +63,7 @@ func TestExampleHTTPResponseSelectionAndEncoding(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("X-NPC-Test", "selected")
+		writer.Header().Set("X-SwYS-Test", "selected")
 		writeHTTPTestString(t, writer, "body\n")
 	}))
 	t.Cleanup(server.Close)
@@ -71,7 +71,7 @@ func TestExampleHTTPResponseSelectionAndEncoding(t *testing.T) {
 	stdout, _, err := executeRootStreams(t, "http", server.URL, "--select", "response")
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(stdout, "HTTP/1.1 200 OK\n"), "response status: %q", stdout)
-	assert.Contains(t, stdout, "X-Npc-Test: selected\n")
+	assert.Contains(t, stdout, "X-Swys-Test: selected\n")
 	assert.True(t, strings.HasSuffix(stdout, "\n\nbody\n"), "response separator and body: %q", stdout)
 
 	encoded, _, err := executeRootStreams(t, "http", server.URL, "--select", "response", "--encoding", "base64")
@@ -79,7 +79,7 @@ func TestExampleHTTPResponseSelectionAndEncoding(t *testing.T) {
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	require.NoError(t, err, "decode whole response output")
 	assert.True(t, strings.HasPrefix(string(decoded), "HTTP/1.1 200 OK\n"))
-	assert.Contains(t, string(decoded), "X-Npc-Test: selected\n")
+	assert.Contains(t, string(decoded), "X-Swys-Test: selected\n")
 	assert.True(t, strings.HasSuffix(string(decoded), "\n\nbody\n"))
 
 	encoded, _, err = executeRootStreams(t, "http", server.URL, "--select", "body", "--format", "json", "-e", "base64")
@@ -106,7 +106,7 @@ func TestExampleHTTPHeadOutputSelection(t *testing.T) {
 		if request.Method != http.MethodHead {
 			t.Errorf("method = %q, want HEAD", request.Method)
 		}
-		writer.Header().Set("X-NPC-Test", "head")
+		writer.Header().Set("X-SwYS-Test", "head")
 		writer.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(server.Close)
@@ -118,7 +118,7 @@ func TestExampleHTTPHeadOutputSelection(t *testing.T) {
 	stdout, _, err = executeRootStreams(t, "http", server.URL, "-X", "HEAD", "--select", "response")
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(stdout, "HTTP/1.1 204 No Content\n"), "HEAD status: %q", stdout)
-	assert.Contains(t, stdout, "X-Npc-Test: head\n")
+	assert.Contains(t, stdout, "X-Swys-Test: head\n")
 	assert.True(t, strings.HasSuffix(stdout, "\n\n"), "HEAD header separator: %q", stdout)
 }
 

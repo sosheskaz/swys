@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 func parseDNSEndpoint(query *dnsQuery) error {

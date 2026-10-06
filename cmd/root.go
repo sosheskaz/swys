@@ -6,18 +6,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/aes"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/cert"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/dns"
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/hash"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/http"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/net"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
-	"github.com/sosheskaz-systems/npc/internal/version"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/commands/aes"
+	"github.com/sosheskaz/swys/cmd/internal/commands/cert"
+	"github.com/sosheskaz/swys/cmd/internal/commands/dns"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
+	"github.com/sosheskaz/swys/cmd/internal/commands/hash"
+	"github.com/sosheskaz/swys/cmd/internal/commands/http"
+	"github.com/sosheskaz/swys/cmd/internal/commands/net"
+	"github.com/sosheskaz/swys/internal/dnsquery"
+	"github.com/sosheskaz/swys/internal/version"
 )
 
 //go:embed guides
@@ -45,7 +45,8 @@ func newRootCmdWithDNSDependencies(dnsDeps dnsquery.Dependencies) *cobra.Command
 func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps help.Dependencies) *cobra.Command {
 	lifecycle := commandio.NewLifecycle()
 	rootCmd := &cobra.Command{
-		Use:           "npc",
+		Use:           "swys",
+		Short:         "SwYS — A sysadmin's Swiss Army knife.",
 		Version:       version.Get().String(),
 		SilenceErrors: true,
 		SilenceUsage:  true,

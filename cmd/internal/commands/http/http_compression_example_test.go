@@ -31,7 +31,7 @@ func TestExampleHTTPAutomaticResponseCompression(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	stdout, stderr, err := executeRootStreams(t, "http", server.URL)
-	require.NoError(t, err, "npc http URL: %v", err)
+	require.NoError(t, err, "swys http URL: %v", err)
 	assert.Equal(t, "compressed response\n", stdout)
 	assert.Empty(t, stderr)
 }

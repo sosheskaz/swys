@@ -9,13 +9,13 @@ Run this in Zsh. Initialize its completion system before sourcing the generated 
 ```sh
 autoload -Uz compinit
 compinit
-source <(npc completion zsh)
+source <(swys completion zsh)
 ```
 
-For persistent use, save the generated function with the name expected by Zsh in a function-path directory. Regenerate it when the installed NPC command tree changes.
+For persistent use, save the generated function with the name expected by Zsh in a function-path directory. Regenerate it when the installed SwYS command tree changes.
 
 ## Reference
 
 ```sh
-npc completion zsh --help
+swys completion zsh --help
 ```

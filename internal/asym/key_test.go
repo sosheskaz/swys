@@ -108,7 +108,7 @@ func TestParseKeyAcceptsOneAuthorizedKeyEntry(t *testing.T) {
 		publicKey, err := ssh.NewPublicKey(signer.Public())
 		require.NoError(t, err)
 		line := bytes.TrimSpace(ssh.MarshalAuthorizedKey(publicKey))
-		fixture := append([]byte("\n# generated fixture\nrestrict,command=\"npc test\" "), line...)
+		fixture := append([]byte("\n# generated fixture\nrestrict,command=\"swys test\" "), line...)
 		fixture = append(fixture, []byte(" user@example\n\n")...)
 		parsed, err := ParseKey(fixture)
 		if err != nil {

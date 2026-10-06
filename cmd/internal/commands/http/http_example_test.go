@@ -26,7 +26,7 @@ func TestExampleHTTPGet(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	stdout, stderr, err := executeRootStreams(t, "http", server.URL)
-	require.NoError(t, err, "npc http URL: %v", err)
+	require.NoError(t, err, "swys http URL: %v", err)
 	assert.Equal(t, "hello from server\n", stdout)
 	assert.Empty(t, stderr)
 }
@@ -59,7 +59,7 @@ func TestExampleHTTPPostJSON(t *testing.T) {
 		"http", server.URL,
 		"-j", `{"name":"demo"}`,
 	)
-	require.NoError(t, err, "npc http -j: %v", err)
+	require.NoError(t, err, "swys http -j: %v", err)
 	assert.Equal(t, "created\n", stdout)
 	assert.Empty(t, stderr)
 

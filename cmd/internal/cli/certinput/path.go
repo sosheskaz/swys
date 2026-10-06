@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 // ErrPathCollision identifies an output that would overwrite a certificate input.

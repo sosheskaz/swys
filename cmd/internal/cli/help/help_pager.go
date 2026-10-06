@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 func presentGuideThroughPager(
@@ -74,7 +74,7 @@ func presentGuideThroughPager(
 
 // terminatePagerOnSignal ends the pager on SIGTERM or SIGHUP. The root handler
 // stops intercepting after its first signal, so without this a SIGTERM after a
-// Ctrl-C the pager owned would kill npc and leave the pager running.
+// Ctrl-C the pager owned would kill swys and leave the pager running.
 func terminatePagerOnSignal(terminate func()) func() os.Signal {
 	signals := guidePagerTerminationSignals()
 	if len(signals) == 0 {

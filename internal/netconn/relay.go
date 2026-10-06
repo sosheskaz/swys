@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 var (

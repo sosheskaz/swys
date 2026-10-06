@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	netcmd "github.com/sosheskaz-systems/npc/cmd/internal/commands/net"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	netcmd "github.com/sosheskaz/swys/cmd/internal/commands/net"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 func TestBareNounsShowHelpWithoutSideEffects(t *testing.T) {
@@ -55,13 +55,13 @@ func TestBranchesRejectUnknownChildrenBeforeIO(t *testing.T) {
 		wantErr       string
 		ancestorFlags bool
 	}{
-		{name: "root", wantErr: `unknown command "typo" for "npc"`},
-		{name: "aes", branch: "aes", wantErr: `unknown command "typo" for "npc aes"`},
-		{name: "cert", branch: "cert", wantErr: `unknown command "typo" for "npc cert"`},
-		{name: "certificate alias", branch: "x509", wantErr: `unknown command "typo" for "npc cert"`, ancestorFlags: true},
-		{name: "net", branch: "net", wantErr: `unknown command "typo" for "npc net"`},
-		{name: "network alias", branch: "nc", wantErr: `unknown command "typo" for "npc net"`},
-		{name: "completion", branch: "completion", wantErr: `unknown command "typo" for "npc completion"`, ancestorFlags: true},
+		{name: "root", wantErr: `unknown command "typo" for "swys"`},
+		{name: "aes", branch: "aes", wantErr: `unknown command "typo" for "swys aes"`},
+		{name: "cert", branch: "cert", wantErr: `unknown command "typo" for "swys cert"`},
+		{name: "certificate alias", branch: "x509", wantErr: `unknown command "typo" for "swys cert"`, ancestorFlags: true},
+		{name: "net", branch: "net", wantErr: `unknown command "typo" for "swys net"`},
+		{name: "network alias", branch: "nc", wantErr: `unknown command "typo" for "swys net"`},
+		{name: "completion", branch: "completion", wantErr: `unknown command "typo" for "swys completion"`, ancestorFlags: true},
 		{name: "hash keeps algorithm error", branch: "hash", wantErr: `unknown hash algorithm "typo"`},
 	}
 	for _, test := range tests {

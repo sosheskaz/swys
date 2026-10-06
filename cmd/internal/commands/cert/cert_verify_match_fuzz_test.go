@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 )
 
 const certFuzzMaxMutableArtifact = 64 << 10

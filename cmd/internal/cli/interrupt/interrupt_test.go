@@ -225,7 +225,7 @@ func TestBackstopEndsARunThatOutlivesItsGrace(t *testing.T) {
 		default:
 			t.Fatal("backstop did not exit after its grace period")
 		}
-		assert.Equal(t, "npc: terminated (forced exit after 10ms)\n", stderr.String())
+		assert.Equal(t, "swys: terminated (forced exit after 10ms)\n", stderr.String())
 	})
 }
 
@@ -248,7 +248,7 @@ func TestBackstopStaysQuietOnceStopped(t *testing.T) {
 	})
 }
 
-// A pager that owns Ctrl-C pauses the backstop; when it lets go, npc gets a
+// A pager that owns Ctrl-C pauses the backstop; when it lets go, swys gets a
 // fresh grace period rather than none.
 func TestBackstopIsPausedWhileHeldAndRestartedWhenLetGo(t *testing.T) {
 	t.Parallel()

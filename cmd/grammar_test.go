@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 func TestCommandTreeConformsToNounVerbGrammar(t *testing.T) {
@@ -135,7 +135,7 @@ func TestCommandTreeScopesRunnableGroupsToRoot(t *testing.T) {
 }
 
 func commandTreeViolations(root *cobra.Command) []string {
-	// Cobra's generated help/completion trees are outside npc's command grammar.
+	// Cobra's generated help/completion trees are outside swys's command grammar.
 	verbs := map[string]bool{
 		"connect":     true,
 		"decrypt":     true,

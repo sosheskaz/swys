@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/password"
+	"github.com/sosheskaz/swys/cmd/internal/cli/password"
 )
 
 func TestCommandFirstLineAndBoundedOutput(t *testing.T) {
@@ -45,14 +45,14 @@ func TestCommandCancellationReapsShell(t *testing.T) {
 }
 
 func TestEnvironmentPreservesBytesAndRejectsEmpty(t *testing.T) {
-	t.Setenv("NPC_PASSWORD_TEST", "  é  ")
-	got, err := password.Environment("NPC_PASSWORD_TEST")
+	t.Setenv("SWYS_PASSWORD_TEST", "  é  ")
+	got, err := password.Environment("SWYS_PASSWORD_TEST")
 	require.NoError(t, err)
 	require.Equal(t, []byte("  é  "), got)
-	t.Setenv("NPC_PASSWORD_TEST", "")
-	_, err = password.Environment("NPC_PASSWORD_TEST")
+	t.Setenv("SWYS_PASSWORD_TEST", "")
+	_, err = password.Environment("SWYS_PASSWORD_TEST")
 	require.Error(t, err)
-	_, err = password.Environment("NPC_PASSWORD_TEST_MISSING")
+	_, err = password.Environment("SWYS_PASSWORD_TEST_MISSING")
 	require.Error(t, err)
 	require.NotErrorIs(t, err, context.Canceled)
 	require.NotContains(t, strings.ToLower(err.Error()), "é")

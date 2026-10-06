@@ -14,8 +14,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 func TestGuidePagerSurvivesInterruptCancellation(t *testing.T) {
@@ -76,7 +76,7 @@ func startHeldPager(t *testing.T) heldPagerRun {
 	started := filepath.Join(directory, "started")
 	release := filepath.Join(directory, "release")
 
-	root := &cobra.Command{Use: "npc"}
+	root := &cobra.Command{Use: "swys"}
 	root.AddCommand(&cobra.Command{Use: "net", Run: func(*cobra.Command, []string) {}})
 	root.SetContext(ctx)
 	root.SetOut(io.Discard)

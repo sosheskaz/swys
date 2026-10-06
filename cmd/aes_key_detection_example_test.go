@@ -12,9 +12,9 @@ import (
 	"github.com/tink-crypto/tink-go/v2/proto/tink_go_proto"
 	"google.golang.org/protobuf/proto"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestExampleAESKeyReadersDetectContainerFormats(t *testing.T) {

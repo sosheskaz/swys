@@ -14,9 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 )
 
 //go:embed guides

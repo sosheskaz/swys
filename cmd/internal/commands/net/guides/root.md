@@ -4,7 +4,7 @@ Use the network family when you want to send or receive application bytes yourse
 
 ## Choose an operation
 
-Run npc net for the operation reference.
+Run swys net for the operation reference.
 
 - **connect** contacts a remote endpoint and exchanges bytes.
 - **listen** accepts one connection, or one UDP request and response.
@@ -16,13 +16,13 @@ Then choose TCP, TLS, or UDP. TLS verifies the peer by default on outgoing conne
 First terminal:
 
 ```sh
-printf 'hello from server\n' | npc net listen localhost:9000
+printf 'hello from server\n' | swys net listen localhost:9000
 ```
 
 Second terminal:
 
 ```sh
-printf 'hello from client\n' | npc net connect localhost:9000
+printf 'hello from client\n' | swys net connect localhost:9000
 ```
 
 Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Sending and receiving are independent by default, so peer EOF does not discard unfinished local input. Explicit --duplex=false restores early exit on peer EOF and can discard outgoing data that has not yet been sent. Use --close-write=false when input EOF must leave the outgoing side open.
@@ -32,19 +32,19 @@ Input EOF half-closes each outgoing stream by default, and each command drains i
 Create a key in a fresh local directory before running the encrypted pipeline. Keep this key private; a new key cannot decrypt data encrypted with the previous one.
 
 ```sh
-npc aes keygen -o aes.key
+swys aes keygen -o aes.key
 ```
 
 Run the entire pipeline in one terminal. The receive-only listener reads the encrypted peer data without consuming its piped stdin. This works without startup sleeps because the connector retries a refused TCP setup within its five-second --connect-timeout (-c):
 
 ```sh
-printf 'hello, world\n' | npc aes encrypt -k aes.key | npc net connect localhost:4444 | npc net listen localhost:4444 -r | npc aes decrypt -k aes.key
+printf 'hello, world\n' | swys aes encrypt -k aes.key | swys net connect localhost:4444 | swys net listen localhost:4444 -r | swys aes decrypt -k aes.key
 ```
 
 ## Next steps
 
 ```sh
-npc help net connect
-npc help net listen
-npc net --help
+swys help net connect
+swys help net listen
+swys net --help
 ```

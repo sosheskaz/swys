@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 const exampleStreamPayloadSize = 4 << 20
@@ -234,7 +234,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 		"--key", identity.serverKey,
 		"--ca", identity.caCert,
 		"--system-ca",
-		"--alpn", "npc-example",
+		"--alpn", "swys-example",
 		"--verbose",
 		"--wait", "1s",
 	)
@@ -257,7 +257,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 			Certificates: []tls.Certificate{clientIdentity},
 			RootCAs:      roots,
 			ServerName:   "localhost",
-			NextProtos:   []string{"npc-example"},
+			NextProtos:   []string{"swys-example"},
 		},
 	}).DialContext(t.Context(), "tcp", net.JoinHostPort("localhost", port))
 	require.NoError(t, err)
@@ -272,8 +272,8 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	if !ok {
 		t.Fatalf("connection type = %T, want *tls.Conn", connection)
 	}
-	if got := tlsConnection.ConnectionState().NegotiatedProtocol; got != "npc-example" {
-		t.Fatalf("negotiated ALPN = %q, want npc-example", got)
+	if got := tlsConnection.ConnectionState().NegotiatedProtocol; got != "swys-example" {
+		t.Fatalf("negotiated ALPN = %q, want swys-example", got)
 	}
 	require.NoError(t, connection.Close())
 	if got := string(received); got != "hello from TLS listener" {
@@ -287,7 +287,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	stderr := <-remainingStderr
 	for _, want := range []string{
 		"accepted tls ",
-		"alpn: npc-example",
+		"alpn: swys-example",
 		"sni: localhost",
 		"peer certificates: 1",
 		"client chain verified: yes",

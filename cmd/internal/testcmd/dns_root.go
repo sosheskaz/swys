@@ -3,9 +3,9 @@ package testcmd
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/commands/dns"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/commands/dns"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 // NewDNSRoot mounts an injected DNS command with the same global flags and
@@ -13,7 +13,7 @@ import (
 func NewDNSRoot(dependencies dnsquery.Dependencies) *cobra.Command {
 	lifecycle := commandio.NewLifecycle()
 	root := &cobra.Command{
-		Use:           "npc",
+		Use:           "swys",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(command *cobra.Command, args []string) error {

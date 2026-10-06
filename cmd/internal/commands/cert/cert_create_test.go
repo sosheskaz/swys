@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 func TestCertCreateBuildsInspectableProfiles(t *testing.T) {
@@ -312,7 +312,7 @@ func TestCertCreateRejectsUnsafeFlagsBeforeOpeningOutput(t *testing.T) {
 		{name: "empty issuer key", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--issuer-cert", "ca.crt", "--issuer-key="}},
 		{name: "zero days", args: []string{"cert", "create", "--subject", "CN=leaf", "--days", "0", "--key", keyPath}},
 		{name: "negative days", args: []string{"cert", "create", "--subject", "CN=leaf", "--days", "-1", "--key", keyPath}},
-		{name: "full DN", args: []string{"cert", "create", "--subject", "CN=leaf,O=npc", "--key", keyPath}},
+		{name: "full DN", args: []string{"cert", "create", "--subject", "CN=leaf,O=swys", "--key", keyPath}},
 		{name: "bad IP", args: []string{"cert", "create", "--subject", "CN=leaf", "--ip", "not-an-ip", "--key", keyPath}},
 		{name: "unused input", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--input", inputPath}},
 		{name: "unused input encoding", args: []string{"cert", "create", "--subject", "CN=leaf", "--key", keyPath, "--input-encoding", "base64"}},

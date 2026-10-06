@@ -150,7 +150,7 @@ func TestDialTCPReturnsResolverDeadlineWithUnboundedParent(t *testing.T) {
 		"-test.run=^TestDialTCPResolverDeadlineProcess$",
 		"-test.count=1",
 	)
-	command.Env = append(os.Environ(), "NPC_DIAL_RESOLVER_DEADLINE_PROCESS=1", "GORACE=atexit_sleep_ms=0")
+	command.Env = append(os.Environ(), "SWYS_DIAL_RESOLVER_DEADLINE_PROCESS=1", "GORACE=atexit_sleep_ms=0")
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("resolver deadline child: %v\n%s", err, output)
@@ -158,7 +158,7 @@ func TestDialTCPReturnsResolverDeadlineWithUnboundedParent(t *testing.T) {
 }
 
 func TestDialTCPResolverDeadlineProcess(_ *testing.T) { //nolint:paralleltest // isolated child mutates net.DefaultResolver and exits directly
-	if os.Getenv("NPC_DIAL_RESOLVER_DEADLINE_PROCESS") != "1" {
+	if os.Getenv("SWYS_DIAL_RESOLVER_DEADLINE_PROCESS") != "1" {
 		return
 	}
 	net.DefaultResolver = &net.Resolver{

@@ -19,14 +19,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd"
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
+	"github.com/sosheskaz/swys/cmd"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 )
 
 const (
-	grpcSignalHelperMarker             = "npc-grpc-signal-helper"
-	grpcSignalBareExecuteEnvironment   = "NPC_GRPC_SIGNAL_BARE_EXECUTE"
-	grpcSignalBlockedStderrEnvironment = "NPC_GRPC_SIGNAL_BLOCK_STDERR"
+	grpcSignalHelperMarker             = "swys-grpc-signal-helper"
+	grpcSignalBareExecuteEnvironment   = "SWYS_GRPC_SIGNAL_BARE_EXECUTE"
+	grpcSignalBlockedStderrEnvironment = "SWYS_GRPC_SIGNAL_BLOCK_STDERR"
 	grpcSignalRootContextSuffix        = ".context-canceled"
 	grpcSignalCanceledExitCode         = 42
 	grpcSignalInputSize                = 1 << 20
@@ -490,7 +490,7 @@ func TestGRPCSignalExecuteHelperProcess(t *testing.T) { //nolint:paralleltest //
 		t.Parallel()
 		return
 	}
-	os.Args = append([]string{"npc"}, os.Args[marker+1:]...)
+	os.Args = append([]string{"swys"}, os.Args[marker+1:]...)
 	os.Exit(runGRPCSignalHelper())
 }
 
@@ -519,7 +519,7 @@ func runGRPCSignalHelper() int {
 	}
 	err := cmd.ExecuteContext(ctx)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "npc: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "swys: %v\n", err)
 	}
 	return cmd.ExitCode(err)
 }
@@ -600,7 +600,7 @@ func waitForGRPCSignalExit(
 			status.Signaled(), status.Signal(), status.ExitStatus(), signalCase.status, stderr.String(),
 		)
 	}
-	wantDiagnostic := "npc: " + signalCase.message
+	wantDiagnostic := "swys: " + signalCase.message
 	if strings.TrimSpace(stderr.String()) != wantDiagnostic {
 		t.Fatalf("gRPC process stderr = %q, want %q", stderr.String(), wantDiagnostic)
 	}

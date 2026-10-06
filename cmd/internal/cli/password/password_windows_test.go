@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 func TestWindowsConsoleInputRecordLayout(t *testing.T) {
@@ -118,7 +118,7 @@ func TestWindowsStartFailureClosesJob(t *testing.T) {
 }
 
 func TestWindowsPromptInOwnConsole(t *testing.T) {
-	if os.Getenv("NPC_TEST_WINDOWS_PROMPT_HELPER") == "1" {
+	if os.Getenv("SWYS_TEST_WINDOWS_PROMPT_HELPER") == "1" {
 		runWindowsPromptHelper(t)
 		return
 	}
@@ -126,7 +126,7 @@ func TestWindowsPromptInOwnConsole(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestWindowsPromptInOwnConsole$")
-	cmd.Env = append(os.Environ(), "NPC_TEST_WINDOWS_PROMPT_HELPER=1")
+	cmd.Env = append(os.Environ(), "SWYS_TEST_WINDOWS_PROMPT_HELPER=1")
 	cmd.SysProcAttr = &windows.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)

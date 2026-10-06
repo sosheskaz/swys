@@ -68,7 +68,7 @@ func Configure(root *cobra.Command, dependencies Dependencies, referencePresenta
 		if _, ok := guideSource(command); !ok {
 			return
 		}
-		invocation := "npc help"
+		invocation := "swys help"
 		if key != "" {
 			invocation += " " + key
 		}
@@ -103,7 +103,7 @@ func newGuideCommand(root, scope *cobra.Command, dependencies Dependencies) *cob
 	command := &cobra.Command{
 		Use:   "help [command path]",
 		Short: "Read a curated guide for a command",
-		Long: `Read a curated guide for an npc command.
+		Long: `Read a curated guide for an swys command.
 
 Paths are relative to the command group containing help. With no path, read
 that group's guide. Use a command's --help flag for its arguments and flags.`,
@@ -170,9 +170,9 @@ func runGuide(
 	key := canonicalGuideKey(root, target)
 	source, ok := guideSource(target)
 	if !ok {
-		reference := "npc --help"
+		reference := "swys --help"
 		if key != "" {
-			reference = "npc " + key + " --help"
+			reference = "swys " + key + " --help"
 		}
 		return fmt.Errorf(
 			"%w for %q; run '%s' for reference help",
@@ -272,7 +272,7 @@ func resolveGuideTarget(root *cobra.Command, path []string) (*cobra.Command, err
 		}
 
 		parentPath := canonicalGuideKey(root, current)
-		parentInvocation := "npc help"
+		parentInvocation := "swys help"
 		if parentPath != "" {
 			parentInvocation += " " + parentPath
 		}
@@ -345,9 +345,9 @@ func guideCommandPath(root, command *cobra.Command) string {
 
 func guideDisplayPath(key string) string {
 	if key == "" {
-		return "npc"
+		return "swys"
 	}
-	return "npc " + key
+	return "swys " + key
 }
 
 func writeGuide(writer io.Writer, contents []byte) error {

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 func TestPEMCommandsRejectSkippedBlocks(t *testing.T) {

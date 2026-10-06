@@ -1,19 +1,19 @@
 # Decrypt an AES message
 
-Recover a message with the key or password used to encrypt it. OpenPGP RFC 9580 AES-GCM is the default; select --wire-format tink for a Tink stream. NPC does not detect the ciphertext format or retry another format after an authentication failure.
+Recover a message with the key or password used to encrypt it. OpenPGP RFC 9580 AES-GCM is the default; select --wire-format tink for a Tink stream. SwYS does not detect the ciphertext format or retry another format after an authentication failure.
 
 ## Decrypt OpenPGP from a file
 
 Prerequisite: create key.bin and message.pgp with the encryption guide's raw-key workflow.
 
 ```sh
-npc aes decrypt --key key.bin --input message.pgp --output message.txt
+swys aes decrypt --key key.bin --input message.pgp --output message.txt
 ```
 
 For a pipeline, send the recovered bytes directly to the next command:
 
 ```sh
-npc aes decrypt --key key.bin --input message.pgp | npc hash sha256
+swys aes decrypt --key key.bin --input message.pgp | swys hash sha256
 ```
 
 ## Decrypt with a password
@@ -21,7 +21,7 @@ npc aes decrypt --key key.bin --input message.pgp | npc hash sha256
 Supply the password used for encryption with --password, --password-env NAME, or --password-command SHELL_COMMAND; the source can differ from encryption. The message stores its Argon2id costs, so decryption has no tuning flags.
 
 ```sh
-npc aes decrypt --password --input message.pgp --output message.txt
+swys aes decrypt --password --input message.pgp --output message.txt
 ```
 
 ## Decrypt Tink ciphertext
@@ -29,7 +29,7 @@ npc aes decrypt --password --input message.pgp --output message.txt
 Prerequisite: create payload.tink with the encryption guide's Tink workflow. Repeat the exact --aad value used at encryption. Tink keysets use enabled keys for decryption.
 
 ```sh
-npc aes decrypt --wire-format tink --key key.bin --aad production --input payload.tink
+swys aes decrypt --wire-format tink --key key.bin --aad production --input payload.tink
 ```
 
 ## Understand formats and authentication
@@ -40,10 +40,10 @@ For OpenPGP with a keyset, decryption uses the enabled primary key by default. S
 
 Before asking for the password or opening output, decryption rejects Argon2 memory above 256MiB, more than 10 passes, more than 16 lanes, more than 16 password wrappers, or wrappers whose combined memory times passes exceeds 256MiB times 10. There is no override. Only Argon2 wrappers are accepted. A wrong password fails before output is opened.
 
-Decryption releases authenticated chunks as they complete. A later authentication or structure failure may leave earlier verified plaintext in the output, and the command returns an error. It checks the final tag and end of input before success. Historical NPC-specific streams, raw GCM, and CBC require an older NPC binary.
+Decryption releases authenticated chunks as they complete. A later authentication or structure failure may leave earlier verified plaintext in the output, and the command returns an error. It checks the final tag and end of input before success. Historical SwYS-specific streams, raw GCM, and CBC require an older SwYS binary.
 
 ## Reference
 
 ```sh
-npc aes decrypt --help
+swys aes decrypt --help
 ```

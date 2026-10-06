@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestAESCompletionFiltersConflictingFlags(t *testing.T) {
@@ -181,7 +181,7 @@ func TestAESCompletionRestoresReferenceHelpWithoutIO(t *testing.T) {
 	input := strings.NewReader("operational input")
 	before := input.Len()
 	output, _, err := testcmd.RunStreams(t, root, input,
-		"__complete", "aes", "encrypt", "--password-env", "NPC_AES_COMPLETION_MISSING_PASSWORD",
+		"__complete", "aes", "encrypt", "--password-env", "SWYS_AES_COMPLETION_MISSING_PASSWORD",
 		"--output", outputPath, "--")
 	require.NoError(t, err)
 	assert.NotContains(t, string(output), "--key-format", "password completion narrows the interface")

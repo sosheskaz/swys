@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
@@ -171,7 +171,7 @@ func TestNetConnectTCPPeerEOFStopsBlockedInput(t *testing.T) {
 }
 
 func TestNetPipeCommandProcess(_ *testing.T) { //nolint:paralleltest // the subprocess exits directly after executing one command
-	if os.Getenv("NPC_NET_PIPE_COMMAND_PROCESS") != "1" {
+	if os.Getenv("SWYS_NET_PIPE_COMMAND_PROCESS") != "1" {
 		return
 	}
 	separator := -1
@@ -202,7 +202,7 @@ func newNetPipeProcess(ctx context.Context, arguments ...string) *exec.Cmd {
 	processArguments = append(processArguments, arguments...)
 	command := exec.CommandContext(ctx, os.Args[0], processArguments...)
 	raceOptions := strings.TrimSpace(os.Getenv("GORACE") + " atexit_sleep_ms=0")
-	command.Env = append(os.Environ(), "NPC_NET_PIPE_COMMAND_PROCESS=1", "GORACE="+raceOptions)
+	command.Env = append(os.Environ(), "SWYS_NET_PIPE_COMMAND_PROCESS=1", "GORACE="+raceOptions)
 	return command
 }
 

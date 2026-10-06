@@ -16,7 +16,7 @@ import (
 	reflectionv1alpha "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/grpc/status"
 
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 )
 
 var errGRPCTestReflectionSend = errors.New("fixture reflection send failed")

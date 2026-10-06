@@ -22,14 +22,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	"github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/password"
+	"github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/password"
 )
 
 //nolint:paralleltest,nestif // the helper process re-enters this test using its own controlling PTY
 func TestPromptRestoresTerminalAfterInput(t *testing.T) {
-	if source := os.Getenv("NPC_PROMPT_HELPER"); source != "" {
+	if source := os.Getenv("SWYS_PROMPT_HELPER"); source != "" {
 		var value []byte
 		var err error
 		if strings.HasPrefix(source, "command") {
@@ -45,7 +45,7 @@ func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 			}
 			if source == "command_suspend_root" {
 				root := cmd.NewCommand()
-				root.SetArgs([]string{"aes", "encrypt", "payload", "--password-command", script, "--output", os.Getenv("NPC_PROMPT_OUTPUT")})
+				root.SetArgs([]string{"aes", "encrypt", "payload", "--password-command", script, "--output", os.Getenv("SWYS_PROMPT_OUTPUT")})
 				root.SetOut(io.Discard)
 				root.SetErr(io.Discard)
 				err = root.ExecuteContext(ctx)
@@ -56,7 +56,7 @@ func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 		} else {
 			value, err = password.Prompt(t.Context(), false)
 		}
-		accepted := err == nil && bytes.Equal(value, []byte(os.Getenv("NPC_PROMPT_EXPECT")))
+		accepted := err == nil && bytes.Equal(value, []byte(os.Getenv("SWYS_PROMPT_EXPECT")))
 		if source == "command_interrupt" || source == "command_noecho_interrupt" {
 			accepted = interrupt.ExitCode(err) == 130
 		} else if strings.HasPrefix(source, "command_suspend") {
@@ -180,7 +180,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	defer closeTestFile(t, releaseRead)
 	defer closeTestFile(t, releaseWrite)
 	helper.ExtraFiles = []*os.File{readyWrite, releaseRead}
-	helper.Env = append(os.Environ(), "NPC_PROMPT_HELPER="+source, "NPC_PROMPT_EXPECT="+expected, "NPC_PROMPT_OUTPUT="+output)
+	helper.Env = append(os.Environ(), "SWYS_PROMPT_HELPER="+source, "SWYS_PROMPT_EXPECT="+expected, "SWYS_PROMPT_OUTPUT="+output)
 	helper.Stdin = slave
 	helper.Stdout = slave
 	helper.Stderr = os.Stderr

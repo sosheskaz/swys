@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	aescommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/aes"
+	aescommand "github.com/sosheskaz/swys/cmd/internal/commands/aes"
 )
 
 func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest // literal-dash cases change the process working directory

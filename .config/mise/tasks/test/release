@@ -14,10 +14,10 @@ release_date=$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --forma
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 umask 077
-tar -xzf "$archive" -C "$scratch" npc
-binary="$scratch/npc"
+tar -xzf "$archive" -C "$scratch" swys
+binary="$scratch/swys"
 actual_version=$("$binary" --version)
-expected_version="npc version $release_version (commit ${release_commit:0:12}, built $release_date)"
+expected_version="swys version $release_version (commit ${release_commit:0:12}, built $release_date)"
 if [[ "$actual_version" != "$expected_version" && "$actual_version" != "${expected_version%\)}, dirty)" ]]; then
   printf 'unexpected packaged version: %s\nexpected: %s\n' "$actual_version" "$expected_version" >&2
   exit 1

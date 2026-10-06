@@ -1,4 +1,4 @@
-# Read NPC usage guides
+# Read SwYS usage guides
 
 The help command displays curated task guidance. A command's help flag remains the generated reference for arguments, flags, defaults, and aliases.
 
@@ -7,35 +7,35 @@ The help command displays curated task guidance. A command's help flag remains t
 Use canonical command names or their aliases. Output always uses canonical names so examples remain consistent.
 
 ```sh
-npc help net connect
-npc help x509 connect
+swys help net connect
+swys help x509 connect
 ```
 
 Command groups such as cert, aes, net, and completion also accept help before a relative command path. With no path, group help shows the group's overview. Runnable commands such as dns and http keep their normal operands.
 
 ```sh
-npc cert help
-npc cert help connect
-npc aes help encrypt
-npc net help listen
+swys cert help
+swys cert help connect
+swys aes help encrypt
+swys net help listen
 ```
 
 ## Control presentation
 
 Direct supported terminals use styled rendering automatically. Redirected output and configured pagers receive plain rendered text by default. Rich and plain override that choice; no-pager bypasses a configured pager.
 
-NPC starts PAGER only when its original stdout is a terminal. The value is parsed as an executable plus quoted arguments without shell evaluation. Use a wrapper script when a pager setup needs pipelines, expansions, or redirections.
+SwYS starts PAGER only when its original stdout is a terminal. The value is parsed as an executable plus quoted arguments without shell evaluation. Use a wrapper script when a pager setup needs pipelines, expansions, or redirections.
 
 ```fish
-env PAGER='less -R' npc help net --rich
-npc help net --rich | less -R
-npc help net --no-pager
+env PAGER='less -R' swys help net --rich
+swys help net --rich | less -R
+swys help net --no-pager
 ```
 
-Rich rendering uses text styles and clickable link labels on terminals that support OSC 8 hyperlinks. Plain rendering keeps destinations visible. NPC does not infer pager capabilities from an executable name; choose plain output when a pager or terminal cannot display the links.
+Rich rendering uses text styles and clickable link labels on terminals that support OSC 8 hyperlinks. Plain rendering keeps destinations visible. SwYS does not infer pager capabilities from an executable name; choose plain output when a pager or terminal cannot display the links.
 
 ## Reference
 
 ```sh
-npc help --help
+swys help --help
 ```

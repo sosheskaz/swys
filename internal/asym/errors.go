@@ -16,7 +16,7 @@ var (
 	ErrEncryptedPrivateKey = errors.New("encrypted private keys are unsupported")
 	// ErrMalformedKey indicates that key bytes or key fields are invalid.
 	ErrMalformedKey = errors.New("malformed key")
-	// ErrUnsupportedKeyType indicates a parsed key algorithm outside npc's supported set.
+	// ErrUnsupportedKeyType indicates a parsed key algorithm outside swys's supported set.
 	ErrUnsupportedKeyType = errors.New("unsupported key type")
 	// ErrUnsupportedKeyAlgorithm indicates a generation algorithm outside the supported registry.
 	ErrUnsupportedKeyAlgorithm = errors.New("unsupported key generation algorithm")

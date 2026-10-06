@@ -5,7 +5,7 @@ set -euo pipefail
 task_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 reporter="${task_dir}/../report/coverage"
 baseline_fetcher="${task_dir}/../report/coverage-baseline"
-temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/npc-coverage-report.XXXXXX")"
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/swys-coverage-report.XXXXXX")"
 trap 'rm -rf -- "$temp_dir"' EXIT
 
 base_profile="${temp_dir}/base.out"
@@ -13,18 +13,18 @@ head_profile="${temp_dir}/head.out"
 
 printf '%s\n' \
   'mode: atomic' \
-  'github.com/sosheskaz-systems/npc/cmd/example.go:1.1,1.2 1 1' \
-  'github.com/sosheskaz-systems/npc/cmd/example.go:2.1,2.2 1 0' \
+  'github.com/sosheskaz/swys/cmd/example.go:1.1,1.2 1 1' \
+  'github.com/sosheskaz/swys/cmd/example.go:2.1,2.2 1 0' \
   >"$base_profile"
 
 printf '%s\n' \
   'mode: atomic' \
-  'github.com/sosheskaz-systems/npc/cmd/example.go:1.1,1.2 1 0' \
-  'github.com/sosheskaz-systems/npc/cmd/example.go:2.1,2.2 1 0' \
-  'github.com/sosheskaz-systems/npc/internal/securefile/securefile.go:1.1,1.2 1 1' \
-  'github.com/sosheskaz-systems/npc/cmd/example.go:1.1,1.2 1 1' \
-  'github.com/sosheskaz-systems/npc/cmd/example.go:2.1,2.2 1 0' \
-  'github.com/sosheskaz-systems/npc/internal/securefile/securefile.go:1.1,1.2 1 0' \
+  'github.com/sosheskaz/swys/cmd/example.go:1.1,1.2 1 0' \
+  'github.com/sosheskaz/swys/cmd/example.go:2.1,2.2 1 0' \
+  'github.com/sosheskaz/swys/internal/securefile/securefile.go:1.1,1.2 1 1' \
+  'github.com/sosheskaz/swys/cmd/example.go:1.1,1.2 1 1' \
+  'github.com/sosheskaz/swys/cmd/example.go:2.1,2.2 1 0' \
+  'github.com/sosheskaz/swys/internal/securefile/securefile.go:1.1,1.2 1 0' \
   >"$head_profile"
 
 output="$($reporter "$head_profile" "$base_profile")"
@@ -111,7 +111,7 @@ PATH="${fake_bin}:${PATH}" \
   FAKE_RUN_SHA="$base_sha" \
   FAKE_ARTIFACT="$fake_artifact" \
   GITHUB_OUTPUT="$github_output" \
-  GITHUB_REPOSITORY='sosheskaz-systems/npc' \
+  GITHUB_REPOSITORY='sosheskaz/swys' \
   "$baseline_fetcher" "$base_sha" "$baseline_output"
 cmp "$fake_artifact" "$baseline_output"
 grep -Fq -- "--commit ${base_sha}" "$fake_log"
@@ -127,7 +127,7 @@ PATH="${fake_bin}:${PATH}" \
   FAKE_ARTIFACT="$fake_artifact" \
   FAKE_NO_ARTIFACT=1 \
   GITHUB_OUTPUT="$github_output" \
-  GITHUB_REPOSITORY='sosheskaz-systems/npc' \
+  GITHUB_REPOSITORY='sosheskaz/swys' \
   "$baseline_fetcher" "$base_sha" "$baseline_output"
 if [[ -e "$baseline_output" ]]; then
   echo 'coverage baseline fetcher retained output after a missing exact artifact' >&2
@@ -143,7 +143,7 @@ PATH="${fake_bin}:${PATH}" \
   FAKE_ARTIFACT="$fake_artifact" \
   FAKE_NO_RUN=1 \
   GITHUB_OUTPUT="$github_output" \
-  GITHUB_REPOSITORY='sosheskaz-systems/npc' \
+  GITHUB_REPOSITORY='sosheskaz/swys' \
   "$baseline_fetcher" "$base_sha" "$baseline_output"
 if [[ -e "$baseline_output" ]]; then
   echo 'coverage baseline fetcher retained output when the exact-base run was unavailable' >&2

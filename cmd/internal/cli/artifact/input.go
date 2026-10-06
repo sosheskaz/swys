@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 // Artifact limits bound key and certificate parsing before output is opened.

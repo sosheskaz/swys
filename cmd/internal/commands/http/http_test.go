@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/internal/version"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/internal/version"
 )
 
 var (
@@ -326,7 +326,7 @@ func TestHTTPHeaders(t *testing.T) {
 
 	received := make(chan []string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		received <- request.Header.Values("X-NPC-Test")
+		received <- request.Header.Values("X-SwYS-Test")
 		writeHTTPTestString(t, writer, "ok")
 	}))
 	t.Cleanup(server.Close)
@@ -334,7 +334,7 @@ func TestHTTPHeaders(t *testing.T) {
 	_, _, err := executeRootStreams(
 		t,
 		"http", server.URL,
-		"-H", "X-NPC-Test: first", "--header", "X-NPC-Test: second",
+		"-H", "X-SwYS-Test: first", "--header", "X-SwYS-Test: second",
 	)
 	require.NoError(t, err, "HTTP headers: %v", err)
 	assert.Equal(t, []string{"first", "second"}, <-received, "repeated header values")
@@ -352,7 +352,7 @@ func TestHTTPUserAgent(t *testing.T) {
 			header string
 			want   []string
 		}{
-			{name: "default", want: []string{"npc/" + buildVersion}},
+			{name: "default", want: []string{"swys/" + buildVersion}},
 			{name: "override", header: "user-agent: custom/1.0", want: []string{"custom/1.0"}},
 			{name: "suppressed", header: "User-Agent:"},
 		} {
@@ -524,8 +524,8 @@ func TestHTTPJSONResponseEnvelopeAndTrace(t *testing.T) {
 
 	responseBody := []byte{0x00, 0xff, '\n'}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Add("X-NPC-Test", "first")
-		writer.Header().Add("X-NPC-Test", "second")
+		writer.Header().Add("X-SwYS-Test", "first")
+		writer.Header().Add("X-SwYS-Test", "second")
 		writeHTTPTestBytes(t, writer, responseBody)
 	}))
 	t.Cleanup(server.Close)
@@ -541,7 +541,7 @@ func TestHTTPJSONResponseEnvelopeAndTrace(t *testing.T) {
 	if !strings.HasPrefix(envelope.Protocol, "HTTP/") {
 		t.Fatalf("protocol = %q, want HTTP version", envelope.Protocol)
 	}
-	assert.Equal(t, []string{"first", "second"}, envelope.Headers["X-Npc-Test"], "response headers")
+	assert.Equal(t, []string{"first", "second"}, envelope.Headers["X-Swys-Test"], "response headers")
 	assert.Equal(t, "base64", envelope.BodyEncoding, "body encoding")
 	assert.Equal(t, base64.StdEncoding.EncodeToString(responseBody), envelope.Body, "response body")
 	assert.True(t, envelope.Complete, "response completion")
@@ -567,7 +567,7 @@ func TestHTTPResponseSelectionAndOutputEncoding(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("X-NPC-Test", "included")
+		writer.Header().Set("X-SwYS-Test", "included")
 		writeHTTPTestString(t, writer, "abc")
 	}))
 	t.Cleanup(server.Close)
@@ -578,7 +578,7 @@ func TestHTTPResponseSelectionAndOutputEncoding(t *testing.T) {
 		stdout, _, err := executeRootStreams(t, "http", server.URL, "--select", "response")
 		require.NoError(t, err, "HTTP response selection")
 		assert.Contains(t, stdout, "200 OK", "included status")
-		assert.Contains(t, stdout, "X-Npc-Test: included", "included header")
+		assert.Contains(t, stdout, "X-Swys-Test: included", "included header")
 		assert.True(t, strings.HasSuffix(stdout, "abc"), "included body: %q", stdout)
 	})
 

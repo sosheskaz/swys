@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const backstopHelperEnvironment = "NPC_TEST_BACKSTOP_HELPER"
+const backstopHelperEnvironment = "SWYS_TEST_BACKSTOP_HELPER"
 
 // The backstop exists for stalls, and a stalled stderr is one: its note must
 // not be able to keep the process alive. Only a real pipe shows that boundary.

@@ -35,8 +35,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 var (
@@ -666,9 +666,9 @@ func TestDNSOverHTTPSHonorsEnvironmentProxy(t *testing.T) {
 
 	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestEncryptedDNSDoHProxyChild$", "-test.count=1")
 	command.Env = append(os.Environ(),
-		"NPC_DOH_PROXY_CHILD=1",
-		"NPC_DOH_PROXY_ENDPOINT="+target.endpoint("resolver.test", ""),
-		"NPC_DOH_PROXY_CA="+identity.caCertPath,
+		"SWYS_DOH_PROXY_CHILD=1",
+		"SWYS_DOH_PROXY_ENDPOINT="+target.endpoint("resolver.test", ""),
+		"SWYS_DOH_PROXY_CA="+identity.caCertPath,
 		"HTTPS_PROXY="+proxy.URL,
 		"https_proxy="+proxy.URL,
 		"NO_PROXY=",
@@ -684,13 +684,13 @@ func TestDNSOverHTTPSHonorsEnvironmentProxy(t *testing.T) {
 func TestEncryptedDNSDoHProxyChild(t *testing.T) {
 	t.Parallel()
 
-	if os.Getenv("NPC_DOH_PROXY_CHILD") != "1" {
+	if os.Getenv("SWYS_DOH_PROXY_CHILD") != "1" {
 		return
 	}
 	stdout, _, err := executeRootStreams(
 		t,
-		"dns", os.Getenv("NPC_DOH_PROXY_ENDPOINT"), "example.test", "--select", "values",
-		"--ca", os.Getenv("NPC_DOH_PROXY_CA"),
+		"dns", os.Getenv("SWYS_DOH_PROXY_ENDPOINT"), "example.test", "--select", "values",
+		"--ca", os.Getenv("SWYS_DOH_PROXY_CA"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "192.0.2.44\n", stdout)

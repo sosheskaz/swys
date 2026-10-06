@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
-	"github.com/sosheskaz-systems/npc/internal/securefile"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/securefile"
 )
 
 func writeOwnerOnlyFixture(t *testing.T, path, contents string) {

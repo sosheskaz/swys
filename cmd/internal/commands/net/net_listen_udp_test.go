@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/internal/netconn"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 func TestNetListenUDPFlagAndAddressContract(t *testing.T) {

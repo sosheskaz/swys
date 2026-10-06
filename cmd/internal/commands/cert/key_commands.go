@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 var keyConversionTargets = map[string]asym.KeyFormat{
@@ -42,9 +42,9 @@ The --to flag selects PKIX PEM, PKIX DER, or one canonical OpenSSH
 authorized_keys entry. It defaults to PKIX PEM.
 Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX public key in PEM or DER,
 or one unencrypted OpenSSH private key or authorized_keys public entry.`,
-		Example: `  npc cert key-public --input private.pem --output public.pem
-  npc cert key-public --input id_ed25519 --to openssh --output id_ed25519.pub
-  npc cert key-public --input private.pem --to pkix-der --output public.der`,
+		Example: `  swys cert key-public --input private.pem --output public.pem
+  swys cert key-public --input id_ed25519 --to openssh --output id_ed25519.pub
+  swys cert key-public --input private.pem --to pkix-der --output public.der`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			encoded, output, err := commandio.TakePrepared(cmd)
@@ -94,8 +94,8 @@ func newKeyConvertCmd() *cobra.Command {
 Use cert key-public to derive public material from a private key.
 Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX public key in PEM or DER,
 or one unencrypted OpenSSH private key or authorized_keys public entry.`,
-		Example: `  npc cert key-convert --input id_ed25519.pub --to pkix-pem
-  npc cert key-convert --input private.pem --to pkcs8-der --output private.der`,
+		Example: `  swys cert key-convert --input id_ed25519.pub --to pkix-pem
+  swys cert key-convert --input private.pem --to pkcs8-der --output private.der`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			encoded, output, err := commandio.TakePrepared(cmd)
@@ -296,7 +296,7 @@ func prepareKeyConversionOutput(cmd *cobra.Command, input io.Reader) ([]byte, er
 	if key.IsPrivate() == targetIsPublic {
 		if key.IsPrivate() {
 			return nil, fmt.Errorf(
-				"%w: cannot convert private key to public target %q; use npc cert key-public --to %s",
+				"%w: cannot convert private key to public target %q; use swys cert key-public --to %s",
 				asym.ErrInvalidKeyConversion,
 				target,
 				target,

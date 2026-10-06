@@ -11,9 +11,9 @@ func TestRunReportsExitStatus(t *testing.T) { //nolint:paralleltest // mutates p
 	originalArgs := os.Args
 	t.Cleanup(func() { os.Args = originalArgs })
 
-	os.Args = []string{"npc", "--version"}
+	os.Args = []string{"swys", "--version"}
 	require.Equal(t, 0, run(), "exit status for a successful command")
 
-	os.Args = []string{"npc", "no-such-command"}
+	os.Args = []string{"swys", "no-such-command"}
 	require.Equal(t, 1, run(), "exit status for a failed command")
 }

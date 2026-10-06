@@ -9,14 +9,14 @@ trap 'fail "$LINENO"' ERR
 task_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 fuzz="$task_dir/fuzz"
 bench="$task_dir/../../lib/bench.sh"
-temporary="$(mktemp -d "${TMPDIR:-/tmp}/npc-task-tests.XXXXXX")"
+temporary="$(mktemp -d "${TMPDIR:-/tmp}/swys-task-tests.XXXXXX")"
 trap 'rm -rf -- "$temporary"' EXIT
 cd "$temporary"
 # Exercise the runner independently of caller selections and budgets.
 unset usage_package usage_target usage_list usage_preset usage_fuzztime \
   usage_package_workers usage_fuzz_workers usage_bench usage_benchtime \
-  usage_count usage_output_dir NPC_TEST_PACKAGE_WORKERS NPC_FUZZ_WORKERS
-export GOWORK=off NPC_FUZZ_WORKERS=1
+  usage_count usage_output_dir SWYS_TEST_PACKAGE_WORKERS SWYS_FUZZ_WORKERS
+export GOWORK=off SWYS_FUZZ_WORKERS=1
 cat >go.mod <<'GO'
 module taskfixture
 
@@ -33,7 +33,7 @@ import (
 func FuzzOne(f *testing.F) {
     f.Add("seed")
     f.Fuzz(func(t *testing.T, value string) {
-        if os.Getenv("NPC_TASK_FIXTURE_FAIL") == "1" {
+        if os.Getenv("SWYS_TASK_FIXTURE_FAIL") == "1" {
             t.Fatal("fixture fuzz failure")
         }
     })
@@ -43,7 +43,7 @@ func FuzzTwo(f *testing.F) {
     f.Fuzz(func(t *testing.T, value []byte) {})
 }
 func BenchmarkOne(b *testing.B) {
-    if os.Getenv("NPC_TASK_FIXTURE_FAIL") == "1" {
+    if os.Getenv("SWYS_TASK_FIXTURE_FAIL") == "1" {
         b.Fatal("fixture benchmark failure")
     }
     for b.Loop() {}
@@ -51,7 +51,7 @@ func BenchmarkOne(b *testing.B) {
 GO
 # These must be ignored by build-aware discovery, even though they look like tests.
 cat >excluded_fuzz_test.go <<'GO'
-//go:build npc_task_excluded
+//go:build swys_task_excluded
 
 package taskfixture
 invalid Go syntax
@@ -78,7 +78,7 @@ listing="$(usage_list=true "$fuzz")"
 listing="$(usage_target=FuzzTwo usage_list=true "$fuzz")"
 [[ "$listing" == $'taskfixture\tFuzzTwo' ]] || fail "$LINENO"
 # CLI-shaped values override environment defaults; the explicit budget wins over explore.
-output="$(NPC_FUZZ_WORKERS=2 NPC_TEST_PACKAGE_WORKERS=2 usage_package_workers=1 \
+output="$(SWYS_FUZZ_WORKERS=2 SWYS_TEST_PACKAGE_WORKERS=2 usage_package_workers=1 \
   usage_fuzz_workers=1 usage_preset=explore usage_fuzztime=1x usage_target=FuzzOne "$fuzz")"
 [[ "$output" == *'FuzzOne (1x; fuzz workers=1; package workers=1)'* ]] || fail "$LINENO"
 [[ "$output" == *'completed 1 fuzz targets'* ]] || fail "$LINENO"
@@ -89,7 +89,7 @@ expect_failure 'no runnable fuzz targets' env usage_target=FuzzMissing "$fuzz"
 expect_failure 'no runnable fuzz targets' env 'usage_target=Fuzz\One' "$fuzz"
 expect_failure 'positive integer' env usage_fuzz_workers=0 "$fuzz"
 expect_failure 'positive Go duration' env usage_fuzztime=0s "$fuzz"
-expect_failure 'fixture fuzz failure' env NPC_TASK_FIXTURE_FAIL=1 usage_target=FuzzOne "$fuzz"
+expect_failure 'fixture fuzz failure' env SWYS_TASK_FIXTURE_FAIL=1 usage_target=FuzzOne "$fuzz"
 
 listing="$(usage_list=true "$bench" run)"
 [[ "$listing" == $'taskfixture\tBenchmarkOne' ]] || fail "$LINENO"
@@ -97,7 +97,7 @@ output="$(usage_bench='^BenchmarkOne$' usage_benchtime=1x "$bench" run)"
 [[ "$output" == *BenchmarkOne* ]] || fail "$LINENO"
 expect_failure 'no benchmarks ran' env usage_bench=DoesNotExist usage_benchtime=1x "$bench" run
 expect_failure 'bench must not be empty' env usage_bench= usage_benchtime=1x "$bench" run
-expect_failure 'fixture benchmark failure' env NPC_TASK_FIXTURE_FAIL=1 usage_benchtime=1x "$bench" run
+expect_failure 'fixture benchmark failure' env SWYS_TASK_FIXTURE_FAIL=1 usage_benchtime=1x "$bench" run
 for mode in cpu mem; do
   usage_benchtime=1x usage_output_dir="$temporary/profiles with spaces" "$bench" "$mode" >"$temporary/profile.log"
   directory="$temporary/profiles with spaces/taskfixture/$mode"

@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 // MaxBytes is the maximum accepted password length.

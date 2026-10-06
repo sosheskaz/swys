@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 func ExampleNewOwnedFileReader() {

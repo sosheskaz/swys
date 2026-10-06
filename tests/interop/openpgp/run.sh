@@ -2,8 +2,8 @@
 set -euo pipefail
 
 interop_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-scratch_dir="${NPC_INTEROP_SCRATCH:-$interop_dir}"
-cache_dir="${NPC_INTEROP_CACHE_DIR:-${TMPDIR:-/tmp}/npc-openpgp-interop-cargo/$(uname -m)}"
+scratch_dir="${SWYS_INTEROP_SCRATCH:-$interop_dir}"
+cache_dir="${SWYS_INTEROP_CACHE_DIR:-${TMPDIR:-/tmp}/swys-openpgp-interop-cargo/$(uname -m)}"
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   printf 'Docker CLI and running daemon are required for Sequoia interoperability tests\n' >&2
   exit 2

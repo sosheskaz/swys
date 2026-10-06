@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 func TestFIFOOutputStreamsDirectly(t *testing.T) {
@@ -55,7 +55,7 @@ func TestFIFOOutputStreamsDirectly(t *testing.T) {
 }
 
 // TestOutputModeWithFIFORejectsBeforeWriting pins that --mode errors on a
-// non-regular sink rather than silently ignoring it: npc never opens the
+// non-regular sink rather than silently ignoring it: swys never opens the
 // FIFO in this case, so no reader goroutine is needed to unblock the write.
 func TestOutputModeWithFIFORejectsBeforeWriting(t *testing.T) {
 	t.Parallel()

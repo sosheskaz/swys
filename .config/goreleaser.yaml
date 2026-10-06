@@ -1,12 +1,13 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
+project_name: swys
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - binary: npc
+  - binary: swys
     env:
       - CGO_ENABLED=0
     goos:
@@ -22,9 +23,9 @@ builds:
     # CommitDate/CommitTimestamp (not build time) keep builds reproducible.
     ldflags:
       - -s -w
-      - -X github.com/sosheskaz-systems/npc/internal/version.version={{ .Version }}
-      - -X github.com/sosheskaz-systems/npc/internal/version.commit={{ .FullCommit }}
-      - -X github.com/sosheskaz-systems/npc/internal/version.date={{ .CommitDate }}
+      - -X github.com/sosheskaz/swys/internal/version.version={{ .Version }}
+      - -X github.com/sosheskaz/swys/internal/version.commit={{ .FullCommit }}
+      - -X github.com/sosheskaz/swys/internal/version.date={{ .CommitDate }}
     mod_timestamp: '{{ .CommitTimestamp }}'
 
 archives:
@@ -51,7 +52,7 @@ changelog:
 # Disabled for snapshot builds so PR validation never pushes.
 kos:
   - repositories:
-      - ghcr.io/sosheskaz-systems/npc
+      - ghcr.io/sosheskaz/swys
     disable: "{{ .IsSnapshot }}"
     tags:
       - "{{ .Version }}"

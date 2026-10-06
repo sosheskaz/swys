@@ -29,7 +29,7 @@ if [[ "${usage_list:-false}" == true ]]; then
   exit
 fi
 
-output="$(mktemp "${TMPDIR:-/tmp}/npc-bench.XXXXXX")"
+output="$(mktemp "${TMPDIR:-/tmp}/swys-bench.XXXXXX")"
 trap 'rm -f -- "$output"' EXIT
 found=0
 packages=()

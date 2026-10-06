@@ -23,8 +23,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 var (
@@ -38,7 +38,7 @@ func TestCertCreateCSRPreservesRawIdentityWithoutDefaults(t *testing.T) {
 	t.Parallel()
 	fixture := newCSRIssueFixture(t)
 	rawSubject := marshalCSRIssueRDNSequence(t, pkix.RDNSequence{
-		{{Type: asn1.ObjectIdentifier{2, 5, 4, 10}, Value: "npc"}, {Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "testing"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 10}, Value: "swys"}, {Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "testing"}},
 		{{Type: asn1.ObjectIdentifier{2, 5, 4, 6}, Value: "US"}},
 	})
 	requestDER := createCSRIssueRequest(t, &x509.CertificateRequest{
@@ -54,7 +54,7 @@ func TestCertCreateCSRPreservesRawIdentityWithoutDefaults(t *testing.T) {
 	if !bytes.Equal(certificate.RawSubject, rawSubject) {
 		t.Fatalf("certificate RawSubject = %x, want CSR RawSubject %x", certificate.RawSubject, rawSubject)
 	}
-	if certificate.Subject.CommonName != "" || !slices.Equal(certificate.Subject.Organization, []string{"npc"}) {
+	if certificate.Subject.CommonName != "" || !slices.Equal(certificate.Subject.Organization, []string{"swys"}) {
 		t.Fatalf("certificate subject = %#v, want preserved non-CN subject", certificate.Subject)
 	}
 }
@@ -63,7 +63,7 @@ func TestCertCreateCSRReplacesOnlyExplicitIdentityCategories(t *testing.T) {
 	t.Parallel()
 	fixture := newCSRIssueFixture(t)
 	requestDER := createCSRIssueRequest(t, &x509.CertificateRequest{
-		Subject:     pkix.Name{CommonName: "original.example", Organization: []string{"npc"}},
+		Subject:     pkix.Name{CommonName: "original.example", Organization: []string{"swys"}},
 		DNSNames:    []string{"original.example", "alt.example"},
 		IPAddresses: []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")},
 	})
@@ -146,9 +146,9 @@ func TestCertCreateCSRIdentityRequirements(t *testing.T) {
 
 	t.Run("non-CN subject", func(t *testing.T) {
 		t.Parallel()
-		requestDER := createCSRIssueRequest(t, &x509.CertificateRequest{Subject: pkix.Name{Organization: []string{"npc client"}}})
+		requestDER := createCSRIssueRequest(t, &x509.CertificateRequest{Subject: pkix.Name{Organization: []string{"swys client"}}})
 		certificate := fixture.issue(t, fixture.writeRequest(t, "organization.csr", requestDER, "CERTIFICATE REQUEST"))
-		if certificate.Subject.CommonName != "" || !slices.Equal(certificate.Subject.Organization, []string{"npc client"}) {
+		if certificate.Subject.CommonName != "" || !slices.Equal(certificate.Subject.Organization, []string{"swys client"}) {
 			t.Fatalf("subject = %#v, want organization without CN", certificate.Subject)
 		}
 	})

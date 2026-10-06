@@ -3,8 +3,8 @@ package aes_test
 import (
 	"testing"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func executeRootStreams(t *testing.T, args ...string) (string, string, error) {

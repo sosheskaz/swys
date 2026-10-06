@@ -33,9 +33,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 )
 
 func TestGRPCDiscoverySelectors(t *testing.T) {

@@ -1,6 +1,6 @@
-Getting started with NPC
+Getting started with SwYS
 
-Use NPC to inspect network services, exchange bytes, and work with keys and
+Use SwYS to inspect network services, exchange bytes, and work with keys and
 certificates. Commands are organized by task, with predictable stdin, stdout,
 and file options where those operations make sense.
 
@@ -20,10 +20,10 @@ Use a fresh local directory. Create a key and a certificate for a local test
 service, then inspect their metadata without printing the private material.
 
   umask 077
-  npc cert keygen > private.pem
-  npc cert key-inspect < private.pem
-  npc cert create --key private.pem --dns localhost > localhost.pem
-  npc cert inspect < localhost.pem
+  swys cert keygen > private.pem
+  swys cert key-inspect < private.pem
+  swys cert create --key private.pem --dns localhost > localhost.pem
+  swys cert inspect < localhost.pem
 
 The certificate names the identity; the private key proves possession of it.
 Keep the key private. This self-signed certificate is for explicit local
@@ -34,7 +34,7 @@ Compose commands with pipes
 Export the certificate as PEM and compute a digest of those exact bytes. Both
 commands work offline with the certificate created above.
 
-  npc cert inspect --format pem < localhost.pem | npc hash sha256
+  swys cert inspect --format pem < localhost.pem | swys hash sha256
 
 This hashes the exported PEM bytes, including their line breaks. A digest
 identifies bytes for comparison; it does not establish trust in the certificate.
@@ -63,6 +63,6 @@ that prepare request bodies.
 
 Choose your next step
 
-  npc help net
-  npc help cert inspect
-  npc --help
+  swys help net
+  swys help cert inspect
+  swys --help

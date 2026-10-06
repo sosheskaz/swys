@@ -5,8 +5,8 @@ Generate an Ed25519 private key by default. Use --algorithm for P-256, P-384, or
 Use --output to save the generated key and --mode to select file permissions. Key generation rejects --input because it has no payload to read.
 
 ```sh
-npc cert keygen -o private.pem -P public.pem
-npc cert create --key private.pem --dns localhost --output localhost.pem
+swys cert keygen -o private.pem -P public.pem
+swys cert create --key private.pem --dns localhost --output localhost.pem
 ```
 
 The private key is PKCS#8 PEM and goes to --output/-o, or stdout when omitted. --public-out/-P optionally writes the matching public key to a separate file. --public-format selects pkix-pem (default), pkix-der, or openssh for that public key. Private output is sensitive; existing files must have acceptable permissions.
@@ -20,20 +20,20 @@ The private key is PKCS#8 PEM and goes to --output/-o, or stdout when omitted. -
 Choose the algorithm required by the certificate consumer. The default private container remains PKCS#8 PEM.
 
 ```sh
-npc cert keygen --algorithm p256 --output p256.pem
-npc cert keygen --algorithm rsa2048 --output rsa.pem
+swys cert keygen --algorithm p256 --output p256.pem
+swys cert keygen --algorithm rsa2048 --output rsa.pem
 ```
 
 Use **cert key-public** to export the public key later, and **cert key-inspect** for metadata without printing private bytes.
 
 ```sh
-npc cert key-inspect --input private.pem --format json
+swys cert key-inspect --input private.pem --format json
 ```
 
 ## Reference
 
 ```sh
-npc help cert key-public
-npc help cert key-inspect
-npc cert keygen --help
+swys help cert key-public
+swys help cert key-inspect
+swys cert keygen --help
 ```

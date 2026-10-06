@@ -1,8 +1,8 @@
-# golangci-lint configuration for npc
+# golangci-lint configuration for swys
 # golangci-lint v2 configuration format
 #
 # Tracks sosheskaz/healthchecksio-cli, taking the stricter setting wherever the
-# two configs disagree. npc-specific divergences:
+# two configs disagree. swys-specific divergences:
 # - performance linters emphasized (perfsprint, prealloc, exptostd, gocritic
 #   performance tag) per this project's low-allocation goals
 # - SQL linters omitted: no database/sql dependency, so they cannot fire.
@@ -219,7 +219,7 @@ linters:
         - errors.Unwrap(
         - errors.Join(
       ignore-package-globs:
-        - github.com/sosheskaz-systems/npc/*
+        - github.com/sosheskaz/swys/*
 
     forbidigo:
       forbid:
@@ -296,13 +296,13 @@ formatters:
     - gofumpt
   settings:
     gofumpt:
-      module-path: github.com/sosheskaz-systems/npc
+      module-path: github.com/sosheskaz/swys
       extra-rules: true
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/sosheskaz-systems/npc)
+        - prefix(github.com/sosheskaz/swys)
       custom-order: true
 
 issues:

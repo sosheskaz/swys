@@ -1,6 +1,6 @@
 package dns
 
-import "github.com/sosheskaz-systems/npc/internal/dnsquery"
+import "github.com/sosheskaz/swys/internal/dnsquery"
 
 func DirectRecordTypesForTest() []string { return directDNSRecordTypes() }
 

@@ -55,7 +55,7 @@ fi
 emit_output artifact_id "$artifact_id"
 
 output_dir="$(dirname -- "$output_profile")"
-temp_dir="$(mktemp -d "${output_dir}/.npc-coverage-baseline.XXXXXX")"
+temp_dir="$(mktemp -d "${output_dir}/.swys-coverage-baseline.XXXXXX")"
 trap 'rm -rf -- "$temp_dir"' EXIT
 gh run download "$run_id" --name coverage-main --dir "$temp_dir"
 if [[ ! -f "$temp_dir/coverage.out" ]]; then

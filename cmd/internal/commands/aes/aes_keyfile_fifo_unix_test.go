@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 )
 
 const (
-	aesKeyfileOrderProcessEnv = "NPC_AES_KEYFILE_ORDER_PROCESS"
+	aesKeyfileOrderProcessEnv = "SWYS_AES_KEYFILE_ORDER_PROCESS"
 	testPreservedOutput       = "preserve this output"
 )
 

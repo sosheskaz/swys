@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 type httpTrace struct {

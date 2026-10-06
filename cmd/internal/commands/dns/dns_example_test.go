@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 var errUnexpectedSystemLookup = errors.New("unexpected system resolver call")
@@ -72,7 +72,7 @@ func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 		},
 	})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "dns", "example.test")
-	require.NoError(t, err, "npc dns example.test")
+	require.NoError(t, err, "swys dns example.test")
 	want := ";; resolver: system\n;; server: unavailable\n" +
 		";; status: unavailable; DNS packet metadata and TTLs unavailable\n\n" +
 		"example.test.\t-\tIN\tA\t192.0.2.10\n"
@@ -94,7 +94,7 @@ func TestExampleDNSValuesJSON(t *testing.T) {
 		},
 	})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "AAAA", "--select", "values", "--format", "json")
-	require.NoError(t, err, "npc dns example.test AAAA --select values --format json")
+	require.NoError(t, err, "swys dns example.test AAAA --select values --format json")
 	assert.Equal(t, "[\n  \"2001:db8::10\",\n  \"2001:db8::20\"\n]\n", stdout)
 }
 

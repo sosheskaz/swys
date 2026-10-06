@@ -1,4 +1,4 @@
-module github.com/sosheskaz-systems/npc
+module github.com/sosheskaz/swys
 
 go 1.27.0
 

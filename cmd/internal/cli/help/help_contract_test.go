@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestEmbeddedGuidesCoverEveryPublicCommand(t *testing.T) {
@@ -47,11 +47,11 @@ func TestEmbeddedGuidesCoverEveryPublicCommand(t *testing.T) {
 			assert.True(t, guideHasBlock(blocks, guideCodeBlock), "leaf guide %q has no executable example", guideDisplayPath(path))
 		}
 
-		reference := "npc --help"
+		reference := "swys --help"
 		if help.IsGuideCommand(command) {
-			reference = "npc help --help"
+			reference = "swys help --help"
 		} else if path != "" {
-			reference = "npc " + path + " --help"
+			reference = "swys " + path + " --help"
 		}
 		assert.True(t, sourceHasCommand(source, reference), "guide %q lacks reference invocation %q", guideDisplayPath(path), reference)
 	}
@@ -63,7 +63,7 @@ func TestGuideNavigationReferencesResolveThroughCommandTree(t *testing.T) {
 	root := initializedGuideRoot()
 	guides, err := loadEmbeddedGuides(root)
 	require.NoError(t, err)
-	navigation := regexp.MustCompile(`(?m)^npc help(?: ([^\r\n]+))?$`)
+	navigation := regexp.MustCompile(`(?m)^swys help(?: ([^\r\n]+))?$`)
 	for path, source := range guides {
 		for _, match := range navigation.FindAllSubmatch(source, -1) {
 			fields := strings.Fields(string(match[1]))
@@ -139,7 +139,7 @@ func TestEveryPublicCommandReferenceHelpPointsToItsGuide(t *testing.T) {
 			args = append(args, "--help")
 			stdout, stderr, err := executeRootStreams(t, args...)
 			require.NoError(t, err)
-			invocation := "npc help"
+			invocation := "swys help"
 			if path != "" {
 				invocation += " " + path
 			}

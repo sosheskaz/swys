@@ -18,13 +18,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 const (
-	pagerSignalHelperEnvironment = "NPC_TEST_PAGER_SIGNAL_HELPER"
-	pagerSignalRaceEnvironment   = "NPC_TEST_PAGER_SIGNAL_RACE"
+	pagerSignalHelperEnvironment = "SWYS_TEST_PAGER_SIGNAL_HELPER"
+	pagerSignalRaceEnvironment   = "SWYS_TEST_PAGER_SIGNAL_RACE"
 )
 
 // Hold the root signal handler before it records the first signal or its
@@ -176,7 +176,7 @@ func TestPagerSignalRaceHelperProcess(t *testing.T) { //nolint:paralleltest // s
 
 // The root handler stops intercepting after its first signal, so only real
 // signals delivered to a real process show what a later one does to the pager.
-func TestPagerEndsWithNPCAfterTerminationSignals(t *testing.T) {
+func TestPagerEndsWithSwYSAfterTerminationSignals(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name          string
@@ -238,7 +238,7 @@ func TestPagerEndsWithNPCAfterTerminationSignals(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				t.Fatal("run outlived the termination signal")
 			}
-			waitUntil(t, func() bool { return errors.Is(syscall.Kill(pagerPID, 0), syscall.ESRCH) }, "pager outlived npc")
+			waitUntil(t, func() bool { return errors.Is(syscall.Kill(pagerPID, 0), syscall.ESRCH) }, "pager outlived swys")
 		})
 	}
 }
@@ -253,7 +253,7 @@ func TestPagerSignalHelperProcess(t *testing.T) { //nolint:paralleltest // subpr
 	err := interrupt.Attribute(ctx, runSignalGuide(ctx, directory, "release"))
 	if err != nil {
 		// Like main, report on stderr, which the stalled-stderr case has filled.
-		_, _ = fmt.Fprintf(os.Stderr, "npc: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "swys: %v\n", err)
 	}
 	status := interrupt.ExitCode(err)
 	stop()
@@ -261,7 +261,7 @@ func TestPagerSignalHelperProcess(t *testing.T) { //nolint:paralleltest // subpr
 }
 
 func runSignalGuide(ctx context.Context, directory, release string) error {
-	root := &cobra.Command{Use: "npc"}
+	root := &cobra.Command{Use: "swys"}
 	root.AddCommand(&cobra.Command{Use: "net", Run: func(*cobra.Command, []string) {}})
 	root.SetContext(ctx)
 	root.SetOut(io.Discard)
@@ -280,7 +280,7 @@ func runSignalGuide(ctx context.Context, directory, release string) error {
 		Terminal: func(io.Writer) (bool, int) { return true, 80 },
 		Command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
 			return exec.CommandContext(ctx, os.Args[0],
-				"-test.run=^TestSignalPagerChildProcess$", "--", "npc-signal-pager",
+				"-test.run=^TestSignalPagerChildProcess$", "--", "swys-signal-pager",
 				filepath.Join(directory, "started"), filepath.Join(directory, release))
 		},
 	}, nil)
@@ -293,7 +293,7 @@ func runSignalGuide(ctx context.Context, directory, release string) error {
 func TestSignalPagerChildProcess(t *testing.T) { //nolint:paralleltest // subprocess branch exits the test process
 	marker := -1
 	for index, argument := range os.Args {
-		if argument == "npc-signal-pager" {
+		if argument == "swys-signal-pager" {
 			marker = index
 			break
 		}

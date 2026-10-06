@@ -22,16 +22,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/internal/securefile"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/internal/securefile"
 )
 
 var errTestCommandFailed = errors.New("command failed")
 
 func TestAESMalformedLiteralKeyProtectsDiagnosticsAndIO(t *testing.T) {
 	t.Parallel()
-	const synthetic = "NPC_SYNTHETIC_KEY_MATERIAL!"
+	const synthetic = "SWYS_SYNTHETIC_KEY_MATERIAL!"
 	const credentialFlag = "--key-base64"
 	t.Run("execution", func(t *testing.T) {
 		t.Parallel()

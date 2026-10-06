@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 var errKeyTestReadFailed = errors.New("read failed")

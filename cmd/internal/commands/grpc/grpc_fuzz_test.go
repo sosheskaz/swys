@@ -21,7 +21,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 )
 
 const maxGRPCFuzzInput = 4 << 10
@@ -397,7 +397,7 @@ func writeGRPCFixtureProtosetForFuzz(f *testing.F, set *descriptorpb.FileDescrip
 	if err != nil {
 		f.Fatal(err)
 	}
-	directory, err := os.MkdirTemp("", "npc-grpc-fuzz-")
+	directory, err := os.MkdirTemp("", "swys-grpc-fuzz-")
 	if err != nil {
 		f.Fatal(err)
 	}

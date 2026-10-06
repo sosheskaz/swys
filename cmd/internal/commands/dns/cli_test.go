@@ -6,11 +6,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	dnscommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/dns"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
-	"github.com/sosheskaz-systems/npc/internal/dnsquery"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	dnscommand "github.com/sosheskaz/swys/cmd/internal/commands/dns"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
 var (

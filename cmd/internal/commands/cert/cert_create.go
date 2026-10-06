@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/internal/asym"
 )
 
 const (
@@ -42,9 +42,9 @@ both TLS server and client authentication unless narrowed.
 
 --ca creates a self-signed mini-CA valid for 365 days. --issuer-cert and
 --issuer-key create a CA-signed leaf. Use --key to select existing private
-material, including a key created with npc cert keygen.
+material, including a key created with swys cert keygen.
 
-npc never installs generated authorities into a trust store. Trust a generated
+swys never installs generated authorities into a trust store. Trust a generated
 CA only in an explicitly selected test store, never system-wide.`,
 		Args: cobra.NoArgs,
 		RunE: runCertCreate,
@@ -79,7 +79,7 @@ func newCertCSRCmd() *cobra.Command {
 private key. The request contains only its subject and requested DNS/IP SANs.
 Its subject defaults to the first --dns value, or CN=localhost; with no subject
 or SAN flags, localhost is also added as a DNS SAN. Submit the emitted request
-to the intended CA, or sign it locally with npc cert create --csr and an issuer identity.`,
+to the intended CA, or sign it locally with swys cert create --csr and an issuer identity.`,
 		Args: cobra.NoArgs,
 		RunE: runCertCSR,
 	}, true)

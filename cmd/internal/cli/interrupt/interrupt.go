@@ -36,7 +36,7 @@ type firstInterrupt struct {
 	signal os.Signal
 }
 
-// Error is the text printed after "npc:" when a signal ends a run.
+// Error is the text printed after "swys:" when a signal ends a run.
 func (interrupt *Error) Error() string {
 	if interrupt.signal == os.Interrupt {
 		return "interrupted"
@@ -81,7 +81,7 @@ func ExitCode(err error) int {
 
 // WithInterrupt returns a context canceled by the first terminating signal; a
 // second signal gets the signal's prior behavior. A run still going interruptGrace
-// after the first signal is ended anyway. SIGPIPE is left alone so "npc | head"
+// after the first signal is ended anyway. SIGPIPE is left alone so "swys | head"
 // still ends on a closed stdout.
 func WithInterrupt(parent context.Context) (context.Context, context.CancelFunc) {
 	return withInterrupt(parent, newBackstop(interruptGrace, os.Stderr, os.Exit))
@@ -163,7 +163,7 @@ func newBackstop(grace time.Duration, stderr io.Writer, exit func(int)) func(*Er
 				noted := make(chan struct{})
 				go func() {
 					defer close(noted)
-					_, _ = fmt.Fprintf(stderr, "npc: %v (forced exit after %s)\n", interrupt, grace) //nolint:errcheck // the process is exiting
+					_, _ = fmt.Fprintf(stderr, "swys: %v (forced exit after %s)\n", interrupt, grace) //nolint:errcheck // the process is exiting
 				}()
 				select {
 				case <-noted:
@@ -239,7 +239,7 @@ func FirstSignal(ctx context.Context) os.Signal { return firstInterruptSignal(ct
 func Attribute(ctx context.Context, err error) error { return attributeInterrupt(ctx, err) }
 
 // PagerContext keeps Ctrl-C from killing the pager: the terminal sends
-// SIGINT to the pager too, and exec.CommandContext would kill it while npc
+// SIGINT to the pager too, and exec.CommandContext would kill it while swys
 // waits to reap it. Any other cancellation still terminates the pager.
 //
 // While the pager owns Ctrl-C the backstop is paused; releasing the returned

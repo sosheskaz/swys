@@ -22,7 +22,7 @@ import (
 	externalDNS "codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsutil"
 
-	"github.com/sosheskaz-systems/npc/internal/netconn"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 // Resolver identifies the source used to resolve a query.

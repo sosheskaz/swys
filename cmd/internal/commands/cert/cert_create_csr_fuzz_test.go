@@ -22,7 +22,7 @@ var errCSRIssueFuzzOracle = errors.New("CSR issuance fuzz oracle rejected input"
 func FuzzCertCreateCSRStrictInput(f *testing.F) {
 	fixture := newCSRIssueFixture(f)
 	validDER := createCSRIssueRequest(f, &x509.CertificateRequest{
-		Subject:     pkix.Name{CommonName: "fuzz.example", Organization: []string{"npc"}},
+		Subject:     pkix.Name{CommonName: "fuzz.example", Organization: []string{"swys"}},
 		DNSNames:    []string{"fuzz.example"},
 		IPAddresses: []net.IP{net.ParseIP("192.0.2.50")},
 	})

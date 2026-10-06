@@ -10,7 +10,7 @@ positive_integer() {
 
 package_worker_args() {
   package_args=()
-  local workers="${usage_package_workers:-${NPC_TEST_PACKAGE_WORKERS:-}}"
+  local workers="${usage_package_workers:-${SWYS_TEST_PACKAGE_WORKERS:-}}"
   if [[ -n "$workers" ]]; then
     positive_integer 'package workers' "$workers" || return
     package_args=(-p "$workers")

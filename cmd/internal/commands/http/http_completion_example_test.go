@@ -149,30 +149,30 @@ func TestHTTPGeneratedFishCompletionTraversesDirectoriesWithSpaces(t *testing.T)
 	literalCollisionPath := filepath.Join(literalCollision, "literal.json")
 	writeCompletionFixture(t, literalCollisionPath)
 
-	completionPath := filepath.Join(t.TempDir(), "npc.fish")
+	completionPath := filepath.Join(t.TempDir(), "swys.fish")
 	generate := exec.CommandContext(
 		t.Context(), os.Args[0], "-test.run=TestHTTPFishCompletionHelper", "--", "completion", "fish",
 	)
-	generate.Env = append(os.Environ(), "NPC_HTTP_COMPLETION_HELPER=1")
+	generate.Env = append(os.Environ(), "SWYS_HTTP_COMPLETION_HELPER=1")
 	generated, err := generate.Output()
 	require.NoError(t, err, "generate Fish completion: %v", err)
 	require.NoError(t, os.WriteFile(completionPath, generated, 0o600))
 
 	escapedFixture := strings.ReplaceAll(fixture, " ", `\ `) + string(filepath.Separator)
 	command := exec.CommandContext(t.Context(), fish, "-c", `
-function npc
-    env NPC_HTTP_COMPLETION_HELPER=1 $TEST_BINARY -test.run=TestHTTPFishCompletionHelper -- $argv
+function swys
+    env SWYS_HTTP_COMPLETION_HELPER=1 $TEST_BINARY -test.run=TestHTTPFishCompletionHelper -- $argv
 end
 source $COMPLETION_SCRIPT
-complete -C "npc http --json @$ESCAPED_FIXTURE"
-complete -C "npc http --file attachment=$ESCAPED_FIXTURE"
-complete -C "npc http --json @$ESCAPED_FILE_PREFIX"
-complete -C "npc http --file attachment=$ESCAPED_FILE_PREFIX"
-complete -C "npc http --json @$ESCAPED_DIRECTORY_PREFIX"
-complete -C "npc http --json @$ESCAPED_PARENT"
-complete -C "npc http --json @$ESCAPED_LITERAL"
-complete -C "npc http --header Authorization:"
-complete -C "npc net connect --tls --alpn h"
+complete -C "swys http --json @$ESCAPED_FIXTURE"
+complete -C "swys http --file attachment=$ESCAPED_FIXTURE"
+complete -C "swys http --json @$ESCAPED_FILE_PREFIX"
+complete -C "swys http --file attachment=$ESCAPED_FILE_PREFIX"
+complete -C "swys http --json @$ESCAPED_DIRECTORY_PREFIX"
+complete -C "swys http --json @$ESCAPED_PARENT"
+complete -C "swys http --json @$ESCAPED_LITERAL"
+complete -C "swys http --header Authorization:"
+complete -C "swys net connect --tls --alpn h"
 `)
 	command.Env = append(os.Environ(),
 		"TEST_BINARY="+os.Args[0],
@@ -214,7 +214,7 @@ complete -C "npc net connect --tls --alpn h"
 func TestHTTPFishCompletionHelper(t *testing.T) {
 	t.Parallel()
 
-	if os.Getenv("NPC_HTTP_COMPLETION_HELPER") != "1" {
+	if os.Getenv("SWYS_HTTP_COMPLETION_HELPER") != "1" {
 		return
 	}
 	separator := slices.Index(os.Args, "--")

@@ -15,7 +15,7 @@ import (
 	"github.com/tink-crypto/tink-go/v2/tink"
 )
 
-// MaxOpenPGPChunkSize is the largest OpenPGP AEAD plaintext chunk NPC writes or
+// MaxOpenPGPChunkSize is the largest OpenPGP AEAD plaintext chunk SwYS writes or
 // accepts.
 const MaxOpenPGPChunkSize = 4 << 20
 

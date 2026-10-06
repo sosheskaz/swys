@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 )
 
 func TestNetProtocolCompletionContract(t *testing.T) {

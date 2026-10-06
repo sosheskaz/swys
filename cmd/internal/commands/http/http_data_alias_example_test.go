@@ -29,7 +29,7 @@ func TestExampleHTTPDataShortAlias(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	stdout, stderr, err := executeRootStreams(t, "http", server.URL, "-X", "POST", "-d", "hello")
-	require.NoError(t, err, "npc http URL -X POST -d DATA: %v", err)
+	require.NoError(t, err, "swys http URL -X POST -d DATA: %v", err)
 	if body := <-received; body != "hello" {
 		t.Fatalf("body = %q, want literal data", body)
 	}

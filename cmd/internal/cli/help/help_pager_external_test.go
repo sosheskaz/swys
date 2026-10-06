@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 )
 
 func TestGuideRenderingAndPagerSelectionMatrix(t *testing.T) {
@@ -112,7 +112,7 @@ func TestGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
 }
 
 func TestGuidePagerReceivesQuotedArgumentsAndInheritedEnvironment(t *testing.T) {
-	const environmentName = "NPC_HELP_PAGER_INHERITED_TEST"
+	const environmentName = "SWYS_HELP_PAGER_INHERITED_TEST"
 	t.Setenv(environmentName, "visible")
 	marker := filepath.Join(t.TempDir(), "pager-record")
 	pager := guidePagerHelperCommand("record", marker, "two words", environmentName)
@@ -227,7 +227,7 @@ func TestGuidePagerReportsNonzeroExit(t *testing.T) {
 }
 
 func TestGuidePagerHelperProcess(t *testing.T) { //nolint:paralleltest // subprocess branch exits the test process
-	markerIndex := slices.Index(os.Args, "npc-help-pager")
+	markerIndex := slices.Index(os.Args, "swys-help-pager")
 	if markerIndex < 0 {
 		t.Parallel()
 
@@ -291,7 +291,7 @@ func guidePagerHelperCommand(action string, arguments ...string) string {
 		quotePagerTestArgument(os.Args[0]),
 		"-test.run=^TestGuidePagerHelperProcess$",
 		"--",
-		"npc-help-pager",
+		"swys-help-pager",
 		action,
 	}
 	for _, argument := range arguments {

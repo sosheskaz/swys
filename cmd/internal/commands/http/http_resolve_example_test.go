@@ -32,7 +32,7 @@ func TestExampleHTTPResolve(t *testing.T) {
 		"http", "http://"+requestHost,
 		"--resolve", resolve,
 	)
-	require.NoError(t, err, "npc http --resolve: %v", err)
+	require.NoError(t, err, "swys http --resolve: %v", err)
 	assert.Equal(t, "resolved", stdout)
 	assert.Empty(t, stderr)
 	if host := <-receivedHost; host != requestHost {

@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/sosheskaz-systems/npc/internal/contextio"
+	"github.com/sosheskaz/swys/internal/contextio"
 )
 
 var errInterrupted = errors.New("interrupted")

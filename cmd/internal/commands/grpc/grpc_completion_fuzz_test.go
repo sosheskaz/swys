@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	grpccommand "github.com/sosheskaz-systems/npc/cmd/internal/commands/grpc"
+	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 )
 
 func FuzzGRPCCompletionRejectsLineInjection(f *testing.F) {

@@ -19,7 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 )
 
 func TestGuidePagerWaitsThroughTerminalInterrupts(t *testing.T) {
@@ -30,7 +30,7 @@ func TestGuidePagerWaitsThroughTerminalInterrupts(t *testing.T) {
 			directory := t.TempDir()
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
-			process := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGuidePagerInterruptHelperProcess$", "--", "npc-pager-interrupt", "controller", directory)
+			process := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGuidePagerInterruptHelperProcess$", "--", "swys-pager-interrupt", "controller", directory)
 			process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 			process.Stdout = io.Discard
 			process.Stderr = io.Discard
@@ -55,7 +55,7 @@ func TestGuidePagerWaitsThroughTerminalInterrupts(t *testing.T) {
 			waitPagerSignalFile(ctx, t, filepath.Join(directory, "handled"))
 			select {
 			case err := <-exited:
-				t.Fatalf("NPC exited before its pager after %s: %v", interrupt, err)
+				t.Fatalf("SwYS exited before its pager after %s: %v", interrupt, err)
 			case <-time.After(100 * time.Millisecond):
 			}
 			if err := os.WriteFile(filepath.Join(directory, "release"), nil, 0o600); err != nil {
@@ -101,7 +101,7 @@ func waitPagerSignalFile(ctx context.Context, t *testing.T, path string) []byte 
 }
 
 func TestGuidePagerInterruptHelperProcess(t *testing.T) { //nolint:paralleltest // subprocess branch exits the test process
-	marker := slices.Index(os.Args, "npc-pager-interrupt")
+	marker := slices.Index(os.Args, "swys-pager-interrupt")
 	if marker < 0 {
 		t.Parallel()
 		return
@@ -113,7 +113,7 @@ func TestGuidePagerInterruptHelperProcess(t *testing.T) { //nolint:paralleltest 
 	directory := arguments[1]
 	switch arguments[0] {
 	case "controller":
-		root := &cobra.Command{Use: "npc"}
+		root := &cobra.Command{Use: "swys"}
 		root.AddCommand(&cobra.Command{Use: "net", Run: func(*cobra.Command, []string) {}})
 		root.SetOut(io.Discard)
 		root.SetErr(io.Discard)
@@ -130,7 +130,7 @@ func TestGuidePagerInterruptHelperProcess(t *testing.T) { //nolint:paralleltest 
 			},
 			Terminal: func(io.Writer) (bool, int) { return true, 80 },
 			Command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-				return exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGuidePagerInterruptHelperProcess$", "--", "npc-pager-interrupt", "pager", directory)
+				return exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGuidePagerInterruptHelperProcess$", "--", "swys-pager-interrupt", "pager", directory)
 			},
 		}, nil)
 		if err := root.Execute(); err != nil {

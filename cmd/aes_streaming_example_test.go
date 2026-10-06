@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 //nolint:paralleltest // The greater-than-64-MiB process pipeline is intentionally serial to bound peak memory.

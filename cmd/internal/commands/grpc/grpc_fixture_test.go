@@ -911,7 +911,7 @@ func grpcFixtureCertificate(t *testing.T) (tls.Certificate, []byte) {
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "npc gRPC fixture"},
+		Subject:               pkix.Name{CommonName: "swys gRPC fixture"},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(time.Hour),
 		DNSNames:              []string{"localhost"},
@@ -968,7 +968,7 @@ func grpcFixtureCertificateAuthority(t *testing.T) (*x509.Certificate, *ecdsa.Pr
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(100),
-		Subject:               pkix.Name{CommonName: "npc gRPC test CA"},
+		Subject:               pkix.Name{CommonName: "swys gRPC test CA"},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
@@ -989,7 +989,7 @@ func grpcFixtureSignedCertificate(t *testing.T, ca *x509.Certificate, caKey *ecd
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(101),
-		Subject:               pkix.Name{CommonName: "npc gRPC server"},
+		Subject:               pkix.Name{CommonName: "swys gRPC server"},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
@@ -998,7 +998,7 @@ func grpcFixtureSignedCertificate(t *testing.T, ca *x509.Certificate, caKey *ecd
 	}
 	if client {
 		template.SerialNumber = big.NewInt(102)
-		template.Subject = pkix.Name{CommonName: "npc gRPC client"}
+		template.Subject = pkix.Name{CommonName: "swys gRPC client"}
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	} else {
 		template.DNSNames = []string{"localhost"}

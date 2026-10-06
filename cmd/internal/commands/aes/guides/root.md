@@ -13,19 +13,19 @@ Use a raw 128-bit or 256-bit AES key, a cleartext Tink streaming keyset, or a pa
 ## Start with a raw key
 
 ```sh
-npc aes keygen --output key.bin
-printf 'secret message' | npc aes encrypt --key key.bin --output message.pgp
-npc aes decrypt --key key.bin --input message.pgp
+swys aes keygen --output key.bin
+printf 'secret message' | swys aes encrypt --key key.bin --output message.pgp
+swys aes decrypt --key key.bin --input message.pgp
 ```
 
 OpenPGP records a power-of-two chunk size from 64 bytes through 4 MiB; the default is 1 MiB. Tink uses ciphertext segments from 64 bytes through 64 MiB. Tink keyset parameters are authoritative. An explicit conflicting override is rejected.
 
 A password selects OpenPGP AES-256 with an Argon2id password wrapper; see the encrypt and decrypt guides for its cost limits.
 
-Historical NPC v1/v2 streams, raw GCM messages, and CBC ciphertext require an older NPC binary. There is no format detection or authentication-failure fallback.
+Historical SwYS v1/v2 streams, raw GCM messages, and CBC ciphertext require an older SwYS binary. There is no format detection or authentication-failure fallback.
 
 ## Reference
 
 ```sh
-npc aes --help
+swys aes --help
 ```

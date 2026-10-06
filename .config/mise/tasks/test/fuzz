@@ -7,8 +7,8 @@
 #USAGE   choices "smoke" "explore"
 #USAGE }
 #USAGE flag "--fuzztime <budget>" help="Override the preset with a positive duration or iteration count"
-#USAGE flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="NPC_TEST_PACKAGE_WORKERS"
-#USAGE flag "--fuzz-workers <count>" help="Fuzz subprocess concurrency; unset uses GOMAXPROCS" env="NPC_FUZZ_WORKERS"
+#USAGE flag "--package-workers <count>" help="Go package/build concurrency; unset uses Go's default" env="SWYS_TEST_PACKAGE_WORKERS"
+#USAGE flag "--fuzz-workers <count>" help="Fuzz subprocess concurrency; unset uses GOMAXPROCS" env="SWYS_FUZZ_WORKERS"
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../../lib/go-test.sh"
 package_worker_args
@@ -20,7 +20,7 @@ esac
 budget="${usage_fuzztime:-$budget}"
 validate_budget fuzztime "$budget"
 fuzz_args=()
-workers="${usage_fuzz_workers:-${NPC_FUZZ_WORKERS:-}}"
+workers="${usage_fuzz_workers:-${SWYS_FUZZ_WORKERS:-}}"
 if [[ -n "$workers" ]]; then
   positive_integer 'fuzz workers' "$workers"
   fuzz_args=(-parallel "$workers")
@@ -43,7 +43,7 @@ count=0
 while IFS=$'\t' read -r package target; do
   printf '==> %s %s (%s; fuzz workers=%s; package workers=%s)\n' \
     "$package" "$target" "$budget" "${workers:-Go default}" \
-    "${usage_package_workers:-${NPC_TEST_PACKAGE_WORKERS:-Go default}}"
+    "${usage_package_workers:-${SWYS_TEST_PACKAGE_WORKERS:-Go default}}"
   go test -buildvcs=false ${package_args[@]+"${package_args[@]}"} "$package" -run='^$' \
     -fuzz="^${target}$" -fuzztime="$budget" ${fuzz_args[@]+"${fuzz_args[@]}"}
   count=$((count + 1))

@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 // ExitCode maps the error from Execute or ExecuteContext to an exit status.

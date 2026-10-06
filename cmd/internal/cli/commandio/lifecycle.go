@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 )
 
 // Behavior describes the command-specific work around the shared I/O lifecycle.

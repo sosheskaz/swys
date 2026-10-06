@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const branchCommandShape = "npc.help.branch"
+const branchCommandShape = "swys.help.branch"
 
 // ConfigureBranch makes Cobra validate child names before command I/O.
 func ConfigureBranch(command *cobra.Command) {

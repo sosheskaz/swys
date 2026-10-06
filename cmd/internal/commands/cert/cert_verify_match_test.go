@@ -37,9 +37,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	byteencoding "github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 )
 
 const (
@@ -166,7 +166,7 @@ func TestCertVerifyReadsCustomRootsFromStdin(t *testing.T) {
 				"cert", "verify", "--input", chainPath, "--ca", "-",
 				"--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json",
 			)
-			require.NoError(t, err, "npc cert verify with %s CA on stdin: %v (stderr %q)", test.name, err, stderr)
+			require.NoError(t, err, "swys cert verify with %s CA on stdin: %v (stderr %q)", test.name, err, stderr)
 			assertCertBooleanReport(t, stdout, "verified", true)
 		})
 	}
@@ -655,7 +655,7 @@ func TestCertMatchEveryOperandCombination(t *testing.T) {
 			args := append([]string{"cert", "match"}, test.args...)
 			args = append(args, "--format", "json")
 			stdout, stderr, err := executeRootStreams(t, args...)
-			require.NoError(t, err, "npc cert match: %v (stderr %q)", err, stderr)
+			require.NoError(t, err, "swys cert match: %v (stderr %q)", err, stderr)
 			assertCertBooleanReport(t, stdout, "match", true)
 			assertCertReportPublicDetails(t, stdout)
 		})
@@ -931,7 +931,7 @@ func TestCertCommandsUseProcessExitStatus(t *testing.T) {
 
 func TestCertCommandHelperProcess(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("NPC_CERT_TEST_HELPER") != "1" {
+	if os.Getenv("SWYS_CERT_TEST_HELPER") != "1" {
 		return
 	}
 	separator := slices.Index(os.Args, "--")
@@ -954,7 +954,7 @@ func runCertTestProcess(t *testing.T, args ...string) int {
 	t.Helper()
 	processArgs := append([]string{"-test.run=^TestCertCommandHelperProcess$", "--"}, args...)
 	command := exec.CommandContext(t.Context(), os.Args[0], processArgs...)
-	command.Env = append(os.Environ(), "NPC_CERT_TEST_HELPER=1")
+	command.Env = append(os.Environ(), "SWYS_CERT_TEST_HELPER=1")
 	err := command.Run()
 	if err == nil {
 		return 0

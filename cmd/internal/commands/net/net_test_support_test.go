@@ -8,12 +8,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
-	netcmd "github.com/sosheskaz-systems/npc/cmd/internal/commands/net"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	netcmd "github.com/sosheskaz/swys/cmd/internal/commands/net"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 var (

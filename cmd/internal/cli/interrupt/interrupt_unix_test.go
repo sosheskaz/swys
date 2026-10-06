@@ -11,7 +11,7 @@ import (
 )
 
 // SIGPIPE must stay out of the set: notifying it would turn a closed stdout
-// from "end the process" into write errors and break "npc ... | head".
+// from "end the process" into write errors and break "swys ... | head".
 func TestInterruptSignalsLeaveSIGPIPEAndSIGQUITAlone(t *testing.T) {
 	t.Parallel()
 	want := []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}

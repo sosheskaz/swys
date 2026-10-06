@@ -15,8 +15,8 @@ import (
 	"github.com/tink-crypto/tink-go/v2/streamingaead"
 	"google.golang.org/protobuf/proto"
 
-	rootcmd "github.com/sosheskaz-systems/npc/cmd"
-	"github.com/sosheskaz-systems/npc/cmd/internal/testcmd"
+	rootcmd "github.com/sosheskaz/swys/cmd"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestExampleAESKeyContainerWorkflow(t *testing.T) {

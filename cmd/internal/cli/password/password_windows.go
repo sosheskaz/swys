@@ -18,7 +18,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
 )
 
 var (

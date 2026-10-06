@@ -20,11 +20,11 @@ import (
 	"github.com/tink-crypto/tink-go/v2/streamingaead/subtle"
 	"github.com/tink-crypto/tink-go/v2/tink"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/artifact"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
-	"github.com/sosheskaz-systems/npc/internal/crypter"
-	"github.com/sosheskaz-systems/npc/internal/symkey"
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/internal/crypter"
+	"github.com/sosheskaz/swys/internal/symkey"
 )
 
 const (

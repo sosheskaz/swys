@@ -14,11 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/certinput"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/encoding"
-	"github.com/sosheskaz-systems/npc/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz-systems/npc/internal/netconn"
+	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 func newNetListenCmd(lifecycle *commandio.Lifecycle) *cobra.Command {
