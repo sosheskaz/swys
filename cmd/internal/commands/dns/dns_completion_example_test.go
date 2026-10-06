@@ -44,6 +44,11 @@ func executeDNSCompletion(t *testing.T, args ...string) ([]string, cobra.ShellCo
 			return nil, errUnexpectedSystemLookup
 		},
 	})
+	return executeDNSRootCompletion(t, root, args...)
+}
+
+func executeDNSRootCompletion(t *testing.T, root *cobra.Command, args ...string) ([]string, cobra.ShellCompDirective) {
+	t.Helper()
 	stdout, _, err := executeRootCommandStreams(t, root, append([]string{"__complete"}, args...)...)
 	if err != nil {
 		t.Fatalf("complete %q: %v", args, err)

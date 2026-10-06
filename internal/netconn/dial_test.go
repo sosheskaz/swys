@@ -194,14 +194,6 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
-	_, nativeRefusalErr := (&net.Dialer{}).DialContext(t.Context(), "tcp", address)
-	if nativeRefusalErr == nil {
-		t.Fatal("native TCP dial connected to a closed loopback address")
-	}
-	var syscallErr *os.SyscallError
-	if !errors.As(nativeRefusalErr, &syscallErr) {
-		t.Fatalf("native TCP refusal = %T %v, want wrapped system call error", nativeRefusalErr, nativeRefusalErr)
-	}
 	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*tcpRefusedRetryInterval, errDialRetryCanceled)
 	defer cancel()
 
@@ -214,7 +206,7 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 	}
 	require.ErrorIs(t, err, errDialRetryCanceled)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.ErrorIs(t, err, syscallErr.Err)
+	require.True(t, isConnectionRefused(err), "retry error must preserve connection-refused identity: %v", err)
 }
 
 func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {

@@ -13,7 +13,9 @@ npc dns example.com
 npc dns 2001:db8::10 --reverse
 ```
 
-Ask a particular DNS server by putting its address first. A selected server, transport, or port uses direct DNS and exposes packet-level response details.
+## Query a DNS server directly
+
+The server must be reachable over the selected protocol. Ask a particular DNS server by putting its address first. A selected server, transport, or port uses direct DNS and exposes packet-level response details.
 
 ```sh
 npc dns @1.1.1.1 example.com AAAA
@@ -21,6 +23,17 @@ npc dns @tcp://1.1.1.1 example.com MX --select values
 ```
 
 Direct UDP retries a truncated response over TCP. A system lookup may follow operating-system search, hosts-file, or resolver policy that direct DNS bypasses.
+
+## Use encrypted DNS
+
+Use a reachable DNS-over-TLS or DNS-over-HTTPS provider. Replace resolver.example with its hostname; the HTTPS path must be the provider's DNS query endpoint.
+
+```sh
+npc dns @tls://resolver.example example.com AAAA
+npc dns @https://resolver.example/dns-query example.com A --select values
+```
+
+TLS certificates and hostnames are verified by default. **--ca roots.pem** selects a custom PEM trust bundle; **--system-ca** adds system roots to that bundle. **--cert client.pem --key client-key.pem** supplies a client identity when the resolver requires one. These files must already exist. TLS options require an encrypted endpoint; explicitly selecting the system resolver excludes direct DNS options. DNS-over-HTTPS rejects redirects.
 
 ## Choose output
 
@@ -45,6 +58,14 @@ npc dns @https://localhost:8443/dns-query example.test --ca ca.pem.b64 --ca-enco
 ```
 
 An exact - selects original stdin for one credential; ./- names a file. DNS has no payload stdin, so one credential may use it. Multiple credential stdin sources are rejected before reading. An explicit companion flag requires its corresponding source, and TLS controls require a TLS or HTTPS endpoint.
+
+## Compose selected answers
+
+Hash the formatted answer values, including their final newlines, when you need a digest for comparison:
+
+```sh
+npc dns example.com A --select values | npc hash sha256
+```
 
 ## Related command
 

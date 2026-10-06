@@ -45,11 +45,13 @@ func TestListenAndAcceptTCPPortZero(t *testing.T) {
 	t.Cleanup(func() { closeTestTCPConnection(t, server) })
 	assert.Equal(t, address, server.LocalAddr().String(), "accepted local address")
 
-	second, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", address)
-	if err == nil {
-		closeTestTCPConnection(t, second)
-		t.Fatal("listener accepted a second connection")
+	// A redial could reach another listener reusing the released address.
+	err = listener.SetDeadline(time.Now())
+	if err != nil {
+		require.ErrorIs(t, err, net.ErrClosed)
 	}
+	_, err = listener.AcceptTCP()
+	require.ErrorIs(t, err, net.ErrClosed)
 }
 
 func TestListenAndAcceptTCPWildcardHost(t *testing.T) {

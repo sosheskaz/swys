@@ -19,7 +19,6 @@ import (
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/commandio"
 	"github.com/sosheskaz-systems/npc/cmd/internal/cli/help"
@@ -32,17 +31,18 @@ import (
 var dnsGuideFiles embed.FS
 
 const (
-	dnsCommandName    = "dns"
-	dnsQueryShape     = "dns-query"
-	dnsResolverSystem = "system"
-	dnsResolverDirect = "dns"
-	dnsTransportUDP   = "udp"
-	dnsTransportTCP   = "tcp"
-	dnsTransportTLS   = "tls"
-	dnsTransportHTTPS = "https"
-	dnsTypeA          = "A"
-	dnsTypeAAAA       = "AAAA"
-	dnsTypePTR        = "PTR"
+	dnsCommandName      = "dns"
+	dnsQueryShape       = "dns-query"
+	dnsResolverSystem   = "system"
+	dnsResolverDirect   = "dns"
+	dnsTransportUDP     = "udp"
+	dnsTransportTCP     = "tcp"
+	dnsTransportTLS     = "tls"
+	dnsTransportHTTPS   = "https"
+	dnsTypeA            = "A"
+	dnsTypeAAAA         = "AAAA"
+	dnsTypePTR          = "PTR"
+	dnsInsecureFlagName = "insecure"
 )
 
 type dnsOptions struct {
@@ -163,7 +163,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	commandio.AddShape(command, "structured-output")
 	commandio.AddShape(command, "network")
 	flags := command.Flags()
-	flags.Var(&dnsResolverFlagValue{command: command, target: &options.resolver}, "resolver", "resolver mode (system, dns)")
+	flags.StringVar(&options.resolver, "resolver", dnsResolverSystem, "resolver mode (system, dns)")
 	flags.IntVarP(&options.port, "port", "p", 53, "direct DNS server port")
 	flags.BoolVarP(&options.reverse, "reverse", "x", false, "perform a PTR lookup for an IP address")
 	flags.DurationVarP(&options.timeout, "timeout", "t", commandio.DefaultNetworkTimeout, "whole lookup timeout (0 disables)")
@@ -175,7 +175,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
+	flags.BoolVar(&options.insecure, dnsInsecureFlagName, false, "disable TLS certificate and hostname verification")
 	if err := command.RegisterFlagCompletionFunc("resolver", func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		values := []string{dnsResolverSystem, dnsResolverDirect}
 		if dnsDirectSelectorSupplied(cmd, args) {
@@ -192,62 +192,130 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 			dnsSelectResult: "complete DNS result",
 			dnsSelectValues: "answer values only",
 		})
-	tlsconfig.AddArtifactEncodingFlags(command, dnsTLSCompletionApplicable)
+	tlsconfig.AddArtifactEncodingFlags(command, dnsTLSCompletionAllowed)
 	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
-		func() *cobra.Command { return NewCommand(commandio.NewLifecycle(), deps) }, dnsTLSCompletionApplicable)
-	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
-		if err := command.MarkFlagFilename(name); err != nil {
-			panic(err)
-		}
-	}
-	for _, name := range []string{"port", "timeout"} {
-		if err := command.RegisterFlagCompletionFunc(name, cobra.NoFileCompletions); err != nil {
-			panic(err)
-		}
-	}
+		func() *cobra.Command { return NewCommand(commandio.NewLifecycle(), deps) }, dnsTLSCompletionAllowed)
+	registerDNSContextCompletions(command)
+	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) {
+		prepareDNSCompletion(completionCmd, args, command)
+	})
 	if err := help.RegisterGuides(command, dnsGuideFiles); err != nil {
 		panic(err)
 	}
 	return command
 }
 
-type dnsResolverFlagValue struct {
-	command *cobra.Command
-	target  *string
+func registerDNSContextCompletions(command *cobra.Command) {
+	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
+		if err := command.RegisterFlagCompletionFunc(name, completeDNSCredentialPath(name)); err != nil {
+			panic(err)
+		}
+	}
+	for _, name := range []string{"port", "timeout", tlsconfig.ServerNameFlagName} {
+		if err := command.RegisterFlagCompletionFunc(name, cobra.NoFileCompletions); err != nil {
+			panic(err)
+		}
+	}
+	for _, name := range []string{dnsInsecureFlagName, tlsconfig.SystemCAFlagName} {
+		if err := command.RegisterFlagCompletionFunc(name, completeDNSTrustBoolean(name)); err != nil {
+			panic(err)
+		}
+	}
 }
 
-// Set records the resolver value and adjusts only completion-time flag visibility.
-func (value *dnsResolverFlagValue) Set(resolver string) error {
-	*value.target = resolver
-	if dnsCompletionRequested(value.command) {
-		for _, name := range []string{
-			"port", tlsconfig.CAFlagName, "system-ca", tlsconfig.ServerNameFlagName,
-			tlsconfig.CertFlagName, tlsconfig.KeyFlagName, "insecure",
-		} {
-			if flag := value.command.Flags().Lookup(name); flag != nil {
-				flag.Hidden = resolver == dnsResolverSystem
+func prepareDNSCompletion(completionCmd *cobra.Command, args []string, command *cobra.Command) {
+	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
+		return
+	}
+	completedArgs := args[:len(args)-1]
+	actual, _, err := completionCmd.Root().Find(completedArgs)
+	if err != nil || actual != command {
+		return
+	}
+	probeRoot := commandio.NewProbeRoot()
+	probeRoot.AddCommand(NewCommand(commandio.NewLifecycle(), dnsquery.Dependencies{}))
+	probe, probeArgs, err := probeRoot.Find(completedArgs)
+	if err != nil || probe.ParseFlags(probeArgs) != nil {
+		return
+	}
+	resolver, err := probe.Flags().GetString("resolver")
+	if err != nil {
+		return
+	}
+	if probe.Flags().Changed("resolver") && resolver == dnsResolverSystem {
+		command.Flags().Lookup("port").Hidden = true
+	}
+	for _, name := range []string{
+		tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName, tlsconfig.ServerNameFlagName,
+		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName,
+	} {
+		if !dnsTLSCompletionAllowed(probe, probe.Flags().Args()) || !dnsTrustCompletionAllowed(probe, name) {
+			command.Flags().Lookup(name).Hidden = true
+		}
+	}
+}
+
+func dnsTLSCompletionAllowed(command *cobra.Command, args []string) bool {
+	resolver, err := command.Flags().GetString("resolver")
+	if err != nil || command.Flags().Changed("resolver") && resolver == dnsResolverSystem {
+		return false
+	}
+	if len(args) == 0 {
+		return true
+	}
+	if !strings.HasPrefix(args[0], "@") {
+		return false
+	}
+	endpoint, err := dnsquery.ParseEndpoint(strings.TrimPrefix(args[0], "@"), nil)
+	return err == nil && (endpoint.Transport == dnsquery.TransportTLS || endpoint.Transport == dnsquery.TransportHTTPS)
+}
+
+func dnsTrustCompletionAllowed(command *cobra.Command, name string) bool {
+	insecure, err := command.Flags().GetBool(dnsInsecureFlagName)
+	if err != nil {
+		return false
+	}
+	ca, err := command.Flags().GetString(tlsconfig.CAFlagName)
+	if err != nil {
+		return false
+	}
+	systemCA, err := command.Flags().GetBool(tlsconfig.SystemCAFlagName)
+	if err != nil {
+		return false
+	}
+	switch name {
+	case tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName:
+		return !insecure
+	case dnsInsecureFlagName:
+		return ca == "" && !systemCA
+	default:
+		return true
+	}
+}
+
+func completeDNSCredentialPath(name string) cobra.CompletionFunc {
+	return func(command *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if !dnsTLSCompletionAllowed(command, args) || !dnsTrustCompletionAllowed(command, name) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveDefault
+	}
+}
+
+func completeDNSTrustBoolean(name string) cobra.CompletionFunc {
+	return func(command *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if !dnsTLSCompletionAllowed(command, args) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var values []string
+		for _, candidate := range []bool{true, false} {
+			value := strconv.FormatBool(candidate)
+			if (!candidate || dnsTrustCompletionAllowed(command, name)) && strings.HasPrefix(value, prefix) {
+				values = append(values, value)
 			}
 		}
+		return values, cobra.ShellCompDirectiveNoFileComp
 	}
-	return nil
-}
-
-func (value *dnsResolverFlagValue) String() string {
-	return *value.target
-}
-
-// Type reports the flag value type shown in command metadata.
-func (*dnsResolverFlagValue) Type() string {
-	return "string"
-}
-
-func dnsCompletionRequested(command *cobra.Command) bool {
-	for _, child := range command.Root().Commands() {
-		if child.Name() == cobra.ShellCompRequestCmd || child.Name() == cobra.ShellCompNoDescRequestCmd {
-			return true
-		}
-	}
-	return false
 }
 
 func completeDNSArguments(command *cobra.Command, args []string, toComplete string, options *dnsOptions) ([]string, cobra.ShellCompDirective) {
@@ -281,18 +349,6 @@ func completeDNSArguments(command *cobra.Command, args []string, toComplete stri
 	return completed, cobra.ShellCompDirectiveNoFileComp
 }
 
-func dnsTLSCompletionApplicable(cmd *cobra.Command, args []string) bool {
-	if resolver := cmd.Flag("resolver"); resolver != nil && resolver.Value.String() == dnsResolverSystem && cmd.Flags().Changed("resolver") {
-		return false
-	}
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "@tls://") || strings.HasPrefix(arg, "@https://") {
-			return true
-		}
-	}
-	return false
-}
-
 func dnsCompletionResolver(command *cobra.Command, args []string, options *dnsOptions) (string, bool) {
 	directSelected := dnsDirectSelectorSupplied(command, args)
 	if options.resolver == dnsResolverSystem && command.Flags().Changed("resolver") && directSelected {
@@ -320,8 +376,6 @@ func directDNSRecordTypes() []string {
 	sort.Strings(types)
 	return types
 }
-
-var _ pflag.Value = (*dnsResolverFlagValue)(nil)
 
 func parseDNSQuery(cmd *cobra.Command, args []string, options *dnsOptions) (dnsQuery, error) {
 	query := dnsQuery{
@@ -482,8 +536,9 @@ func validateDirectDNSOptions(cmd *cobra.Command, query *dnsQuery, tlsSelected b
 
 func dnsTLSOptionsSelected(cmd *cobra.Command) bool {
 	for _, name := range []string{
-		tlsconfig.CAFlagName, tlsconfig.CAEncodingFlagName, tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName,
-		"system-ca", tlsconfig.ServerNameFlagName, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, "insecure",
+		tlsconfig.CAFlagName, "system-ca", tlsconfig.ServerNameFlagName,
+		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName,
+		tlsconfig.CAEncodingFlagName, tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName,
 	} {
 		if cmd.Flags().Changed(name) {
 			return true

@@ -1,6 +1,8 @@
 package dns_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -63,6 +65,8 @@ func TestDNSCompletionSuppressesFileFallback(t *testing.T) {
 		{"dns", "--port", ""},
 		{"dns", "-p", ""},
 		{"dns", "--timeout", ""},
+		{"dns", "--servername", ""},
+		{"dns", "@tcp://192.0.2.53", "--ca", ""},
 	} {
 		values, directive := executeDNSCompletion(t, args...)
 		assert.Empty(t, values, "complete %q", args)
@@ -103,6 +107,74 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 		assert.Contains(t, joined, compatible, "flags after --resolver system")
 	}
 	assert.NotContains(t, joined, "--short", "removed flag")
+
+	for _, test := range []struct {
+		endpoint string
+		wantTLS  bool
+	}{
+		{endpoint: "@udp://192.0.2.53"},
+		{endpoint: "@tcp://192.0.2.53"},
+		{endpoint: "@192.0.2.53"},
+		{endpoint: "example.test"},
+		{endpoint: "@tls://resolver.example", wantTLS: true},
+		{wantTLS: true},
+	} {
+		args := []string{"dns"}
+		if test.endpoint != "" {
+			args = append(args, test.endpoint)
+		}
+		args = append(args, "--")
+		candidates, flagDirective := executeDNSCompletion(t, args...)
+		for _, flag := range []string{"--ca", "--system-ca", "--servername", "--cert", "--key", "--insecure"} {
+			assert.Equal(t, test.wantTLS, slices.Contains(candidates, flag), "TLS flag %s after %q: %q", flag, args, candidates)
+		}
+		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, flagDirective)
+	}
+}
+
+func TestDNSCompletionFiltersEncryptedTrustValues(t *testing.T) {
+	t.Parallel()
+	caPath := filepath.Join(t.TempDir(), "trust.pem")
+	require.NoError(t, os.WriteFile(caPath, []byte("completion must not parse credential contents"), 0))
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "insecure blocks typed CA", args: []string{"@tls://resolver.example", "--insecure", "--ca", caPath}},
+		{
+			name: "CA constrains prospective insecure replacement",
+			args: []string{"@https://resolver.example/dns-query", "--ca", caPath, "--insecure", "--insecure="},
+			want: []string{"false"},
+		},
+		{
+			name: "insecure excludes system CA true", args: []string{"@tls://resolver.example", "--insecure", "--system-ca="},
+			want: []string{"false"},
+		},
+		{
+			name: "last false permits system CA before partner",
+			args: []string{"@https://resolver.example/dns-query", "--insecure", "--insecure=false", "--system-ca="},
+			want: []string{"true", "false"},
+		},
+		{
+			name: "empty CA permits insecure values", args: []string{"@tls://resolver.example", "--ca", "", "--insecure="},
+			want: []string{"true", "false"},
+		},
+		{name: "plaintext excludes even false", args: []string{"@udp://192.0.2.53", "--insecure="}},
+		{name: "name first excludes encrypted trust values", args: []string{"example.test", "--insecure="}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"dns"}, test.args...)
+			values, directive := executeDNSRootCompletion(t, newRootCmd(), args...)
+			if len(test.want) == 0 {
+				assert.Empty(t, values)
+			} else {
+				assert.Equal(t, test.want, values)
+			}
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		})
+	}
 }
 
 func TestDNSOutputOptionCompletion(t *testing.T) {
@@ -169,8 +241,12 @@ func TestDNSCompletionFlagsFollowFinalResolver(t *testing.T) {
 
 func TestDNSTLSArtifactEncodingCompletion(t *testing.T) {
 	t.Parallel()
+	values, directive := executeDNSCompletion(t, "dns", "example.com", "@tls://localhost", "--ca", "x", "--ca-encoding", "")
+	assert.Empty(t, values, "an encrypted endpoint after the query name is not a valid direct DNS selector")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
 	for _, source := range []string{"ca", "cert", "key"} {
-		values, directive := executeDNSCompletion(t, "dns", "@tls://localhost", "--"+source+"-encoding", "ba")
+		values, directive = executeDNSCompletion(t, "dns", "@tls://localhost", "--"+source+"-encoding", "ba")
 		assert.Empty(t, values)
 		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 		values, directive = executeDNSCompletion(t, "dns", "@tls://localhost", "--"+source, "missing", "--"+source+"-encoding", "ba")
@@ -182,4 +258,17 @@ func TestDNSTLSArtifactEncodingCompletion(t *testing.T) {
 		assert.Empty(t, values)
 		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 	}
+}
+
+func TestDNSCompletionPreservesReusedRootReferenceHelp(t *testing.T) {
+	t.Parallel()
+	helpArgs := []string{"dns", "--resolver", "system", "--help"}
+	freshHelp, _, err := executeRootStreams(t, helpArgs...)
+	require.NoError(t, err)
+	root := newRootCmd()
+	_, _, err = executeRootCommandStreams(t, root, "__complete", "dns", "--resolver", "system", "--")
+	require.NoError(t, err)
+	reusedHelp, _, err := executeRootCommandStreams(t, root, helpArgs...)
+	require.NoError(t, err)
+	assert.Equal(t, freshHelp, reusedHelp, "completion must preserve the full reference help on later executions")
 }
