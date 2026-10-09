@@ -90,6 +90,26 @@ Review each generated release PR's version, notes, and tests. With squash merges
 Conventional Commit titles determine the release calculation. The Go strategy
 uses the existing pre-1.0 bump rules in `release-please-config.json`.
 
+The agent skill shares the CLI's tags and version lifecycle. Release-please
+updates `skills/swys/SKILL.md`'s version in the same proposal as the manifest.
+The discovery entry loads instructions from `swys skill`; the binary embeds
+those instructions and prints its actual build provenance. Snapshots deliberately
+have a different runtime version from the source release label.
+
+Run `mise run lint:skills` with GitHub CLI authentication to validate both the
+discovery and rendered packages using `gh skill publish --dry-run`. This check
+stages outside the repository and does not publish or query repository settings.
+It remains separate from offline `mise run check`. Do not run actual
+`gh skill publish`: it creates a competing release lifecycle.
+
+For the first containing release, replace the README's unreleased availability
+notice with the actual supported version after publication. Verify pinned
+`gh skill install` into a temporary directory using that tag, and confirm the
+tag, discovery version, packaged binary version, and rendered build identity.
+Add the `agent-skills` repository topic when publishing the first skill release
+to make search discovery available; direct repository installation does not
+require that topic. Existing older tags do not gain skill support retroactively.
+
 If publication fails, inspect which stage completed before retrying. A tag,
 GitHub Release, release asset, OCI tag, and tap commit can have different states.
 Preserve verified artifacts; do not delete or move a published tag to rerun a

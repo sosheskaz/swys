@@ -4,6 +4,12 @@
   "always-update": true,
   "bump-minor-pre-major": true,
   "initial-version": "0.1.0",
+  "extra-files": [
+    {
+      "type": "generic",
+      "path": "skills/swys/SKILL.md"
+    }
+  ],
   "packages": {
     ".": {}
   },

@@ -178,7 +178,8 @@ func commandTreeViolations(root *cobra.Command) []string {
 				isTransport := isTransportVerb && command.Parent() != nil && command.Parent().Name() == "net" && transportLeaves[child.Name()]
 				isRootUtility := command == root && ((child.Name() == "http" && commandio.HasShape(child, "http-request")) ||
 					(child.Name() == "dns" && commandio.HasShape(child, "dns-query")) ||
-					(child.Name() == "grpc" && commandio.HasShape(child, "grpc-request")))
+					(child.Name() == "grpc" && commandio.HasShape(child, "grpc-request")) ||
+					(child.Name() == "skill" && commandio.HasShape(child, "skill-document")))
 				isHashAlgorithm := command.Name() == "hash" && command.Parent() == root && hashAlgorithmLeaves[child.Name()]
 				isAESKeyVerb := command.Name() == "aes" && command.Parent() == root &&
 					(child.Name() == "key-convert" || child.Name() == "key-inspect")
@@ -187,10 +188,11 @@ func commandTreeViolations(root *cobra.Command) []string {
 				}
 				binary := commandio.HasShape(child, "binary-output")
 				structured := commandio.HasShape(child, "structured-output")
+				document := command == root && child.Name() == "skill" && commandio.HasShape(child, "skill-document")
 				switch {
-				case !binary && !structured:
+				case !binary && !structured && !document:
 					violations = append(violations, fmt.Sprintf("leaf command %q has no output shape", child.CommandPath()))
-				case binary && structured:
+				case binary && structured || document && (binary || structured):
 					violations = append(violations, fmt.Sprintf("leaf command %q has conflicting output shapes", child.CommandPath()))
 				case binary && child.Flag("encoding") == nil:
 					violations = append(violations, fmt.Sprintf("binary command %q has no --encoding flag", child.CommandPath()))

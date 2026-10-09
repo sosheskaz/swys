@@ -124,6 +124,48 @@ source "${XDG_CONFIG_HOME:-$HOME/.config}/bash/completions/swys.bash"
 
 For one-session setup and PowerShell instructions, run `swys help completion`.
 
+## Use with coding agents
+
+**Skill support is unreleased.** `v0.1.0` predates `swys skill`; build from source
+until a containing release is published. The pinned installation examples below
+apply to that release and later ones.
+
+SwYS provides one portable [Agent Skills](https://agentskills.io) package for
+Codex, Claude Code, GitHub Copilot, and compatible agents. Its small discovery
+entry loads the complete instructions with `swys skill`, so guidance comes from
+the executable the agent actually runs. It does not install or upgrade SwYS.
+
+With a GitHub CLI that provides `gh skill` (the repository pins 2.102.0), replace
+`vX.Y.Z` with the CLI release tag corresponding to `swys --version`:
+
+```sh
+gh skill install sosheskaz/swys swys --pin vX.Y.Z --agent codex --scope user
+gh skill install sosheskaz/swys swys --pin vX.Y.Z --agent claude-code --scope user
+gh skill install sosheskaz/swys swys --pin vX.Y.Z --agent github-copilot --scope user
+```
+
+Choose the command for your agent. Use `--scope project` for a project-local
+installation. `gh skill` tracks the source and supports managed updates; pinning
+keeps the discovery entry at the selected tag. The runtime instructions still
+come from your installed binary. See [`gh skill install`](https://cli.github.com/manual/gh_skill_install)
+and [`gh skill update`](https://cli.github.com/manual/gh_skill_update) for version
+and update behavior. GitHub currently labels `gh skill` preview.
+
+For offline setup or agents without an installer, create the destination
+directory and export a complete skill:
+
+```sh
+mkdir -p .agents/skills/swys
+swys skill -o .agents/skills/swys/SKILL.md
+```
+
+That is the project-local directory used by Codex and several other agents;
+choose your agent's supported skill directory when different. This command can
+replace an existing file. Saved exports check build identity and refresh their
+instructions from the CLI when needed; regenerate them after upgrading SwYS.
+`swys skill` prints raw Markdown without paging or styling. Run `swys help skill`
+for the export guide. Provider-specific plugin wrappers are not included.
+
 ## Find your way around
 
 Start with an embedded guide, narrow to a command family, then pick an operation:

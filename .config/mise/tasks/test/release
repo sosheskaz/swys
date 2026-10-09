@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Verify notices and completions in every archive and smoke test the host binary"
+#MISE description="Verify notices, completions, and skills in every archive and smoke test the host binary"
 set -euo pipefail
 
 archive=$(jq -er --arg os "$(go env GOHOSTOS)" --arg arch "$(go env GOHOSTARCH)" '
@@ -19,6 +19,7 @@ payload_files=(
   licenses/oci/README.md
   licenses/oci/linux-amd64.spdx.json
   licenses/oci/linux-arm64.spdx.json
+  skills/swys/SKILL.md
 )
 completion_files=(completions/swys.bash completions/swys.zsh completions/swys.fish)
 if [[ -f CHANGELOG.md ]]; then
@@ -59,6 +60,15 @@ if [[ "$actual_version" != "$expected_version" && "$actual_version" != "${expect
 fi
 "$binary" --help >"$scratch/help"
 grep -q 'Usage:' "$scratch/help"
+"$binary" skill -o "$scratch/SKILL.md"
+grep -Fxq "  version: \"$release_version\"" "$scratch/SKILL.md"
+grep -Fxq "  build: \"${actual_version#swys version }\"" "$scratch/SKILL.md"
+release_tag=$(jq -er '.tag' dist/metadata.json)
+if [[ "$release_version" == "${release_tag#v}" ]]; then
+  source_version=$(jq -er '.["."]' .release-please-manifest.json)
+  [[ "$source_version" == "$release_version" ]]
+  grep -Fxq "  version: \"$release_version\" # x-release-please-version" skills/swys/SKILL.md
+fi
 printf '0123456789abcdef0123456789abcdef' >"$scratch/fixture.key"
 printf 'packaged AES round trip\n\000\377' >"$scratch/plaintext"
 "$binary" aes encrypt --key "$scratch/fixture.key" --input "$scratch/plaintext" --output "$scratch/ciphertext"

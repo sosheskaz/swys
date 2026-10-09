@@ -12,6 +12,9 @@ on:
       - .github/workflows/goreleaser.yml
       - .github/workflows/release.yml
       - .release-please-manifest.json
+      - release-please-config.json
+      - skills/**
+      - cmd/internal/commands/skill/**
       - .config/mise/tasks/test/release
       - .config/mise/tasks/build/notices
       - LICENSE
@@ -59,5 +62,5 @@ jobs:
       - name: Snapshot release (no publish)
         run: mise exec -- goreleaser release --snapshot --clean
 
-      - name: Verify packaged notices and host binary
+      - name: Verify packaged notices, skill, and host binary
         run: mise run test:release
