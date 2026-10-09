@@ -4,7 +4,7 @@
 [tools]
 go = "1.27.2"
 gh = "2.102.0"
-node = "24.20.0"
+node = "24.21.0"
 "npm:prettier" = "3.9.9"
 "npm:release-please" = "17.11.2"
 jq = "1.8.2"
