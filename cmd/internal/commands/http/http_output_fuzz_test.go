@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 const maxFuzzHTTPHeadInputSize = 1 << 12
@@ -19,10 +21,10 @@ const maxFuzzHTTPHeadInputSize = 1 << 12
 // which is the injection property the escaping exists to provide.
 //
 // http.Header is an ordinary map, so nothing prevents control bytes in names,
-// and Go randomizes the iteration order. Every assertion here is therefore
-// order-invariant: counts, set membership, and the status line that is always
-// written first.
+// and the renderer sorts its names. Counts, set membership, and the status
+// line check escaping independently of that deterministic order.
 func FuzzWriteHTTPHead(f *testing.F) {
+	f.Add("HTTP/1.1", "200 OK", "X-Emoji\x01👩‍💻", false, uint8(0))
 	f.Add("HTTP/1.1", "200 OK", "Content-Type\x01text/plain", false, uint8(0))
 	f.Add("HTTP/1.1", "200 OK", "X-Multi\x01one\x01two\x00X-Other\x01value", false, uint8(0))
 	f.Add("HTTP/1.1", "200 OK", "X-Test\x01value\nInjected: smuggled", false, uint8(0))
@@ -46,12 +48,12 @@ func FuzzWriteHTTPHead(f *testing.F) {
 		response := &http.Response{Proto: proto, Status: status, Header: header}
 
 		baseline := &fuzzHTTPRecordingWriter{}
-		if err := writeHTTPHead(baseline, response); err != nil {
+		if err := writeHTTPHead(baseline, response, textdisplay.Options{}); err != nil {
 			t.Fatalf("write HTTP head: %v", err)
 		}
 		if outputFail {
 			output := &fuzzHTTPFailOnceWriter{failAt: int(outputFailureCall) % baseline.calls}
-			if err := writeHTTPHead(output, response); !errors.Is(err, errFuzzHTTPOutput) {
+			if err := writeHTTPHead(output, response, textdisplay.Options{}); !errors.Is(err, errFuzzHTTPOutput) {
 				t.Fatalf("head error = %v, want output failure on call %d of %d", err, output.failAt, baseline.calls)
 			}
 			return
@@ -62,7 +64,7 @@ func FuzzWriteHTTPHead(f *testing.F) {
 			t.Fatalf("HTTP head is not valid UTF-8: %x", head)
 		}
 		for _, char := range head {
-			if char != '\n' && !strconv.IsPrint(char) {
+			if char != '\n' && char != '\u200d' && !strconv.IsPrint(char) {
 				t.Fatalf("HTTP head contains non-printing rune %U: %q", char, head)
 			}
 		}

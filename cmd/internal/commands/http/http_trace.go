@@ -9,10 +9,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/sosheskaz/swys/internal/asym"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 type httpTrace struct {
@@ -277,102 +279,61 @@ func firstNonZero(values ...time.Time) time.Time {
 	return time.Time{}
 }
 
-func (trace *httpTrace) writeText(output io.Writer) error {
+func (trace *httpTrace) writeText(output io.Writer, options textdisplay.Options) error {
+	printer := textdisplay.New(output, options)
+	section := func(title string, fields []textdisplay.Field) {
+		available := fields[:0]
+		for _, field := range fields {
+			if field.Value != "" {
+				available = append(available, field)
+			}
+		}
+		if len(available) > 0 {
+			printer.Section(title)
+			printer.Fields(available)
+		}
+	}
 	views := trace.views()
-	for i := range views {
-		view := &views[i]
-		if _, err := fmt.Fprintf(output, "http trace %d: %s %s\n", i+1, asym.EscapeDiagnosticValue(view.Method), asym.EscapeDiagnosticValue(view.URL)); err != nil {
-			return fmt.Errorf("write HTTP trace summary: %w", err)
+	for index := range views {
+		view := &views[index]
+		if index > 0 {
+			printer.Blank()
 		}
-		if err := writeHTTPTraceConnection(output, view); err != nil {
-			return err
+		printer.Heading(fmt.Sprintf("http trace %d: %s %s", index+1, view.Method, view.URL))
+		connection := []textdisplay.Field{
+			{Label: "network", Value: view.Network}, {Label: "address", Value: view.Address}, {Label: "connection", Value: view.Connection},
 		}
-		if err := writeHTTPTraceTimings(output, view); err != nil {
-			return err
-		}
-		if err := writeHTTPTraceTLS(output, view.TLS); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeHTTPTraceConnection(output io.Writer, view *httpTraceView) error {
-	for _, field := range []struct{ name, value string }{
-		{name: "network", value: view.Network},
-		{name: "address", value: view.Address},
-		{name: "connection", value: view.Connection},
-	} {
-		if field.value != "" {
-			if _, err := fmt.Fprintf(output, "  %s: %s\n", field.name, asym.EscapeDiagnosticValue(field.value)); err != nil {
-				return fmt.Errorf("write HTTP trace connection: %w", err)
+		for _, attempt := range view.Attempts {
+			value := fmt.Sprintf("%s %s, duration=%s", attempt.Network, attempt.Address, attempt.Duration)
+			if attempt.Error != "" {
+				value += ", error=" + attempt.Error
 			}
-		}
-	}
-	for _, attempt := range view.Attempts {
-		if err := writeHTTPTraceAttempt(output, attempt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeHTTPTraceAttempt(output io.Writer, attempt httpTraceConnectView) error {
-	if _, err := fmt.Fprintf(output, "  attempt: %s %s, duration=%s", asym.EscapeDiagnosticValue(attempt.Network),
-		asym.EscapeDiagnosticValue(attempt.Address), attempt.Duration); err != nil {
-		return fmt.Errorf("write HTTP trace attempt: %w", err)
-	}
-	if attempt.Error != "" {
-		if _, err := fmt.Fprintf(output, ", error=%s", asym.EscapeDiagnosticValue(attempt.Error)); err != nil {
-			return fmt.Errorf("write HTTP trace attempt error: %w", err)
-		}
-	}
-	if attempt.Selected {
-		if _, err := io.WriteString(output, ", selected"); err != nil {
-			return fmt.Errorf("write HTTP trace selected attempt: %w", err)
-		}
-	}
-	if _, err := io.WriteString(output, "\n"); err != nil {
-		return fmt.Errorf("write HTTP trace attempt separator: %w", err)
-	}
-	return nil
-}
-
-func writeHTTPTraceTimings(output io.Writer, view *httpTraceView) error {
-	for _, field := range []struct{ name, value string }{
-		{name: "dns", value: view.DNS},
-		{name: "connect", value: view.Connect},
-		{name: "first byte", value: view.FirstByte},
-		{name: "transfer", value: view.Transfer},
-		{name: "total", value: view.Total},
-	} {
-		if field.value != "" {
-			if _, err := fmt.Fprintf(output, "  %s: %s\n", field.name, field.value); err != nil {
-				return fmt.Errorf("write HTTP trace timing: %w", err)
+			if attempt.Selected {
+				value += ", selected"
 			}
+			connection = append(connection, textdisplay.Field{Label: "attempt", Value: value})
+		}
+		section("Connection", connection)
+		section("Timing", []textdisplay.Field{
+			{Label: "dns", Value: view.DNS},
+			{Label: "connect", Value: view.Connect},
+			{Label: "first byte", Value: view.FirstByte},
+			{Label: "transfer", Value: view.Transfer},
+			{Label: "total", Value: view.Total},
+		})
+		if detail := view.TLS; detail != nil {
+			fields := []textdisplay.Field{
+				{Label: "version", Value: detail.Version},
+				{Label: "cipher", Value: detail.Cipher},
+				{Label: "alpn", Value: detail.ALPN},
+				{Label: "verified", Value: strconv.FormatBool(detail.Verified)},
+				{Label: "handshake", Value: detail.Handshake},
+			}
+			for _, certificate := range detail.Certificates {
+				fields = append(fields, textdisplay.Field{Label: "certificate", Value: string(certificate)})
+			}
+			section("TLS", fields)
 		}
 	}
-	return nil
-}
-
-func writeHTTPTraceTLS(output io.Writer, tlsView *httpTraceTLSView) error {
-	if tlsView == nil {
-		return nil
-	}
-	if _, err := fmt.Fprintf(output, "  tls: %s, %s, alpn=%s, verified=%t\n",
-		asym.EscapeDiagnosticValue(tlsView.Version), asym.EscapeDiagnosticValue(tlsView.Cipher),
-		asym.EscapeDiagnosticValue(tlsView.ALPN), tlsView.Verified); err != nil {
-		return fmt.Errorf("write HTTP TLS trace: %w", err)
-	}
-	if tlsView.Handshake != "" {
-		if _, err := fmt.Fprintf(output, "  tls handshake: %s\n", tlsView.Handshake); err != nil {
-			return fmt.Errorf("write HTTP TLS handshake: %w", err)
-		}
-	}
-	for _, certificate := range tlsView.Certificates {
-		if _, err := fmt.Fprintf(output, "  certificate: %s\n", asym.EscapeDiagnosticValue(string(certificate))); err != nil {
-			return fmt.Errorf("write HTTP TLS certificate: %w", err)
-		}
-	}
-	return nil
+	return printer.Err()
 }

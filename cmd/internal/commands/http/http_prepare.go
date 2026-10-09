@@ -105,8 +105,8 @@ func validateHTTPOutputOptions(options *httpOptions, formatChanged bool) error {
 	if options.selection == httpSelectBody && format != httpFormatRaw && format != httpFormatJSON {
 		return fmt.Errorf("%w: body --format must be raw or json", ErrInvalidFlags)
 	}
-	if options.selection == httpSelectResponse && format != httpFormatText && format != httpFormatJSON {
-		return fmt.Errorf("%w: response --format must be text or json", ErrInvalidFlags)
+	if options.selection == httpSelectResponse && format != httpFormatText && format != "plain" && format != httpFormatJSON {
+		return fmt.Errorf("%w: response --format must be text, plain, or json", ErrInvalidFlags)
 	}
 	if _, err := encoding.GetOutputEncoder(options.encoding); err != nil {
 		return err
