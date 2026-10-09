@@ -27,7 +27,7 @@ interfaces may change between releases.
 then install SwYS globally using its [GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html):
 
 ```sh
-mise use --global github:sosheskaz/swys@0.1.0
+mise use --global github:sosheskaz/swys@0.2.0
 swys --version
 ```
 
@@ -126,22 +126,22 @@ For one-session setup and PowerShell instructions, run `swys help completion`.
 
 ## Use with coding agents
 
-**Skill support is unreleased.** `v0.1.0` predates `swys skill`; build from source
-until a containing release is published. The pinned installation examples below
-apply to that release and later ones.
+**Skill support is available starting with [v0.2.0](https://github.com/sosheskaz/swys/releases/tag/v0.2.0).**
+`v0.1.0` predates `swys skill`; install `v0.2.0` or later to use it.
 
 SwYS provides one portable [Agent Skills](https://agentskills.io) package for
 Codex, Claude Code, GitHub Copilot, and compatible agents. Its small discovery
 entry loads the complete instructions with `swys skill`, so guidance comes from
 the executable the agent actually runs. It does not install or upgrade SwYS.
 
-With a GitHub CLI that provides `gh skill` (the repository pins 2.102.0), replace
-`vX.Y.Z` with the CLI release tag corresponding to `swys --version`:
+With a GitHub CLI that provides `gh skill` (the repository pins 2.102.0), install
+the discovery entry from the release tag corresponding to `swys --version`.
+For `v0.2.0`:
 
 ```sh
-gh skill install sosheskaz/swys swys --pin vX.Y.Z --agent codex --scope user
-gh skill install sosheskaz/swys swys --pin vX.Y.Z --agent claude-code --scope user
-gh skill install sosheskaz/swys swys --pin vX.Y.Z --agent github-copilot --scope user
+gh skill install sosheskaz/swys swys --pin v0.2.0 --agent codex --scope user
+gh skill install sosheskaz/swys swys --pin v0.2.0 --agent claude-code --scope user
+gh skill install sosheskaz/swys swys --pin v0.2.0 --agent github-copilot --scope user
 ```
 
 Choose the command for your agent. Use `--scope project` for a project-local
