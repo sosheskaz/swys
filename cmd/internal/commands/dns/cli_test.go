@@ -18,6 +18,11 @@ var (
 	errDNSResponseMismatch = dnsquery.ErrResponseMismatch
 )
 
+type dnsJSONDocument struct {
+	Results []dnsquery.Result `json:"results"`
+	Values  []string          `json:"values"`
+}
+
 func newRootCmd() *cobra.Command { return rootcmd.NewCommand() }
 func newRootCmdWithDNSDependencies(deps dnsquery.Dependencies) *cobra.Command {
 	return testcmd.NewDNSRoot(deps)

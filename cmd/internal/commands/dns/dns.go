@@ -601,6 +601,14 @@ type dnsSelectedOutput struct {
 	values []string
 }
 
+type dnsJSONResults struct {
+	Results []dnsResult `json:"results"`
+}
+
+type dnsJSONValues struct {
+	Values []string `json:"values"`
+}
+
 func selectDNSResult(result *dnsResult, selection string) dnsSelectedOutput {
 	if selection == dnsSelectResult {
 		return dnsSelectedOutput{result: result}
@@ -632,7 +640,7 @@ func prepareDNSOutput(ctx context.Context, queries []dnsQuery, deps dnsquery.Dep
 	if len(results) == 0 {
 		return dnsPreparedOutput{}, lookupErr
 	}
-	data, err := renderDNSResults(results, &queries[0], options, len(queries) > 1)
+	data, err := renderDNSResults(results, &queries[0], options)
 	if err != nil {
 		return dnsPreparedOutput{}, errors.Join(lookupErr, err)
 	}
@@ -662,7 +670,7 @@ func resolveDNSQuery(ctx context.Context, query *dnsQuery, deps dnsquery.Depende
 	return result, nil
 }
 
-func renderDNSResults(results []dnsResult, query *dnsQuery, options textdisplay.Options, multiple bool) ([]byte, error) {
+func renderDNSResults(results []dnsResult, query *dnsQuery, options textdisplay.Options) ([]byte, error) {
 	if query.selectMode == dnsSelectValues {
 		values := make([]string, 0, len(results))
 		for i := range results {
@@ -670,11 +678,8 @@ func renderDNSResults(results []dnsResult, query *dnsQuery, options textdisplay.
 		}
 		return renderDNSResultWithOptions(dnsSelectedOutput{values: values}, query.format, options)
 	}
-	if !multiple {
-		return renderDNSResultWithOptions(selectDNSResult(&results[0], dnsSelectResult), query.format, options)
-	}
 	if query.format == dnsFormatJSON {
-		data, err := json.MarshalIndent(results, "", "  ")
+		data, err := json.MarshalIndent(dnsJSONResults{Results: results}, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("marshal DNS results: %w", err)
 		}
@@ -703,9 +708,9 @@ func renderDNSResultWithOptions(selected dnsSelectedOutput, format string, optio
 		options.Rich = false
 	}
 	if format == dnsFormatJSON {
-		var value any = selected.result
-		if selected.result == nil {
-			value = selected.values
+		var value any = dnsJSONValues{Values: selected.values}
+		if selected.result != nil {
+			value = dnsJSONResults{Results: []dnsResult{*selected.result}}
 		}
 		data, err := json.MarshalIndent(value, "", "  ")
 		if err != nil {

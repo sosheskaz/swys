@@ -121,8 +121,9 @@ func TestDNSMultipleResolverOutput(t *testing.T) {
 			assert.Equal(t, []string{"192.0.2.53:53", "192.0.2.54:53", "192.0.2.53:53"}, addresses)
 			switch test.name {
 			case "result JSON":
-				var results []dnsquery.Result
-				require.NoError(t, json.Unmarshal([]byte(stdout), &results))
+				var document dnsJSONDocument
+				require.NoError(t, json.Unmarshal([]byte(stdout), &document))
+				results := document.Results
 				require.Len(t, results, 3)
 				for i, wantServer := range addresses {
 					require.NotNil(t, results[i].Server)
@@ -138,7 +139,7 @@ func TestDNSMultipleResolverOutput(t *testing.T) {
 			case "values JSON encoded":
 				decoded, decodeErr := base64.StdEncoding.DecodeString(stdout)
 				require.NoError(t, decodeErr)
-				assert.JSONEq(t, `["192.0.2.44", "192.0.2.44"]`, string(decoded))
+				assert.JSONEq(t, `{"values": ["192.0.2.44", "192.0.2.44"]}`, string(decoded))
 			}
 		})
 	}
@@ -179,9 +180,10 @@ func TestDNSMultipleResolverFailures(t *testing.T) {
 			require.ErrorContains(t, err, fail)
 			data, readErr := os.ReadFile(path)
 			require.NoError(t, readErr)
-			var results []dnsquery.Result
-			require.NoError(t, json.Unmarshal(data, &results))
-			require.Len(t, results, 1, "partial success retains the multi-resolver JSON array")
+			var document dnsJSONDocument
+			require.NoError(t, json.Unmarshal(data, &document))
+			results := document.Results
+			require.Len(t, results, 1, "partial success retains the results array in the JSON object")
 			require.NotNil(t, results[0].Server)
 			assert.NotEqual(t, fail, *results[0].Server)
 			require.Len(t, results[0].Answers, 1)
@@ -382,8 +384,11 @@ func TestDNSSystemPTRAndMetadata(t *testing.T) {
 	}}})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "192.0.2.8", "-x", "--format", "json")
 	require.NoError(t, err)
-	var result dnsquery.Result
-	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
+	var document dnsJSONDocument
+	require.NoError(t, json.Unmarshal([]byte(stdout), &document))
+	require.Len(t, document.Results, 1)
+	result := document.Results[0]
+	require.Len(t, result.Answers, 1)
 	if result.Server != nil || result.Status != nil || result.Answers[0].TTL != nil || result.Answers[0].Value != "ptr.example.test." {
 		t.Fatalf("result = %+v", result)
 	}
@@ -490,9 +495,10 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			args: []string{"--format", "json"},
 			check: func(t *testing.T, output string) {
 				t.Helper()
-				var result dnsquery.Result
-				require.NoError(t, json.Unmarshal([]byte(output), &result), "decode JSON output")
-				assertEmptyDNSAnswerValues(t, result.Answers)
+				var document dnsJSONDocument
+				require.NoError(t, json.Unmarshal([]byte(output), &document), "decode JSON output")
+				require.Len(t, document.Results, 1)
+				assertEmptyDNSAnswerValues(t, document.Results[0].Answers)
 			},
 		},
 		{
@@ -933,7 +939,7 @@ func TestDNSDirectPreservesRcodeAndTXTEscaping(t *testing.T) {
 	assert.Equal(t, `"hello \"operator\"" "line\010break"`+"\n", stdout, "selected TXT value")
 	jsonValues, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "TXT", "--resolver", "dns", "--select", "values", "--format", "json")
 	require.NoError(t, err)
-	wantJSON, err := json.MarshalIndent([]string{strings.TrimSuffix(stdout, "\n")}, "", "  ")
+	wantJSON, err := json.MarshalIndent(map[string][]string{"values": {strings.TrimSuffix(stdout, "\n")}}, "", "  ")
 	require.NoError(t, err)
 	if want := string(wantJSON) + "\n"; jsonValues != want {
 		t.Errorf("selected TXT JSON = %q, want %q", jsonValues, want)
@@ -965,8 +971,8 @@ func TestDNSDirectValuesAllowEmptyAnswers(t *testing.T) {
 			jsonOutput, _, err := executeRootCommandStreams(t, newRoot(),
 				"dns", "missing.example", "--resolver", "dns", "--select", "values", "--format", "json")
 			require.NoError(t, err)
-			if jsonOutput != "[]\n" {
-				t.Errorf("empty values JSON = %q, want %q", jsonOutput, "[]\n")
+			if want := "{\n  \"values\": []\n}\n"; jsonOutput != want {
+				t.Errorf("empty values JSON = %q, want %q", jsonOutput, want)
 			}
 		})
 	}

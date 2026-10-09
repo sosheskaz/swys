@@ -90,7 +90,7 @@ func TestExampleDNSOutputSelectionAndEncoding(t *testing.T) {
 
 	jsonValues, _, err := executeRootCommandStreams(t, newRoot(), "dns", "example.test", "--select", "values", "--format", "json")
 	require.NoError(t, err)
-	if want := "[\n  \"192.0.2.10\",\n  \"192.0.2.20\"\n]\n"; jsonValues != want {
+	if want := "{\n  \"values\": [\n    \"192.0.2.10\",\n    \"192.0.2.20\"\n  ]\n}\n"; jsonValues != want {
 		t.Errorf("selected JSON values = %q, want %q", jsonValues, want)
 	}
 
@@ -144,7 +144,7 @@ func TestExampleDNSValuesJSON(t *testing.T) {
 	})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "AAAA", "--select", "values", "--format", "json")
 	require.NoError(t, err, "swys dns example.test AAAA --select values --format json")
-	assert.Equal(t, "[\n  \"2001:db8::10\",\n  \"2001:db8::20\"\n]\n", stdout)
+	assert.JSONEq(t, `{"values": ["2001:db8::10", "2001:db8::20"]}`, stdout)
 }
 
 func TestDNSJSONSchemaIsByteStableAcrossCoreBoundary(t *testing.T) {
@@ -159,27 +159,32 @@ func TestDNSJSONSchemaIsByteStableAcrossCoreBoundary(t *testing.T) {
 	})
 	stdout, _, err := executeRootCommandStreams(t, root, "dns", "example.test", "--format", "json")
 	require.NoError(t, err)
-	want := "{\n" +
-		"  \"resolver\": \"system\",\n" +
-		"  \"server\": null,\n" +
-		"  \"transport\": null,\n" +
-		"  \"query_name\": \"example.test.\",\n" +
-		"  \"query_type\": \"A\",\n" +
-		"  \"status\": null,\n" +
-		"  \"id\": null,\n" +
-		"  \"authoritative\": null,\n" +
-		"  \"truncated\": null,\n" +
-		"  \"recursion_available\": null,\n" +
-		"  \"answers\": [\n" +
-		"    {\n" +
-		"      \"name\": \"example.test.\",\n" +
-		"      \"type\": \"A\",\n" +
-		"      \"class\": \"IN\",\n" +
-		"      \"ttl\": null,\n" +
-		"      \"value\": \"192.0.2.10\"\n" +
-		"    }\n" +
-		"  ]\n" +
-		"}\n"
+	want := `{
+  "results": [
+    {
+      "resolver": "system",
+      "server": null,
+      "transport": null,
+      "query_name": "example.test.",
+      "query_type": "A",
+      "status": null,
+      "id": null,
+      "authoritative": null,
+      "truncated": null,
+      "recursion_available": null,
+      "answers": [
+        {
+          "name": "example.test.",
+          "type": "A",
+          "class": "IN",
+          "ttl": null,
+          "value": "192.0.2.10"
+        }
+      ]
+    }
+  ]
+}
+`
 	assert.Equal(t, want, stdout)
 }
 

@@ -43,9 +43,16 @@ TLS certificates and hostnames are verified by default. **--ca roots.pem** selec
 
 ## Choose output
 
-The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines; **--format json** prints the complete result object for one resolver or an array of result objects for multiple resolvers. **--select values** concatenates answer values in resolver argument order, as text lines or a single JSON array, without server labels. An empty values selection prints no text bytes or an empty JSON array. TXT values retain DNS zone-file quoting and escaping.
+The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines. **--format json** always prints an object: **result** uses a results array containing one entry per successful resolver, even for a single resolver; **values** uses a values array. **--select values** concatenates answer values in resolver argument order without server labels. An empty values selection prints no text bytes or a JSON object with an empty values array. TXT values retain DNS zone-file quoting and escaping.
 
-**--encoding** (or **-e**) transforms the complete formatted output, including its final newline. The default **raw** encoding leaves it unchanged. For example, encode the JSON values array as Base64:
+```text
+{"results": [{"resolver": "dns", "server": "1.1.1.1:53", ...}]}
+{"values": ["192.0.2.10", "192.0.2.20"]}
+```
+
+The result entry above is abbreviated; full entries retain the response details and answers.
+
+**--encoding** (or **-e**) transforms the complete formatted output, including its final newline. The default **raw** encoding leaves it unchanged. For example, encode the JSON values object as Base64:
 
 ```sh
 swys dns @1.1.1.1 example.com TXT --select values --format json --encoding base64
