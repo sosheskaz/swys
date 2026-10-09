@@ -2,6 +2,8 @@
 
 Open one outbound endpoint and exchange bytes between stdin and the peer. TCP is the default; select UDP with --udp (-u) or TLS with --tls (-T).
 
+**--style auto|rich|plain** controls verbose diagnostics on stderr. Auto uses restrained styles on supported terminals; plain emits no generated ANSI controls. TCP and UDP events stay compact, and TLS details are grouped. Payload bytes on stdout are unchanged.
+
 ## Choose a protocol
 
 - **tcp** exchanges an unencrypted byte stream.

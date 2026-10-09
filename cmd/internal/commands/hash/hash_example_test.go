@@ -3,6 +3,7 @@ package hash_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -69,4 +70,23 @@ type hashBorrowedStream struct {
 func (stream *hashBorrowedStream) Close() error {
 	stream.closed = true
 	return nil
+}
+
+func TestExampleHashStylesPreserveDigestBytes(t *testing.T) {
+	t.Parallel()
+	digest := sha256.Sum256([]byte("hello"))
+	for _, style := range []string{"auto", "rich", "plain"} {
+		for _, encoding := range []string{"raw", "hex", "base64"} {
+			output, err := executeHashCommand(t, bytes.NewBufferString("hello"), "hash", "sha256", "--style", style, "--encoding", encoding)
+			require.NoError(t, err)
+			want := digest[:]
+			if encoding == "hex" {
+				want = []byte(hex.EncodeToString(want) + "\n")
+			}
+			if encoding == "base64" {
+				want = []byte(base64.StdEncoding.EncodeToString(want) + "\n")
+			}
+			assert.Equal(t, want, output, "style=%s encoding=%s", style, encoding)
+		}
+	}
 }

@@ -1,9 +1,14 @@
 package commandio
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
+)
 
 // AddRootFlags registers the persistent flags used by the shared I/O lifecycle.
 func AddRootFlags(root *cobra.Command) {
+	presentation.AddFlags(root)
 	root.PersistentFlags().StringP("input", "i", "", "read stdin from this file; use - for stdin")
 	if err := root.MarkPersistentFlagFilename("input"); err != nil {
 		panic(err)

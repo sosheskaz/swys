@@ -2,6 +2,8 @@
 
 Send an HTTP request and write the response body to stdout. URLs without a scheme default to HTTPS. A bare URL uses GET and does not consume stdin.
 
+Response selection accepts **--format text|plain|json**. Text styles status and header names on supported terminals; plain uses the same wire-like layout without generated ANSI. Header names sort deterministically and repeated values keep their order. Body bytes remain unchanged after the blank separator. **--style auto|rich|plain** also controls grouped trace diagnostics; **--format plain** takes precedence. The default body selection stays raw bytes.
+
 ## Read a resource
 
 ```sh

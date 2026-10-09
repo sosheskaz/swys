@@ -15,18 +15,21 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/internal/asym"
 )
 
 const (
-	formatJSON = "json"
-	formatText = "text"
+	formatJSON  = "json"
+	formatText  = "text"
+	formatPlain = "plain"
 )
 
 var certFormatters = map[string]func() asym.CertFormatter{
-	"text":     func() asym.CertFormatter { return &asym.TextFormatter{} },
-	formatJSON: func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
-	"pem":      func() asym.CertFormatter { return &asym.PEMFormatter{} },
+	formatPlain: func() asym.CertFormatter { return &asym.TextFormatter{} },
+	"text":      func() asym.CertFormatter { return &asym.TextFormatter{} },
+	formatJSON:  func() asym.CertFormatter { return &asym.JSONFormatter{Indent: true} },
+	"pem":       func() asym.CertFormatter { return &asym.PEMFormatter{} },
 }
 
 // ErrFormatSelectsStructuredOutput identifies a byte encoding supplied as a certificate output format.
@@ -52,7 +55,12 @@ func certFormatterFromCommand(cmd *cobra.Command) (asym.CertFormatter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read format flag: %w", err)
 	}
-	return getCertFormatter(format)
+	formatter, err := getCertFormatter(format)
+	if text, ok := formatter.(*asym.TextFormatter); ok {
+		options := presentation.Output(cmd)
+		text.Presentation = &options
+	}
+	return formatter, err
 }
 
 type inspectionResultKey struct{}
@@ -89,7 +97,7 @@ func runPreparedInspection(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("write certificate output: %w", err)
 	}
 	if verification, ok := cmd.Context().Value(inspectionResultKey{}).(asym.CertificateVerification); ok {
-		return verification.WriteText(cmd.ErrOrStderr())
+		return verification.WriteReport(cmd.ErrOrStderr(), presentation.Diagnostics(cmd))
 	}
 	return nil
 }

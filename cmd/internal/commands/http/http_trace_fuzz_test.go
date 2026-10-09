@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 const maxFuzzHTTPTraceInputSize = 1 << 12
@@ -24,7 +26,7 @@ const forgedFuzzHTTPTraceURL = "https://example.test/\n" +
 // failure rather than a silently accepted change.
 var fuzzHTTPTraceFields = []string{
 	"network", "address", "connection", "attempt", "dns", "connect",
-	"first byte", "transfer", "total", "tls", "tls handshake", "certificate",
+	"first byte", "transfer", "total", "version", "cipher", "alpn", "verified", "handshake", "certificate",
 }
 
 // FuzzHTTPTraceText checks that peer-supplied TLS metadata and request targets
@@ -37,6 +39,7 @@ var fuzzHTTPTraceFields = []string{
 // never called, so the rendered timings are a deterministic function of the
 // fuzz input.
 func FuzzHTTPTraceText(f *testing.F) {
+	f.Add("GET", "https://example.test/path", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "👩‍💻", uint64(1), uint8(0x09), false, uint8(0))
 	f.Add("GET", "https://example.test/path", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0807060504030201), uint8(0x39), false, uint8(0))
 	f.Add("GET", "https://example.test/two", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0807060504030201), uint8(0x3a), false, uint8(0))
 	f.Add("GET", "https://example.test/fallback", "TLS 1.3", "TLS_AES_128_GCM_SHA256", "h2", uint64(0x0807060504030201), uint8(0x79), false, uint8(0))
@@ -72,7 +75,7 @@ func FuzzHTTPTraceText(f *testing.F) {
 		trace := fuzzHTTPTrace(method, url, tlsVersion, tlsCipher, tlsALPN, timing, shape)
 
 		baseline := &fuzzHTTPRecordingWriter{}
-		if err := trace.writeText(baseline); err != nil {
+		if err := trace.writeText(baseline, textdisplay.Options{}); err != nil {
 			t.Fatalf("write HTTP trace: %v", err)
 		}
 		if trace == nil && len(baseline.output) != 0 {
@@ -80,7 +83,7 @@ func FuzzHTTPTraceText(f *testing.F) {
 		}
 		if outputFail && baseline.calls != 0 {
 			output := &fuzzHTTPFailOnceWriter{failAt: int(outputFailureCall) % baseline.calls}
-			if err := trace.writeText(output); !errors.Is(err, errFuzzHTTPOutput) {
+			if err := trace.writeText(output, textdisplay.Options{}); !errors.Is(err, errFuzzHTTPOutput) {
 				t.Fatalf("trace error = %v, want output failure on call %d of %d", err, output.failAt, baseline.calls)
 			}
 			return
@@ -91,7 +94,7 @@ func FuzzHTTPTraceText(f *testing.F) {
 			t.Fatalf("HTTP trace is not valid UTF-8: %x", text)
 		}
 		for _, char := range text {
-			if char != '\n' && !strconv.IsPrint(char) {
+			if char != '\n' && char != '\u200d' && !strconv.IsPrint(char) {
 				t.Fatalf("HTTP trace contains non-printing rune %U: %q", char, text)
 			}
 		}
@@ -122,6 +125,9 @@ func checkFuzzHTTPTraceLines(t *testing.T, text string, trace *httpTrace, method
 	attemptLines := 0
 	certificateLines := 0
 	for _, line := range lines {
+		if line == "" || line == "  Connection" || line == "  Timing" || line == "  TLS" {
+			continue
+		}
 		if strings.HasPrefix(line, "http trace ") {
 			checkFuzzHTTPTraceCounts(t, trace, hop, tlsLines, attemptLines, certificateLines, text)
 			hop++
@@ -148,6 +154,18 @@ func checkFuzzHTTPTraceLines(t *testing.T, text string, trace *httpTrace, method
 			t.Fatalf("line %q matches no HTTP trace field; trace %q", line, text)
 		}
 		name := fuzzHTTPTraceFields[next]
+		if name == "cipher" && isVerbatimDiagnosticValue(tlsCipher) && !strings.HasSuffix(line, "  "+tlsCipher) {
+			t.Fatalf("cipher line = %q", line)
+		}
+		if name == "alpn" && isVerbatimDiagnosticValue(tlsALPN) && !strings.HasSuffix(line, "  "+tlsALPN) {
+			t.Fatalf("ALPN line = %q", line)
+		}
+		if name == "verified" && hop <= len(trace.hops) && trace.hops[hop-1].tls != nil {
+			want := fmt.Sprintf("  %t", trace.hops[hop-1].tls.verified)
+			if !strings.HasSuffix(line, want) {
+				t.Fatalf("verification line = %q, want %q", line, want)
+			}
+		}
 		if next < field && (next != field-1 || (name != "attempt" && name != "certificate")) {
 			t.Fatalf("field %q is out of declared order %q; trace %q", line, fuzzHTTPTraceFields, text)
 		}
@@ -161,7 +179,7 @@ func checkFuzzHTTPTraceLines(t *testing.T, text string, trace *httpTrace, method
 		if name == "certificate" {
 			certificateLines++
 		}
-		if name == "tls" {
+		if name == "version" {
 			tlsLines++
 			// A smuggled summary line can push hop past the real ones. That only
 			// happens once production is already broken, and the trailing count
@@ -187,13 +205,13 @@ func checkFuzzHTTPTraceCounts(t *testing.T, trace *httpTrace, hop, tlsLines, att
 		t.Fatalf("hop %d rendered %d attempts, want %d: %q", hop, attemptLines, want, text)
 	}
 	want := 0
-	if trace.hops[hop-1].tls != nil {
+	if detail := trace.hops[hop-1].tls; detail != nil && detail.version != "" {
 		want = 1
 	}
 	if tlsLines != want {
 		t.Fatalf("hop %d rendered %d tls lines, want %d: %q", hop, tlsLines, want, text)
 	}
-	if want != 0 {
+	if trace.hops[hop-1].tls != nil {
 		want = len(trace.hops[hop-1].tls.certificates)
 	}
 	if certificateLines != want {
@@ -223,15 +241,15 @@ func checkFuzzHTTPTraceTLSLine(t *testing.T, line string, hop *httpTraceHop, tls
 	if !isVerbatimDiagnosticValue(tlsVersion) || !isVerbatimDiagnosticValue(tlsCipher) || !isVerbatimDiagnosticValue(tlsALPN) {
 		return
 	}
-	want := fmt.Sprintf("  tls: %s, %s, alpn=%s, verified=%t", tlsVersion, tlsCipher, tlsALPN, hop.tls.verified)
-	if line != want {
+	want := "  " + tlsVersion
+	if !strings.HasSuffix(line, want) {
 		t.Fatalf("TLS line = %q, want %q", line, want)
 	}
 }
 
 func fuzzHTTPTraceFieldIndex(line string) int {
 	for index, name := range fuzzHTTPTraceFields {
-		if strings.HasPrefix(line, "  "+name+": ") {
+		if strings.HasPrefix(line, "    "+name+"  ") {
 			return index
 		}
 	}

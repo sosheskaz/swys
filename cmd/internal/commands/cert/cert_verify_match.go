@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,9 +19,11 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/asym"
 	"github.com/sosheskaz/swys/internal/pemstrict"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 const (
@@ -123,7 +126,7 @@ func newCertMatchCmd() *cobra.Command {
 	return command
 }
 
-func certificateReportFormatNames() []string { return []string{formatJSON, formatText} }
+func certificateReportFormatNames() []string { return []string{formatJSON, formatPlain, formatText} }
 
 func runPreparedCertificateReport(cmd *cobra.Command, _ []string) error {
 	prepared, output, err := commandio.TakePrepared(cmd)
@@ -166,8 +169,8 @@ func validateCertVerifyFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read format flag: %w", err)
 	}
-	if format != formatText && format != formatJSON {
-		return fmt.Errorf("%w %q (valid: json, text)", errUnknownCertFormat, format)
+	if format != formatText && format != formatPlain && format != formatJSON {
+		return fmt.Errorf("%w %q (valid: json, plain, text)", errUnknownCertFormat, format)
 	}
 	return nil
 }
@@ -199,8 +202,8 @@ func validateCertMatchFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read format flag: %w", err)
 	}
-	if format != formatText && format != formatJSON {
-		return fmt.Errorf("%w %q (valid: json, text)", errUnknownCertFormat, format)
+	if format != formatText && format != formatPlain && format != formatJSON {
+		return fmt.Errorf("%w %q (valid: json, plain, text)", errUnknownCertFormat, format)
 	}
 	return nil
 }
@@ -592,23 +595,33 @@ func encodeCertificateReport(cmd *cobra.Command, report certificateReport) ([]by
 		return append(encoded, '\n'), nil
 	}
 	var output strings.Builder
+	printer := textdisplay.New(&output, presentation.Output(cmd))
+	label, positive := "Match", report.Match
 	if report.verifyReport {
-		fmt.Fprintf(&output, "Verified: %t\n", report.Verified)
-	} else {
-		fmt.Fprintf(&output, "Match: %t\n", report.Match)
+		label, positive = "Verified", report.Verified
 	}
-	fmt.Fprintf(&output, "Details: %s\n", asym.EscapeDiagnosticValue(report.Details))
-	fingerprintNames := []string{
-		"certificate_sha256_fingerprint", "public_key_sha256_fingerprint",
-		"cert_public_key_sha256_fingerprint", "key_public_key_sha256_fingerprint",
-		"csr_public_key_sha256_fingerprint",
+	printer.Heading("Certificate " + label)
+	role := textdisplay.Failure
+	if positive {
+		role = textdisplay.Success
 	}
-	for _, name := range fingerprintNames {
-		if value := report.Fingerprints[name]; value != "" {
-			fmt.Fprintf(&output, "%s: %s\n", name, value)
+	printer.Fields([]textdisplay.Field{{Label: label, Value: strconv.FormatBool(positive), Role: role}, {Label: "Details", Value: report.Details}})
+	printer.Section("Fingerprints")
+	fingerprintNames := []struct{ name, label string }{
+		{"certificate_sha256_fingerprint", "Certificate SHA256"},
+		{"public_key_sha256_fingerprint", "Public Key SHA256"},
+		{"cert_public_key_sha256_fingerprint", "Certificate Public Key SHA256"},
+		{"key_public_key_sha256_fingerprint", "Key Public Key SHA256"},
+		{"csr_public_key_sha256_fingerprint", "CSR Public Key SHA256"},
+	}
+	fields := make([]textdisplay.Field, 0, len(fingerprintNames))
+	for _, field := range fingerprintNames {
+		if value := report.Fingerprints[field.name]; value != "" {
+			fields = append(fields, textdisplay.Field{Label: field.label, Value: value})
 		}
 	}
-	return []byte(output.String()), nil
+	printer.Fields(fields)
+	return []byte(output.String()), printer.Err()
 }
 
 func publicKeyFingerprint(public any) string {

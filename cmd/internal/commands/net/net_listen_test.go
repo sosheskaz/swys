@@ -313,12 +313,12 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 	stderrText := <-stderr
 	for _, want := range []string{
 		"accepted tls ",
-		"version: TLS",
-		"cipher: TLS_",
-		"alpn: (none)",
-		"sni: localhost",
-		"peer certificates: 0",
-		"client chain verified: no",
+		"version                TLS",
+		"cipher                 TLS_",
+		"alpn                   (none)",
+		"sni                    localhost",
+		"peer certificates      0",
+		"client chain verified  no",
 	} {
 		assert.Contains(t, stderrText, want)
 	}
@@ -351,11 +351,11 @@ func TestNetListenTLSVerboseEscapesMetadata(t *testing.T) {
 	if strings.Contains(stderrText, "\nFORGED-DIAGNOSTIC") || strings.Contains(stderrText, "\x1b") {
 		t.Fatalf("stderr contains peer-controlled terminal controls: %q", stderrText)
 	}
-	if want := `sni: peer.example\nFORGED-DIAGNOSTIC\x1b[2J`; !strings.Contains(stderrText, want) {
+	if want := `sni                    peer.example\nFORGED-DIAGNOSTIC\x1b[2J`; !strings.Contains(stderrText, want) {
 		t.Fatalf("stderr = %q, want escaped SNI %q", stderrText, want)
 	}
 	assert.NotContains(t, stderrText, "\n  sni: attacker.example")
-	if want := `alpn: h2\n  sni: attacker.example`; !strings.Contains(stderrText, want) {
+	if want := `alpn                   h2\n  sni: attacker.example`; !strings.Contains(stderrText, want) {
 		t.Fatalf("stderr = %q, want escaped ALPN %q", stderrText, want)
 	}
 }

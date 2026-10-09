@@ -4,6 +4,15 @@ Use SwYS to inspect network services, exchange bytes, and work with keys and
 certificates. Commands are organized by task, with predictable stdin, stdout,
 and file options where those operations make sense.
 
+Human reports default to --format text. --format plain uses the same readable
+layout without generated ANSI controls. --style auto|rich|plain controls human
+output on stdout and stderr independently; plain format takes precedence. Auto
+styling requires a supported terminal, no nonempty NO_COLOR, and no TERM=dumb.
+Redirected, file, and encoded stdout defaults to plain. Reports use available
+terminal columns and preserve values for terminal wrapping. Help keeps its
+separate 80-column prose layout and pager behavior; its --rich and --plain
+switches override shared styling.
+
 Start with the task
 
 • dns resolves names or asks a particular DNS server.

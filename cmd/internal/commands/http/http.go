@@ -153,7 +153,7 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.StringArrayVar(&options.files, "file", nil, "multipart file field (name=path); repeatable")
 	flags.StringVar(&options.stdin, "stdin", httpStdinAuto, "stdin body selection (auto, never, always)")
 	flags.StringVar(&options.selection, "select", httpSelectBody, "output selection (body, response)")
-	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (body: raw, json; response: text, json)")
+	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (body: raw, json; response: text, plain, json)")
 	flags.StringVarP(&options.encoding, commandio.EncodingFlagName, "e", httpEncodingRaw, "whole output encoding ("+strings.Join(encoding.Names(), ", ")+")")
 	flags.StringVar(&options.inputEncoding, commandio.InputEncodingFlagName, httpEncodingRaw,
 		"raw/JSON body input encoding ("+strings.Join(encoding.Names(), ", ")+")")

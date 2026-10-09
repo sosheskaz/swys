@@ -287,10 +287,10 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	stderr := <-remainingStderr
 	for _, want := range []string{
 		"accepted tls ",
-		"alpn: swys-example",
-		"sni: localhost",
-		"peer certificates: 1",
-		"client chain verified: yes",
+		"alpn                   swys-example",
+		"sni                    localhost",
+		"peer certificates      1",
+		"client chain verified  yes",
 	} {
 		assert.Contains(t, stderr, want)
 	}

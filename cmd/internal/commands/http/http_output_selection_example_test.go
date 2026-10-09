@@ -129,3 +129,30 @@ func mapKeys(m map[string]json.RawMessage) []string {
 	}
 	return keys
 }
+
+func TestExampleHTTPPlainAndStyledResponse(t *testing.T) {
+	t.Parallel()
+	body := "payload\x00\xff\n\x1b[31mapplication bytes\x1b[0m"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Date", "Thu, 08 Oct 2026 12:00:00 GMT")
+		writer.Header().Add("X-Repeated", "first")
+		writer.Header().Add("X-Repeated", "second")
+		writeHTTPTestString(t, writer, body)
+	}))
+	t.Cleanup(server.Close)
+	plain, diagnostics, err := executeRootStreams(t, "http", server.URL, "--select", "response", "--format", "plain", "--style", "rich", "--trace")
+	require.NoError(t, err)
+	assert.NotContains(t, strings.SplitN(plain, "\n\n", 2)[0], "\x1b")
+	assert.NotContains(t, diagnostics, "\x1b")
+	assert.Contains(t, plain, "X-Repeated: first\nX-Repeated: second\n")
+	rich, diagnostics, err := executeRootStreams(t, "http", server.URL, "--select", "response", "--style", "rich", "--trace")
+	require.NoError(t, err)
+	assert.Contains(t, diagnostics, "\x1b[")
+	parts := strings.SplitN(rich, "\n\n", 2)
+	require.Len(t, parts, 2)
+	assert.Contains(t, parts[0], "\x1b[")
+	assert.Equal(t, body, parts[1], "styles must reset before untouched body")
+	raw, _, err := executeRootStreams(t, "http", server.URL, "--style", "rich")
+	require.NoError(t, err)
+	assert.Equal(t, body, raw)
+}

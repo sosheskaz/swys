@@ -255,3 +255,23 @@ func TestExampleNetConnectIndependentlyEncodedTLSArtifacts(t *testing.T) {
 		t.Fatal("TLS fixture did not report the exchange")
 	}
 }
+
+func TestExampleNetStylesDiagnosticsOnly(t *testing.T) {
+	t.Parallel()
+	for _, style := range []string{"rich", "plain"} {
+		t.Run(style, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "request")
+			require.NoError(t, os.WriteFile(path, []byte("request"), 0o600))
+			address, done := startEOFResponseServer(t, "request", "response\x00\xff")
+			stdout, stderr, err := executeRootStreams(t, "net", "connect", address, "--input", path, "--verbose", "--style", style)
+			require.NoError(t, err)
+			assert.Equal(t, "response\x00\xff", stdout)
+			assert.Contains(t, stderr, "connected tcp")
+			assert.Equal(t, style == "rich", strings.Contains(stderr, "\x1b["))
+			result := <-done
+			require.NoError(t, result.err)
+			assert.Equal(t, "request", result.request)
+		})
+	}
+}

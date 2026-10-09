@@ -2,6 +2,8 @@
 
 Hash a file or stdin to produce a digest for comparison. Choose the algorithm explicitly; SwYS writes only the digest, without a filename or checksum-manifest record.
 
+**--style** does not change digest bytes or framing. Raw digests have no newline; other encodings retain their final unencoded newline.
+
 ## Choose an algorithm
 
 - **sha256** computes a SHA-256 digest for common file and payload comparisons.

@@ -16,7 +16,30 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
+
+func TestCertificateVerificationReportAlignsAvailableFields(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		want         string
+		verification CertificateVerification
+	}{
+		{
+			verification: CertificateVerification{Error: "unknown authority"},
+			want:         "\n  Certificate Verification · original leaf\n    Status  not verified\n    Error   unknown authority\n",
+		},
+		{
+			verification: CertificateVerification{Verified: true, chainNames: [][]ChainCertInfo{{{CommonName: "leaf"}, {CommonName: "root"}}}},
+			want:         "\n  Certificate Verification · original leaf\n    Status   verified\n    Chain 1  leaf -> root\n",
+		},
+	} {
+		var output bytes.Buffer
+		require.NoError(t, test.verification.WriteReport(&output, textdisplay.Options{}))
+		assert.Equal(t, test.want, output.String())
+	}
+}
 
 func TestCertificateReportPreservesNamesAndLeafVerification(t *testing.T) {
 	t.Parallel()

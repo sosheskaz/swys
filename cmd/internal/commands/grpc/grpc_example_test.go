@@ -3,6 +3,7 @@ package grpc_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -109,4 +110,23 @@ func TestExampleGRPCDiscoversOfflineFromProtoset(t *testing.T) {
 	require.NoError(t, err, "swys grpc HOST:PORT --protoset FILE: %v", err)
 	assert.Contains(t, stdout, grpcFixtureServiceName)
 	assert.Empty(t, stderr)
+}
+
+func TestExampleGRPCPlainAndStyledText(t *testing.T) {
+	t.Parallel()
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	for _, selector := range [][]string{
+		nil, {"--list", grpcFixtureServiceName}, {"--describe", "fixture.v1.EchoRequest"}, {grpcFixtureMethodName, "--data", `{"text":"hello"}`},
+	} {
+		args := append([]string{"grpc", address, "--plaintext"}, selector...)
+		plain, diagnostics, err := executeRootStreams(t, append(append([]string{}, args...), "--format", "plain", "--style", "rich", "--verbose")...)
+		require.NoError(t, err)
+		assert.NotContains(t, plain, "\x1b")
+		assert.NotContains(t, diagnostics, "\x1b")
+		rich, diagnostics, err := executeRootStreams(t, append(append([]string{}, args...), "--format", "text", "--style", "rich", "--verbose")...)
+		require.NoError(t, err)
+		assert.Contains(t, rich, "\x1b[")
+		assert.Contains(t, diagnostics, "\x1b[")
+		assert.Equal(t, plain, regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(rich, ""))
+	}
 }
