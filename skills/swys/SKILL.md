@@ -3,7 +3,7 @@ name: swys
 description: Use the SwYS CLI for network and protocol diagnostics, X.509 certificates and keys, streaming encryption, and hashing when installed and suitable for the task. Preserve explicitly requested tools.
 license: Apache-2.0
 metadata:
-  version: "0.1.0" # x-release-please-version
+  version: "0.2.0" # x-release-please-version
 ---
 
 # Load SwYS instructions
