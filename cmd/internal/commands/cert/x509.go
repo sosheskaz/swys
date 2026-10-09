@@ -17,6 +17,8 @@ import (
 //go:embed guides
 var certGuideFiles embed.FS
 
+const certInspectCommandName = "inspect"
+
 // NewCommand constructs the certificate command family for one root lifecycle.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	certCmd := &cobra.Command{
@@ -84,7 +86,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	lifecycle.Register(inspect, commandio.Behavior{
 		SupportsInput:  true,
 		SupportsOutput: true,
-		Validate:       validateInspectionFlags,
+		Validate:       validateCertInspectFlags,
 		Prepare:        prepareInspectedCertificates,
 	})
 	lifecycle.Register(connect, commandio.Behavior{
@@ -147,13 +149,14 @@ func certificateCreateUsesCSR(cmd *cobra.Command) bool {
 
 func newCertInspectCmd() *cobra.Command {
 	certInspectCmd := commandio.StructuredOutputCommand(&cobra.Command{
-		Use:   "inspect",
+		Use:   certInspectCommandName,
 		Short: "Inspect X.509 certificates",
 		Args:  cobra.NoArgs,
 		RunE:  runPreparedInspection,
 	}, certFormatNames)
 	commandio.AddInputEncodingFlag(certInspectCmd)
 	commandio.AddOutputEncodingFlag(certInspectCmd)
+	addCertificateCAFlags(certInspectCmd)
 	addCertificateSelection(certInspectCmd, asym.SelectFullChain)
 	certInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return certInspectCmd
@@ -168,7 +171,12 @@ func prepareInspectedCertificates(cmd *cobra.Command, input io.Reader) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
+	roots, err := certVerificationRoots(cmd)
+	if err != nil {
+		return nil, err
+	}
 	return prepareInspection(cmd, certs, &x509.VerifyOptions{
+		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}, "input")
 }

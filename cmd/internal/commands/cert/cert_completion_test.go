@@ -185,6 +185,7 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{name: "create issuer key", args: []string{"cert", "create", "--issuer-key", ""}},
 		{name: "CSR key", args: []string{"cert", "csr", "--key", ""}},
 		{name: "verify intermediate", args: []string{"cert", "verify", "--input", "chain.pem", "--intermediates", ""}},
+		{name: "inspect CA", args: []string{"cert", "inspect", "--input", "chain.pem", "--ca", ""}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -202,6 +203,8 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{"cert", "verify", "--intermediates", ""},
 		{"cert", "verify", "--input", "chain.pem", "--ca", "-", "--intermediates", ""},
 		{"cert", "verify", "--input", "chain.pem", "--intermediates", "-", "--ca", ""},
+		{"cert", "inspect", "--ca", ""},
+		{"cert", "inspect", "--input", "-", "--ca", ""},
 	} {
 		got, _ := executeCertificateCompletion(t, args...)
 		if certificateCompletionContains(got, "-") {
@@ -363,6 +366,7 @@ func TestCertificateArtifactEncodingCompletion(t *testing.T) {
 		{operation: "match", source: "csr"},
 		{operation: "verify", source: "ca"},
 		{operation: "verify", source: "intermediates"},
+		{operation: "inspect", source: "ca"},
 	} {
 		t.Run(test.operation+"/"+test.source, func(t *testing.T) {
 			t.Parallel()
@@ -382,6 +386,30 @@ func TestCertificateArtifactEncodingCompletion(t *testing.T) {
 	}
 }
 
+func TestCertificateCADataCompletion(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"verify", "inspect"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			values, directive := executeCertificateCompletion(t, "cert", operation, "--ca-data", "")
+			assert.Empty(t, values)
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+			values, directive = executeCertificateCompletion(t, "cert", operation, "--ca-data", "literal", "--ca-encoding", "b")
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+			assert.Len(t, values, 4)
+			assert.True(t, certificateCompletionContains(values, "base64"))
+			values, _ = executeCertificateCompletion(t, "cert", operation, "--ca-data", "literal", "--")
+			assert.True(t, completionContainsFlag(values, "--ca-encoding"))
+		})
+	}
+	values, _ := executeCertificateCompletion(t, "cert", "inspect", "--input", "chain.pem", "--ca", "-", "--ca-encoding", "hex", "--")
+	assert.True(t, completionContainsFlag(values, "--input-encoding"))
+	values, directive := executeCertificateCompletion(t, "cert", "inspect", "--input", "chain.pem",
+		"--input-encoding", "base64", "--ca", "-", "--ca-encoding", "h")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	assert.True(t, certificateCompletionContains(values, "hex"))
+}
+
 func TestCertificateCompletionHidesInapplicableArtifactEncodings(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -392,6 +420,7 @@ func TestCertificateCompletionHidesInapplicableArtifactEncodings(t *testing.T) {
 		{args: []string{"cert", "csr"}, flag: "key-encoding"},
 		{args: []string{"cert", "match", "--cert", "missing.pem"}, flag: "csr-encoding"},
 		{args: []string{"cert", "verify"}, flag: "ca-encoding"},
+		{args: []string{"cert", "inspect"}, flag: "ca-encoding"},
 		{args: []string{"cert", "verify", "--intermediates="}, flag: "intermediates-encoding"},
 		{args: []string{"cert", "create", "--ca", "--issuer-cert", "missing.pem"}, flag: "issuer-cert-encoding"},
 		{args: []string{"cert", "create", "--csr", "missing.csr", "--key", "missing.key"}, flag: "key-encoding"},

@@ -42,6 +42,26 @@ JSON always has a **certificates** array containing metadata, complete **pem** s
 
 Inspection never prints private keys. Successful extraction does not establish trust and does not install the exported CA. Negative verification is reported without failing an otherwise successful export; use **cert verify** when a negative verification result should fail the command.
 
+## Inspect with a custom CA
+
+Inspection uses system trust by default. Use **--ca root.pem** for a CA file, **--ca -** for CA stdin when **--input** names the certificate file, or **--ca-data** for literal CA content. Choose one CA source. Custom anchors replace system roots unless **--system-ca** is also set; your trust store is never modified.
+
+```sh
+swys cert inspect --input chain.pem --ca root.pem --format json
+```
+
+For response.json containing base64 of a PEM chain in **certificate** and base64 of its CA PEM in **ca**, use jq to extract both values without intermediate certificate files:
+
+```sh
+jq -r '.certificate' response.json |
+  swys cert inspect --input-encoding base64 \
+    --ca-data "$(jq -r '.ca' response.json)" --ca-encoding base64
+```
+
+Adjust the field names to match your response. **--ca-encoding** decodes either CA source independently of **--input-encoding**; it defaults to **raw** and supports raw, hex, base64 (also b64), base64url, and base32. Raw PEM needs no outer decoding. CA input accepts a PEM bundle or a single DER certificate. **--ca-data** must be nonempty and never reads a file or stdin.
+
+Custom trust contributes to the verification report and verified-chain selections such as **--select root**. Negative verification remains diagnostic; malformed CA input fails the command before opening output.
+
 ## Reference
 
 ```sh
