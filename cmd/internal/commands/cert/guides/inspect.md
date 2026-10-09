@@ -2,6 +2,9 @@
 
 Read a PEM certificate bundle or one DER certificate and report identity, validity, fingerprints, and verification information. By default, all supplied certificates are displayed as text, in input order; verification describes the first certificate.
 
+Human reports default to **text**, with restrained styling on supported terminals. **--format plain** keeps the same layout without generated ANSI controls. **--style auto|rich|plain** overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
+
+
 ## Inspect or export certificates
 
 The examples below require a certificate or leaf-first bundle in chain.pem. Use **swys help cert create** to create a local test identity, or export a reachable endpoint's certificates with **cert connect**.
@@ -28,7 +31,7 @@ swys cert connect api.example.com:443 --select leaf -f pem -e base64 | swys cert
 
 The default **text** format displays detailed certificate metadata, validity dates, fingerprints, and certificate verification.
 
-**--select leaf|chain|fullchain|root** (or **-s**) chooses the certificate material independently of **--format text|json|pem**. **chain** excludes the first certificate; **fullchain** preserves all supplied certificates without adding roots. **root** exports CA trust anchors from verified chains, or a supplied self-signed CA connected by a leaf-first signature chain when trust verification fails. Multiple verified roots are deduplicated and sorted by SHA-256 fingerprint. Unavailable selections return an error and preserve existing output files.
+**--select leaf|chain|fullchain|root** (or **-s**) chooses the certificate material independently of **--format text|plain|json|pem**. **chain** excludes the first certificate; **fullchain** preserves all supplied certificates without adding roots. **root** exports CA trust anchors from verified chains, or a supplied self-signed CA connected by a leaf-first signature chain when trust verification fails. Multiple verified roots are deduplicated and sorted by SHA-256 fingerprint. Unavailable selections return an error and preserve existing output files.
 
 A non-negative integer selects one certificate from a complete, unambiguous chain in root-to-leaf order: **0** is the root, **1** is the next certificate toward the leaf, and **n-1** is the leaf for a chain of **n** certificates. SwYS uses a verified chain when available, otherwise a complete supplied signature chain. Missing roots, multiple distinct verified paths, and out-of-range indexes are errors; named selections retain their behavior.
 

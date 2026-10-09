@@ -13,6 +13,7 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/internal/asym"
 )
 
@@ -29,8 +30,9 @@ var keyConversionTargets = map[string]asym.KeyFormat{
 }
 
 var keyFormatters = map[string]func() asym.KeyFormatter{
-	"json": func() asym.KeyFormatter { return &asym.KeyJSONFormatter{Indent: true} },
-	"text": func() asym.KeyFormatter { return &asym.KeyTextFormatter{} },
+	formatPlain: func() asym.KeyFormatter { return &asym.KeyTextFormatter{} },
+	"json":      func() asym.KeyFormatter { return &asym.KeyJSONFormatter{Indent: true} },
+	"text":      func() asym.KeyFormatter { return &asym.KeyTextFormatter{} },
 }
 
 func newKeyPublicCmd() *cobra.Command {
@@ -264,7 +266,12 @@ func keyFormatterFromCommand(cmd *cobra.Command) (asym.KeyFormatter, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w %q (valid: %s)", ErrUnknownKeyFormat, name, strings.Join(keyFormatNames(), ", "))
 	}
-	return constructor(), nil
+	formatter := constructor()
+	if text, isText := formatter.(*asym.KeyTextFormatter); isText {
+		options := presentation.Output(cmd)
+		text.Presentation = &options
+	}
+	return formatter, nil
 }
 
 func prepareKeyPublicOutput(cmd *cobra.Command, input io.Reader) ([]byte, error) {

@@ -71,7 +71,7 @@ func TestCertificateInspectAcceptsDERAndPreservesFraming(t *testing.T) {
 
 func TestCertificateSupportedFormatsDriveHelpErrorsAndCompletion(t *testing.T) {
 	t.Parallel()
-	wantFormats := []string{"json", "pem", "text"}
+	wantFormats := []string{"json", "pem", "plain", "text"}
 	root := rootcmd.NewCommand()
 	command, _, err := root.Find([]string{"cert", "inspect"})
 	require.NoError(t, err)
@@ -140,8 +140,8 @@ func TestCertificateTextIncludesDetails(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, explicitStderr)
 			for _, field := range []string{
-				"Subject:", "Issuer:", "Serial:", "DNS Names:", "IPs:", "Not Before:", "Not After:",
-				"Key:", "SHA256:", "Public Key SHA256:", "certificate verification:",
+				"Subject    ", "Issuer     ", "Serial     ", "DNS Names  ", "IPs        ", "Not Before  ", "Not After   ",
+				"Key                ", "SHA256             ", "Public Key SHA256  ", "Certificate Verification · original leaf",
 			} {
 				assert.Contains(t, output, field, "default format")
 				assert.Contains(t, explicit, field, "explicit text format")
