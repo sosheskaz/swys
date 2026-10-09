@@ -26,10 +26,12 @@ interfaces may change between releases.
 [Install and activate mise for your shell](https://mise.jdx.dev/getting-started.html),
 then install SwYS globally using its [GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html):
 
+<!-- x-release-please-start-version -->
 ```sh
 mise use --global github:sosheskaz/swys@0.2.0
 swys --version
 ```
+<!-- x-release-please-end -->
 
 Mise selects the release archive for your platform and makes `swys` available
 on `PATH` in an activated shell. Set up SwYS completion separately below.
@@ -136,6 +138,8 @@ the executable the agent actually runs. It does not install or upgrade SwYS.
 
 With a GitHub CLI that provides `gh skill` (the repository pins 2.102.0), install
 the discovery entry from the release tag corresponding to `swys --version`.
+
+<!-- x-release-please-start-version -->
 For `v0.2.0`:
 
 ```sh
@@ -143,6 +147,7 @@ gh skill install sosheskaz/swys swys --pin v0.2.0 --agent codex --scope user
 gh skill install sosheskaz/swys swys --pin v0.2.0 --agent claude-code --scope user
 gh skill install sosheskaz/swys swys --pin v0.2.0 --agent github-copilot --scope user
 ```
+<!-- x-release-please-end -->
 
 Choose the command for your agent. Use `--scope project` for a project-local
 installation. `gh skill` tracks the source and supports managed updates; pinning

@@ -86,6 +86,12 @@ enabled merely because CI validation is green.
 
 ## Later releases and recovery
 
+Release-please updates the README's marked installation examples and the skill
+discovery entry alongside the release version. Keep current-version examples
+inside `x-release-please-start-version` / `x-release-please-end` blocks in files
+listed under `extra-files` in `release-please-config.json`. Leave historical
+release references and minimum supported versions outside those blocks.
+
 Review each generated release PR's version, notes, and tests. With squash merges,
 Conventional Commit titles determine the release calculation. The Go strategy
 uses the existing pre-1.0 bump rules in `release-please-config.json`.
@@ -102,10 +108,9 @@ stages outside the repository and does not publish or query repository settings.
 It remains separate from offline `mise run check`. Do not run actual
 `gh skill publish`: it creates a competing release lifecycle.
 
-For the first containing release, replace the README's unreleased availability
-notice with the actual supported version after publication. Verify pinned
-`gh skill install` into a temporary directory using that tag, and confirm the
-tag, discovery version, packaged binary version, and rendered build identity.
+After each release, verify pinned `gh skill install` into a temporary directory
+using that tag, and confirm the tag, discovery version, packaged binary version,
+and rendered build identity.
 Add the `agent-skills` repository topic when publishing the first skill release
 to make search discovery available; direct repository installation does not
 require that topic. Existing older tags do not gain skill support retroactively.

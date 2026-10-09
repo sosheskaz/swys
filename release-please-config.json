@@ -7,6 +7,10 @@
   "extra-files": [
     {
       "type": "generic",
+      "path": "README.md"
+    },
+    {
+      "type": "generic",
       "path": "skills/swys/SKILL.md"
     }
   ],
