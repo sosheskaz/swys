@@ -195,7 +195,7 @@ func TestCertVerifyReadsCustomRootsFromStdin(t *testing.T) {
 	})
 }
 
-func TestCertVerifyRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
+func TestCertificateRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
 	t.Parallel()
 	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
 	chainPath := writeCertTestFile(t, t.TempDir(), "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
@@ -208,6 +208,8 @@ func TestCertVerifyRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
 		{name: "default chain with intermediate stdin", args: []string{"cert", "verify", "--intermediates", "-"}},
 		{name: "explicit chain with intermediate stdin", args: []string{"cert", "verify", "--input", "-", "--intermediates", "-"}},
 		{name: "two supplemental stdin sources", args: []string{"cert", "verify", "--input", chainPath, "--ca", "-", "--intermediates", "-"}},
+		{name: "inspect default chain stdin", args: []string{"cert", "inspect", "--ca", "-"}},
+		{name: "inspect explicit chain stdin", args: []string{"cert", "inspect", "--input", "-", "--ca", "-"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1399,7 +1401,6 @@ func TestCertArtifactEncodingsValidateBeforeIO(t *testing.T) {
 		{name: "match certificate without source", args: []string{"match", "--key", "-", "--csr", "missing.csr"}, flag: "cert", encoding: "raw"},
 		{name: "match key without source", args: []string{"match", "--cert", "-", "--csr", "missing.csr"}, flag: "key", encoding: "raw"},
 		{name: "match CSR with empty source", args: []string{"match", "--cert", "-", "--key", "missing.key", "--csr="}, flag: "csr", encoding: "raw"},
-		{name: "verify CA without source", args: []string{"verify"}, flag: "ca", encoding: "raw"},
 		{name: "verify intermediates without source", args: []string{"verify"}, flag: "intermediates", encoding: "raw"},
 		{name: "create unknown key codec", args: []string{"create", "--key", "-"}, flag: "key", encoding: "missing"},
 		{name: "CSR unknown key codec", args: []string{"csr", "--key", "-"}, flag: "key", encoding: "missing"},

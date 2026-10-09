@@ -15,7 +15,11 @@ import (
 func addCertificateArtifactEncodingFlags(cmd *cobra.Command, sources ...string) {
 	for _, name := range sources {
 		flag := name + "-encoding"
-		cmd.Flags().String(flag, encoding.Raw, "outer encoding of --"+name+" ("+strings.Join(encoding.Names(), ", ")+")")
+		source := "--" + name
+		if name == "ca" && cmd.Flags().Lookup(certCADataFlagName) != nil {
+			source += " or --ca-data"
+		}
+		cmd.Flags().String(flag, encoding.Raw, "outer encoding of "+source+" ("+strings.Join(encoding.Names(), ", ")+")")
 		mustRegisterCertificateCompletion(cmd, flag, func(command *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
 			if !certificateArtifactEncodingApplicable(command, name) {
 				return nil, cobra.ShellCompDirectiveNoFileComp
@@ -28,10 +32,19 @@ func addCertificateArtifactEncodingFlags(cmd *cobra.Command, sources ...string) 
 
 func certificateArtifactEncodingApplicable(cmd *cobra.Command, name string) bool {
 	source, err := cmd.Flags().GetString(name)
-	if err != nil || source == "" {
+	if err != nil {
 		return false
 	}
-	if cmd.Name() != certVerifyCommandName && source == "-" && cmd.Flags().Changed(commandio.InputEncodingFlagName) {
+	if name == "ca" && cmd.Flags().Lookup(certCADataFlagName) != nil {
+		data, err := cmd.Flags().GetString(certCADataFlagName)
+		if err == nil && data != "" {
+			return true
+		}
+	}
+	if source == "" {
+		return false
+	}
+	if cmd.Name() != certVerifyCommandName && cmd.Name() != certInspectCommandName && source == "-" && cmd.Flags().Changed(commandio.InputEncodingFlagName) {
 		return false
 	}
 	if mode, ok := certificateCompletionMode(cmd); ok {
@@ -58,6 +71,12 @@ func validateCertificateArtifactEncodings(cmd *cobra.Command, names ...string) e
 			return fmt.Errorf("read %s flag: %w", name, err)
 		}
 		if cmd.Flags().Changed(name+"-encoding") && source == "" {
+			if name == "ca" && cmd.Flags().Lookup(certCADataFlagName) != nil {
+				if cmd.Flags().Changed(certCADataFlagName) {
+					continue
+				}
+				return fmt.Errorf("%w: --ca-encoding requires --ca or --ca-data", errInvalidCertificateFlags)
+			}
 			return fmt.Errorf("%w: --%s-encoding requires --%s", errInvalidCertificateFlags, name, name)
 		}
 	}

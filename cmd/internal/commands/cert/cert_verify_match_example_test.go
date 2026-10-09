@@ -18,6 +18,30 @@ import (
 	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 )
 
+func TestExampleCertificateCAFromJSON(t *testing.T) {
+	t.Parallel()
+	fixture := newCertificateCAFixture(t)
+	response, err := json.Marshal(map[string]string{
+		"certificate": base64.StdEncoding.EncodeToString(append(append([]byte{}, fixture.leafPEM...), fixture.intermediatePEM...)),
+		"ca":          base64.StdEncoding.EncodeToString(fixture.rootPEM),
+	})
+	require.NoError(t, err)
+	var fields map[string]string
+	require.NoError(t, json.Unmarshal(response, &fields))
+
+	for _, operation := range []string{"verify", "inspect"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr, err := executeRootStreamsWithInput(t, strings.NewReader(fields["certificate"]),
+				"cert", operation, "--input-encoding", "base64",
+				"--ca-data", fields["ca"], "--ca-encoding", "base64", "--format", "json",
+			)
+			require.NoError(t, err, "stdout %q; stderr %q", stdout, stderr)
+			assertCertificateCAVerified(t, operation, stdout, true)
+		})
+	}
+}
+
 func TestExampleCertVerifyCustomRoot(t *testing.T) {
 	t.Parallel()
 	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})

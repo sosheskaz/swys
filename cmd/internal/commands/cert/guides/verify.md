@@ -18,7 +18,23 @@ Keep both private keys local. The later examples assume chain.pem and root.pem a
 
 The main input is a contiguous leaf-first chain: each certificate after the leaf must be the valid issuer of the certificate before it. SwYS does not reorder this chain or accept unrelated certificates or gaps in it. Invalid order produces a **verified: false** report and a nonzero exit status. SwYS reports that all pieces are correct but ordered incorrectly only when cryptographic verification proves that diagnosis.
 
-Use **--intermediates intermediates.pem** as an untrusted issuer pool to supply additional issuers, for example when the main input contains only the leaf. This pool can extend a contiguous partial chain, but it does not repair invalid order or gaps between certificates already included in the main input. **--ca** replaces the system roots unless **--system-ca** is also set.
+Use **--intermediates intermediates.pem** as an untrusted issuer pool to supply additional issuers, for example when the main input contains only the leaf. This pool can extend a contiguous partial chain, but it does not repair invalid order or gaps between certificates already included in the main input.
+
+**--ca root.pem** reads a file; **--ca-data** accepts literal certificate content. Choose one source. Custom trust anchors replace system roots unless **--system-ca** is also set. Neither choice modifies your trust store.
+
+## Verify using certificate strings from JSON
+
+If response.json contains base64 of a PEM certificate chain in **certificate** and base64 of its CA PEM in **ca**, extract the values with jq:
+
+```sh
+jq -r '.certificate' response.json |
+  swys cert verify --input-encoding base64 \
+    --ca-data "$(jq -r '.ca' response.json)" --ca-encoding base64
+```
+
+Adjust the field names to match your response. The chain uses stdin; the CA is an argument, so no intermediate certificate files are needed. **--ca-data** also accepts raw PEM with the default **--ca-encoding raw**. Empty literal content is rejected, and a literal **-** is data rather than a request to read stdin.
+
+## Read CA certificates from a file or stdin
 
 To read trust anchors from standard input while the chain comes from a file:
 
@@ -28,7 +44,7 @@ cat root.pem | swys cert verify --input chain.pem --ca - --hostname api.example.
 
 Standard input has one owner. When **--ca -** or **--intermediates -** is used, the certificate chain must come from a file through **--input**; the default chain input and **--input -** are rejected.
 
-**--input-encoding** decodes only the main certificate chain. **--ca-encoding** and **--intermediates-encoding** independently decode their selected sources, including stdin. Both default to raw and support raw, hex, base64 (also b64), base64url, and base32. These describe outer byte encoding; PEM's internal Base64 needs no outer codec. A companion codec requires a nonempty corresponding source; invalid selections fail before reading artifacts or opening output.
+**--input-encoding** decodes only the main certificate chain. **--ca-encoding** decodes **--ca** or **--ca-data**, and **--intermediates-encoding** independently decodes its selected source. Both default to raw and support raw, hex, base64 (also b64), base64url, and base32. These describe outer byte encoding; PEM's internal Base64 needs no outer codec. A companion codec requires a nonempty corresponding source; invalid selections fail before reading artifacts or opening output.
 
 For a base64-wrapped chain file in chain.pem.b64:
 
