@@ -20,7 +20,7 @@ const representatives = [
   // Recommended policy disables indirect module updates; retain extraction proof.
   ["gomod", "go.mod", "google.golang.org/genproto/googleapis/rpc", false],
   ["mise", ".config/mise/config.toml", "go"],
-  ["mise", ".config/mise/config.toml", "npm:prettier"],
+  ["mise", ".config/mise/config.toml", "npm:release-please"],
   ["mise", ".config/mise/config.toml", "go:golang.org/x/vuln/cmd/govulncheck"],
   ["dockerfile", ".github/renovate.Dockerfile", "docker.io/renovate/renovate"],
 ];

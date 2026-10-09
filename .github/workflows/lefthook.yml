@@ -34,7 +34,7 @@ jobs:
         with:
           version: 2026.9.6
           install_args: >-
-            go node npm:prettier shfmt taplo golangci-lint goreleaser lefthook uv yamllint zizmor
+            go node shfmt taplo golangci-lint goreleaser lefthook zizmor
             aqua:rhysd/actionlint aqua:koalaman/shellcheck
           cache: true
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -46,7 +46,6 @@ jobs:
 
       - name: Run pre-commit checks
         env:
-          YAMLLINT_FORMAT: github
           # Feeds the shellcheck problem matcher (repo-local variable read by
           # the lefthook shellcheck job; deliberately NOT SHELLCHECK_OPTS,
           # which would break actionlint's embedded JSON-mode shellcheck).

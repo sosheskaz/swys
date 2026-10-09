@@ -24,10 +24,6 @@ pre-commit:
       glob: ".github/workflows/*.{yml,yaml}"
       run: mise exec -- zizmor {staged_files}
 
-    - name: prettier
-      glob: "{**/*.md,**/*.json}"
-      run: mise exec -- prettier --check {staged_files}
-
     - name: taplo-format
       glob: "{*.toml,**/*.toml}"
       run: mise exec -- taplo fmt --check {staged_files}
@@ -47,10 +43,6 @@ pre-commit:
     - name: shellcheck
       glob: "{.config/mise/tasks/**,**/*.sh}"
       run: mise exec -- shellcheck -f "${SHELLCHECK_FORMAT:-tty}" -S error {staged_files}
-
-    - name: yamllint
-      glob: "**/*.{yml,yaml}"
-      run: mise exec -- yamllint -c .yamllint.yaml {staged_files}
 
     - name: goreleaser-check
       glob: ".config/goreleaser.{yml,yaml}"

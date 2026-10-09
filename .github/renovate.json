@@ -87,7 +87,6 @@
       "matchDepNames": [
         "golangci-lint",
         "lefthook",
-        "yamllint",
         "zizmor",
         "aqua:rhysd/actionlint",
         "aqua:koalaman/shellcheck",
