@@ -1347,14 +1347,14 @@ func requireGRPCTLSFacts(t *testing.T, diagnostics string, verified bool) {
 	requireGRPCDiagnosticValues(t, diagnostics, "TLS", "version", "cipher")
 	lower := strings.ToLower(diagnostics)
 	if verified {
-		for _, value := range []string{"verified=true", "verification enabled", "certificate verified"} {
+		for _, value := range []string{"verified     true", "verification enabled", "certificate verified"} {
 			if strings.Contains(lower, value) {
 				return
 			}
 		}
 		t.Fatalf("diagnostics %q do not identify verified TLS", diagnostics)
 	}
-	for _, value := range []string{"verified=false", "verification disabled", "unverified", "insecure"} {
+	for _, value := range []string{"verified     false", "verification disabled", "unverified", "insecure"} {
 		if strings.Contains(lower, value) {
 			return
 		}
@@ -1585,14 +1585,14 @@ func requireSingleGRPCTransportDiagnostic(t *testing.T, diagnostics string, veri
 	t.Helper()
 	var transportLines []string
 	for _, line := range strings.Split(strings.TrimSuffix(diagnostics, "\n"), "\n") {
-		if strings.HasPrefix(line, "gRPC transport: ") {
+		if strings.HasPrefix(line, "    Verified     ") {
 			transportLines = append(transportLines, line)
 		}
 	}
 	if len(transportLines) != 1 {
 		t.Fatalf("transport diagnostic lines = %q, want exactly one", transportLines)
 	}
-	wantVerification := fmt.Sprintf("verified=%t", verified)
+	wantVerification := fmt.Sprintf("Verified     %t", verified)
 	assert.Contains(t, transportLines[0], wantVerification)
 }
 
