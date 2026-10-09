@@ -290,7 +290,6 @@ func guideCodeFromNode(source []byte, code *ast.CodeBlock) (guideBlock, error) {
 	for _, segment := range code.Value.Segments() {
 		line := segment.Str(source)
 		line = strings.TrimSuffix(line, "\n")
-		line = strings.TrimSuffix(line, "\r")
 		if err := validateGuideText(line, true); err != nil {
 			return guideBlock{}, err
 		}

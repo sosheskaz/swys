@@ -169,6 +169,7 @@ func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 		{name: "empty-code-block", markup: "# Guide\n\n```text\n```\n"},
 		{name: "control-character-in-prose", markup: "# Guide\n\ninvalid \x01 text\n"},
 		{name: "encoded-control-character-in-prose", markup: "# Guide\n\ninvalid &#27; text\n"},
+		{name: "stray-cr-before-crlf-in-code", markup: "# Guide\n\n```text\nx\r\r\n```\n"},
 		{name: "control-character-in-code", markup: "# Guide\n\n```text\ninvalid \x01 text\n```\n"},
 		{name: "tilde-fence", markup: "# Guide\n\n~~~sh\ncommand\n~~~\n"},
 		{name: "open-fence", markup: "# Guide\n\n```sh\ncommand\n"},
