@@ -89,6 +89,11 @@ jobs:
       - name: Verify go.mod is tidy
         run: go mod tidy -diff -v
 
+      - name: Validate agent skill packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mise run lint:skills
+
       - name: Test (with coverage)
         run: mise run test:unit -- -shuffle=on -coverprofile=coverage.out -covermode=atomic -coverpkg=./...
 

@@ -48,3 +48,6 @@ streams, HTTP bodies, or digests. HTTP response headers retain wire-like framing
 gRPC text retains protobuf syntax and list framing. Output encoding still covers
 the entire formatted stdout, including delimiters and newlines. Diagnostics remain
 outside that encoder.
+
+`swys skill` emits a fixed Agent Skills Markdown document without selection,
+format, or encoding options. Presentation never decorates, wraps, or pages it.

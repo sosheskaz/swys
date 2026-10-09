@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Validate discovery and rendered skills with gh skill (requires gh authentication)"
+set -euo pipefail
+
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/swys-skill-validation.XXXXXX")"
+trap 'rm -rf -- "$scratch"' EXIT
+mkdir -p "$scratch/source/skills/swys" "$scratch/rendered/skills/swys"
+# Stage outside a git repository so validation checks the packages without
+# querying unrelated repository settings or release history.
+cp skills/swys/SKILL.md "$scratch/source/skills/swys/SKILL.md"
+go run . skill -o "$scratch/rendered/skills/swys/SKILL.md"
+gh skill publish "$scratch/source" --dry-run
+gh skill publish "$scratch/rendered" --dry-run

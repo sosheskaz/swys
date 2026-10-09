@@ -42,6 +42,7 @@ archives:
       - THIRD_PARTY_NOTICES.txt
       - README.md
       - CHANGELOG*
+      - skills/swys/SKILL.md
       - src: licenses/oci/*
         dst: licenses/oci
       - src: .artifacts/completions/*

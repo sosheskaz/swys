@@ -1,0 +1,123 @@
+---
+name: swys
+description: Use the SwYS CLI for network and protocol diagnostics, X.509 certificates and keys, streaming encryption, and hashing when installed and suitable for the task. Preserve explicitly requested tools.
+license: Apache-2.0
+metadata:
+  version: {{ quote .Version }}
+  build: {{ quote .Build }}
+---
+
+# Use SwYS
+
+These are the complete instructions for the build identified in metadata.
+If you just obtained this document from `swys skill` for the executable you will
+use, loading is complete: do not run `swys skill` again for this task.
+If reading a saved copy, compare its `metadata.build` with `swys --version`
+(after the `swys version ` prefix) once. On a mismatch, unknown provenance, or
+a development build, load `swys skill` once and replace this copy's guidance
+with the returned instructions. That returned document completes the refresh.
+Repeat this check if the executable changes during the task.
+If SwYS is absent or lacks `skill`, report the prerequisite; do not automatically
+install, upgrade, or substitute another tool.
+
+## Choose and discover the operation
+
+Use SwYS when it fits the requested task and is available. Preserve the user's
+tool choice and authorization for network requests, listeners, and file writes.
+
+- `dns`: system resolution or direct DNS over UDP, TCP, TLS, and HTTPS.
+- `http`: HTTP requests and response bodies.
+- `grpc`: reflection or local descriptor discovery and unary RPC invocation.
+- `net connect` / `net listen`: raw TCP, TLS, and UDP bytes.
+- `cert`: inspect, create, and verify certificates; generate, inspect, convert,
+  and match asymmetric keys.
+- `aes`: OpenPGP or Tink streaming encryption and AES key management.
+- `hash`: streaming digests, with SHA-256 as the ordinary default choice.
+
+Read the relevant embedded guide, then exact reference help for the operation:
+
+```sh
+swys help cert verify --plain --no-pager
+swys cert verify --help
+```
+
+Use the installed CLI's help for flags, defaults, and supported combinations.
+Load only the relevant guide; do not enumerate the whole command tree.
+
+## Input, output, and results
+
+- Use `--input/-i` and `--output/-o` where supported. Prefer `-o` over shell
+  redirection for SwYS output-file validation and permissions. Existing output
+  files can be replaced; select destinations deliberately. Parent directories
+  must already exist.
+- An exact `-` selects stdin; `./-` names a file. Payload and credential inputs
+  cannot both own stdin. Use an explicit payload file or literal body when a
+  credential needs stdin; check the operation's guide for ownership rules.
+- Prefer `--format json` for supported structured reports. `--format plain`
+  is readable text, not a machine schema. Some operations return raw payload
+  bytes instead of a report: HTTP defaults to the response body.
+- `--select` chooses result content, `--format` chooses its representation,
+  and `--encoding` transforms the entire stdout result. Input and credential
+  encodings are separate. `--wire-format` and `--key-format` describe artifacts,
+  not presentation. Do not assume a flag exists on every command.
+- Check exit status and stderr as well as stdout. Diagnostics are separate from
+  result bytes; a usable-looking artifact alone does not establish success.
+
+For DNS values as structured data, use the resolver appropriate to the task:
+
+```sh
+swys dns example.test A --select values --format json
+```
+
+An explicit `@server` performs direct DNS and can bypass system resolver policy.
+Keep network targets within the requested scope. Use bounded timeouts for
+network work; consult help for whether the timeout covers setup or the whole
+operation. gRPC invocation supports unary methods only.
+
+## Certificates, keys, and TLS
+
+Inspect public metadata without printing private key material:
+
+```sh
+swys cert key-inspect --input identity.pem
+swys cert inspect --input chain.pem --format json
+swys cert verify --input chain.pem --ca root.pem --hostname api.example.test --format json
+```
+
+The files above must already exist. Keep keys and passwords out of chat,
+command arguments, logs, and reports. Do not install trust anchors or disable
+TLS verification as an automatic response to a trust failure. Use a supplied
+CA bundle or the intended server name when appropriate.
+
+`cert connect` retrieves certificates even when verification fails. A successful
+PEM export is not proof of trust: read the verification result and diagnostics.
+Use `cert verify` to require successful verification. Untrusted intermediate
+certificates do not become trust anchors; `--ca` supplies explicit roots.
+Self-signed identities created for local tests are not automatically trusted.
+
+## Streaming encryption
+
+For a disposable local round trip, use fresh output paths:
+
+```sh
+swys aes keygen -o key.bin
+swys aes encrypt --key key.bin --input message.txt -o message.pgp
+swys aes decrypt --key key.bin --input message.pgp -o recovered.txt
+```
+
+`message.txt` must already exist. Encryption defaults to binary OpenPGP RFC 9580
+AES-GCM. Decryption uses the selected format; specify `--wire-format tink` for
+Tink and repeat its exact AAD. Do not retry other formats after authentication
+failure or infer ciphertext format from key-container format.
+
+Decryption releases authenticated chunks before the entire stream is verified.
+A later tag, truncation, or structure failure can leave earlier plaintext in
+output. Require successful exit after final authentication and EOF before
+treating the entire message as recovered or passing it to another operation.
+Do not claim an output file is empty or a transaction was rolled back on error.
+
+For passwords, use the documented terminal, named environment variable, or
+password-command source; do not place a password in the invocation or consume
+payload stdin to obtain it. Stored Argon2id costs are checked before prompting
+or opening output and have no override. Historical SwYS-specific formats, raw
+GCM, and CBC require an older binary; do not invent a compatibility fallback.
