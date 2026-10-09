@@ -2,6 +2,9 @@
 
 Show the size of a raw AES key or the primary ID, status, size, and streaming parameters of a cleartext Tink keyset. Inspection never prints key material.
 
+Human reports default to **text**, with restrained styling on supported terminals. **--format plain** keeps the same layout without generated ANSI controls. **--style auto|rich|plain** overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
+
+
 ## Inspect a local key
 
 Create a raw key or Tink keyset first; inspection reads that key file.

@@ -69,7 +69,7 @@ func TestExampleAESKeyInspectionEncodesCompleteStdout(t *testing.T) {
 	plain, stderr, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-inspect", "--input", input)
 	require.NoError(t, err, "unencoded inspection: stderr %q", stderr)
-	require.Equal(t, []byte("Raw AES key: 128 bits\n"), plain)
+	require.Equal(t, []byte("AES Key Metadata\n    Format  raw\n    Bits    128\n"), plain)
 
 	encoded, stderr, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-inspect", "--input", input, "-e", "base64")
@@ -86,7 +86,7 @@ func TestAESAutoKeyReadersPreferRawLengthAndRespectExplicitFormat(t *testing.T) 
 	inspection, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-inspect", "--input", path)
 	require.NoError(t, err)
-	require.Contains(t, string(inspection), "Raw AES key: 128 bits")
+	require.Contains(t, string(inspection), "AES Key Metadata\n    Format  raw\n    Bits    128")
 
 	output := filepath.Join(t.TempDir(), "converted")
 	_, _, err = testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
@@ -119,7 +119,7 @@ func TestAESKeyReadersAcceptExplicitAuto(t *testing.T) {
 	inspection, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-inspect", "--key-format", "auto", "--input", input)
 	require.NoError(t, err)
-	require.Contains(t, string(inspection), "Raw AES key: 128 bits")
+	require.Contains(t, string(inspection), "AES Key Metadata\n    Format  raw\n    Bits    128")
 
 	output, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-convert", "--from", "auto", "--to", "raw", "--input", input)
@@ -135,7 +135,7 @@ func TestAESAutoKeyReadersPrefer32ByteRawWithJSONPrefix(t *testing.T) {
 	inspection, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-inspect", "--input", input)
 	require.NoError(t, err)
-	require.Contains(t, string(inspection), "Raw AES key: 256 bits")
+	require.Contains(t, string(inspection), "AES Key Metadata\n    Format  raw\n    Bits    256")
 
 	output, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-convert", "--to", "raw", "--input", input)

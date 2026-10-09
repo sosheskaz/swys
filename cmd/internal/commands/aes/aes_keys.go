@@ -14,7 +14,9 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/internal/symkey"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 const (
@@ -319,7 +321,7 @@ func newAESKeyInspectCmd() *cobra.Command {
 	cmd := commandio.EncodedInputCommand(commandio.StructuredOutputCommand(&cobra.Command{
 		Use: "key-inspect", Short: "Inspect AES key metadata without revealing key material", Args: cobra.NoArgs,
 		RunE: writePreparedAESKey,
-	}, func() []string { return []string{"text", inspectionJSON} }))
+	}, func() []string { return []string{"text", "plain", inspectionJSON} }))
 	commandio.AddOutputEncodingFlag(cmd)
 	cmd.Flags().String("key-format", keyFormatAuto, "key format (auto, raw, tink-json, tink-binary)")
 	registerAESValueCompletion(cmd, "key-format", func() []string { return append([]string{keyFormatAuto}, keyFormatNames()...) })
@@ -335,7 +337,7 @@ func validateAESKeyInspectFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read format flag: %w", err)
 	}
-	if format != "text" && format != inspectionJSON {
+	if format != "text" && format != "plain" && format != inspectionJSON {
 		return fmt.Errorf("%w %q", errAESInspectionFormat, format)
 	}
 	return nil
@@ -378,14 +380,22 @@ func prepareAESKeyInspection(cmd *cobra.Command, input io.Reader) ([]byte, error
 		return encoded, nil
 	}
 	var output strings.Builder
+	printer := textdisplay.New(&output, presentation.Output(cmd))
+	printer.Heading("AES Key Metadata")
 	if keyFormat == keyFormatRaw {
-		fmt.Fprintf(&output, "Raw AES key: %d bits\n", info.Keys[0].KeyBits)
+		printer.Fields([]textdisplay.Field{{Label: "Format", Value: "raw"}, {Label: "Bits", Value: strconv.Itoa(info.Keys[0].KeyBits)}})
 	} else {
-		fmt.Fprintf(&output, "Primary key ID: %d\n", info.PrimaryKeyID)
+		printer.Fields([]textdisplay.Field{{Label: "Format", Value: keyFormat}, {Label: "Primary key ID", Value: strconv.FormatUint(uint64(info.PrimaryKeyID), 10)}})
 		for _, key := range info.Keys {
-			fmt.Fprintf(&output, "Key %d: %s, AES-%d, derived AES-%d, %s, %d-byte segments\n",
-				key.ID, key.Status, key.KeyBits, key.DerivedKeyBits, key.Hash, key.SegmentSize)
+			printer.Section(fmt.Sprintf("Key %d", key.ID))
+			printer.Fields([]textdisplay.Field{
+				{Label: "Status", Value: key.Status},
+				{Label: "Bits", Value: strconv.Itoa(key.KeyBits)},
+				{Label: "Derived Bits", Value: strconv.Itoa(key.DerivedKeyBits)},
+				{Label: "HKDF", Value: key.Hash},
+				{Label: "Segment Bytes", Value: strconv.FormatUint(uint64(key.SegmentSize), 10)},
+			})
 		}
 	}
-	return []byte(output.String()), nil
+	return []byte(output.String()), printer.Err()
 }
