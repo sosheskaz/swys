@@ -60,6 +60,9 @@ func TestGuideRenderingAndPagerSelectionMatrix(t *testing.T) {
 				require.Contains(t, stripGuideANSI(stdout), "Exchange raw bytes")
 			}
 			require.Equal(t, test.wantRich, strings.Contains(stdout, "\x1b["), "rich output: %q", stdout)
+			if !test.wantRich {
+				assert.Len(t, firstGuideParagraphLines(stdout), 1, "plain prose must not wrap")
+			}
 			require.Empty(t, stderr)
 		})
 	}
@@ -73,7 +76,7 @@ func TestGuideRenderingFlagsAreMutuallyExclusive(t *testing.T) {
 	require.Empty(t, stdout)
 }
 
-func TestGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
+func TestRichGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -85,6 +88,7 @@ func TestGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
 		wantOver int
 	}{
 		{name: "direct-terminal", terminal: true, width: 34, wantMax: 34},
+		{name: "wide-terminal", terminal: true, width: 120, wantMax: 80, wantOver: 34},
 		{name: "pager-terminal", terminal: true, width: 31, env: map[string]string{"PAGER": guidePagerHelperCommand("copy")}, wantMax: 31},
 		{name: "redirect-uses-eighty", width: 20, wantMax: 80, wantOver: 34},
 	}
@@ -94,10 +98,10 @@ func TestGuideLayoutUsesOriginalTerminalWidth(t *testing.T) {
 			stdout, _, err := executeRootCommandStreams(
 				t,
 				newGuideTestRoot(test.terminal, test.width, test.env),
-				"help", "--plain",
+				"help", "--rich",
 			)
 			require.NoError(t, err)
-			paragraph := firstGuideParagraphLines(stdout)
+			paragraph := firstGuideParagraphLines(stripGuideANSI(stdout))
 			require.NotEmpty(t, paragraph, "first paragraph in %q", stdout)
 			longest := 0
 			for _, line := range paragraph {

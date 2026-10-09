@@ -619,7 +619,7 @@ github.com/tink-crypto/tink-go/v2 v2.8.0
    limitations under the License.
 
 ========================================================================
-github.com/yuin/goldmark v1.8.6
+github.com/yuin/goldmark/v2 v2.1.6
 
 --- upstream LICENSE (SHA-256 c1d6f653c38c80294dc7994647ba0dcc508ce64a86996303c804efa2f7982bff) ---
 MIT License

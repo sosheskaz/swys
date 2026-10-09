@@ -79,6 +79,45 @@ func TestGuideRendererSupportsBoundedMarkdownVocabulary(t *testing.T) {
 	assert.Contains(t, visible, "documentation.", "rich rendering shows the link label")
 }
 
+func TestGuideRendererDecodesTextAndLinksOnce(t *testing.T) {
+	t.Parallel()
+
+	const source = "# Decoding\n\n" +
+		"&amp;lt; &#60; &lt; \\*literal\\* &#92;*escaped*\n\n" +
+		"[&amp;lt;](https://example.test/?a=1&amp;b=&amp;lt;)\n"
+	plain, err := renderGuide([]byte(source), guideRenderOptions{width: 80})
+	require.NoError(t, err)
+	assert.Equal(t, "Decoding\n\n&lt; < < *literal* \\escaped\n\n"+
+		"&lt; (https://example.test/?a=1&b=&lt;)\n", string(plain))
+
+	rich, err := renderGuide([]byte(source), guideRenderOptions{width: 80, rich: true})
+	require.NoError(t, err)
+	assert.Equal(t, "Decoding\n\n&lt; < < *literal* \\escaped\n\n&lt;\n", stripGuideANSI(string(rich)))
+	assert.Contains(t, string(rich), "\x1b]8;;https://example.test/?a=1&b=&lt;\x1b\\")
+}
+
+func TestGuideRendererPreservesNestedEmphasis(t *testing.T) {
+	t.Parallel()
+
+	output, err := renderGuide([]byte("# Styles\n\n***both*** and **bold *both* bold**.\n"), guideRenderOptions{width: 80, rich: true})
+	require.NoError(t, err)
+	assert.Equal(t, "Styles\n\nboth and bold both bold.\n", stripGuideANSI(string(output)))
+	assert.Contains(t, string(output), "\x1b[1;3mboth\x1b[0m")
+	assert.Contains(t, string(output), "\x1b[1mbold ")
+}
+
+func TestGuideRendererPreservesLiteralCodeAndLineEndings(t *testing.T) {
+	t.Parallel()
+
+	const source = "# Code\r\n\r\n```sh\r\none\ttwo &amp; &#60; \\*literal\\*\r\n\r\nlast\r\n```\r\n"
+	const want = "Code\n\n  one\ttwo &amp; &#60; \\*literal\\*\n  \n  last\n"
+	for _, rich := range []bool{false, true} {
+		output, err := renderGuide([]byte(source), guideRenderOptions{width: 80, rich: rich})
+		require.NoError(t, err)
+		assert.Equal(t, want, stripGuideANSI(string(output)), "rich: %t", rich)
+	}
+}
+
 func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 	t.Parallel()
 
@@ -107,8 +146,11 @@ func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 		{name: "table-without-outer-pipes", markup: "# Guide\n\nA | B\n--- | ---\nvalue | value\n"},
 		{name: "link-reference-definition", markup: "# Guide\n\nParagraph.\n\n[docs]: https://example.test\n"},
 		{name: "unsupported-code-language", markup: "# Guide\n\n```markdown\ntext\n```\n"},
+		{name: "code-language-with-metadata", markup: "# Guide\n\n```sh extra\ntext\n```\n"},
+		{name: "encoded-code-language", markup: "# Guide\n\n```s&#104;\ntext\n```\n"},
 		{name: "empty-code-block", markup: "# Guide\n\n```text\n```\n"},
 		{name: "control-character-in-prose", markup: "# Guide\n\ninvalid \x01 text\n"},
+		{name: "encoded-control-character-in-prose", markup: "# Guide\n\ninvalid &#27; text\n"},
 		{name: "control-character-in-code", markup: "# Guide\n\n```text\ninvalid \x01 text\n```\n"},
 		{name: "tilde-fence", markup: "# Guide\n\n~~~sh\ncommand\n~~~\n"},
 		{name: "open-fence", markup: "# Guide\n\n```sh\ncommand\n"},
@@ -132,24 +174,36 @@ func TestGuideRendererRejectsInvalidWidthAndPreservesCodeTabs(t *testing.T) {
 	assert.Contains(t, string(output), "  one\ttwo\n", "code tab preservation")
 }
 
-func TestGuideRendererWrapsProseButPreservesCodeAndLongDestinations(t *testing.T) {
+func TestGuideRendererWrapsOnlyRichProse(t *testing.T) {
 	t.Parallel()
 
 	const longURL = "https://example.test/a/very/long/path/that/must/remain/copyable"
-	source := []byte("# Narrow output\n\n" +
-		"This paragraph wraps at a deliberately narrow width for deterministic output.\n\n" +
+	const heading = "Narrow output with a longer heading"
+	const paragraph = "This paragraph wraps only in rich style, even when its Markdown source\ncontains a soft line break."
+	const item = "A list item also stays on one line in plain style."
+	const code = "  printf 'this command line intentionally exceeds the prose width'"
+	source := []byte("# " + heading + "\n\n" + paragraph + "\n\n- " + item + "\n\n" +
 		"[long destination](" + longURL + ")\n\n" +
 		"```sh\nprintf 'this command line intentionally exceeds the prose width'\n```\n")
-	output, err := renderGuide(source, guideRenderOptions{width: 24})
+	wantPlain := heading + "\n\n" + strings.ReplaceAll(paragraph, "\n", " ") + "\n\n• " + item +
+		"\n\nlong destination (" + longURL + ")\n\n" + code + "\n"
+	for _, width := range []int{1, 24, 80} {
+		output, err := renderGuide(source, guideRenderOptions{width: width})
+		require.NoError(t, err)
+		assert.Equal(t, wantPlain, string(output), "plain width: %d", width)
+	}
+
+	output, err := renderGuide(source, guideRenderOptions{width: 24, rich: true})
 	require.NoError(t, err)
-	for _, line := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
-		if strings.Contains(line, "printf '") || strings.Contains(line, longURL) {
+	visible := stripGuideANSI(string(output))
+	for _, line := range strings.Split(strings.TrimSuffix(visible, "\n"), "\n") {
+		if strings.Contains(line, "printf '") {
 			continue
 		}
 		assert.LessOrEqual(t, utf8.RuneCountInString(line), 24, "line: %q", line)
 	}
-	assert.Contains(t, string(output), longURL, "long link destination")
-	assert.Contains(t, string(output), "  printf 'this command line intentionally exceeds the prose width'", "code line")
+	assert.Contains(t, string(output), longURL, "OSC 8 destination")
+	assert.Contains(t, visible, code, "code line")
 }
 
 func stripGuideANSI(value string) string {

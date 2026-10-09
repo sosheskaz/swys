@@ -34,6 +34,8 @@ swys help net --no-pager
 
 Rich rendering uses text styles and clickable link labels on terminals that support OSC 8 hyperlinks. Plain rendering keeps destinations visible. SwYS does not infer pager capabilities from an executable name; choose plain output when a pager or terminal cannot display the links.
 
+Plain output never adds line wrapping, including when redirected or sent to a pager. Rich output wraps prose to fit the terminal, up to 80 columns. Code lines keep their original layout in either style.
+
 ## Reference
 
 ```sh

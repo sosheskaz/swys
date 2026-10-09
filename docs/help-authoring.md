@@ -82,7 +82,7 @@ Explain only defaults that materially affect the demonstrated task. Do not use p
 
 SwYS interprets Markdown before writing or paging. Plain output removes presentation delimiters, retains link destinations, preserves code punctuation and indentation, and contains no SwYS-generated ANSI controls. Rich output adds SGR text styles and OSC 8 hyperlinks: show the clickable label without appending a second visible destination. Plain output keeps the label and visible destination. Close hyperlink and style controls at each rendered line boundary; controls never count toward the wrapping width. Do not emit cursor movement or other terminal commands. Terminals and pagers without OSC 8 support can use plain output for visible destinations.
 
-Prose wraps at the smaller of the original terminal width and 80 columns. Redirected output uses 80 columns. Code lines are never split. A single non-whitespace token longer than the layout width remains intact so a destination stays copyable.
+Plain output never adds wrapping: each heading, paragraph, and list item stays on one line, with Markdown soft line breaks joined as spaces. This applies to direct, redirected, and pager output. Rich prose wraps at the smaller of the original terminal width and 80 columns; redirected rich output uses 80 columns. Code lines are never split. A single non-whitespace token longer than the rich layout width remains intact so a destination stays copyable.
 
 Automatic rich output requires a supported direct terminal, no nonempty NO_COLOR, no TERM=dumb, and no configured pager. Rich and plain explicitly override that policy. No-pager changes only pager selection.
 
