@@ -40,7 +40,8 @@ selection. Keep values on logical lines and defer wrapping to the terminal; neve
 truncate or split names, TXT tokens, fingerprints, or other copyable values.
 The shared renderer measures Unicode display cells before styling and escapes
 untrusted controls in report values. Styling adds SGR only and resets before
-payloads. Help retains its separate 80-column layout and hyperlink/pager policy.
+payloads. Rich help retains its separate 80-column layout; plain help never adds
+wrapping. Help retains its hyperlink/pager policy.
 
 Presentation does not decorate JSON, PEM, key material, ciphertext, raw network
 streams, HTTP bodies, or digests. HTTP response headers retain wire-like framing;

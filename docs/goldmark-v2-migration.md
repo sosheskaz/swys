@@ -19,8 +19,8 @@ and [CommonMark notes](https://github.com/yuin/goldmark/blob/v2.1.6/.agent-plugi
 | `String` nodes removed | Handle resolved `Text` nodes instead. |
 | Strong emphasis is a separate node | Handle `ast.Emphasis` and `ast.Strong` separately, preserving nested styles. |
 | Fenced and indented code share `CodeBlock` | Check `CodeBlockKindFenced`; continue rejecting indented code. |
-| Code body uses `text.Lines` | Read `Value.Str(source)`, preserving code punctuation, tabs, and line boundaries. Reject an empty body using its source segments. |
-| Code info is a text value | Use `Info.IsEmpty` and `Info.Value`; retain the full existing language allowlist and rejection of additional info. |
+| Code body uses `text.Lines` | Iterate `Value.Segments()` and read each `segment.Str(source)`, preserving code punctuation, tabs, and line boundaries. Reject an empty body using its source segments. |
+| Code info is a text value | Use `Info.IsEmpty` and raw `Info.Bytes(source)`; retain the full existing language allowlist and reject encoded language names or additional info. |
 | Tight-list `TextBlock` removed | Require a single `Paragraph` within each list item; retain rejection of nested and multi-block items. |
 | Link title is a text value | Use `Title.IsEmpty`; continue rejecting titles and reference links. |
 
@@ -42,12 +42,19 @@ HTML renderer is needed.
 
 ## Behavioral validation
 
-Retain all existing plain/rich guide goldens, public-tree coverage, unsupported
-Markdown rejection cases, link boundaries, wrapping checks, code-tab preservation,
-and pager/process-lifecycle tests. Add focused decoding cases for escaped
-punctuation, nested entities, links, and code literals to guard against accidental
-second decoding after the AST change.
+Preserve public-tree coverage, unsupported Markdown rejection cases, link
+boundaries, code-tab preservation, and pager/process-lifecycle tests. Plain help
+never adds wrapping; update its goldens to keep each heading, paragraph, and list
+item on one line. Rich wrapping and the rich rendering golden remain unchanged.
+Focused decoding cases cover escaped punctuation, nested entities, links, and code
+literals to guard against accidental second decoding after the AST change.
 
-The CommonMark review preserves the existing handling of inline elements across
-source lines, nested emphasis, tight-list paragraphs, and code indentation. SwYS
-does not introduce custom CommonMark character-class logic.
+Normalize CRLF before parsing so empty list items are rejected consistently. A
+native HTML-block parser fallback preserves rejection of unfinished block tags
+followed by tabs or line endings in Goldmark v2.1.6. Remaining carriage returns in
+code reach control-character validation rather than being silently trimmed.
+
+The migration preserves ordinary nested emphasis, tight-list paragraphs, and code
+indentation, with the accepted single-pass decoding and ambiguous-emphasis
+exceptions documented in [the authoring guide](help-authoring.md). SwYS does not
+introduce custom CommonMark character-class logic.

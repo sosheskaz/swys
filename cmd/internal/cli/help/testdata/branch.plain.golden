@@ -1,8 +1,6 @@
 Exchange raw bytes
 
-Use the network family when you want to send or receive application bytes
-yourself. For an HTTP request, start with the HTTP command. To inspect a TLS
-server's certificates, use certificate connect.
+Use the network family when you want to send or receive application bytes yourself. For an HTTP request, start with the HTTP command. To inspect a TLS server's certificates, use certificate connect.
 
 Choose an operation
 
@@ -11,8 +9,7 @@ Run swys net for the operation reference.
 • connect contacts a remote endpoint and exchanges bytes.
 • listen accepts one connection, or one UDP request and response.
 
-Then choose TCP, TLS, or UDP. TLS verifies the peer by default on outgoing
-connections. UDP sends and receives one datagram in each direction.
+Then choose TCP, TLS, or UDP. TLS verifies the peer by default on outgoing connections. UDP sends and receives one datagram in each direction.
 
 Try a local TCP exchange in two terminals
 
@@ -24,24 +21,15 @@ Second terminal:
 
   printf 'hello from client\n' | swys net connect localhost:9000
 
-Input EOF half-closes each outgoing stream by default, and each command drains
-its peer until EOF. Sending and receiving are independent by default, so peer
-EOF does not discard unfinished local input. Explicit --duplex=false restores
-early exit on peer EOF and can discard outgoing data that has not yet been sent.
-Use --close-write=false when input EOF must leave the outgoing side open.
+Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Sending and receiving are independent by default, so peer EOF does not discard unfinished local input. Explicit --duplex=false restores early exit on peer EOF and can discard outgoing data that has not yet been sent. Use --close-write=false when input EOF must leave the outgoing side open.
 
 Encrypt a local exchange
 
-Create a key in a fresh local directory before running the encrypted pipeline.
-Keep this key private; a new key cannot decrypt data encrypted with the previous
-one.
+Create a key in a fresh local directory before running the encrypted pipeline. Keep this key private; a new key cannot decrypt data encrypted with the previous one.
 
   swys aes keygen -o aes.key
 
-Run the entire pipeline in one terminal. The receive-only listener reads the
-encrypted peer data without consuming its piped stdin. This works without
-startup sleeps because the connector retries a refused TCP setup within its
-five-second --connect-timeout (-c):
+Run the entire pipeline in one terminal. The receive-only listener reads the encrypted peer data without consuming its piped stdin. This works without startup sleeps because the connector retries a refused TCP setup within its five-second --connect-timeout (-c):
 
   printf 'hello, world\n' | swys aes encrypt -k aes.key | swys net connect localhost:4444 | swys net listen localhost:4444 -r | swys aes decrypt -k aes.key
 

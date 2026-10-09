@@ -11,6 +11,8 @@ import (
 	"github.com/yuin/goldmark/v2/ast"
 	"github.com/yuin/goldmark/v2/extension"
 	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/text"
+	"github.com/yuin/goldmark/v2/util"
 )
 
 type guideRenderOptions struct {
@@ -108,10 +110,17 @@ func parseGuide(source []byte) ([]guideBlock, error) {
 	if !utf8.Valid(source) {
 		return nil, errorsNewGuideMarkdown("source is not valid UTF-8")
 	}
+	// Goldmark v2.1.6 fails to recognize an empty list marker before CRLF.
+	source = bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
 	if err := validateGuideSourceSyntax(source); err != nil {
 		return nil, err
 	}
-	document := parser.New(parser.WithExtensions(extension.TableParser)).Parse(source)
+	document := parser.New(
+		parser.WithExtensions(extension.TableParser),
+		parser.WithBlockParsers(util.Prioritized[parser.BlockParser](
+			guideHTMLBlockParser{BlockParser: parser.NewHTMLBlockParser()}, 950,
+		)),
+	).Parse(source)
 	blocks := make([]guideBlock, 0, document.ChildCount())
 	levelOneHeadings := 0
 	for node := document.FirstChild(); node != nil; node = node.NextSibling() {
@@ -165,6 +174,48 @@ func validateGuideSourceSyntax(source []byte) error {
 	return nil
 }
 
+// Goldmark v2.1.6 misses type-6 HTML blocks whose tag is followed by a tab
+// or line ending. Run after its HTML parser and before paragraphs, preserving
+// its block context and tag list so these blocks still reach our rejection.
+type guideHTMLBlockParser struct {
+	parser.BlockParser
+}
+
+// Open probes the native tag list without consuming non-HTML text.
+func (p guideHTMLBlockParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
+	line, _ := reader.PeekLine()
+	if !bytes.ContainsAny(line, "\t\r\n") {
+		return nil, parser.NoChildren
+	}
+	normalized := bytes.Clone(line)
+	for index, character := range normalized {
+		if character == '\t' || character == '\r' || character == '\n' {
+			normalized[index] = ' '
+		}
+	}
+	node, state := p.BlockParser.Open(parent, guideHTMLBlockReader{Reader: reader, line: normalized}, pc)
+	block, ok := node.(*ast.HTMLBlock)
+	if !ok || block.HTMLBlockKind != ast.HTMLBlockKind6 {
+		return nil, parser.NoChildren
+	}
+	reader.AdvanceToEOL()
+	return node, state
+}
+
+type guideHTMLBlockReader struct {
+	text.Reader
+	line []byte
+}
+
+// PeekLine substitutes separators without changing source positions.
+func (r guideHTMLBlockReader) PeekLine() ([]byte, text.Segment) {
+	_, segment := r.Reader.PeekLine()
+	return r.line, segment
+}
+
+// AdvanceToEOL leaves input untouched until the probe identifies a type-6 block.
+func (guideHTMLBlockReader) AdvanceToEOL() {}
+
 func guideBlockFromNode(source []byte, node ast.Node) (guideBlock, error) {
 	switch typed := node.(type) {
 	case *ast.Heading:
@@ -185,9 +236,6 @@ func guideBlockFromNode(source []byte, node ast.Node) (guideBlock, error) {
 	case *ast.List:
 		return guideListFromNode(source, typed)
 	case *ast.CodeBlock:
-		if typed.CodeBlockKind != ast.CodeBlockKindFenced {
-			return guideBlock{}, errorsNewGuideMarkdown("indented code blocks are not supported")
-		}
 		return guideCodeFromNode(source, typed)
 	default:
 		return guideBlock{}, errorsNewGuideMarkdown("unsupported block " + node.Kind().String())
@@ -227,21 +275,21 @@ func guideListFromNode(source []byte, list *ast.List) (guideBlock, error) {
 }
 
 func guideCodeFromNode(source []byte, code *ast.CodeBlock) (guideBlock, error) {
+	if code.CodeBlockKind != ast.CodeBlockKindFenced {
+		return guideBlock{}, errorsNewGuideMarkdown("indented code blocks are not supported")
+	}
 	if !code.Info.IsEmpty() {
-		language := strings.TrimSpace(code.Info.Value(source))
+		language := strings.TrimSpace(string(code.Info.Bytes(source)))
 		switch language {
 		case "", "sh", "bash", "fish", "powershell", "text":
 		default:
 			return guideBlock{}, errorsNewGuideMarkdown("unsupported code-block language " + strconv.Quote(language))
 		}
 	}
-	if len(code.Value.Segments()) == 0 {
-		return guideBlock{}, errorsNewGuideMarkdown("code blocks must not be empty")
-	}
 	block := guideBlock{kind: guideCodeBlock}
-	for _, line := range strings.Split(strings.TrimSuffix(code.Value.Str(source), "\n"), "\n") {
+	for _, segment := range code.Value.Segments() {
+		line := segment.Str(source)
 		line = strings.TrimSuffix(line, "\n")
-		line = strings.TrimSuffix(line, "\r")
 		if err := validateGuideText(line, true); err != nil {
 			return guideBlock{}, err
 		}
@@ -371,7 +419,7 @@ func writeWrappedGuideSpans(
 	for wordIndex, word := range words {
 		space := wordIndex > 0 && lineWidth > prefixWidth
 		wordWidth := len(word)
-		if space && lineWidth+1+wordWidth > options.width {
+		if options.rich && space && lineWidth+1+wordWidth > options.width {
 			writeStyledGuideCells(output, line, options.rich)
 			line = nil
 			output.WriteByte('\n')

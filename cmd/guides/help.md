@@ -2,7 +2,7 @@
 
 The help command displays curated task guidance. A command's help flag remains the generated reference for arguments, flags, defaults, and aliases.
 
-The shared **--style auto|rich|plain** option also applies to guides. Help's **--rich** and **--plain** switches take precedence; help retains its prose wrapping and pager behavior.
+The shared **--style auto|rich|plain** option also applies to guides. Help's **--rich** and **--plain** switches take precedence; rich help retains its prose wrapping, while plain help stays unwrapped. Pager behavior is unchanged.
 
 ## Select a guide
 
@@ -35,6 +35,8 @@ swys help net --no-pager
 ```
 
 Rich rendering uses text styles and clickable link labels on terminals that support OSC 8 hyperlinks. Plain rendering keeps destinations visible. SwYS does not infer pager capabilities from an executable name; choose plain output when a pager or terminal cannot display the links.
+
+Plain output never adds line wrapping, including when redirected or sent to a pager. Rich output wraps prose to fit the terminal, up to 80 columns. Code lines keep their original layout in either style.
 
 ## Reference
 
