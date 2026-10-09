@@ -6,6 +6,9 @@ Inputs accept one unencrypted PKCS#8, PKCS#1, or SEC1 private key or a PKIX publ
 
 SwYS reads and formats the complete key metadata before opening the output destination. Invalid key input leaves an existing output file unchanged.
 
+Human reports default to **text**, with restrained styling on supported terminals. **--format plain** keeps the same layout without generated ANSI controls. **--style auto|rich|plain** overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
+
+
 ## Inspect a key file
 
 ```sh

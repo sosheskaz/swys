@@ -715,7 +715,7 @@ func TestEncryptedDNSPreservesOutputFormatsAndStatus(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "text", want: ";; status: NXDOMAIN"},
+		{name: "text", want: "Status    NXDOMAIN"},
 		{name: "JSON", args: []string{"--format", "json"}, want: `"status": "NXDOMAIN"`},
 		{name: "values", args: []string{"--select", "values"}, want: "192.0.2.44\n"},
 	} {

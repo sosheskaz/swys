@@ -2,6 +2,9 @@
 
 Validate a leaf-first certificate chain for trust, time, purpose, and an optional DNS name or IP address. Extra certificates in the input and **--intermediates** are untrusted chain material; they do not become trust anchors.
 
+Human reports default to **text**, with restrained styling on supported terminals. **--format plain** keeps the same layout without generated ANSI controls. **--style auto|rich|plain** overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
+
+
 ## Verify with a private trust root
 
 Create a disposable local authority and a certificate for api.example.test. The authority signs the leaf; no trust store is modified.

@@ -12,7 +12,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
+
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 )
 
 const (
@@ -140,6 +141,7 @@ func scopedGuidePath(root, scope *cobra.Command, args []string) []string {
 }
 
 type guideOptions struct {
+	style   string
 	rich    bool
 	plain   bool
 	noPager bool
@@ -182,6 +184,11 @@ func runGuide(
 		)
 	}
 
+	style, err := presentation.Policy(command)
+	if err != nil {
+		return err
+	}
+	options.style = style
 	stdout := command.OutOrStdout()
 	isTerminal, terminalWidth := dependencies.Terminal(stdout)
 	pager, pagerSet := dependencies.Getenv("PAGER")
@@ -213,6 +220,12 @@ func guideRichPresentation(
 	if options.plain {
 		return false
 	}
+	if options.style == presentation.Rich {
+		return true
+	}
+	if options.style == presentation.Plain {
+		return false
+	}
 	if value, ok := dependencies.Getenv("NO_COLOR"); ok && value != "" {
 		return false
 	}
@@ -233,19 +246,7 @@ func guideLayoutWidth(isTerminal bool, terminalWidth int) int {
 }
 
 func guideTerminal(writer io.Writer) (bool, int) {
-	file, ok := writer.(interface{ Fd() uintptr })
-	if !ok {
-		return false, 0
-	}
-	fd := int(file.Fd())
-	if !term.IsTerminal(fd) {
-		return false, 0
-	}
-	width, _, err := term.GetSize(fd)
-	if err != nil {
-		return true, 0
-	}
-	return true, width
+	return presentation.Terminal(writer)
 }
 
 func resolveGuideTarget(root *cobra.Command, path []string) (*cobra.Command, error) {

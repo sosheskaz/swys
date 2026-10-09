@@ -134,7 +134,7 @@ func FuzzDNSWireResultRendering(f *testing.F) {
 		}
 		assertFuzzDNSResultMatchesMessage(t, &result, wireResponse)
 
-		for _, format := range []string{"text", "json"} {
+		for _, format := range []string{"text", "plain", "json"} {
 			for _, short := range []bool{false, true} {
 				output, err := dnscommand.RenderResultForTest(&result, format, short)
 				if err != nil {
@@ -206,7 +206,7 @@ func assertFuzzDNSRendering(t *testing.T, output []byte, result *dnsquery.Result
 		assertFuzzDNSJSONRendering(t, output, result, short)
 		return
 	}
-	if !short && !strings.HasPrefix(string(output), ";; resolver: dns\n") {
+	if !short && (!strings.HasPrefix(string(output), "DNS · ") || !strings.Contains(string(output), "Resolver  dns")) {
 		t.Fatalf("text output missing resolver header: %q", output)
 	}
 	if short && strings.Count(string(output), "\n") != len(result.Answers) {

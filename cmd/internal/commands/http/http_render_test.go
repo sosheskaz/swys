@@ -20,6 +20,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 var errHTTPRenderTest = errors.New("HTTP render test failure")
@@ -110,6 +112,58 @@ func TestWriteHTTPJSONResponseReportsConnectionFailure(t *testing.T) {
 	assert.Contains(t, envelope.Error, requestErr.Error())
 }
 
+func TestHTTPTraceTextOmitsUnavailableFieldsAndAlignsSections(t *testing.T) {
+	t.Parallel()
+	start := time.Unix(1, 0)
+	for _, test := range []struct {
+		name string
+		hop  *httpTraceHop
+		want string
+	}{
+		{
+			name: "unavailable connection",
+			hop:  &httpTraceHop{method: "GET", url: "http://example.test", start: start, end: start.Add(time.Second)},
+			want: "http trace 1: GET http://example.test\n\n  Timing\n    total  1s\n",
+		},
+		{
+			name: "aligned available fields",
+			hop: &httpTraceHop{
+				method: "GET", url: "https://example.test", start: start, end: start.Add(time.Second),
+				network: "tcp", address: "192.0.2.1:443", reused: "new", firstByte: start.Add(time.Millisecond),
+				connectAttempts: []*httpTraceConnectAttempt{{network: "tcp", address: "192.0.2.1:443", start: start, end: start.Add(time.Millisecond)}},
+				tls:             &httpTraceTLS{version: "TLS 1.3", cipher: "TLS_AES_128_GCM_SHA256"},
+			},
+			want: `http trace 1: GET https://example.test
+
+  Connection
+    network     tcp
+    address     192.0.2.1:443
+    connection  new
+    attempt     tcp 192.0.2.1:443, duration=1ms
+
+  Timing
+    connect     1ms
+    first byte  1ms
+    transfer    999ms
+    total       1s
+
+  TLS
+    version   TLS 1.3
+    cipher    TLS_AES_128_GCM_SHA256
+    verified  false
+`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var output bytes.Buffer
+			trace := &httpTrace{hops: []*httpTraceHop{test.hop}}
+			require.NoError(t, trace.writeText(&output, textdisplay.Options{}))
+			assert.Equal(t, test.want, output.String())
+		})
+	}
+}
+
 func TestHTTPTracePairsSelectedConnectAttemptAndCertificateVerification(t *testing.T) {
 	t.Parallel()
 	verifiedDER := newTLSCertificateChain(t).Certificate[0]
@@ -169,12 +223,12 @@ func TestHTTPTracePairsSelectedConnectAttemptAndCertificateVerification(t *testi
 	}
 
 	var output bytes.Buffer
-	require.NoError(t, trace.writeText(&output))
-	assert.Contains(t, output.String(), "  tls handshake: "+views[0].TLS.Handshake+"\n")
+	require.NoError(t, trace.writeText(&output, textdisplay.Options{}))
+	assert.Contains(t, output.String(), "    handshake    "+views[0].TLS.Handshake+"\n")
 	var certificateLines []string
 	for line := range strings.SplitSeq(output.String(), "\n") {
-		if strings.HasPrefix(line, "  certificate: ") {
-			certificateLines = append(certificateLines, strings.TrimPrefix(line, "  certificate: "))
+		if strings.HasPrefix(line, "    certificate  ") {
+			certificateLines = append(certificateLines, strings.TrimPrefix(line, "    certificate  "))
 		}
 	}
 	require.Len(t, certificateLines, 2, "rendered peer certificates")
@@ -224,4 +278,22 @@ func (reader *httpFailingReader) Read(buffer []byte) (int, error) {
 	n := copy(buffer, reader.data)
 	reader.data = reader.data[n:]
 	return n, nil
+}
+
+func TestHTTPHeadReportsShortHeaderWrite(t *testing.T) {
+	t.Parallel()
+	writer := &shortHTTPHeaderWriter{}
+	err := writeHTTPHead(writer, &http.Response{Proto: "HTTP/1.1", Status: "200 OK", Header: http.Header{"X-Test": {"value"}}}, textdisplay.Options{})
+	require.ErrorIs(t, err, io.ErrShortWrite)
+	assert.Equal(t, 2, writer.calls, "stop after failed header")
+}
+
+type shortHTTPHeaderWriter struct{ calls int }
+
+func (writer *shortHTTPHeaderWriter) Write(data []byte) (int, error) {
+	writer.calls++
+	if writer.calls == 2 {
+		return 0, nil
+	}
+	return len(data), nil
 }

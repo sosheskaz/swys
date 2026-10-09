@@ -22,6 +22,7 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/internal/netconn"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 func TestNetProtocolDependentDefaultsDoNotMutate(t *testing.T) {
@@ -71,7 +72,7 @@ func TestNetListenTCPDiagnosticWriteFailures(t *testing.T) {
 		}
 	})
 	want := errListenDiagnosticOutput
-	require.ErrorIs(t, writeTCPListeningDetails(failingWriter{err: want}, listener), want)
+	require.ErrorIs(t, writeTCPListeningDetails(failingWriter{err: want}, textdisplay.Options{}, listener), want)
 
 	accepted := make(chan net.Conn, 1)
 	acceptErr := make(chan error, 1)
@@ -85,7 +86,7 @@ func TestNetListenTCPDiagnosticWriteFailures(t *testing.T) {
 	server := <-accepted
 	require.NoError(t, <-acceptErr)
 	t.Cleanup(func() { closeListenTestTCP(t, server) })
-	require.ErrorIs(t, writeTCPAcceptedDetails(failingWriter{err: want}, server), want)
+	require.ErrorIs(t, writeTCPAcceptedDetails(failingWriter{err: want}, textdisplay.Options{}, server), want)
 }
 
 func TestValidateTLSServerIdentityAcceptsPresentedOrder(t *testing.T) {
@@ -196,9 +197,9 @@ func TestRespondUDPDatagramReturnsOutputFailureBeforeSending(t *testing.T) {
 func TestUDPListenerDiagnosticsReturnOutputFailures(t *testing.T) {
 	t.Parallel()
 	listener := listenUDPTest(t)
-	require.ErrorIs(t, writeUDPListeningDetails(failingWriter{err: errUDPTestDiagnostic}, listener), errUDPTestDiagnostic)
+	require.ErrorIs(t, writeUDPListeningDetails(failingWriter{err: errUDPTestDiagnostic}, textdisplay.Options{}, listener), errUDPTestDiagnostic)
 	require.ErrorIs(t, writeUDPReceivedDetails(
-		failingWriter{err: errUDPTestDiagnostic},
+		failingWriter{err: errUDPTestDiagnostic}, textdisplay.Options{},
 		listener.LocalAddr(),
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53},
 	), errUDPTestDiagnostic)
@@ -234,7 +235,7 @@ func TestWriteUDPConnectionDetailsReturnsOutputFailure(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { closeUDPTest(t, connection) })
 	want := errUDPTestDiagnostic
-	require.ErrorIs(t, writeUDPConnectionDetails(failingWriter{err: want}, connection), want)
+	require.ErrorIs(t, writeUDPConnectionDetails(failingWriter{err: want}, textdisplay.Options{}, connection), want)
 }
 
 func TestNetStreamLifecycleFlags(t *testing.T) {

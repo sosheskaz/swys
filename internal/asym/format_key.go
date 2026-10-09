@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
+
+const publicKeyFingerprintLabel = "Public Key SHA256"
 
 // KeyFormatter renders safe key metadata.
 type KeyFormatter interface {
@@ -13,10 +17,16 @@ type KeyFormatter interface {
 }
 
 // KeyTextFormatter renders key metadata as human-readable text.
-type KeyTextFormatter struct{}
+type KeyTextFormatter struct {
+	// Presentation opts CLI reports into shared layout and styling.
+	Presentation *textdisplay.Options
+}
 
 // Format writes key metadata as text.
 func (f *KeyTextFormatter) Format(info *KeyInfo, writer io.Writer) error {
+	if f.Presentation != nil {
+		return keyTextReport(info, writer, *f.Presentation)
+	}
 	if err := writeKeyField(writer, "Key Type", string(info.KeyType)); err != nil {
 		return err
 	}
@@ -31,7 +41,7 @@ func (f *KeyTextFormatter) Format(info *KeyInfo, writer io.Writer) error {
 			return err
 		}
 	}
-	return writeKeyField(writer, "Public Key SHA256", info.PublicKeySHA256Fingerprint)
+	return writeKeyField(writer, publicKeyFingerprintLabel, info.PublicKeySHA256Fingerprint)
 }
 
 func writeKeyField(writer io.Writer, label, value string) error {

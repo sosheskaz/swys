@@ -43,9 +43,10 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz/swys/internal/asym"
 	"github.com/sosheskaz/swys/internal/contextio"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 //go:embed guides
@@ -60,23 +61,25 @@ const (
 	grpcReflectionOverhead = 64 << 10
 )
 
-type grpcOptions struct { //nolint:govet // flag registration is clearer when related values stay grouped
-	list           string
-	describe       string
-	protoset       string
-	data           string
-	headers        []string
-	format         string
-	ca             string
-	cert           string
-	key            string
-	serverName     string
-	timeout        time.Duration
-	maxMessageSize int
-	plaintext      bool
-	systemCA       bool
-	insecure       bool
-	verbose        bool
+type grpcOptions struct { //nolint:govet // group resolved presentation and related flag values
+	outputPresentation     textdisplay.Options
+	diagnosticPresentation textdisplay.Options
+	list                   string
+	describe               string
+	protoset               string
+	data                   string
+	headers                []string
+	format                 string
+	ca                     string
+	cert                   string
+	key                    string
+	serverName             string
+	timeout                time.Duration
+	maxMessageSize         int
+	plaintext              bool
+	systemCA               bool
+	insecure               bool
+	verbose                bool
 }
 
 type grpcPreparation struct {
@@ -156,8 +159,9 @@ func (err *grpcStatusDiagnosticError) Unwrap() error { return err.cause }
 func (err *grpcStatusDiagnosticError) GRPCStatus() *status.Status { return err.status }
 
 const (
-	grpcFormatText = "text"
-	grpcFormatJSON = "json"
+	grpcFormatText  = "text"
+	grpcFormatPlain = "plain"
+	grpcFormatJSON  = "json"
 )
 
 // NewCommand constructs the gRPC command and registers its I/O behavior.
@@ -227,7 +231,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.StringVar(&options.protoset, "protoset", "", "read descriptors from a FileDescriptorSet instead of reflection")
 	flags.StringVarP(&options.data, "data", "d", "", "literal protobuf JSON request")
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request metadata (name: value); repeatable")
-	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (text, json); defaults to text for discovery and json for invocation")
+	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", "", "output format (text, plain, json); discovery defaults to text, invocation to json")
 	flags.DurationVarP(&options.timeout, "timeout", "t", commandio.DefaultNetworkTimeout, "overall connection, reflection, and invocation timeout (0 disables)")
 	flags.IntVar(&options.maxMessageSize, "max-message-size", grpcDefaultMessageSize, "maximum sent and received protobuf message size in bytes")
 	flags.BoolVar(&options.plaintext, "plaintext", false, "use plaintext HTTP/2 instead of TLS")
@@ -242,7 +246,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) {
 		prepareGRPCCompletion(completionCmd, args, command)
 	})
-	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string { return []string{grpcFormatText, grpcFormatJSON} })
+	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string { return []string{grpcFormatText, grpcFormatPlain, grpcFormatJSON} })
 	tlsconfig.AddArtifactEncodingFlags(command, grpcTLSCompletionApplicable)
 	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
 		func() *cobra.Command { return NewCommand(commandio.NewLifecycle()) }, grpcTLSCompletionApplicable)
@@ -267,6 +271,8 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	if err := validateGRPCOptions(cmd, args[0], selector, selectorPresent, options); err != nil {
 		return nil, err
 	}
+	options.outputPresentation = presentation.Output(cmd)
+	options.diagnosticPresentation = presentation.Diagnostics(cmd)
 	md, err := parseGRPCMetadata(options.headers)
 	if err != nil {
 		return nil, err
@@ -318,6 +324,9 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		output, renderErr := selection.render(format)
 		if renderErr != nil {
 			return nil, renderErr
+		}
+		if format != grpcFormatJSON {
+			output = styleGRPCText(output, options.outputPresentation.Rich)
 		}
 		result := &grpcPreparation{output: output}
 		if options.verbose {
@@ -392,6 +401,9 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		return nil, err
 	}
 	output = append(output, '\n')
+	if format != grpcFormatJSON {
+		output = styleGRPCText(output, options.outputPresentation.Rich)
+	}
 	result := &grpcPreparation{output: output}
 	if options.verbose {
 		result.diagnostics = grpcDiagnostics(options, details)
@@ -402,7 +414,7 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 func marshalGRPCResponse(response proto.Message, types *dynamicpb.Types, format string) ([]byte, error) {
 	var output []byte
 	var err error
-	if format == grpcFormatText {
+	if format == grpcFormatText || format == grpcFormatPlain {
 		output, err = (prototext.MarshalOptions{Resolver: types}).Marshal(response)
 	} else {
 		output, err = (protojson.MarshalOptions{Resolver: types}).Marshal(response)
@@ -462,10 +474,10 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 		return fmt.Errorf("%w: --max-message-size must be positive and allow a safe JSON limit", ErrInvalidOptions)
 	}
 	if cmd.Flags().Changed(commandio.FormatFlagName) && options.format == "" {
-		return fmt.Errorf("%w: --format must be text or json", ErrInvalidOptions)
+		return fmt.Errorf("%w: --format must be text, plain, or json", ErrInvalidOptions)
 	}
-	if options.format != "" && options.format != grpcFormatText && options.format != grpcFormatJSON {
-		return fmt.Errorf("%w: --format must be text or json", ErrInvalidOptions)
+	if options.format != "" && options.format != grpcFormatText && options.format != grpcFormatPlain && options.format != grpcFormatJSON {
+		return fmt.Errorf("%w: --format must be text, plain, or json", ErrInvalidOptions)
 	}
 	outputEncoding, err := cmd.Flags().GetString(commandio.EncodingFlagName)
 	if err != nil {
@@ -891,38 +903,62 @@ func grpcDiscoveryList(values []string, format string) ([]byte, error) {
 
 func grpcDiagnostics(options *grpcOptions, details grpcCallDetails) []byte {
 	var output strings.Builder
+	printer := textdisplay.New(&output, options.diagnosticPresentation)
 	rpcStatus := details.status
 	if rpcStatus == nil {
 		rpcStatus = status.New(codes.OK, "")
 	}
-	fmt.Fprintf(&output, "gRPC status: %s", rpcStatus.Code())
+	line := "gRPC status: " + rpcStatus.Code().String()
 	if rpcStatus.Message() != "" {
-		fmt.Fprintf(&output, ": %s", formatGRPCStatusMessage(rpcStatus.Message()))
+		line += ": " + formatGRPCStatusMessage(rpcStatus.Message())
 	}
-	output.WriteByte('\n')
-	writeGRPCMetadataDiagnostics(&output, "header", details.header)
-	writeGRPCMetadataDiagnostics(&output, "trailer", details.trailer)
+	role := textdisplay.Success
+	if rpcStatus.Code() != codes.OK {
+		role = textdisplay.Failure
+	}
+	output.WriteString(textdisplay.Style(line, role, options.diagnosticPresentation.Rich) + "\n")
+	writeGRPCMetadataDiagnostics(printer, "Headers", details.header)
+	writeGRPCMetadataDiagnostics(printer, "Trailers", details.trailer)
 	if options.protoset != "" && details.peer.AuthInfo == nil {
 		return []byte(output.String())
 	}
+	printer.Section("Transport")
 	if options.plaintext {
-		output.WriteString("gRPC transport: plaintext\n")
+		printer.Fields([]textdisplay.Field{{Label: "Protocol", Value: "plaintext"}})
 		return []byte(output.String())
 	}
 	tlsState, ok := grpcTLSConnectionState(details.peer.AuthInfo)
 	if !ok {
-		output.WriteString("gRPC transport: TLS details unavailable\n")
+		printer.Fields([]textdisplay.Field{{Label: "TLS", Value: "details unavailable"}})
 		return []byte(output.String())
 	}
-	fmt.Fprintf(
-		&output,
-		"gRPC transport: TLS; version=%s; cipher=%s; server name=%s; verified=%t\n",
-		asym.EscapeDiagnosticValue(tls.VersionName(tlsState.Version)),
-		asym.EscapeDiagnosticValue(tls.CipherSuiteName(tlsState.CipherSuite)),
-		asym.EscapeDiagnosticValue(tlsState.ServerName),
-		len(tlsState.VerifiedChains) != 0 && !options.insecure,
-	)
+	printer.Fields([]textdisplay.Field{
+		{Label: "Protocol", Value: "TLS"},
+		{Label: "Version", Value: tls.VersionName(tlsState.Version)},
+		{Label: "Cipher", Value: tls.CipherSuiteName(tlsState.CipherSuite)},
+		{Label: "Server Name", Value: tlsState.ServerName},
+		{Label: "Verified", Value: strconv.FormatBool(len(tlsState.VerifiedChains) != 0 && !options.insecure)},
+	})
 	return []byte(output.String())
+}
+
+// styleGRPCText preserves protobuf syntax and framing; it styles field names only.
+func styleGRPCText(data []byte, rich bool) []byte {
+	if !rich {
+		return data
+	}
+	lines := strings.Split(string(data), "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		end := strings.IndexAny(trimmed, ": {<")
+		if end < 0 {
+			end = len(trimmed)
+		}
+		if end > 0 {
+			lines[index] = line[:len(line)-len(trimmed)] + textdisplay.Style(trimmed[:end], textdisplay.Strong, true) + trimmed[end:]
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
 }
 
 func formatGRPCStatusMessage(message string) string {
@@ -996,27 +1032,32 @@ func grpcTLSConnectionState(authInfo credentials.AuthInfo) (tls.ConnectionState,
 	}
 }
 
-func writeGRPCMetadataDiagnostics(output *strings.Builder, kind string, values metadata.MD) {
+func writeGRPCMetadataDiagnostics(printer *textdisplay.Printer, kind string, values metadata.MD) {
+	if len(values) == 0 {
+		return
+	}
+	printer.Section(kind)
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	fields := make([]textdisplay.Field, 0, len(keys))
 	for _, key := range keys {
 		for _, value := range values[key] {
-			fmt.Fprintf(
-				output,
-				"gRPC response %s %s: %s\n",
-				kind,
-				asym.EscapeDiagnosticValue(key),
-				asym.EscapeDiagnosticValue(value),
-			)
+			fields = append(fields, textdisplay.Field{Label: key, Value: value})
 		}
 	}
+	printer.Fields(fields)
 }
 
 func writeGRPCDiagnostics(output io.Writer, options *grpcOptions, details grpcCallDetails) error {
-	if _, err := output.Write(grpcDiagnostics(options, details)); err != nil {
+	data := grpcDiagnostics(options, details)
+	n, err := output.Write(data)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
 		return fmt.Errorf("write gRPC diagnostics: %w", err)
 	}
 	return nil

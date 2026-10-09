@@ -283,7 +283,7 @@ func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
 			check: func(t *testing.T, output string) {
 				t.Helper()
 				for _, recordType := range []string{"OPT", "NXNAME", "IXFR", "AXFR", "ANY"} {
-					assert.Contains(t, output, "\t"+recordType+"\t\n", "empty %s value", recordType)
+					assert.Contains(t, output, "  "+recordType+strings.Repeat(" ", 8-len(recordType))+"\n", "empty %s value", recordType)
 				}
 			},
 		},

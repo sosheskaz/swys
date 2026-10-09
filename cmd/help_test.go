@@ -313,7 +313,7 @@ func TestDocumentedRootGuideKeyWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("documented inspect Command: %v", err)
 	}
-	if !strings.Contains(output, "Algorithm: ed25519") {
+	if !strings.Contains(output, "Algorithm          ed25519") {
 		t.Fatalf("inspection output = %q, want generated Ed25519 key metadata", output)
 	}
 }

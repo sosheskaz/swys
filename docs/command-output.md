@@ -22,3 +22,29 @@ This is normative for new and updated output interfaces. Existing commands may s
 - Check that selection and formatting preserve the operation and verification outcomes, propagate their own failures, and preserve each supported format's existing documented schema unless intentionally changed. Keep diagnostics on stderr.
 - Check validation before output-file mutation and cover streaming, cancellation, partial writes, encoder finalization, and close errors where applicable.
 - Exercise the changed behavior through the root command with its I/O hooks and update the owning embedded guide.
+
+## Human presentation
+
+Human reports default to `--format text`. Commands that support text also support
+`--format plain` with the same layout and no generated ANSI controls. The shared
+`--style auto|rich|plain` flag controls styling; plain format takes precedence.
+Style applies independently to the original stdout and stderr destinations.
+Auto requires a terminal, no nonempty `NO_COLOR`, and no `TERM=dumb`; output files
+and encoded stdout default to plain even when the original stream was a terminal.
+An explicit rich style overrides automatic detection, but never plain format.
+
+Capture terminal size and presentation before commandio replaces or encodes
+streams. Tables use the full reported width and fall back to labeled records when
+they cannot fit. Unknown or redirected widths use 100 columns for layout
+selection. Keep values on logical lines and defer wrapping to the terminal; never
+truncate or split names, TXT tokens, fingerprints, or other copyable values.
+The shared renderer measures Unicode display cells before styling and escapes
+untrusted controls in report values. Styling adds SGR only and resets before
+payloads. Rich help retains its separate 80-column layout; plain help never adds
+wrapping. Help retains its hyperlink/pager policy.
+
+Presentation does not decorate JSON, PEM, key material, ciphertext, raw network
+streams, HTTP bodies, or digests. HTTP response headers retain wire-like framing;
+gRPC text retains protobuf syntax and list framing. Output encoding still covers
+the entire formatted stdout, including delimiters and newlines. Diagnostics remain
+outside that encoder.

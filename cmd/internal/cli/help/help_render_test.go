@@ -22,6 +22,28 @@ const guideMarkupFixture = "# Rendering example\n\n" +
 	"printf '$HOME * [literal](punctuation) \\\\ tail\\n'\n" +
 	"```\n"
 
+func TestGuideResolvedValuesDecodeOnce(t *testing.T) {
+	t.Parallel()
+	source := []byte("# Decoding\n\n" +
+		"Keep &amp;amp; and &#38;amp; literal. Use **strong *nested emphasis*** and \\*punctuation\\*.\n\n" +
+		"[reference](https://example.test/?a=1&amp;b=2&amp;amp;c=3)\n\n" +
+		"```text\n&amp;amp; \\*literal\\*\n```\n")
+	for _, rich := range []bool{false, true} {
+		output, err := renderGuide(source, guideRenderOptions{width: 80, rich: rich})
+		require.NoError(t, err)
+		visible := stripGuideANSI(string(output))
+		assert.Contains(t, visible, "Keep &amp; and &amp; literal.")
+		assert.Contains(t, visible, "strong nested emphasis")
+		assert.Contains(t, visible, "*punctuation*")
+		assert.Contains(t, visible, "  &amp;amp; \\*literal\\*\n")
+		if rich {
+			assert.Contains(t, string(output), "https://example.test/?a=1&b=2&amp;c=3")
+		} else {
+			assert.Contains(t, visible, "reference (https://example.test/?a=1&b=2&amp;c=3)")
+		}
+	}
+}
+
 func TestGuideRichStylesIncludeSpacesInsidePhrases(t *testing.T) {
 	t.Parallel()
 

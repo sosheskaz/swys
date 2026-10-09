@@ -184,7 +184,7 @@ func TestDNSOutputOptionCompletion(t *testing.T) {
 		want []string
 	}{
 		{flag: "--select", want: []string{"result", "values"}},
-		{flag: "--format", want: []string{"text", "json"}},
+		{flag: "--format", want: []string{"text", "plain", "json"}},
 	} {
 		values, directive := executeDNSCompletion(t, "dns", test.flag, "")
 		assert.ElementsMatch(t, test.want, values, "complete %s", test.flag)

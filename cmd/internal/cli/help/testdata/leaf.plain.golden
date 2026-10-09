@@ -2,6 +2,8 @@ Inspect a TLS server's certificates
 
 Retrieve certificates from a TLS endpoint, inspect their details, or export their complete PEM bytes. The default text format displays detailed leaf metadata, validity dates, fingerprints, and certificate verification. --format json|pem selects structured JSON or complete PEM bytes.
 
+Human reports default to text, with restrained styling on supported terminals. --format plain keeps the same layout without generated ANSI controls. --style auto|rich|plain overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
+
 Inspect a reachable endpoint
 
 The endpoint must be reachable and speak TLS. Replace example.com:443 with your server:

@@ -22,9 +22,10 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz/swys/internal/asym"
 	"github.com/sosheskaz/swys/internal/dnsquery"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 //go:embed guides
@@ -61,34 +62,37 @@ type dnsOptions struct {
 }
 
 type dnsQuery struct {
-	endpoint   *dnsquery.Endpoint
-	tlsConfig  *tls.Config
-	resolver   string
-	server     string
-	lookup     string
-	name       string
-	record     string
-	transport  string
-	selectMode string
-	format     string
-	timeout    time.Duration
-	port       int
-	recordType uint16
-	portSet    bool
+	endpoint     *dnsquery.Endpoint
+	tlsConfig    *tls.Config
+	resolver     string
+	server       string
+	lookup       string
+	name         string
+	record       string
+	transport    string
+	selectMode   string
+	format       string
+	timeout      time.Duration
+	port         int
+	presentation textdisplay.Options
+	recordType   uint16
+	portSet      bool
 }
 
 type dnsPreparedOutputKey struct{}
 
 const (
 	dnsFormatText   = "text"
+	dnsFormatPlain  = "plain"
 	dnsFormatJSON   = "json"
 	dnsSelectResult = "result"
 	dnsSelectValues = "values"
 )
 
 var dnsFormatDescriptions = map[string]string{
-	dnsFormatText: "human-readable text",
-	dnsFormatJSON: "structured JSON",
+	dnsFormatText:  "human-readable text",
+	dnsFormatPlain: "plain text without terminal styles",
+	dnsFormatJSON:  "structured JSON",
 }
 
 // NewCommand constructs DNS commands with the supplied resolver dependencies.
@@ -135,6 +139,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 			if err != nil {
 				return nil, err
 			}
+			query.presentation = presentation.Output(cmd)
 			prepared, err := prepareDNSOutput(cmd.Context(), &query, deps)
 			if err != nil {
 				return nil, err
@@ -167,7 +172,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 	flags.BoolVarP(&options.reverse, "reverse", "x", false, "perform a PTR lookup for an IP address")
 	flags.DurationVarP(&options.timeout, "timeout", "t", commandio.DefaultNetworkTimeout, "whole lookup timeout (0 disables)")
 	flags.StringVar(&options.selectMode, "select", dnsSelectResult, "result selection (result, values)")
-	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", dnsFormatText, "result format (text, json)")
+	flags.StringVarP(&options.format, commandio.FormatFlagName, "f", dnsFormatText, "result format (text, plain, json)")
 	commandio.AddOutputEncodingFlag(command)
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
 	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
@@ -185,7 +190,7 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 		panic(err)
 	}
 	commandio.RegisterDescribedFlagCompletion(command, commandio.FormatFlagName,
-		func() []string { return []string{dnsFormatText, dnsFormatJSON} }, dnsFormatDescriptions)
+		func() []string { return []string{dnsFormatText, dnsFormatPlain, dnsFormatJSON} }, dnsFormatDescriptions)
 	commandio.RegisterDescribedFlagCompletion(command, "select",
 		func() []string { return []string{dnsSelectResult, dnsSelectValues} }, map[string]string{
 			dnsSelectResult: "complete DNS result",
@@ -458,8 +463,8 @@ func validateDNSChoiceOptions(options *dnsOptions) error {
 	if options.resolver != dnsResolverSystem && options.resolver != dnsResolverDirect {
 		return fmt.Errorf("%w: unknown resolver %q (valid: system, dns)", ErrInvalidDNSOptions, options.resolver)
 	}
-	if options.format != dnsFormatText && options.format != dnsFormatJSON {
-		return fmt.Errorf("%w: unknown format %q (valid: text, json)", ErrInvalidDNSOptions, options.format)
+	if options.format != dnsFormatText && options.format != dnsFormatPlain && options.format != dnsFormatJSON {
+		return fmt.Errorf("%w: unknown format %q (valid: text, plain, json)", ErrInvalidDNSOptions, options.format)
 	}
 	if options.selectMode != dnsSelectResult && options.selectMode != dnsSelectValues {
 		return fmt.Errorf("%w: unknown selection %q (valid: result, values)", ErrInvalidDNSOptions, options.selectMode)
@@ -586,10 +591,17 @@ func prepareDNSOutput(ctx context.Context, query *dnsQuery, deps dnsquery.Depend
 		}
 		return nil, err
 	}
-	return renderDNSResult(selectDNSResult(&result, query.selectMode), query.format)
+	return renderDNSResultWithOptions(selectDNSResult(&result, query.selectMode), query.format, query.presentation)
 }
 
 func renderDNSResult(selected dnsSelectedOutput, format string) ([]byte, error) {
+	return renderDNSResultWithOptions(selected, format, textdisplay.Options{})
+}
+
+func renderDNSResultWithOptions(selected dnsSelectedOutput, format string, options textdisplay.Options) ([]byte, error) {
+	if format == dnsFormatPlain {
+		options.Rich = false
+	}
 	if format == dnsFormatJSON {
 		var value any = selected.result
 		if selected.result == nil {
@@ -602,39 +614,74 @@ func renderDNSResult(selected dnsSelectedOutput, format string) ([]byte, error) 
 		return append(data, '\n'), nil
 	}
 	var output bytes.Buffer
+	printer := textdisplay.New(&output, options)
 	if selected.result == nil {
 		for _, value := range selected.values {
-			fmt.Fprintln(&output, asym.EscapeDiagnosticValue(value))
+			printer.Line(value, textdisplay.Normal)
 		}
 		if output.Len() == 0 {
-			return make([]byte, 0), nil
+			return make([]byte, 0), printer.Err()
 		}
-		return output.Bytes(), nil
+		return output.Bytes(), printer.Err()
 	}
 	result := selected.result
-	fmt.Fprintf(&output, ";; resolver: %s\n", result.Resolver)
+	printer.Heading("DNS · " + result.QueryName + " · " + result.QueryType)
+	printer.Blank()
+	fields := []textdisplay.Field{{Label: "Resolver", Value: string(result.Resolver)}}
 	if result.Server == nil {
-		fmt.Fprintln(&output, ";; server: unavailable")
-		fmt.Fprintln(&output, ";; status: unavailable; DNS packet metadata and TTLs unavailable")
+		fields = append(fields,
+			textdisplay.Field{Label: "Server", Value: "unavailable"},
+			textdisplay.Field{Label: "Status", Value: "unavailable; DNS packet metadata and TTLs unavailable"},
+		)
 	} else {
-		fmt.Fprintf(&output, ";; server: %s (%s)\n", asym.EscapeDiagnosticValue(*result.Server), *result.Transport)
-		fmt.Fprintf(&output, ";; status: %s, id: %d\n", *result.Status, *result.ID)
+		fields = append(fields,
+			textdisplay.Field{Label: "Server", Value: *result.Server + " · " + string(*result.Transport)},
+			textdisplay.Field{Label: "Status", Value: *result.Status},
+			textdisplay.Field{Label: "ID", Value: strconv.Itoa(int(*result.ID))},
+		)
 	}
-	fmt.Fprintln(&output)
+	printer.Fields(fields)
+	printer.Section("Answers")
+	if len(result.Answers) == 0 {
+		printer.Line("    (none)", textdisplay.Muted)
+	}
+	rows := make([][]string, 0, len(result.Answers))
 	for _, answer := range result.Answers {
 		ttl := "-"
 		if answer.TTL != nil {
 			ttl = strconv.FormatUint(uint64(*answer.TTL), 10)
 		}
-		fmt.Fprintf(
-			&output,
-			"%s\t%s\t%s\t%s\t%s\n",
-			asym.EscapeDiagnosticValue(answer.Name),
-			ttl,
-			answer.Class,
-			answer.Type,
-			asym.EscapeDiagnosticValue(answer.Value),
-		)
+		rows = append(rows, []string{answer.Name, ttl, answer.Class, answer.Type, answer.Value})
 	}
-	return output.Bytes(), nil
+	renderDNSAnswers(printer, rows)
+	return output.Bytes(), printer.Err()
+}
+
+func renderDNSAnswers(printer *textdisplay.Printer, rows [][]string) {
+	headers := []string{"Name", "TTL", "Class", "Type", "Value"}
+	var table [][]string
+	flush := func() {
+		if len(table) > 0 {
+			printer.Table(headers, table)
+			table = nil
+		}
+	}
+	for _, row := range rows {
+		table = append(table, row)
+		if printer.TableFits(headers, table) {
+			continue
+		}
+		table = table[:len(table)-1]
+		flush()
+		if printer.TableFits(headers, [][]string{row}) {
+			table = [][]string{row}
+			continue
+		}
+		printer.Section(row[3] + " · " + row[0])
+		printer.Fields([]textdisplay.Field{
+			{Label: "TTL / Class", Value: row[1] + " / " + row[2]},
+			{Label: "Value", Value: row[4]},
+		})
+	}
+	flush()
 }

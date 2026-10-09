@@ -5,10 +5,14 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 // TextFormatter formats certificate info as human-readable text.
 type TextFormatter struct {
+	// Presentation opts CLI reports into shared layout and styling.
+	Presentation *textdisplay.Options
 	metadataOnly bool
 }
 
@@ -62,7 +66,7 @@ func (f *TextFormatter) Format(info *CertInfo, writer io.Writer) error {
 	fields = append(
 		fields,
 		struct{ label, value string }{label: "SHA256", value: info.SHA256Fingerprint},
-		struct{ label, value string }{label: "Public Key SHA256", value: publicKeyFingerprint},
+		struct{ label, value string }{label: publicKeyFingerprintLabel, value: publicKeyFingerprint},
 	)
 
 	for _, field := range fields {
@@ -98,6 +102,9 @@ func writeCertificateChains(writer io.Writer, chains [][]ChainCertInfo) error {
 
 // FormatReport renders selection details and reports verification of the original leaf.
 func (f *TextFormatter) FormatReport(report *CertificateReport, w io.Writer) error {
+	if f.Presentation != nil {
+		return certificateTextReport(report, w, *f.Presentation)
+	}
 	metadata := &TextFormatter{metadataOnly: true}
 	if err := metadata.FormatMultiple(report.Certificates, w); err != nil {
 		return err

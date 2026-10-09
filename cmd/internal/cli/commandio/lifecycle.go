@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 )
 
 // Behavior describes the command-specific work around the shared I/O lifecycle.
@@ -65,6 +66,18 @@ func (lifecycle *Lifecycle) Behavior(command *cobra.Command) (Behavior, bool) {
 
 // PreRun applies the registered command behavior before opening output.
 func (lifecycle *Lifecycle) PreRun(command *cobra.Command, args []string) error {
+	restore, err := presentation.Resolve(command)
+	if err != nil {
+		return err
+	}
+	err = lifecycle.preRun(command, args)
+	if !AppendCleanup(command, restore) {
+		restore()
+	}
+	return err
+}
+
+func (lifecycle *Lifecycle) preRun(command *cobra.Command, args []string) error {
 	if lifecycle.prepareShellCompletion(command, args) {
 		return nil
 	}

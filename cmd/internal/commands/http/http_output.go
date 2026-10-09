@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosheskaz/swys/internal/asym"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 func writeHTTPResponse(cmd *cobra.Command, options *httpOptions, request *http.Request, response *http.Response, requestErr error, trace *httpTrace) error {
@@ -22,7 +25,7 @@ func writeHTTPResponse(cmd *cobra.Command, options *httpOptions, request *http.R
 	default:
 		if selected.response != nil {
 			if selected.includeMetadata {
-				renderErr = writeHTTPHead(cmd.OutOrStdout(), selected.response)
+				renderErr = writeHTTPHead(cmd.OutOrStdout(), selected.response, presentation.Output(cmd))
 			}
 			if (selected.request == nil || selected.request.Method != http.MethodHead) && renderErr == nil {
 				_, renderErr = io.Copy(cmd.OutOrStdout(), selected.response.Body)
@@ -31,7 +34,7 @@ func writeHTTPResponse(cmd *cobra.Command, options *httpOptions, request *http.R
 	}
 	trace.finish()
 	if options.trace {
-		renderErr = errors.Join(renderErr, trace.writeText(cmd.ErrOrStderr()))
+		renderErr = errors.Join(renderErr, trace.writeText(cmd.ErrOrStderr(), presentation.Diagnostics(cmd)))
 	}
 	return errors.Join(requestErr, renderErr)
 }
@@ -46,22 +49,27 @@ func selectHTTPOutput(selection string, request *http.Request, response *http.Re
 	return httpSelectedOutput{request: request, response: response, includeMetadata: selection == httpSelectResponse}
 }
 
-func writeHTTPHead(output io.Writer, response *http.Response) error {
-	if _, err := fmt.Fprintf(output, "%s %s\n", asym.EscapeDiagnosticValue(response.Proto), asym.EscapeDiagnosticValue(response.Status)); err != nil {
-		return fmt.Errorf("write HTTP status: %w", err)
+func writeHTTPHead(output io.Writer, response *http.Response, options textdisplay.Options) error {
+	printer := textdisplay.New(output, options)
+	printer.Heading(response.Proto + " " + response.Status)
+	if err := printer.Err(); err != nil {
+		return err
 	}
-	for name, values := range response.Header {
-		for _, value := range values {
-			if _, err := fmt.Fprintf(output, "%s: %s\n", asym.EscapeDiagnosticValue(name), asym.EscapeDiagnosticValue(value)); err != nil {
+	for _, name := range slices.Sorted(maps.Keys(response.Header)) {
+		for _, value := range response.Header[name] {
+			label := textdisplay.Style(textdisplay.Escape(name), textdisplay.Strong, options.Rich)
+			line := label + ": " + textdisplay.Escape(value) + "\n"
+			n, err := io.WriteString(output, line)
+			if err == nil && n != len(line) {
+				err = io.ErrShortWrite
+			}
+			if err != nil {
 				return fmt.Errorf("write HTTP header: %w", err)
 			}
 		}
 	}
-	_, err := io.WriteString(output, "\n")
-	if err != nil {
-		return fmt.Errorf("write HTTP header separator: %w", err)
-	}
-	return nil
+	printer.Blank()
+	return printer.Err()
 }
 
 func writeHTTPJSONSelection(output io.Writer, selected httpSelectedOutput, requestErr error) error {

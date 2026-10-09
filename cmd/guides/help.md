@@ -2,6 +2,8 @@
 
 The help command displays curated task guidance. A command's help flag remains the generated reference for arguments, flags, defaults, and aliases.
 
+The shared **--style auto|rich|plain** option also applies to guides. Help's **--rich** and **--plain** switches take precedence; rich help retains its prose wrapping, while plain help stays unwrapped. Pager behavior is unchanged.
+
 ## Select a guide
 
 Use canonical command names or their aliases. Output always uses canonical names so examples remain consistent.

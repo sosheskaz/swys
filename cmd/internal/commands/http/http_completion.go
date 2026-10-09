@@ -75,7 +75,7 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 	mustRegisterHTTPCompletion(cmd, commandio.FormatFlagName, func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		values := []string{httpFormatRaw, httpFormatJSON}
 		if options.selection == httpSelectResponse {
-			values = []string{httpFormatText, httpFormatJSON}
+			values = []string{httpFormatText, "plain", httpFormatJSON}
 		}
 		return prefixMatchesWithDescriptions(values, commandio.StructuredFormatDescriptions, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
