@@ -70,10 +70,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.BREW_PAT }}
-        # Bound concurrent builds to fit standard hosted runners.
         run: |
           if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
             echo 'Provision the BREW_PAT repository secret before enabling releases.' >&2
             exit 1
           fi
-          mise exec -- goreleaser release --clean --parallelism=2
+          mise exec -- goreleaser release --clean

@@ -259,8 +259,8 @@ return nonzero. For advanced Go options, use `mise exec -- go test` directly.
 
 Package concurrency (`-p`) and fuzz subprocess concurrency (`-parallel`) are
 separate. Leave both unset to use Go's defaults, based on `GOMAXPROCS`; these are
-not a single total worker budget. CI explicitly sets two fuzz workers and leaves
-package concurrency at Go's default.
+not a single total worker budget. CI leaves fuzz and package concurrency at Go's
+defaults.
 
 - `SWYS_TEST_PACKAGE_WORKERS` supplies the package/build concurrency default for
   unit, race, coverage, fuzz, and benchmark tasks.

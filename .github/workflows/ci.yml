@@ -354,7 +354,7 @@ jobs:
         run: mise run test:race -- -shuffle=on
 
       - name: Fuzz smoke campaign
-        run: mise run test:fuzz -- --fuzz-workers 2
+        run: mise run test:fuzz
 
       - name: Save Go caches
         if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
