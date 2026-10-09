@@ -17,6 +17,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/netconn"
 )
@@ -137,7 +138,7 @@ func runNetConnectTCP(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if options.verbose {
-		if err := writeTCPConnectionDetails(cmd.ErrOrStderr(), connection); err != nil {
+		if err := writeTCPConnectionDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), connection); err != nil {
 			return errors.Join(err, connection.Close())
 		}
 	}
@@ -166,7 +167,7 @@ func runNetConnectUDP(cmd *cobra.Command, args []string) error {
 
 func runUDPConnection(ctx context.Context, cmd *cobra.Command, connection *net.UDPConn, options networkDatagramConnectOptions) error {
 	if options.verbose {
-		if err := writeUDPConnectionDetails(cmd.ErrOrStderr(), connection); err != nil {
+		if err := writeUDPConnectionDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), connection); err != nil {
 			return errors.Join(err, connection.Close())
 		}
 	}
@@ -241,7 +242,7 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if options.verbose {
-		if err := writeTLSConnectionDetails(cmd.ErrOrStderr(), connection, config); err != nil {
+		if err := writeTLSConnectionDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), connection, config); err != nil {
 			return errors.Join(err, connection.Close())
 		}
 	}
@@ -371,50 +372,6 @@ func parseALPN(text string) ([]string, error) {
 		}
 	}
 	return protocols, nil
-}
-
-func writeTCPConnectionDetails(output io.Writer, connection net.Conn) error {
-	if _, err := fmt.Fprintf(output, "connected tcp %s -> %s\n", connection.LocalAddr(), connection.RemoteAddr()); err != nil {
-		return fmt.Errorf("write TCP connection details: %w", err)
-	}
-	return nil
-}
-
-func writeUDPConnectionDetails(output io.Writer, connection net.Conn) error {
-	if _, err := fmt.Fprintf(output, "connected udp %s -> %s\n", connection.LocalAddr(), connection.RemoteAddr()); err != nil {
-		return fmt.Errorf("write UDP connection details: %w", err)
-	}
-	return nil
-}
-
-func writeTLSConnectionDetails(output io.Writer, connection *tls.Conn, config *tls.Config) error {
-	if config.InsecureSkipVerify {
-		if _, err := fmt.Fprintln(output, "warning: TLS certificate verification is disabled"); err != nil {
-			return fmt.Errorf("write TLS verification warning: %w", err)
-		}
-	}
-	if _, err := fmt.Fprintf(output, "connected tls %s -> %s\n", connection.LocalAddr(), connection.RemoteAddr()); err != nil {
-		return fmt.Errorf("write TLS connection summary: %w", err)
-	}
-	state := connection.ConnectionState()
-	alpn := state.NegotiatedProtocol
-	if alpn == "" {
-		alpn = networkNoValue
-	} else {
-		alpn = escapeNetworkDiagnosticValue(alpn)
-	}
-	fields := []struct{ label, value string }{
-		{label: "version", value: tls.VersionName(state.Version)},
-		{label: "cipher", value: tls.CipherSuiteName(state.CipherSuite)},
-		{label: netALPNFlagName, value: alpn},
-		{label: "server name", value: config.ServerName},
-	}
-	for _, field := range fields {
-		if _, err := fmt.Fprintf(output, "  %s: %s\n", field.label, field.value); err != nil {
-			return fmt.Errorf("write TLS %s detail: %w", field.label, err)
-		}
-	}
-	return nil
 }
 
 func validateNetFlagsBeforeIO(cmd *cobra.Command) error {

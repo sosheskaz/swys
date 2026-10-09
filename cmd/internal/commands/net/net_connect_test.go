@@ -129,7 +129,7 @@ func TestNetConnectTLSMutualAuthenticationWithoutALPN(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "response", stdout)
-	for _, want := range []string{"connected tls", "version:", "cipher:", "alpn: (none)", "server name: localhost"} {
+	for _, want := range []string{"connected tls", "version      ", "cipher       ", "alpn         (none)", "server name  localhost"} {
 		assert.Contains(t, stderr, want)
 	}
 	result := <-serverResult
@@ -190,7 +190,7 @@ func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 	assert.Equal(t, "response", stdout)
 	assert.Contains(t, stderr, "warning: TLS certificate verification is disabled")
 	assert.NotContains(t, stderr, "\n  server name: attacker.example")
-	if want := `alpn: h2\n  server name: attacker.example`; !strings.Contains(stderr, want) {
+	if want := `alpn         h2\n  server name: attacker.example`; !strings.Contains(stderr, want) {
 		t.Fatalf("stderr = %q, want escaped ALPN %q", stderr, want)
 	}
 	if result := <-serverResult; result.err != nil || result.alpn != hostileALPN {
@@ -384,7 +384,7 @@ func TestCertConnectPEMReportsVerificationWithoutContaminatingArtifact(t *testin
 	if strings.Count(stdout, "-----BEGIN CERTIFICATE-----") != 1 || strings.Contains(stdout, "verification") {
 		t.Fatalf("certificate stdout = %q, want one uncontaminated PEM artifact", stdout)
 	}
-	assert.Contains(t, stderr, "certificate verification: not verified:")
+	assert.Contains(t, stderr, "Status  not verified")
 }
 
 type exchangeResult struct {

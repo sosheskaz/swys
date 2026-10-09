@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +16,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/netconn"
 )
@@ -99,7 +99,7 @@ func runNetListenTCP(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if options.verbose {
-		if err := writeTCPListeningDetails(cmd.ErrOrStderr(), listener); err != nil {
+		if err := writeTCPListeningDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), listener); err != nil {
 			return errors.Join(err, listener.Close())
 		}
 	}
@@ -108,7 +108,7 @@ func runNetListenTCP(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if options.verbose {
-		if err := writeTCPAcceptedDetails(cmd.ErrOrStderr(), connection); err != nil {
+		if err := writeTCPAcceptedDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), connection); err != nil {
 			return errors.Join(err, connection.Close())
 		}
 	}
@@ -151,7 +151,7 @@ func receiveAndRespondUDPDatagram(
 	verbose bool,
 ) error {
 	if verbose {
-		if err := writeUDPListeningDetails(cmd.ErrOrStderr(), listener); err != nil {
+		if err := writeUDPListeningDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), listener); err != nil {
 			cancelSetup()
 			return errors.Join(err, listener.Close())
 		}
@@ -162,7 +162,7 @@ func receiveAndRespondUDPDatagram(
 		return errors.Join(err, listener.Close())
 	}
 	if verbose {
-		if err := writeUDPReceivedDetails(cmd.ErrOrStderr(), listener.LocalAddr(), peer); err != nil {
+		if err := writeUDPReceivedDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), listener.LocalAddr(), peer); err != nil {
 			return errors.Join(err, listener.Close())
 		}
 	}
@@ -236,7 +236,7 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if options.verbose {
-		if err := writeTLSListeningDetails(cmd.ErrOrStderr(), listener); err != nil {
+		if err := writeTLSListeningDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), listener); err != nil {
 			return errors.Join(err, listener.Close())
 		}
 	}
@@ -245,7 +245,7 @@ func runNetListenTLS(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if options.verbose {
-		if err := writeTLSAcceptedDetails(cmd.ErrOrStderr(), connection); err != nil {
+		if err := writeTLSAcceptedDetails(cmd.ErrOrStderr(), presentation.Diagnostics(cmd), connection); err != nil {
 			return errors.Join(err, connection.Close())
 		}
 	}
@@ -347,93 +347,6 @@ func validateTLSServerIdentity(identity *tls.Certificate) error {
 		return fmt.Errorf("validate --cert server certificate chain: %w", err)
 	}
 	return nil
-}
-
-func writeTCPListeningDetails(output io.Writer, listener net.Listener) error {
-	if _, err := fmt.Fprintf(output, "listening tcp %s\n", listener.Addr()); err != nil {
-		return fmt.Errorf("write TCP listener details: %w", err)
-	}
-	return nil
-}
-
-func writeUDPListeningDetails(output io.Writer, listener net.PacketConn) error {
-	if _, err := fmt.Fprintf(output, "listening udp %s\n", listener.LocalAddr()); err != nil {
-		return fmt.Errorf("write UDP listener details: %w", err)
-	}
-	return nil
-}
-
-func writeUDPReceivedDetails(output io.Writer, local, remote net.Addr) error {
-	if _, err := fmt.Fprintf(output, "received udp %s <- %s\n", local, remote); err != nil {
-		return fmt.Errorf("write received UDP datagram details: %w", err)
-	}
-	return nil
-}
-
-func writeTCPAcceptedDetails(output io.Writer, connection net.Conn) error {
-	if _, err := fmt.Fprintf(
-		output,
-		"accepted tcp %s <- %s\n",
-		connection.LocalAddr(),
-		connection.RemoteAddr(),
-	); err != nil {
-		return fmt.Errorf("write accepted TCP connection details: %w", err)
-	}
-	return nil
-}
-
-func writeTLSListeningDetails(output io.Writer, listener net.Listener) error {
-	if _, err := fmt.Fprintf(output, "listening tls %s\n", listener.Addr()); err != nil {
-		return fmt.Errorf("write TLS listener details: %w", err)
-	}
-	return nil
-}
-
-func writeTLSAcceptedDetails(output io.Writer, connection *tls.Conn) error {
-	if _, err := fmt.Fprintf(
-		output,
-		"accepted tls %s <- %s\n",
-		connection.LocalAddr(),
-		connection.RemoteAddr(),
-	); err != nil {
-		return fmt.Errorf("write accepted TLS connection details: %w", err)
-	}
-	state := connection.ConnectionState()
-	alpn := state.NegotiatedProtocol
-	if alpn == "" {
-		alpn = networkNoValue
-	} else {
-		alpn = escapeNetworkDiagnosticValue(alpn)
-	}
-	serverName := state.ServerName
-	if serverName == "" {
-		serverName = networkNoValue
-	} else {
-		serverName = escapeNetworkDiagnosticValue(serverName)
-	}
-	clientVerified := "no"
-	if len(state.VerifiedChains) > 0 {
-		clientVerified = "yes"
-	}
-	fields := []struct{ label, value string }{
-		{label: "version", value: tls.VersionName(state.Version)},
-		{label: "cipher", value: tls.CipherSuiteName(state.CipherSuite)},
-		{label: netALPNFlagName, value: alpn},
-		{label: "sni", value: serverName},
-		{label: "peer certificates", value: strconv.Itoa(len(state.PeerCertificates))},
-		{label: "client chain verified", value: clientVerified},
-	}
-	for _, field := range fields {
-		if _, err := fmt.Fprintf(output, "  %s: %s\n", field.label, field.value); err != nil {
-			return fmt.Errorf("write TLS %s detail: %w", field.label, err)
-		}
-	}
-	return nil
-}
-
-func escapeNetworkDiagnosticValue(value string) string {
-	quoted := strconv.Quote(value)
-	return quoted[1 : len(quoted)-1]
 }
 
 // ErrServerKeyMismatch identifies a listener certificate and key mismatch.
