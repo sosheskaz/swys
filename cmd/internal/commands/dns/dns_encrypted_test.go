@@ -1364,10 +1364,10 @@ func TestDNSOverHTTPSAllowsEncodedCredentialStdin(t *testing.T) {
 	root := newRootCmd()
 	root.SetIn(strings.NewReader(base64.StdEncoding.EncodeToString(ca)))
 	stdout, stderr, err := executeRootCommandStreams(t, root,
-		"dns", server.endpoint("localhost", ""), "example.test",
+		"dns", "example.test", server.endpoint("localhost", ""), "A", server.endpoint("localhost", ""),
 		"--ca", "-", "--ca-encoding", "base64", "--select", "values", "--timeout", "2s")
 	require.NoError(t, err)
-	assert.Equal(t, "192.0.2.44\n", stdout)
+	assert.Equal(t, "192.0.2.44\n192.0.2.44\n", stdout)
 	assert.Empty(t, stderr)
 }
 
@@ -1383,6 +1383,8 @@ func TestDNSTLSArtifactValidationPrecedesIO(t *testing.T) {
 		{name: "unknown codec", endpoint: "@https://127.0.0.1:9", flags: []string{"--ca", "missing", "--ca-encoding", "invalid"}, unknown: true},
 		{name: "UDP codec", endpoint: "@udp://127.0.0.1:9", flags: []string{"--ca", "missing", "--ca-encoding", "raw"}},
 		{name: "TCP codec", endpoint: "@tcp://127.0.0.1:9", flags: []string{"--ca", "missing", "--ca-encoding", "raw"}},
+		{name: "later invalid endpoint", endpoint: "@tls://127.0.0.1:9", flags: []string{"@", "--ca", "-"}},
+		{name: "mixed plaintext with credentials", endpoint: "@tls://127.0.0.1:9", flags: []string{"@127.0.0.1:9", "--ca", "-"}},
 		{name: "two credentials", endpoint: "@tls://127.0.0.1:9", flags: []string{"--ca", "-", "--cert", "-", "--key", "missing"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

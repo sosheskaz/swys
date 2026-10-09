@@ -217,18 +217,26 @@ func assertFuzzDNSRendering(t *testing.T, output []byte, result *dnsquery.Result
 func assertFuzzDNSJSONRendering(t *testing.T, output []byte, result *dnsquery.Result, short bool) {
 	t.Helper()
 	if !short {
-		var decoded dnsquery.Result
-		if err := json.Unmarshal(output, &decoded); err != nil {
+		var document dnsJSONDocument
+		if err := json.Unmarshal(output, &document); err != nil {
 			t.Fatalf("decode JSON result: %v", err)
 		}
+		if len(document.Results) != 1 {
+			t.Fatalf("JSON result count = %d, want 1", len(document.Results))
+		}
+		decoded := document.Results[0]
 		if len(decoded.Answers) != len(result.Answers) {
 			t.Fatalf("JSON answer count = %d, want %d", len(decoded.Answers), len(result.Answers))
 		}
 		return
 	}
-	var values []string
-	if err := json.Unmarshal(output, &values); err != nil {
+	var document dnsJSONDocument
+	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatalf("decode short JSON: %v", err)
+	}
+	values := document.Values
+	if values == nil {
+		t.Fatal("JSON values array must be present, even when empty")
 	}
 	if len(values) != len(result.Answers) {
 		t.Fatalf("short JSON values = %d, want %d", len(values), len(result.Answers))

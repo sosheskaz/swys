@@ -36,6 +36,8 @@ func TestDNSCompletionRecordTypesFollowResolverContext(t *testing.T) {
 		{name: "explicit UDP endpoint", args: []string{"dns", "@udp://192.0.2.53", "example.test", ""}, want: directTypes},
 		{name: "explicit default port long", args: []string{"dns", "--port", "53", "example.test", ""}, want: directTypes},
 		{name: "explicit default port short", args: []string{"dns", "-p", "53", "example.test", ""}, want: directTypes},
+		{name: "server after name", args: []string{"dns", "example.test", "@192.0.2.53", ""}, want: directTypes},
+		{name: "multiple servers", args: []string{"dns", "@192.0.2.53", "example.test", "@tcp://192.0.2.54", ""}, want: directTypes},
 		{name: "server", args: []string{"dns", "@192.0.2.53", "example.test", ""}, want: directTypes},
 		{name: "reverse long", args: []string{"dns", "--reverse", "192.0.2.10", ""}, want: []string{"PTR"}},
 		{name: "reverse short direct", args: []string{"dns", "-x", "@192.0.2.53", "192.0.2.10", "p"}, want: []string{"PTR"}},
@@ -90,6 +92,7 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 	for _, args := range [][]string{
 		{"dns", "@192.0.2.53", "--resolver", ""},
 		{"dns", "@tcp://192.0.2.53", "--resolver", ""},
+		{"dns", "example.test", "A", "@192.0.2.53", "--resolver", ""},
 		{"dns", "-p", "53", "--resolver", ""},
 	} {
 		values, directive := executeDNSCompletion(t, args...)
@@ -242,7 +245,7 @@ func TestDNSCompletionFlagsFollowFinalResolver(t *testing.T) {
 func TestDNSTLSArtifactEncodingCompletion(t *testing.T) {
 	t.Parallel()
 	values, directive := executeDNSCompletion(t, "dns", "example.com", "@tls://localhost", "--ca", "x", "--ca-encoding", "")
-	assert.Empty(t, values, "an encrypted endpoint after the query name is not a valid direct DNS selector")
+	assert.Contains(t, values, "base64", "encrypted endpoints can follow the query name")
 	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 
 	for _, source := range []string{"ca", "cert", "key"} {
