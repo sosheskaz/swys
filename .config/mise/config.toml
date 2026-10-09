@@ -3,7 +3,7 @@
 # Tasks live in .config/mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
 go = "1.27.2"
-gh = "2.100.0"
+gh = "2.102.0"
 node = "24.20.0"
 "npm:prettier" = "3.9.6"
 "npm:release-please" = "17.11.2"
