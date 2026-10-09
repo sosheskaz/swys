@@ -36,6 +36,8 @@ Guide files use UTF-8 and a deliberately bounded CommonMark vocabulary parsed by
 
 Inline code, hard line breaks, nested or multi-paragraph list items, level-three or deeper headings, indented code, block quotes, thematic breaks, auto-links, images, tables, raw HTML, custom extensions, and tilde fences are unsupported. Rendering rejects unsupported parsed nodes instead of printing Markdown source.
 
+Character references and backslash escapes are decoded once. Goldmark v2 renders `&#38;lt;` as literal `&lt;`, rather than the `<` produced by the previous renderer. Code blocks retain their literal contents.
+
 ## Page layout and file mapping
 
 Each command family embeds guides beside its constructor. `root.md` names the

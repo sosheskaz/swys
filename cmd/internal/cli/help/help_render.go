@@ -11,6 +11,8 @@ import (
 	"github.com/yuin/goldmark/v2/ast"
 	"github.com/yuin/goldmark/v2/extension"
 	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/text"
+	"github.com/yuin/goldmark/v2/util"
 )
 
 type guideRenderOptions struct {
@@ -111,7 +113,12 @@ func parseGuide(source []byte) ([]guideBlock, error) {
 	if err := validateGuideSourceSyntax(source); err != nil {
 		return nil, err
 	}
-	document := parser.New(parser.WithExtensions(extension.TableParser)).Parse(source)
+	document := parser.New(
+		parser.WithExtensions(extension.TableParser),
+		parser.WithBlockParsers(util.Prioritized[parser.BlockParser](
+			guideHTMLBlockParser{BlockParser: parser.NewHTMLBlockParser()}, 950,
+		)),
+	).Parse(source)
 	blocks := make([]guideBlock, 0, document.ChildCount())
 	levelOneHeadings := 0
 	for node := document.FirstChild(); node != nil; node = node.NextSibling() {
@@ -164,6 +171,48 @@ func validateGuideSourceSyntax(source []byte) error {
 	}
 	return nil
 }
+
+// Goldmark v2.1.6 misses type-6 HTML blocks whose tag is followed by a tab
+// or line ending. Run after its HTML parser and before paragraphs, preserving
+// its block context and tag list so these blocks still reach our rejection.
+type guideHTMLBlockParser struct {
+	parser.BlockParser
+}
+
+// Open probes the native tag list without consuming non-HTML text.
+func (p guideHTMLBlockParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
+	line, _ := reader.PeekLine()
+	if !bytes.ContainsAny(line, "\t\r\n") {
+		return nil, parser.NoChildren
+	}
+	normalized := bytes.Clone(line)
+	for index, character := range normalized {
+		if character == '\t' || character == '\r' || character == '\n' {
+			normalized[index] = ' '
+		}
+	}
+	node, state := p.BlockParser.Open(parent, guideHTMLBlockReader{Reader: reader, line: normalized}, pc)
+	block, ok := node.(*ast.HTMLBlock)
+	if !ok || block.HTMLBlockKind != ast.HTMLBlockKind6 {
+		return nil, parser.NoChildren
+	}
+	reader.AdvanceToEOL()
+	return node, state
+}
+
+type guideHTMLBlockReader struct {
+	text.Reader
+	line []byte
+}
+
+// PeekLine substitutes separators without changing source positions.
+func (r guideHTMLBlockReader) PeekLine() ([]byte, text.Segment) {
+	_, segment := r.Reader.PeekLine()
+	return r.line, segment
+}
+
+// AdvanceToEOL leaves input untouched until the probe identifies a type-6 block.
+func (guideHTMLBlockReader) AdvanceToEOL() {}
 
 func guideBlockFromNode(source []byte, node ast.Node) (guideBlock, error) {
 	switch typed := node.(type) {

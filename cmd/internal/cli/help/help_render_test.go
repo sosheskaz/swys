@@ -83,16 +83,16 @@ func TestGuideRendererDecodesTextAndLinksOnce(t *testing.T) {
 	t.Parallel()
 
 	const source = "# Decoding\n\n" +
-		"&amp;lt; &#60; &lt; \\*literal\\* &#92;*escaped*\n\n" +
+		"&amp;lt; &#38;lt; &#60; &lt; \\*literal\\* &#92;*escaped*\n\n" +
 		"[&amp;lt;](https://example.test/?a=1&amp;b=&amp;lt;)\n"
 	plain, err := renderGuide([]byte(source), guideRenderOptions{width: 80})
 	require.NoError(t, err)
-	assert.Equal(t, "Decoding\n\n&lt; < < *literal* \\escaped\n\n"+
+	assert.Equal(t, "Decoding\n\n&lt; &lt; < < *literal* \\escaped\n\n"+
 		"&lt; (https://example.test/?a=1&b=&lt;)\n", string(plain))
 
 	rich, err := renderGuide([]byte(source), guideRenderOptions{width: 80, rich: true})
 	require.NoError(t, err)
-	assert.Equal(t, "Decoding\n\n&lt; < < *literal* \\escaped\n\n&lt;\n", stripGuideANSI(string(rich)))
+	assert.Equal(t, "Decoding\n\n&lt; &lt; < < *literal* \\escaped\n\n&lt;\n", stripGuideANSI(string(rich)))
 	assert.Contains(t, string(rich), "\x1b]8;;https://example.test/?a=1&b=&lt;\x1b\\")
 }
 
@@ -132,6 +132,12 @@ func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 		{name: "blockquote", markup: "# Guide\n\n> quoted\n"},
 		{name: "image", markup: "# Guide\n\n![alt](image.png)\n"},
 		{name: "raw-html", markup: "# Guide\n\n<div>raw</div>\n"},
+		{name: "html-block-newline", markup: "# Guide\n\n<div\n*raw*\n"},
+		{name: "html-block-crlf", markup: "# Guide\r\n\r\n<DIV\r\n*raw*\r\n"},
+		{name: "html-closing-block", markup: "# Guide\n\n</table\n*raw*\n"},
+		{name: "html-block-interrupts-paragraph", markup: "# Guide\n\nText\n<div\n*raw*\n"},
+		{name: "html-block-before-setext-underline", markup: "# Guide\n\n<div\n---\n"},
+		{name: "html-block-in-list", markup: "# Guide\n\n- <div\n  *raw*\n"},
 		{name: "inline-code", markup: "# Guide\n\nUse `code`.\n"},
 		{name: "unmatched-backtick", markup: "# Guide\n\nA stray ` character.\n"},
 		{name: "indented-code", markup: "# Guide\n\n    command\n"},
@@ -160,6 +166,31 @@ func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 			t.Parallel()
 			_, err := renderGuide([]byte(test.markup), guideRenderOptions{width: 80})
 			assert.ErrorContains(t, err, "unsupported guide Markdown")
+		})
+	}
+}
+
+func TestGuideRendererPreservesLiteralTagLikeText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		markup string
+		want   string
+	}{
+		{name: "unknown-tag", markup: "# Guide\n\n<widget\ntext\n", want: "Guide\n\n<widget text\n"},
+		{name: "escaped-tag", markup: "# Guide\n\n\\<div\ntext\n", want: "Guide\n\n<div text\n"},
+		{name: "heading", markup: "# Guide <div\n", want: "Guide <div\n"},
+		{name: "inline", markup: "# Guide\n\nLiteral <div\n", want: "Guide\n\nLiteral <div\n"},
+		{name: "indented-continuation", markup: "# Guide\n\nLiteral\n    <div\n", want: "Guide\n\nLiteral <div\n"},
+		{name: "code", markup: "# Guide\n\n```text\n<div\n```\n", want: "Guide\n\n  <div\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output, err := renderGuide([]byte(test.markup), guideRenderOptions{width: 80})
+			require.NoError(t, err)
+			assert.Equal(t, test.want, string(output))
 		})
 	}
 }
