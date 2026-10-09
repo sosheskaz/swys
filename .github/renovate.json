@@ -63,6 +63,12 @@
       "minimumReleaseAge": "3 days"
     },
     {
+      "matchManagers": ["mise", "gomod"],
+      "matchDepNames": ["go"],
+      "matchUpdateTypes": ["patch"],
+      "minimumReleaseAge": "0 days"
+    },
+    {
       "matchManagers": ["gomod"],
       "matchDatasources": ["go"],
       "matchPackageNames": ["google.golang.org/genproto/googleapis/**"],
