@@ -3,12 +3,15 @@ package cmd
 import (
 	"context"
 	"embed"
+	"errors"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 	"github.com/sosheskaz/swys/cmd/internal/cli/interrupt"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/commands/aes"
 	"github.com/sosheskaz/swys/cmd/internal/commands/cert"
 	"github.com/sosheskaz/swys/cmd/internal/commands/dns"
@@ -109,4 +112,23 @@ func executeContext(ctx context.Context, root *cobra.Command) error {
 
 func executeCommand(root *cobra.Command) error {
 	return commandio.Execute(root)
+}
+
+// ExecuteContextWithDiagnostics runs the binary's command and reports its final error.
+// ExecuteContext remains silent for callers that own their error presentation.
+//
+//nolint:contextcheck // Cobra owns the command context and passes it to handlers after SetContext.
+func ExecuteContextWithDiagnostics(ctx context.Context) error {
+	root := newRootCmd()
+	root.SetContext(ctx)
+	command, runErr := root.ExecuteC()
+	err := errors.Join(runErr, commandio.Close(command))
+	if err == nil {
+		return nil
+	}
+	err = interrupt.Attribute(ctx, fmt.Errorf("execute command: %w", err))
+	if command == nil {
+		command = root
+	}
+	return errors.Join(err, presentation.WriteError(command, err))
 }

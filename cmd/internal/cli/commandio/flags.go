@@ -30,9 +30,10 @@ var ByteEncodingDescriptions = map[string]string{
 
 // StructuredFormatDescriptions supplies help and completion text for formats.
 var StructuredFormatDescriptions = map[string]string{
-	"text": "human-readable text",
-	"json": "structured JSON",
-	"pem":  "certificate PEM",
+	"text":  "human-readable text",
+	"plain": "plain text without terminal styles",
+	"json":  "structured JSON",
+	"pem":   "certificate PEM",
 }
 
 // BinaryOutputCommand adds output encoding and optional input decoding flags.

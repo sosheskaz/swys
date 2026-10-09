@@ -8,11 +8,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/text"
-	"github.com/yuin/goldmark/util"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/extension"
+	"github.com/yuin/goldmark/v2/parser"
 )
 
 type guideRenderOptions struct {
@@ -113,7 +111,7 @@ func parseGuide(source []byte) ([]guideBlock, error) {
 	if err := validateGuideSourceSyntax(source); err != nil {
 		return nil, err
 	}
-	document := goldmark.New(goldmark.WithExtensions(extension.Table)).Parser().Parse(text.NewReader(source))
+	document := parser.New(parser.WithExtensions(extension.TableParser)).Parse(source)
 	blocks := make([]guideBlock, 0, document.ChildCount())
 	levelOneHeadings := 0
 	for node := document.FirstChild(); node != nil; node = node.NextSibling() {
@@ -186,7 +184,10 @@ func guideBlockFromNode(source []byte, node ast.Node) (guideBlock, error) {
 		return guideBlock{kind: guideParagraphBlock, spans: spans}, nil
 	case *ast.List:
 		return guideListFromNode(source, typed)
-	case *ast.FencedCodeBlock:
+	case *ast.CodeBlock:
+		if typed.CodeBlockKind != ast.CodeBlockKindFenced {
+			return guideBlock{}, errorsNewGuideMarkdown("indented code blocks are not supported")
+		}
 		return guideCodeFromNode(source, typed)
 	default:
 		return guideBlock{}, errorsNewGuideMarkdown("unsupported block " + node.Kind().String())
@@ -209,7 +210,7 @@ func guideListFromNode(source []byte, list *ast.List) (guideBlock, error) {
 			return guideBlock{}, errorsNewGuideMarkdown("list items must contain exactly one paragraph")
 		}
 		switch contents.(type) {
-		case *ast.TextBlock, *ast.Paragraph:
+		case *ast.Paragraph:
 		default:
 			return guideBlock{}, errorsNewGuideMarkdown("nested or multi-block list items are not supported")
 		}
@@ -225,19 +226,20 @@ func guideListFromNode(source []byte, list *ast.List) (guideBlock, error) {
 	return block, nil
 }
 
-func guideCodeFromNode(source []byte, code *ast.FencedCodeBlock) (guideBlock, error) {
-	if code.Info != nil {
-		language := strings.TrimSpace(string(code.Info.Value(source)))
+func guideCodeFromNode(source []byte, code *ast.CodeBlock) (guideBlock, error) {
+	if !code.Info.IsEmpty() {
+		language := strings.TrimSpace(code.Info.Value(source))
 		switch language {
 		case "", "sh", "bash", "fish", "powershell", "text":
 		default:
 			return guideBlock{}, errorsNewGuideMarkdown("unsupported code-block language " + strconv.Quote(language))
 		}
 	}
+	if len(code.Value.Segments()) == 0 {
+		return guideBlock{}, errorsNewGuideMarkdown("code blocks must not be empty")
+	}
 	block := guideBlock{kind: guideCodeBlock}
-	for index := range code.Lines().Len() {
-		segment := code.Lines().At(index)
-		line := string(segment.Value(source))
+	for _, line := range strings.Split(strings.TrimSuffix(code.Value.Str(source), "\n"), "\n") {
 		line = strings.TrimSuffix(line, "\n")
 		line = strings.TrimSuffix(line, "\r")
 		if err := validateGuideText(line, true); err != nil {
@@ -270,10 +272,10 @@ func guideInlineNodeSpans(source []byte, node ast.Node, inherited guideStyle) ([
 	switch typed := node.(type) {
 	case *ast.Text:
 		return guideTextNodeSpans(source, typed, inherited)
-	case *ast.String:
-		return guideStringNodeSpans(typed, inherited)
 	case *ast.Emphasis:
-		return guideEmphasisNodeSpans(source, typed, inherited)
+		return guideInlineSpans(source, typed, inherited|guideStyleItalic)
+	case *ast.Strong:
+		return guideInlineSpans(source, typed, inherited|guideStyleBold)
 	case *ast.Link:
 		return guideLinkNodeSpans(source, typed, inherited)
 	case *ast.CodeSpan:
@@ -287,11 +289,7 @@ func guideTextNodeSpans(source []byte, node *ast.Text, inherited guideStyle) ([]
 	if node.HardLineBreak() {
 		return nil, errorsNewGuideMarkdown("hard line breaks are not supported")
 	}
-	value := node.Value(source)
-	if !node.IsRaw() {
-		value = decodeGuideMarkdownText(value)
-	}
-	textValue := string(value)
+	textValue := node.Value.Value(source)
 	if node.SoftLineBreak() {
 		textValue += " "
 	}
@@ -301,40 +299,15 @@ func guideTextNodeSpans(source []byte, node *ast.Text, inherited guideStyle) ([]
 	return appendGuideSpan(nil, textValue, inherited), nil
 }
 
-func guideStringNodeSpans(node *ast.String, inherited guideStyle) ([]guideSpan, error) {
-	if node.IsCode() {
-		return nil, errorsNewGuideMarkdown("inline code is not supported; use a fenced code block")
-	}
-	value := node.Value
-	if !node.IsRaw() {
-		value = decodeGuideMarkdownText(value)
-	}
-	textValue := string(value)
-	if err := validateGuideText(textValue, false); err != nil {
-		return nil, err
-	}
-	return appendGuideSpan(nil, textValue, inherited), nil
-}
-
-func guideEmphasisNodeSpans(source []byte, node *ast.Emphasis, inherited guideStyle) ([]guideSpan, error) {
-	style := guideStyleItalic
-	if node.Level == 2 {
-		style = guideStyleBold
-	} else if node.Level != 1 {
-		return nil, errorsNewGuideMarkdown("unsupported emphasis level")
-	}
-	return guideInlineSpans(source, node, inherited|style)
-}
-
 func guideLinkNodeSpans(source []byte, node *ast.Link, inherited guideStyle) ([]guideSpan, error) {
-	if node.Reference != nil || len(node.Title) != 0 {
+	if node.Reference != nil || !node.Title.IsEmpty() {
 		return nil, errorsNewGuideMarkdown("only inline links without titles are supported")
 	}
 	children, err := guideInlineSpans(source, node, inherited|guideStyleLink|guideStyleUnderline)
 	if err != nil {
 		return nil, err
 	}
-	destination := string(decodeGuideMarkdownText(node.Destination))
+	destination := node.Destination.Value(source)
 	if destination == "" {
 		return nil, errorsNewGuideMarkdown("links must have a destination")
 	}
@@ -345,12 +318,6 @@ func guideLinkNodeSpans(source []byte, node *ast.Link, inherited guideStyle) ([]
 		children[index].link = destination
 	}
 	return append(children, guideSpan{text: " (" + destination + ")", style: inherited, plainOnly: true}), nil
-}
-
-func decodeGuideMarkdownText(value []byte) []byte {
-	value = util.UnescapePunctuations(value)
-	value = util.ResolveNumericReferences(value)
-	return util.ResolveEntityNames(value)
 }
 
 func validateGuideText(value string, allowTab bool) error {

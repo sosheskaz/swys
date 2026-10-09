@@ -33,6 +33,11 @@ func TestGuideRenderingAndPagerSelectionMatrix(t *testing.T) {
 		wantRich   bool
 		wantOutput bool
 	}{
+		{name: "shared-rich-pipe", args: []string{"--style", "rich"}, wantRich: true, wantOutput: true},
+		{name: "shared-plain-terminal", terminal: true, args: []string{"--style", "plain"}, wantOutput: true},
+		{name: "help-plain-wins", terminal: true, args: []string{"--style", "rich", "--plain"}, wantOutput: true},
+		{name: "help-rich-wins", args: []string{"--style", "plain", "--rich"}, wantRich: true, wantOutput: true},
+		{name: "shared-rich-pager", terminal: true, env: map[string]string{"PAGER": pager}, args: []string{"--style", "rich"}, wantRich: true, wantOutput: true},
 		{name: "direct-terminal", terminal: true, wantRich: true, wantOutput: true},
 		{name: "terminal-pager", terminal: true, env: map[string]string{"PAGER": pager}, wantOutput: true},
 		{name: "forced-rich-pager", terminal: true, env: map[string]string{"PAGER": pager}, args: []string{"--rich"}, wantRich: true, wantOutput: true},

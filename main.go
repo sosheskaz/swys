@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/sosheskaz/swys/cmd"
@@ -18,9 +17,6 @@ func run() int {
 	ctx, stop := cmd.WithInterrupt(context.Background())
 	defer stop()
 
-	err := cmd.ExecuteContext(ctx)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "swys: %v\n", err)
-	}
+	err := cmd.ExecuteContextWithDiagnostics(ctx)
 	return cmd.ExitCode(err)
 }
