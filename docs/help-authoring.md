@@ -38,6 +38,8 @@ Inline code, hard line breaks, nested or multi-paragraph list items, level-three
 
 Character references and backslash escapes are decoded once. Goldmark v2 renders `&#38;lt;` as literal `&lt;`, rather than the `<` produced by the previous renderer. Code blocks retain their literal contents.
 
+Goldmark v2 also changes some ambiguous emphasis: `0**0* *0**` displays as `0**0* 0*`, where v1 displayed `0*0* 0`. Prefer straightforward emphasis around complete words or phrases.
+
 ## Page layout and file mapping
 
 Each command family embeds guides beside its constructor. `root.md` names the

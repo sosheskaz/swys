@@ -106,6 +106,16 @@ func TestGuideRendererPreservesNestedEmphasis(t *testing.T) {
 	assert.Contains(t, string(output), "\x1b[1mbold ")
 }
 
+func TestGuideRendererUsesV2AmbiguousEmphasis(t *testing.T) {
+	t.Parallel()
+
+	for _, rich := range []bool{false, true} {
+		output, err := renderGuide([]byte("# Styles\n\n0**0* *0**\n"), guideRenderOptions{width: 80, rich: rich})
+		require.NoError(t, err)
+		assert.Equal(t, "Styles\n\n0**0* 0*\n", stripGuideANSI(string(output)), "rich: %t", rich)
+	}
+}
+
 func TestGuideRendererPreservesLiteralCodeAndLineEndings(t *testing.T) {
 	t.Parallel()
 
