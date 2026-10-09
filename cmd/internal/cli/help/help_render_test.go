@@ -151,6 +151,8 @@ func TestGuideRendererRejectsUnsupportedMarkdown(t *testing.T) {
 		{name: "inline-code", markup: "# Guide\n\nUse `code`.\n"},
 		{name: "unmatched-backtick", markup: "# Guide\n\nA stray ` character.\n"},
 		{name: "indented-code", markup: "# Guide\n\n    command\n"},
+		{name: "empty-list-item", markup: "# Guide\n\n- item\n-\n"},
+		{name: "empty-list-item-crlf", markup: "# Guide\r\n\r\n- item\r\n-\r\n"},
 		{name: "nested-list", markup: "# Guide\n\n- outer\n  - inner\n"},
 		{name: "multi-block-list", markup: "# Guide\n\n- first paragraph\n\n  second paragraph\n"},
 		{name: "hard-break", markup: "# Guide\n\nfirst  \nsecond\n"},

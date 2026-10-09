@@ -110,6 +110,8 @@ func parseGuide(source []byte) ([]guideBlock, error) {
 	if !utf8.Valid(source) {
 		return nil, errorsNewGuideMarkdown("source is not valid UTF-8")
 	}
+	// Goldmark v2.1.6 fails to recognize an empty list marker before CRLF.
+	source = bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
 	if err := validateGuideSourceSyntax(source); err != nil {
 		return nil, err
 	}
