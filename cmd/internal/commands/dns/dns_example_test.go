@@ -5,9 +5,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"strings"
 	"testing"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/rdata"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +20,47 @@ import (
 )
 
 var errUnexpectedSystemLookup = errors.New("unexpected system resolver call")
+
+func TestExampleDNSComparesResolversAnywhereInArguments(t *testing.T) {
+	t.Parallel()
+	firstHost, firstPort, firstConn, firstDone := startUDPFixture(t, func(request *dns.Msg) *dns.Msg {
+		response := replyFor(request)
+		response.Answer = []dns.RR{&dns.A{
+			Hdr: dns.Header{Name: "example.test.", Class: dns.ClassINET, TTL: 60},
+			A:   rdata.A{Addr: netip.MustParseAddr("192.0.2.10")},
+		}}
+		return response
+	})
+	t.Cleanup(func() {
+		assert.NoError(t, firstConn.Close())
+		<-firstDone
+	})
+	first := net.JoinHostPort(firstHost, firstPort)
+	secondHost, secondPort, secondConn, secondDone := startUDPFixture(t, func(request *dns.Msg) *dns.Msg {
+		response := replyFor(request)
+		response.Answer = []dns.RR{&dns.A{
+			Hdr: dns.Header{Name: "example.test.", Class: dns.ClassINET, TTL: 60},
+			A:   rdata.A{Addr: netip.MustParseAddr("192.0.2.20")},
+		}}
+		return response
+	})
+	t.Cleanup(func() {
+		assert.NoError(t, secondConn.Close())
+		<-secondDone
+	})
+	second := net.JoinHostPort(secondHost, secondPort)
+	stdout, stderr, err := executeRootStreams(t,
+		"dns", "example.test", "@"+first, "A", "@"+second, "--format", "plain")
+	require.NoError(t, err)
+	assert.NoError(t, <-firstDone)
+	assert.NoError(t, <-secondDone)
+	assert.Empty(t, stderr)
+	assert.Contains(t, stdout, first+" · udp")
+	assert.Contains(t, stdout, second+" · udp")
+	assert.Contains(t, stdout, "192.0.2.10")
+	assert.Contains(t, stdout, "192.0.2.20")
+	assert.Less(t, strings.Index(stdout, first), strings.Index(stdout, second))
+}
 
 func TestExampleDNSOutputSelectionAndEncoding(t *testing.T) {
 	t.Parallel()

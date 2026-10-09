@@ -62,24 +62,28 @@ type dnsOptions struct {
 }
 
 type dnsQuery struct {
-	endpoint     *dnsquery.Endpoint
-	tlsConfig    *tls.Config
-	resolver     string
-	server       string
-	lookup       string
-	name         string
-	record       string
-	transport    string
-	selectMode   string
-	format       string
-	timeout      time.Duration
-	port         int
-	presentation textdisplay.Options
-	recordType   uint16
-	portSet      bool
+	endpoint   *dnsquery.Endpoint
+	tlsConfig  *tls.Config
+	resolver   string
+	server     string
+	lookup     string
+	name       string
+	record     string
+	transport  string
+	selectMode string
+	format     string
+	timeout    time.Duration
+	port       int
+	recordType uint16
+	portSet    bool
 }
 
 type dnsPreparedOutputKey struct{}
+
+type dnsPreparedOutput struct {
+	lookupErr error
+	data      []byte
+}
 
 const (
 	dnsFormatText   = "text"
@@ -105,7 +109,7 @@ func NewCommand(lifecycle *commandio.Lifecycle, deps dnsquery.Dependencies) *cob
 		timeout:    commandio.DefaultNetworkTimeout,
 	}
 	command := &cobra.Command{
-		Use:     "dns [@server] name [type]",
+		Use:     "dns name [type] [@server ...]",
 		Aliases: []string{"dig", "nslookup"},
 		Short:   "Resolve DNS names and records",
 		Long: `Resolve a name through the operating system or query a DNS server directly.
@@ -116,8 +120,10 @@ explicit --port selects direct DNS. Direct DNS without @server uses configured
 nameservers over UDP and retries truncated responses over TCP.
 
 Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
-@https://host/path. DNS over TLS and HTTPS verify certificates by default.`,
-		Args: cobra.RangeArgs(1, 3),
+@https://host/path. Endpoints may appear anywhere among name and type arguments.
+Multiple endpoints are queried in argument order. DNS over TLS and HTTPS verify
+certificates by default.`,
+		Args: cobra.MinimumNArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return completeDNSArguments(cmd, args, toComplete, options)
 		},
@@ -126,21 +132,24 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 			if err != nil {
 				return err
 			}
-			if _, err := output.Write(prepared); err != nil {
-				return fmt.Errorf("write DNS result: %w", err)
+			pending, ok := cmd.Context().Value(dnsPreparedOutputKey{}).(dnsPreparedOutput)
+			if !ok {
+				return commandio.ErrPreparedOutputUnavailable
 			}
-			return nil
+			if _, err := output.Write(prepared); err != nil {
+				return errors.Join(pending.lookupErr, fmt.Errorf("write DNS result: %w", err))
+			}
+			return pending.lookupErr
 		},
 	}
 	lifecycle.Register(command, commandio.Behavior{
 		SupportsOutput: true,
 		BeforeIO: func(cmd *cobra.Command, args []string) (func(error) error, error) {
-			query, err := parseDNSQuery(cmd, args, options)
+			queries, err := parseDNSQueries(cmd, args, options)
 			if err != nil {
 				return nil, err
 			}
-			query.presentation = presentation.Output(cmd)
-			prepared, err := prepareDNSOutput(cmd.Context(), &query, deps)
+			prepared, err := prepareDNSOutput(cmd.Context(), queries, deps, presentation.Output(cmd))
 			if err != nil {
 				return nil, err
 			}
@@ -149,18 +158,18 @@ Direct endpoints use @host, @udp://host, @tcp://host, @tls://host, or
 			return func(err error) error {
 				if err != nil {
 					cmd.SetContext(original)
-					return err
+					return errors.Join(prepared.lookupErr, err)
 				}
 				commandio.AppendCleanup(cmd, func() { cmd.SetContext(original) })
 				return nil
 			}, nil
 		},
 		Prepare: func(cmd *cobra.Command, _ io.Reader) ([]byte, error) {
-			prepared, ok := cmd.Context().Value(dnsPreparedOutputKey{}).([]byte)
+			prepared, ok := cmd.Context().Value(dnsPreparedOutputKey{}).(dnsPreparedOutput)
 			if !ok {
 				return nil, commandio.ErrPreparedOutputUnavailable
 			}
-			return prepared, nil
+			return prepared.data, nil
 		},
 	})
 	commandio.AddShape(command, dnsQueryShape)
@@ -264,14 +273,17 @@ func dnsTLSCompletionAllowed(command *cobra.Command, args []string) bool {
 	if err != nil || command.Flags().Changed("resolver") && resolver == dnsResolverSystem {
 		return false
 	}
-	if len(args) == 0 {
-		return true
+	servers, _ := splitDNSArguments(args)
+	if len(servers) == 0 {
+		return len(args) == 0
 	}
-	if !strings.HasPrefix(args[0], "@") {
-		return false
+	for _, server := range servers {
+		endpoint, err := dnsquery.ParseEndpoint(strings.TrimPrefix(server, "@"), nil)
+		if err != nil || endpoint.Transport != dnsquery.TransportTLS && endpoint.Transport != dnsquery.TransportHTTPS {
+			return false
+		}
 	}
-	endpoint, err := dnsquery.ParseEndpoint(strings.TrimPrefix(args[0], "@"), nil)
-	return err == nil && (endpoint.Transport == dnsquery.TransportTLS || endpoint.Transport == dnsquery.TransportHTTPS)
+	return true
 }
 
 func dnsTrustCompletionAllowed(command *cobra.Command, name string) bool {
@@ -323,11 +335,8 @@ func completeDNSTrustBoolean(name string) cobra.CompletionFunc {
 }
 
 func completeDNSArguments(command *cobra.Command, args []string, toComplete string, options *dnsOptions) ([]string, cobra.ShellCompDirective) {
-	position := len(args)
-	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
-		position--
-	}
-	if position != 1 {
+	_, positional := splitDNSArguments(args)
+	if len(positional) != 1 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -365,8 +374,8 @@ func dnsCompletionResolver(command *cobra.Command, args []string, options *dnsOp
 }
 
 func dnsDirectSelectorSupplied(command *cobra.Command, args []string) bool {
-	return len(args) > 0 && strings.HasPrefix(args[0], "@") ||
-		command.Flags().Changed("port") || dnsTLSOptionsSelected(command)
+	servers, _ := splitDNSArguments(args)
+	return len(servers) > 0 || command.Flags().Changed("port") || dnsTLSOptionsSelected(command)
 }
 
 func directDNSRecordTypes() []string {
@@ -381,14 +390,59 @@ func directDNSRecordTypes() []string {
 	return types
 }
 
-func parseDNSQuery(cmd *cobra.Command, args []string, options *dnsOptions) (dnsQuery, error) {
+func splitDNSArguments(args []string) ([]string, []string) {
+	var servers, positional []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "@") {
+			servers = append(servers, arg)
+		} else {
+			positional = append(positional, arg)
+		}
+	}
+	return servers, positional
+}
+
+func parseDNSQueries(cmd *cobra.Command, args []string, options *dnsOptions) ([]dnsQuery, error) {
+	servers, positional := splitDNSArguments(args)
+	if len(positional) < 1 || len(positional) > 2 {
+		return nil, fmt.Errorf("%w: expected name [type] and optional @server arguments", ErrInvalidDNSOptions)
+	}
+	if len(servers) == 0 {
+		servers = []string{""}
+	}
+	queries := make([]dnsQuery, 0, len(servers))
+	for _, server := range servers {
+		query, err := parseDNSQuery(cmd, positional, server, options)
+		if err != nil {
+			return nil, err
+		}
+		queries = append(queries, query)
+	}
+	// Load shared credentials only after every endpoint and option is validated.
+	var config *tls.Config
+	for i := range queries {
+		if queries[i].transport != dnsTransportTLS && queries[i].transport != dnsTransportHTTPS {
+			continue
+		}
+		if config == nil {
+			var err error
+			config, err = encryptedDNSTLSConfig(cmd)
+			if err != nil {
+				return nil, err
+			}
+		}
+		queries[i].tlsConfig = config
+	}
+	return queries, nil
+}
+
+func parseDNSQuery(cmd *cobra.Command, args []string, server string, options *dnsOptions) (dnsQuery, error) {
 	query := dnsQuery{
 		resolver: options.resolver, transport: dnsTransportUDP, port: options.port,
 		portSet: cmd.Flags().Changed("port"), timeout: options.timeout, selectMode: options.selectMode, format: options.format,
 	}
-	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
-		query.server = strings.TrimPrefix(args[0], "@")
-		args = args[1:]
+	if server != "" {
+		query.server = strings.TrimPrefix(server, "@")
 		if query.server == "" {
 			return dnsQuery{}, fmt.Errorf("%w: @server must not be empty", ErrInvalidDNSOptions)
 		}
@@ -398,9 +452,6 @@ func parseDNSQuery(cmd *cobra.Command, args []string, options *dnsOptions) (dnsQ
 		if err := parseDNSEndpoint(&query); err != nil {
 			return dnsQuery{}, err
 		}
-	}
-	if len(args) < 1 || len(args) > 2 {
-		return dnsQuery{}, fmt.Errorf("%w: expected [@server] name [type]", ErrInvalidDNSOptions)
 	}
 	query.lookup = args[0]
 	query.name = args[0]
@@ -527,15 +578,7 @@ func validateDirectDNSOptions(cmd *cobra.Command, query *dnsQuery, tlsSelected b
 		}
 		return nil
 	}
-	if err := validateEncryptedDNSOptions(cmd); err != nil {
-		return err
-	}
-	config, err := encryptedDNSTLSConfig(cmd)
-	if err != nil {
-		return err
-	}
-	query.tlsConfig = config
-	return nil
+	return validateEncryptedDNSOptions(cmd)
 }
 
 func dnsTLSOptionsSelected(cmd *cobra.Command) bool {
@@ -569,9 +612,34 @@ func selectDNSResult(result *dnsResult, selection string) dnsSelectedOutput {
 	return dnsSelectedOutput{values: values}
 }
 
-func prepareDNSOutput(ctx context.Context, query *dnsQuery, deps dnsquery.Dependencies) ([]byte, error) {
-	lookupContext, cancel := commandio.NetworkSetupContext(ctx, query.timeout)
+func prepareDNSOutput(ctx context.Context, queries []dnsQuery, deps dnsquery.Dependencies, options textdisplay.Options) (dnsPreparedOutput, error) {
+	lookupContext, cancel := commandio.NetworkSetupContext(ctx, queries[0].timeout)
 	defer cancel()
+	results := make([]dnsResult, 0, len(queries))
+	var lookupErrors []error
+	for i := range queries {
+		result, err := resolveDNSQuery(lookupContext, &queries[i], deps)
+		if err != nil {
+			if len(queries) > 1 {
+				err = fmt.Errorf("DNS resolver %s (%s): %w", queries[i].server, queries[i].transport, err)
+			}
+			lookupErrors = append(lookupErrors, err)
+			continue
+		}
+		results = append(results, result)
+	}
+	lookupErr := errors.Join(lookupErrors...)
+	if len(results) == 0 {
+		return dnsPreparedOutput{}, lookupErr
+	}
+	data, err := renderDNSResults(results, &queries[0], options, len(queries) > 1)
+	if err != nil {
+		return dnsPreparedOutput{}, errors.Join(lookupErr, err)
+	}
+	return dnsPreparedOutput{data: data, lookupErr: lookupErr}, nil
+}
+
+func resolveDNSQuery(ctx context.Context, query *dnsQuery, deps dnsquery.Dependencies) (dnsResult, error) {
 	request := dnsquery.Request{
 		Resolver:  dnsquery.Resolver(query.resolver),
 		Endpoint:  query.endpoint,
@@ -584,14 +652,46 @@ func prepareDNSOutput(ctx context.Context, query *dnsQuery, deps dnsquery.Depend
 		port := uint16(query.port) //nolint:gosec // validateDNSLimitOptions bounds the value.
 		request.ConfiguredPort = &port
 	}
-	result, err := dnsquery.Resolve(lookupContext, request, deps)
+	result, err := dnsquery.Resolve(ctx, request, deps)
 	if err != nil {
 		if errors.Is(err, dnsquery.ErrInvalidRequest) || errors.Is(err, dnsquery.ErrInvalidEndpoint) {
-			return nil, fmt.Errorf("%w: %w", ErrInvalidDNSOptions, err)
+			return dnsResult{}, fmt.Errorf("%w: %w", ErrInvalidDNSOptions, err)
 		}
-		return nil, err
+		return dnsResult{}, err
 	}
-	return renderDNSResultWithOptions(selectDNSResult(&result, query.selectMode), query.format, query.presentation)
+	return result, nil
+}
+
+func renderDNSResults(results []dnsResult, query *dnsQuery, options textdisplay.Options, multiple bool) ([]byte, error) {
+	if query.selectMode == dnsSelectValues {
+		values := make([]string, 0, len(results))
+		for i := range results {
+			values = append(values, selectDNSResult(&results[i], dnsSelectValues).values...)
+		}
+		return renderDNSResultWithOptions(dnsSelectedOutput{values: values}, query.format, options)
+	}
+	if !multiple {
+		return renderDNSResultWithOptions(selectDNSResult(&results[0], dnsSelectResult), query.format, options)
+	}
+	if query.format == dnsFormatJSON {
+		data, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("marshal DNS results: %w", err)
+		}
+		return append(data, '\n'), nil
+	}
+	var output bytes.Buffer
+	for i := range results {
+		data, err := renderDNSResultWithOptions(selectDNSResult(&results[i], dnsSelectResult), query.format, options)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 {
+			output.WriteByte('\n')
+		}
+		output.Write(data)
+	}
+	return output.Bytes(), nil
 }
 
 func renderDNSResult(selected dnsSelectedOutput, format string) ([]byte, error) {

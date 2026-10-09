@@ -2,6 +2,7 @@ package dns_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -22,7 +23,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 	"github.com/sosheskaz/swys/internal/dnsquery"
 )
 
@@ -51,6 +54,201 @@ func TestDNSAliasesUseTheSameSyntax(t *testing.T) {
 			stdout, _, err := executeRootCommandStreams(t, root, alias, "example.test", "A", "--select", "values")
 			require.NoError(t, err)
 			assert.Equal(t, "192.0.2.1\n", stdout)
+		})
+	}
+}
+
+func TestDNSResolverPositions(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{"dns", "dig", "nslookup"} {
+		for _, args := range [][]string{
+			{"@192.0.2.53", "example.test", "A"},
+			{"example.test", "@192.0.2.53", "A"},
+			{"example.test", "A", "@192.0.2.53"},
+			{"example.test", "@192.0.2.53"},
+		} {
+			t.Run(command+"/"+strings.Join(args, "_"), func(t *testing.T) {
+				t.Parallel()
+				root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+					PlaintextExchange: func(_ context.Context, request *dns.Msg, transport dnsquery.Transport, address string) (*dns.Msg, error) {
+						require.Len(t, request.Question, 1)
+						assert.Equal(t, "192.0.2.53:53", address)
+						assert.Equal(t, dnsquery.TransportUDP, transport)
+						assert.Equal(t, "example.test.", request.Question[0].Header().Name)
+						assert.Equal(t, dns.TypeA, dns.RRToType(request.Question[0]))
+						return standardDNSReply(request), nil
+					},
+				})
+				invocation := append([]string{command}, args...)
+				invocation = append(invocation, "--select", "values")
+				stdout, stderr, err := executeRootCommandStreams(t, root, invocation...)
+				require.NoError(t, err)
+				assert.Equal(t, "192.0.2.44\n", stdout)
+				assert.Empty(t, stderr)
+			})
+		}
+	}
+}
+
+func TestDNSMultipleResolverOutput(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		flags []string
+	}{
+		{name: "result JSON", flags: []string{"--format", "json"}},
+		{name: "values text", flags: []string{"--select", "values"}},
+		{name: "values JSON encoded", flags: []string{"--select", "values", "--format", "json", "--encoding", "base64"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var addresses []string
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, address string) (*dns.Msg, error) {
+					addresses = append(addresses, address)
+					response := standardDNSReply(request)
+					if address == "192.0.2.54:53" {
+						response.Rcode = dns.RcodeNameError
+						response.Answer = nil
+					}
+					return response, nil
+				},
+			})
+			args := []string{"dns", "@192.0.2.53", "example.test", "@tcp://192.0.2.54", "A", "@192.0.2.53"}
+			stdout, stderr, err := executeRootCommandStreams(t, root, append(args, test.flags...)...)
+			require.NoError(t, err)
+			assert.Empty(t, stderr)
+			assert.Equal(t, []string{"192.0.2.53:53", "192.0.2.54:53", "192.0.2.53:53"}, addresses)
+			switch test.name {
+			case "result JSON":
+				var results []dnsquery.Result
+				require.NoError(t, json.Unmarshal([]byte(stdout), &results))
+				require.Len(t, results, 3)
+				for i, wantServer := range addresses {
+					require.NotNil(t, results[i].Server)
+					assert.Equal(t, wantServer, *results[i].Server)
+				}
+				require.NotNil(t, results[1].Transport)
+				require.NotNil(t, results[1].Status)
+				assert.Equal(t, dnsquery.TransportTCP, *results[1].Transport)
+				assert.Equal(t, "NXDOMAIN", *results[1].Status)
+				assert.Empty(t, results[1].Answers)
+			case "values text":
+				assert.Equal(t, "192.0.2.44\n192.0.2.44\n", stdout)
+			case "values JSON encoded":
+				decoded, decodeErr := base64.StdEncoding.DecodeString(stdout)
+				require.NoError(t, decodeErr)
+				assert.JSONEq(t, `["192.0.2.44", "192.0.2.44"]`, string(decoded))
+			}
+		})
+	}
+}
+
+func TestDNSMultipleResolverFailures(t *testing.T) {
+	t.Parallel()
+	for _, fail := range []string{"192.0.2.53:53", "192.0.2.54:53", "all"} {
+		t.Run(fail, func(t *testing.T) {
+			t.Parallel()
+			path := writeExistingDNSOutput(t)
+			var addresses []string
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, address string) (*dns.Msg, error) {
+					addresses = append(addresses, address)
+					if fail == "all" || address == fail {
+						return nil, errTestDNSExchangeFailed
+					}
+					return standardDNSReply(request), nil
+				},
+			})
+			original := t.Context()
+			root.SetContext(original)
+			stdout, _, err := executeRootCommandStreams(t, root,
+				"dns", "@192.0.2.53", "example.test", "A", "@192.0.2.54", "--format", "json", "--output", path)
+			require.ErrorIs(t, err, errTestDNSExchangeFailed)
+			assert.Empty(t, stdout)
+			assert.Equal(t, []string{"192.0.2.53:53", "192.0.2.54:53"}, addresses)
+			command, _, findErr := root.Find([]string{"dns"})
+			require.NoError(t, findErr)
+			assert.Equal(t, original, command.Context(), "context restored after lookup failure")
+			if fail == "all" {
+				assertExistingDNSOutput(t, path)
+				require.ErrorContains(t, err, "192.0.2.53:53")
+				require.ErrorContains(t, err, "192.0.2.54:53")
+				return
+			}
+			require.ErrorContains(t, err, fail)
+			data, readErr := os.ReadFile(path)
+			require.NoError(t, readErr)
+			var results []dnsquery.Result
+			require.NoError(t, json.Unmarshal(data, &results))
+			require.Len(t, results, 1, "partial success retains the multi-resolver JSON array")
+			require.NotNil(t, results[0].Server)
+			assert.NotEqual(t, fail, *results[0].Server)
+			require.Len(t, results[0].Answers, 1)
+			assert.Equal(t, "192.0.2.44", results[0].Answers[0].Value)
+		})
+	}
+}
+
+func TestDNSPartialFailurePreservesOutputErrors(t *testing.T) {
+	t.Parallel()
+	for _, destination := range []string{"writer", "directory"} {
+		t.Run(destination, func(t *testing.T) {
+			t.Parallel()
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, address string) (*dns.Msg, error) {
+					if address == "192.0.2.53:53" {
+						return nil, errTestDNSExchangeFailed
+					}
+					return standardDNSReply(request), nil
+				},
+			})
+			args := []string{"dns", "example.test", "@192.0.2.53", "@192.0.2.54", "--select", "values"}
+			output := io.Discard
+			if destination == "writer" {
+				reader, writer := io.Pipe()
+				require.NoError(t, reader.Close())
+				t.Cleanup(func() { assert.NoError(t, writer.Close()) })
+				output = writer
+			} else {
+				args = append(args, "--output", t.TempDir())
+			}
+			err := testcmd.Run(t, root, nil, output, io.Discard, args...)
+			require.ErrorIs(t, err, errTestDNSExchangeFailed)
+			if destination == "writer" {
+				require.ErrorIs(t, err, io.ErrClosedPipe)
+			} else {
+				require.ErrorIs(t, err, commandio.ErrOutputIsDirectory)
+			}
+		})
+	}
+}
+
+func TestDNSValidatesAllResolversBeforeQueries(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"@192.0.2.53", "example.test", "A", "@"},
+		{"@192.0.2.53", "example.test", "@dot://192.0.2.54"},
+		{"example.test", "A", "@192.0.2.53", "extra"},
+		{"@192.0.2.53", "@192.0.2.54"},
+		{"example.test", "@192.0.2.53", "--resolver", "system"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			t.Parallel()
+			var queries int
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				PlaintextExchange: func(context.Context, *dns.Msg, dnsquery.Transport, string) (*dns.Msg, error) {
+					queries++
+					return nil, errTestDNSExchangeFailed
+				},
+			})
+			path := writeExistingDNSOutput(t)
+			invocation := append([]string{"dns"}, args...)
+			invocation = append(invocation, "--output", path)
+			_, _, err := executeRootCommandStreams(t, root, invocation...)
+			require.ErrorIs(t, err, errInvalidDNSOptions)
+			assert.Zero(t, queries)
+			assertExistingDNSOutput(t, path)
 		})
 	}
 }

@@ -4,7 +4,7 @@ Resolve common names through the operating system or query DNS servers directly.
 
 Use --output to save the lookup result and --mode to select file permissions. DNS reads its query from command arguments, so an explicit --input is an error.
 
-The --timeout (-t) option covers the whole lookup, with a ten-second default; zero disables it.
+The --timeout (-t) option covers the whole lookup across all resolvers, with a ten-second default; zero disables it.
 
 Human reports default to **text**, with restrained styling on supported terminals. **--format plain** keeps the same layout without generated ANSI controls. **--style auto|rich|plain** overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
 
@@ -18,12 +18,15 @@ swys dns 2001:db8::10 --reverse
 
 ## Query a DNS server directly
 
-The server must be reachable over the selected protocol. Ask a particular DNS server by putting its address first. A selected server, transport, or port uses direct DNS and exposes packet-level response details.
+The server must be reachable over the selected protocol. Prefix each server with @. Servers may appear anywhere among the name and optional type arguments. A selected endpoint or port uses direct DNS and exposes packet-level response details.
 
 ```sh
 swys dns @1.1.1.1 example.com AAAA
-swys dns @tcp://1.1.1.1 example.com MX --select values
+swys dns example.com MX @tcp://1.1.1.1 --select values
+swys dns example.com @1.1.1.1 AAAA @8.8.8.8
 ```
+
+Multiple servers are queried in argument order, with a labeled report for each successful response. If a server fails, successful answers are still printed and the command exits with an error identifying the failed server. If every server fails, an existing output file is preserved.
 
 Direct UDP retries a truncated response over TCP. A system lookup may follow operating-system search, hosts-file, or resolver policy that direct DNS bypasses.
 
@@ -36,11 +39,11 @@ swys dns @tls://resolver.example example.com AAAA
 swys dns @https://resolver.example/dns-query example.com A --select values
 ```
 
-TLS certificates and hostnames are verified by default. **--ca roots.pem** selects a custom PEM trust bundle; **--system-ca** adds system roots to that bundle. **--cert client.pem --key client-key.pem** supplies a client identity when the resolver requires one. These files must already exist. TLS options require an encrypted endpoint; explicitly selecting the system resolver excludes direct DNS options. DNS-over-HTTPS rejects redirects.
+TLS certificates and hostnames are verified by default. **--ca roots.pem** selects a custom PEM trust bundle; **--system-ca** adds system roots to that bundle. **--cert client.pem --key client-key.pem** supplies a client identity when the resolver requires one. These files must already exist. Shared TLS options apply to all endpoints and require every endpoint to be encrypted; explicitly selecting the system resolver excludes direct DNS options. DNS-over-HTTPS rejects redirects.
 
 ## Choose output
 
-The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines; **--format json** prints the complete result object or an array of selected values. An empty values selection prints no text bytes or an empty JSON array. TXT values retain DNS zone-file quoting and escaping.
+The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines; **--format json** prints the complete result object for one resolver or an array of result objects for multiple resolvers. **--select values** concatenates answer values in resolver argument order, as text lines or a single JSON array, without server labels. An empty values selection prints no text bytes or an empty JSON array. TXT values retain DNS zone-file quoting and escaping.
 
 **--encoding** (or **-e**) transforms the complete formatted output, including its final newline. The default **raw** encoding leaves it unchanged. For example, encode the JSON values array as Base64:
 
