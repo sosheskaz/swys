@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0](https://github.com/sosheskaz/swys/compare/v0.1.0...v0.2.0) (2026-10-09)
+
+
+### Features
+
+* **cert:** accept inline CA certificate data ([#24](https://github.com/sosheskaz/swys/issues/24)) ([f1933fc](https://github.com/sosheskaz/swys/commit/f1933fc3753e98845c00a74fc0fdce1feb19e596))
+* **cli:** add rich text reports and plain output ([#25](https://github.com/sosheskaz/swys/issues/25)) ([1111a66](https://github.com/sosheskaz/swys/commit/1111a66cbfa710e50e05f694eb275f859f670816))
+* **dns:** support multiple resolvers anywhere in arguments ([#28](https://github.com/sosheskaz/swys/issues/28)) ([b5173ee](https://github.com/sosheskaz/swys/commit/b5173ee20dba6cfbba29812aa13cf6bfcdbbb592))
+* **skill:** add version-coupled agent instructions ([#29](https://github.com/sosheskaz/swys/issues/29)) ([b88a8b4](https://github.com/sosheskaz/swys/commit/b88a8b44941858519aa0155ed8cbe60f69bd2bff))
+
+
+### Bug Fixes
+
+* **help:** stop wrapping plain output and preserve Markdown validation ([#26](https://github.com/sosheskaz/swys/issues/26)) ([559672e](https://github.com/sosheskaz/swys/commit/559672ea2b44965ef5bdca1a2c51533d0489d141))
+
+
+### Dependencies
+
+* **go:** resolve security findings with Go 1.27.2 and golang.org/x/net v0.60.0 ([8a0790f](https://github.com/sosheskaz/swys/commit/8a0790f4931ac2786ba3c27fab2868189783bb8e))
+* **go:** update module github.com/protonmail/gopenpgp/v3 to v3.5.2 ([#15](https://github.com/sosheskaz/swys/issues/15)) ([09bc6a1](https://github.com/sosheskaz/swys/commit/09bc6a138b9c471928a122e688d9541b9500dae3))
+
 ## 0.1.0 (2026-10-06)
 
 SwYS is a sysadmin's Swiss Army knife: a single command-line tool for networking, protocols, cryptography, and X.509 operations. This first public release brings the project's existing capabilities together under the `swys` command.
