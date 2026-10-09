@@ -6,6 +6,9 @@ Use --output to save the lookup result and --mode to select file permissions. DN
 
 The --timeout (-t) option covers the whole lookup, with a ten-second default; zero disables it.
 
+Human reports default to **text**, with restrained styling on supported terminals. **--format plain** keeps the same layout without generated ANSI controls. **--style auto|rich|plain** overrides human text styling; the plain format takes precedence. Values remain intact and use terminal wrapping. File and encoded output default to plain presentation.
+
+
 ## Use the system resolver
 
 ```sh

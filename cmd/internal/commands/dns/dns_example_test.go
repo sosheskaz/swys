@@ -73,9 +73,13 @@ func TestExampleDNSUsesSystemResolverByDefault(t *testing.T) {
 	})
 	stdout, stderr, err := executeRootCommandStreams(t, root, "dns", "example.test")
 	require.NoError(t, err, "swys dns example.test")
-	want := ";; resolver: system\n;; server: unavailable\n" +
-		";; status: unavailable; DNS packet metadata and TTLs unavailable\n\n" +
-		"example.test.\t-\tIN\tA\t192.0.2.10\n"
+	want := "DNS · example.test. · A\n\n" +
+		"    Resolver  system\n" +
+		"    Server    unavailable\n" +
+		"    Status    unavailable; DNS packet metadata and TTLs unavailable\n\n" +
+		"  Answers\n" +
+		"    Name           TTL  Class  Type  Value\n" +
+		"    example.test.  -    IN     A     192.0.2.10\n"
 	assert.Equal(t, want, stdout)
 	assert.Empty(t, stderr, "diagnostics")
 }
