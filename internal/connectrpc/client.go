@@ -22,7 +22,9 @@ type Options struct {
 	TLS            *tls.Config
 	Resolves       httptransport.Resolver
 	ConnectTimeout time.Duration
+	Wait           time.Duration
 	MaxMessageSize int
+	RequireHTTP2   bool
 }
 
 // Client owns the HTTP connection pool for one command invocation.
@@ -43,8 +45,13 @@ func NewClient(endpoint Endpoint, options Options) *Client {
 		ForceAttemptHTTP2:      true,
 		MaxResponseHeaderBytes: 1 << 20,
 	}
+	if options.RequireHTTP2 {
+		transport.Protocols = new(http.Protocols)
+		transport.Protocols.SetHTTP2(true)
+		transport.Protocols.SetUnencryptedHTTP2(true)
+	}
 	httpClient := &http.Client{
-		Transport:     &requestTransport{base: transport, endpoint: endpoint, setup: options.ConnectTimeout},
+		Transport:     &requestTransport{base: transport, endpoint: endpoint, setup: options.ConnectTimeout, requireHTTP2: options.RequireHTTP2},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	baseURL := endpoint.URL.Scheme + "://" + endpoint.URL.Host
@@ -53,7 +60,7 @@ func NewClient(endpoint Endpoint, options Options) *Client {
 		connecthttp.WithReadMaxBytes(options.MaxMessageSize),
 		connecthttp.WithSendMaxBytes(options.MaxMessageSize),
 	)
-	return &Client{client: connect.NewClient(connectTransport), transport: transport, endpoint: endpoint}
+	return &Client{client: connect.NewClient(connectTransport, responseWait(options.Wait)), transport: transport, endpoint: endpoint}
 }
 
 // Close releases idle HTTP connections after the command completes.
@@ -69,9 +76,10 @@ func (client *Client) Unary(ctx context.Context, request jsontext.Value) (jsonte
 }
 
 type requestTransport struct {
-	base     http.RoundTripper
-	endpoint Endpoint
-	setup    time.Duration
+	base         http.RoundTripper
+	endpoint     Endpoint
+	setup        time.Duration
+	requireHTTP2 bool
 }
 
 // RoundTrip bounds setup without imposing a deadline on an acquired connection.
@@ -93,12 +101,16 @@ func (transport *requestTransport) RoundTrip(request *http.Request) (*http.Respo
 	request.URL = &urlCopy
 	response, err := transport.base.RoundTrip(request)
 	if err != nil {
+		operation := "perform Connect HTTP request"
+		if transport.requireHTTP2 {
+			operation += " (HTTP/2 required for this call)"
+		}
 		cause := context.Cause(ctx)
 		cancel(nil)
 		if cause != nil {
-			return nil, fmt.Errorf("perform Connect HTTP request: %w", cause)
+			return nil, fmt.Errorf("%s: %w", operation, cause)
 		}
-		return nil, fmt.Errorf("perform Connect HTTP request: %w", err)
+		return nil, fmt.Errorf("%s: %w", operation, err)
 	}
 	response.Body = &responseBody{ReadCloser: response.Body, cancel: cancel}
 	return response, nil

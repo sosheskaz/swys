@@ -2,12 +2,10 @@
 package crpc
 
 import (
-	"bytes"
 	"crypto/tls"
 	"embed"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -15,13 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http/httpguts"
 
-	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
-	"github.com/sosheskaz/swys/internal/connectrpc"
-	"github.com/sosheskaz/swys/internal/httptransport"
 )
 
 //go:embed guides
@@ -31,25 +26,29 @@ var guides embed.FS
 var ErrInvalidFlags = errors.New("invalid Connect RPC flags")
 
 const (
-	stdinAuto   = "auto"
-	stdinNever  = "never"
-	stdinAlways = "always"
-	formatJSON  = "json"
+	stdinAuto    = "auto"
+	stdinNever   = "never"
+	stdinAlways  = "always"
+	formatJSON   = "json"
+	formatJSONL  = "jsonl"
+	streamBidi   = "bidi"
+	streamServer = "server"
 )
 
 type options struct {
-	data, stdin, format         string
-	ca, cert, key, serverName   string
-	headers, resolves           []string
-	connectTimeout, timeout     time.Duration
-	maxMessageSize              int
-	systemCA, insecure, verbose bool
+	stream                        string
+	data, stdin, format           string
+	ca, cert, key, serverName     string
+	headers, resolves             []string
+	connectTimeout, timeout, wait time.Duration
+	maxMessageSize                int
+	systemCA, insecure, verbose   bool
 }
 
 // NewCommand constructs Connect RPC invocation and registers its I/O lifecycle.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	settings := &options{}
-	var pending []byte
+	var pending *preparation
 	command := &cobra.Command{
 		Use:               "crpc URL [SERVICE/METHOD]",
 		Aliases:           []string{"connectrpc"},
@@ -57,14 +56,10 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			data, output, err := commandio.TakePrepared(cmd)
-			if err != nil {
-				return err
+			if pending == nil {
+				return commandio.ErrPreparedOutputUnavailable
 			}
-			if _, err := output.Write(data); err != nil {
-				return fmt.Errorf("write Connect response: %w", err)
-			}
-			return nil
+			return errors.Join(pending.run(cmd.OutOrStdout()), pending.close())
 		},
 	}
 	lifecycle.Register(command, commandio.Behavior{
@@ -72,21 +67,23 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 		InputPrepared: true, ClearInheritedStreams: true,
 		BeforeIO: func(cmd *cobra.Command, args []string) (func(error) error, error) {
 			pending = nil
-			output, err := prepare(cmd, args, settings)
+			result, err := prepare(cmd, args, settings)
 			if err != nil {
 				return nil, err
 			}
-			pending = output
+			pending = result
 			return func(err error) error {
 				if err != nil {
 					pending = nil
-					return err
+					return errors.Join(err, result.close())
 				}
-				commandio.AppendCleanup(cmd, func() { pending = nil })
+				commandio.AppendCleanup(cmd, func() {
+					_ = result.close() //nolint:errcheck // RunE or the configure error path already reports closure failures
+					pending = nil
+				})
 				return nil
 			}, nil
 		},
-		Prepare: func(*cobra.Command, io.Reader) ([]byte, error) { return pending, nil },
 	})
 	commandio.AddShape(command, "structured-output")
 	commandio.AddShape(command, "crpc-request")
@@ -94,13 +91,15 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	commandio.AddInputEncodingFlag(command)
 	commandio.AddOutputEncodingFlag(command)
 	flags := command.Flags()
+	flags.StringVar(&settings.stream, "stream", "", "RPC mode: unary, server, client, or bidi (default unary)")
+	flags.DurationVarP(&settings.wait, "wait", "w", 0, "response drain timeout after sending ends (0 disables)")
 	flags.StringVarP(&settings.data, "data", "d", "", "literal JSON request")
 	flags.StringVar(&settings.stdin, "stdin", stdinAuto, "read stdin: auto (non-terminal), never, or always")
-	flags.StringVarP(&settings.format, "format", "f", formatJSON, "response format (json)")
+	flags.StringVarP(&settings.format, "format", "f", "", "response format (json or jsonl); streams default to jsonl")
 	flags.StringArrayVarP(&settings.headers, "header", "H", nil, "request header (name: value); repeatable")
 	flags.StringArrayVar(&settings.resolves, "resolve", nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
 	flags.DurationVarP(&settings.connectTimeout, "connect-timeout", "c", commandio.DefaultNetworkTimeout, "connection and TLS setup timeout (0 disables)")
-	flags.DurationVarP(&settings.timeout, "timeout", "t", 0, "whole RPC timeout after collecting input (0 disables)")
+	flags.DurationVarP(&settings.timeout, "timeout", "t", 0, "whole RPC timeout; includes streaming input pauses (0 disables)")
 	flags.IntVar(&settings.maxMessageSize, "max-message-size", 16<<20, "maximum uncompressed JSON bytes per sent or received message")
 	flags.StringVar(&settings.ca, "ca", "", "custom CA certificate bundle path; - reads stdin")
 	flags.BoolVar(&settings.systemCA, "system-ca", false, "include system roots with --ca")
@@ -110,8 +109,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.BoolVar(&settings.insecure, "insecure", false, "disable TLS certificate and hostname verification")
 	flags.BoolVarP(&settings.verbose, "verbose", "v", false, "write status, response headers, and TLS details to stderr")
 	commandio.RegisterFlagCompletion(command, "stdin", func() []string { return []string{stdinAuto, stdinNever, stdinAlways} })
-	commandio.RegisterFlagCompletion(command, "format", func() []string { return []string{formatJSON} })
-	for _, name := range []string{"connect-timeout", "timeout"} {
+	commandio.RegisterFlagCompletion(command, "format", func() []string { return []string{formatJSON, formatJSONL} })
+	commandio.RegisterFlagCompletion(command, "stream", func() []string { return []string{"unary", streamServer, "client", streamBidi} })
+	for _, name := range []string{"connect-timeout", "timeout", "wait"} {
 		commandio.RegisterDurationCompletion(command, name, "Disable this timeout", commandio.NetworkCompletion{})
 	}
 	for _, name := range []string{"ca", "cert", "key"} {
@@ -131,67 +131,38 @@ func tlsApplicable(_ *cobra.Command, args []string) bool {
 	return len(args) == 0 || !strings.HasPrefix(args[0], "http://")
 }
 
-func prepare(cmd *cobra.Command, args []string, settings *options) ([]byte, error) {
-	method := ""
-	if len(args) == 2 {
-		method = args[1]
+func streamType(value string) (connect.StreamType, error) {
+	switch value {
+	case "", "unary":
+		return connect.StreamTypeUnary, nil
+	case streamServer:
+		return connect.StreamTypeServer, nil
+	case "client":
+		return connect.StreamTypeClient, nil
+	case streamBidi:
+		return connect.StreamTypeBidi, nil
+	default:
+		return 0, fmt.Errorf("%w: --stream must be unary, server, client, or bidi", ErrInvalidFlags)
 	}
-	endpoint, err := connectrpc.ParseEndpoint(args[0], method)
-	if err != nil {
-		return nil, err
-	}
-	if err := validate(cmd, settings, endpoint.URL.Scheme == "https"); err != nil {
-		return nil, err
-	}
-	headers, err := parseHeaders(settings.headers)
-	if err != nil {
-		return nil, err
-	}
-	resolver, err := httptransport.ParseResolves(settings.resolves)
-	if err != nil {
-		return nil, err
-	}
-	tlsOptions, err := prepareTLS(cmd, settings)
-	if err != nil {
-		return nil, err
-	}
-	request, err := readRequest(cmd, settings)
-	if err != nil {
-		return nil, err
-	}
-	value, err := connectrpc.ParseJSON(request)
-	if err != nil {
-		return nil, err
-	}
-	client := connectrpc.NewClient(endpoint, connectrpc.Options{
-		TLS: tlsOptions, Resolves: resolver, ConnectTimeout: settings.connectTimeout, MaxMessageSize: settings.maxMessageSize,
-	})
-	defer client.Close()
-	ctx, cancel := commandio.NetworkSetupContext(cmd.Context(), settings.timeout)
-	defer cancel()
-	ctx, call := connect.NewClientContext(ctx)
-	for name, values := range headers.All() {
-		call.RequestHeader().SetValues(name, values)
-	}
-	response, callErr := client.Unary(ctx, value)
-	if settings.verbose {
-		if err := writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr); err != nil {
-			return nil, errors.Join(safeError(callErr), err)
-		}
-	}
-	if callErr != nil {
-		return nil, safeError(callErr)
-	}
-	return append(response, '\n'), nil
 }
 
 func validate(cmd *cobra.Command, settings *options, secure bool) error {
-	if settings.connectTimeout < 0 || settings.timeout < 0 || settings.maxMessageSize <= 0 {
+	if settings.connectTimeout < 0 || settings.timeout < 0 || settings.wait < 0 || settings.maxMessageSize <= 0 {
 		return fmt.Errorf("%w: timeouts must be non-negative and --max-message-size must be positive", ErrInvalidFlags)
 	}
-	if settings.format != formatJSON {
-		return fmt.Errorf("%w: --format must be json", ErrInvalidFlags)
+	if settings.format != "" && settings.format != formatJSON && settings.format != formatJSONL {
+		return fmt.Errorf("%w: --format must be json or jsonl", ErrInvalidFlags)
 	}
+	if settings.format == formatJSON && (settings.stream == streamServer || settings.stream == streamBidi) {
+		return fmt.Errorf("%w: multiple-response streams require --format jsonl", ErrInvalidFlags)
+	}
+	if err := validateRequestSources(cmd, settings); err != nil {
+		return err
+	}
+	return validateTLS(cmd, settings, secure)
+}
+
+func validateRequestSources(cmd *cobra.Command, settings *options) error {
 	if settings.stdin != stdinAuto && settings.stdin != stdinNever && settings.stdin != stdinAlways {
 		return fmt.Errorf("%w: --stdin must be auto, never, or always", ErrInvalidFlags)
 	}
@@ -201,7 +172,7 @@ func validate(cmd *cobra.Command, settings *options, secure bool) error {
 	if cmd.Flags().Changed("stdin") && settings.stdin != stdinAuto && (cmd.Flags().Changed("data") || cmd.Flags().Changed("input")) {
 		return fmt.Errorf("%w: --stdin cannot accompany --data or --input", ErrInvalidFlags)
 	}
-	return validateTLS(cmd, settings, secure)
+	return nil
 }
 
 func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
@@ -232,29 +203,6 @@ func usesStdin(cmd *cobra.Command, settings *options) bool {
 		return false
 	}
 	return settings.stdin == stdinAlways || settings.stdin == stdinAuto && !commandio.InputIsTerminal(cmd.InOrStdin())
-}
-
-func readRequest(cmd *cobra.Command, settings *options) ([]byte, error) {
-	decoder, err := commandio.InputDecoderFromCommand(cmd)
-	if err != nil {
-		return nil, err
-	}
-	var data []byte
-	switch {
-	case cmd.Flags().Changed("data"):
-		data, err = artifact.Read(decoder(strings.NewReader(settings.data)), int64(settings.maxMessageSize))
-	case cmd.Flags().Changed("input"):
-		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), cmd.Flag("input").Value.String(), decoder, int64(settings.maxMessageSize))
-	case usesStdin(cmd, settings):
-		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), "-", decoder, int64(settings.maxMessageSize))
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read Connect request: %w", err)
-	}
-	if len(bytes.TrimSpace(data)) == 0 && !cmd.Flags().Changed("data") && !cmd.Flags().Changed("input") {
-		return []byte("{}"), nil
-	}
-	return data, nil
 }
 
 func prepareTLS(cmd *cobra.Command, settings *options) (*tls.Config, error) {

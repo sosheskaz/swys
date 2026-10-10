@@ -28,7 +28,7 @@ tool choice and authorization for network requests, listeners, and file writes.
 - `dns`: system resolution or direct DNS over UDP, TCP, TLS, and HTTPS.
 - `http`: HTTP requests and response bodies.
 - `grpc`: reflection or local descriptor discovery and unary RPC invocation.
-- `crpc` (`connectrpc`): schema-free Connect RPC calls using JSON, with HTTP/1.1 support.
+- `crpc` (`connectrpc`): schema-free unary and streaming Connect RPC calls using JSON/JSON Lines; bidirectional calls require HTTP/2.
 - `net connect` / `net listen`: raw TCP, TLS, and UDP bytes.
 - `cert`: inspect, create, and verify certificates; generate, inspect, convert,
   and match asymmetric keys.
