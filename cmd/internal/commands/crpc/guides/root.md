@@ -54,6 +54,43 @@ written by a server or bidi stream remain on stdout if a later message or
 final status fails; stderr and the exit status report the error. Client streams
 write their single response only after successful final status.
 
+## Discover a schema
+
+A bare origin lists services. Add --list SERVICE to list its methods, or
+--describe SYMBOL to inspect a protobuf descriptor. A literal trailing slash
+marks a routed base URL. Explicit discovery flags always treat the URL as a base.
+
+```sh
+swys crpc api.example.com
+swys crpc https://api.example.com/rpc/ --list example.v1.EchoService
+swys crpc api.example.com --describe example.v1.Request --format json -o request-type.json
+swys crpc --protoset api.protoset --list example.v1.EchoService
+```
+
+--protoset loads a binary FileDescriptorSet, including imports, without
+reflection. Offline discovery needs no URL. Discovery defaults to text;
+--format plain uses the same undecorated list/protobuf layout, and --format
+json emits a JSON list or protobuf descriptor.
+
+Use --reflect to obtain the selected method's schema before calling it, or
+--protoset to use a local schema. Both validate the request's protobuf JSON
+shape and infer unary/server/client/bidi cardinality. An explicitly conflicting
+--stream is an error; explicit schema failures never fall back to schema-free
+invocation. Ordinary calls without these flags still need no schema.
+
+```sh
+swys crpc api.example.com example.v1.EchoService/Echo --reflect -d '{"text":"hello"}'
+swys crpc http://localhost:8080/example.v1.Events/Watch --protoset api.protoset -d '{"topic":"deployments"}'
+```
+
+Reflection requires HTTP/2, using cleartext HTTP/2 for http://. It supports
+standard gRPC reflection v1, falling back to v1alpha only when v1 reports
+Unimplemented. It fetches the requested symbol and imports, not every service.
+--reflection-timeout defaults to 10 seconds for the whole lookup, including
+stream completion; it is separate from the invocation timeout. Schemas have
+independent limits of 16 MiB of descriptors, 1,024 files, and 100 nested message
+levels. --max-message-size controls RPC payloads only.
+
 ## Authentication and diagnostics
 
 ```sh

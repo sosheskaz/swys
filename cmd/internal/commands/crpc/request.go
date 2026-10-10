@@ -12,12 +12,14 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/internal/connectrpc"
 	"github.com/sosheskaz/swys/internal/contextio"
 	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/protoschema"
 )
 
 type preparation struct {
@@ -26,21 +28,16 @@ type preparation struct {
 }
 
 func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation, error) {
-	method := ""
-	if len(args) == 2 {
-		method = args[1]
-	}
-	endpoint, err := connectrpc.ParseEndpoint(args[0], method)
+	target, err := selectTarget(args, settings)
 	if err != nil {
 		return nil, err
 	}
-	if err := validate(cmd, settings, endpoint.URL.Scheme == "https"); err != nil {
+	settings.discovery = target.discovery
+	secure := target.base != nil && target.base.Scheme == "https"
+	if err := validate(cmd, settings, secure); err != nil {
 		return nil, err
 	}
-	kind, err := streamType(settings.stream)
-	if err != nil {
-		return nil, err
-	}
+
 	headers, err := parseHeaders(settings.headers)
 	if err != nil {
 		return nil, err
@@ -53,24 +50,50 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 	if err != nil {
 		return nil, err
 	}
-	client := connectrpc.NewClient(endpoint, connectrpc.Options{
+	connection := connectrpc.Options{
 		TLS: tlsOptions, Resolves: resolver, ConnectTimeout: settings.connectTimeout,
-		Wait: settings.wait, MaxMessageSize: settings.maxMessageSize, RequireHTTP2: kind == connect.StreamTypeBidi,
-	})
-	if kind == connect.StreamTypeUnary {
-		defer client.Close()
-		output, err := prepareUnary(cmd, settings, client, headers)
+		Wait: settings.wait, MaxMessageSize: settings.maxMessageSize,
+	}
+	schema, err := loadSchema(cmd, settings, target, connection, headers)
+	if err != nil {
+		return nil, err
+	}
+	if target.discovery {
+		output, err := renderDiscovery(schema, settings)
 		if err != nil {
 			return nil, err
 		}
-		return &preparation{close: func() error { return nil }, run: func(writer io.Writer) error {
-			if _, err := writer.Write(output); err != nil {
-				return fmt.Errorf("write Connect response: %w", err)
-			}
-			return nil
-		}}, nil
+		return preparedBytes(output), nil
 	}
-	next, closeInput, err := prepareMessages(cmd, settings, kind)
+	return prepareInvocation(cmd, settings, target.endpoint, schema, connection, headers)
+}
+
+func prepareInvocation(
+	cmd *cobra.Command, settings *options, endpoint connectrpc.Endpoint,
+	schema *protoschema.Schema, connection connectrpc.Options, headers *connect.Header,
+) (*preparation, error) {
+	kind, err := streamType(settings.stream)
+	if err != nil {
+		return nil, err
+	}
+	method, kind, err := resolveMethod(cmd, settings, schema, endpoint.Procedure, kind)
+	if err != nil {
+		return nil, err
+	}
+	if settings.format == formatJSON && (kind == connect.StreamTypeServer || kind == connect.StreamTypeBidi) {
+		return nil, fmt.Errorf("%w: multiple-response streams require --format jsonl", ErrInvalidFlags)
+	}
+	connection.RequireHTTP2 = kind == connect.StreamTypeBidi
+	client := connectrpc.NewClient(endpoint, connection)
+	if kind == connect.StreamTypeUnary {
+		defer client.Close()
+		output, err := prepareUnary(cmd, settings, client, headers, method, schema)
+		if err != nil {
+			return nil, err
+		}
+		return preparedBytes(output), nil
+	}
+	next, closeInput, err := prepareMessages(cmd, settings, kind, method, schema)
 	if err != nil {
 		client.Close()
 		return nil, err
@@ -98,6 +121,15 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 	}, nil
 }
 
+func preparedBytes(data []byte) *preparation {
+	return &preparation{close: func() error { return nil }, run: func(writer io.Writer) error {
+		if _, err := writer.Write(data); err != nil {
+			return fmt.Errorf("write Connect output: %w", err)
+		}
+		return nil
+	}}
+}
+
 func callContext(ctx context.Context, headers *connect.Header) (context.Context, *connect.CallInfo) {
 	ctx, call := connect.NewClientContext(ctx)
 	for name, values := range headers.All() {
@@ -106,12 +138,15 @@ func callContext(ctx context.Context, headers *connect.Header) (context.Context,
 	return ctx, call
 }
 
-func prepareUnary(cmd *cobra.Command, settings *options, client *connectrpc.Client, headers *connect.Header) ([]byte, error) {
+func prepareUnary(
+	cmd *cobra.Command, settings *options, client *connectrpc.Client,
+	headers *connect.Header, method protoreflect.MethodDescriptor, schema *protoschema.Schema,
+) ([]byte, error) {
 	request, err := readRequest(cmd, settings)
 	if err != nil {
 		return nil, err
 	}
-	value, err := connectrpc.ParseJSON(request)
+	value, err := validateMessage(request, method, schema)
 	if err != nil {
 		return nil, err
 	}
@@ -135,13 +170,16 @@ func prepareUnary(cmd *cobra.Command, settings *options, client *connectrpc.Clie
 	return append(response, '\n'), nil
 }
 
-func prepareMessages(cmd *cobra.Command, settings *options, kind connect.StreamType) (connectrpc.NextMessage, func() error, error) {
+func prepareMessages(
+	cmd *cobra.Command, settings *options, kind connect.StreamType,
+	method protoreflect.MethodDescriptor, schema *protoschema.Schema,
+) (connectrpc.NextMessage, func() error, error) {
 	if kind == connect.StreamTypeServer || cmd.Flags().Changed("data") {
 		data, err := readRequest(cmd, settings)
 		if err != nil {
 			return nil, nil, err
 		}
-		value, err := connectrpc.ParseJSON(data)
+		value, err := validateMessage(data, method, schema)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -178,7 +216,11 @@ func prepareMessages(cmd *cobra.Command, settings *options, kind connect.StreamT
 		if lines == nil {
 			lines = connectrpc.NewJSONLines(decoder(contextio.NewReader(ctx, input)), settings.maxMessageSize)
 		}
-		return lines.Next()
+		message, err := lines.Next()
+		if err != nil {
+			return nil, err
+		}
+		return validateMessage(message, method, schema)
 	}, input.Close, nil
 }
 
