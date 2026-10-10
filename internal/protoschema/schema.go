@@ -46,13 +46,32 @@ func New(set *descriptorpb.FileDescriptorSet) (*Schema, error) {
 	}
 	services := []string{}
 	files.RangeFiles(func(file protoreflect.FileDescriptor) bool {
+		if err = validateKnownMessages(file.Messages()); err != nil {
+			return false
+		}
 		for i := range file.Services().Len() {
 			services = append(services, string(file.Services().Get(i).FullName()))
 		}
 		return true
 	})
+	if err != nil {
+		return nil, err
+	}
 	sort.Strings(services)
 	return &Schema{Files: files, Services: services}, nil
+}
+
+func validateKnownMessages(messages protoreflect.MessageDescriptors) error {
+	for i := range messages.Len() {
+		message := messages.Get(i)
+		if known := wellKnownMessage(message.FullName()); known != nil && !sameFieldShape(message, known.ProtoReflect().Descriptor()) {
+			return fmt.Errorf("%w: malformed well-known message %s", ErrSymbol, message.FullName())
+		}
+		if err := validateKnownMessages(message.Messages()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Validate checks aggregate bytes, file count, and message nesting before resolution.
