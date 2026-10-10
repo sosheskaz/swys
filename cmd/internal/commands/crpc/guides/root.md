@@ -12,7 +12,7 @@ swys crpc https://api.example.com example.v1.EchoService/Echo -d '{"text":"hello
 
 Schemeless addresses use HTTPS. Use http:// explicitly for cleartext local
 services. HTTPS negotiates HTTP/2 when available; unary calls also work with
-HTTP/1.1 servers. Redirects are not followed and calls are not retried.
+HTTP/1.1 servers. Server and client streaming also support HTTP/1.1. Redirects are not followed and calls are not retried.
 
 ## Work with files and pipelines
 
@@ -27,6 +27,32 @@ uses {} when no input is available. -i/--input - explicitly reads stdin,
 including a terminal; --stdin never sends {} without reading stdin. Empty
 explicit data or files are invalid JSON. --input-encoding decodes request
 bytes; -e/--encoding independently encodes the JSON response.
+
+## Stream messages
+
+Use --stream server for one request and many responses, --stream client for
+many requests and one response, or --stream bidi for both. Without --stream,
+the command makes a unary call. These examples require services offering the
+named streaming methods:
+
+```sh
+swys crpc api.example.com/example.v1.Events/Watch --stream server -d '{"topic":"deployments"}'
+swys crpc http://localhost:8080/example.v1.Events/Upload --stream client -i events.jsonl -o summary.json
+swys crpc api.example.com/example.v1.Chat/Exchange --stream bidi -i requests.jsonl | jq --unbuffered -r .text
+```
+
+Multiple-message input and output use JSON Lines: one complete JSON value per
+line. Blank input lines are ignored, CRLF is accepted, and the last message
+need not end with a newline. -d supplies exactly one message even when its
+JSON spans lines. An empty client or bidi input sends zero messages.
+
+Bidirectional streaming requires HTTP/2. HTTPS negotiates it; explicit http://
+uses cleartext HTTP/2 automatically for bidi calls. Other cleartext calls use
+HTTP/1.1. Sending finishes at input EOF while responses continue. The server's
+final status ends the call even if input remains open. Responses already
+written by a server or bidi stream remain on stdout if a later message or
+final status fails; stderr and the exit status report the error. Client streams
+write their single response only after successful final status.
 
 ## Authentication and diagnostics
 
@@ -44,14 +70,19 @@ environment variables apply.
 
 The response JSON goes to stdout. -v/--verbose writes RPC status, response
 metadata, and transport details to stderr. RPC and protocol failures exit
-nonzero. Request validation and unary failures preserve existing output files.
+nonzero. Request validation and unary failures preserve existing output files. Streaming outputs are written incrementally.
 
 ## Limits and timeouts
 
 -c/--connect-timeout allows 10 seconds for connection and TLS setup.
 -t/--timeout bounds the entire RPC after request input has been collected;
-its default is unlimited. A zero duration disables that timeout. Input
-collection remains interruptible by signals, independently of network timeouts.
+its default is unlimited. For client and bidi streams, it includes pauses
+between input messages. -w/--wait bounds the entire response drain after
+sending finishes, including waiting for response headers. It does not reset
+for incoming messages and also defaults to unlimited. A zero duration
+disables a timeout; the earliest applicable
+deadline wins. Single-request input collection remains interruptible by
+signals, independently of network timeouts.
 
 --max-message-size limits each uncompressed JSON message to 16 MiB by default.
 It does not convert large integers to floating-point values or require a JSON

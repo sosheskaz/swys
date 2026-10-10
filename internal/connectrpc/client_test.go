@@ -3,6 +3,7 @@ package connectrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptrace"
@@ -11,6 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"connectrpc.com/connect/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +68,90 @@ func TestSetupTimeoutEndsAtConnectionAcquisition(t *testing.T) {
 	}
 }
 
+func TestResponseWaitStartsAfterSendingAndDoesNotReset(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		var callContext context.Context
+		stream, err := responseWait(time.Second)(func(ctx context.Context, _ connect.Spec) (connect.ClientStream, error) {
+			callContext = ctx
+			return &waitingFixture{ctx: ctx}, nil
+		})(t.Context(), connect.Spec{StreamType: connect.StreamTypeServer})
+		require.NoError(t, err)
+		defer func() { assert.NoError(t, stream.Close()) }()
+		synctest.Sleep(2 * time.Second)
+		assert.NoError(t, callContext.Err(), "input pauses do not spend --wait")
+		require.NoError(t, stream.CloseSend())
+		synctest.Sleep(2 * time.Second)
+		require.NoError(t, callContext.Err(), "closing input does not finish writing the HTTP request")
+		httptrace.ContextClientTrace(callContext).WroteRequest(httptrace.WroteRequestInfo{})
+		synctest.Sleep(time.Second / 2)
+		require.NoError(t, stream.Receive(nil), "receiving a message does not reset the drain budget")
+		finished := make(chan error, 1)
+		go func() { finished <- stream.Receive(nil) }()
+		synctest.Sleep(time.Second/2 - time.Nanosecond)
+		assert.Empty(t, finished)
+		synctest.Sleep(time.Nanosecond)
+		require.Len(t, finished, 1)
+		err = <-finished
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(err))
+	})
+}
+
+type waitingFixture struct {
+	ctx           context.Context //nolint:containedctx // fixture implements context-free Receive
+	firstReceived bool
+}
+
+func (*waitingFixture) SendHeaders() error { return nil }
+func (*waitingFixture) Send(any) error     { return nil }
+func (*waitingFixture) CloseSend() error   { return nil }
+func (*waitingFixture) Close() error       { return nil }
+func (fixture *waitingFixture) Receive(any) error {
+	if !fixture.firstReceived {
+		fixture.firstReceived = true
+		return nil
+	}
+	<-fixture.ctx.Done()
+	return fmt.Errorf("fixture receive: %w", fixture.ctx.Err())
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return fn(request) }
+
+func TestResponseWaitPreservesSuccessfulEOF(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		parent, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		var callContext context.Context
+		stream, err := responseWait(time.Second/2)(func(ctx context.Context, _ connect.Spec) (connect.ClientStream, error) {
+			callContext = ctx
+			return &completedFixture{}, nil
+		})(parent, connect.Spec{StreamType: connect.StreamTypeClient})
+		require.NoError(t, err)
+		defer func() { assert.NoError(t, stream.Close()) }()
+		require.NoError(t, stream.CloseSend())
+		if trace := httptrace.ContextClientTrace(callContext); trace != nil {
+			trace.WroteRequest(httptrace.WroteRequestInfo{})
+		}
+		require.NoError(t, stream.Receive(nil))
+		synctest.Sleep(time.Second)
+		assert.ErrorIs(t, stream.Receive(nil), io.EOF, "completed protocol status must not be replaced by a later deadline")
+	})
+}
+
+type completedFixture struct{ received bool }
+
+func (*completedFixture) SendHeaders() error { return nil }
+func (*completedFixture) Send(any) error     { return nil }
+func (*completedFixture) CloseSend() error   { return nil }
+func (*completedFixture) Close() error       { return nil }
+func (fixture *completedFixture) Receive(any) error {
+	if !fixture.received {
+		fixture.received = true
+		return nil
+	}
+	return io.EOF
+}

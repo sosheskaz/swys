@@ -2,6 +2,7 @@ package crpc_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,34 @@ func TestExampleCRPCReadsPipedJSON(t *testing.T) {
 	assert.JSONEq(t, `{}`, output)
 }
 
+func TestExampleCRPCStreamsJSONLines(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"server", "client", "bidi"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			server := streamingServer(t, mode, false)
+			input := `{"text":"one"}` + "\n" + `{"text":"two"}` + "\n"
+			if mode == "server" {
+				input = `{"text":"one"}`
+			}
+			output, _, err := run(t, strings.NewReader(input), "crpc", server.URL+echoMethod, "--stream", mode)
+			require.NoError(t, err)
+			if mode == "client" {
+				assert.JSONEq(t, `{"count":2}`, output)
+				return
+			}
+			lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+			require.Len(t, lines, 2)
+			assert.JSONEq(t, `{"text":"one"}`, lines[0])
+			if mode == "bidi" {
+				assert.JSONEq(t, `{"text":"two"}`, lines[1])
+			} else {
+				assert.JSONEq(t, `{"text":"one"}`, lines[1])
+			}
+		})
+	}
+}
+
 const echoMethod = "/example.v1.EchoService/Echo"
 
 func echoServer(t *testing.T, secure, http2 bool) *httptest.Server {
@@ -65,6 +94,62 @@ func echoServer(t *testing.T, secure, http2 bool) *httptest.Server {
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = http2
 	if secure {
+		server.StartTLS()
+	} else {
+		server.Start()
+	}
+	t.Cleanup(server.Close)
+	return server
+}
+
+func streamingServer(t *testing.T, mode string, secure bool) *httptest.Server {
+	t.Helper()
+	types := map[string]connect.StreamType{"server": connect.StreamTypeServer, "client": connect.StreamTypeClient, "bidi": connect.StreamTypeBidi}
+	service := connect.NewServer()
+	service.Register(connect.Method{
+		Spec: connect.Spec{Procedure: echoMethod, StreamType: types[mode]},
+		Handler: func(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+			info, _ := connecthttp.ServerInfoForContext(ctx)
+			wantProto := "HTTP/1.1"
+			if mode == "bidi" || secure {
+				wantProto = "HTTP/2.0"
+			}
+			assert.Equal(t, wantProto, info.RequestProto())
+			count := 0
+			for {
+				var message structpb.Struct
+				if err := stream.Receive(&message); err != nil {
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					return fmt.Errorf("receive streaming fixture request: %w", err)
+				}
+				count++
+				if mode != "client" {
+					if err := stream.Send(&message); err != nil {
+						return fmt.Errorf("send fixture response: %w", err)
+					}
+				}
+				if mode == "server" {
+					return stream.Send(&message)
+				}
+			}
+			if mode == "client" {
+				response := &structpb.Struct{Fields: map[string]*structpb.Value{"count": structpb.NewNumberValue(float64(count))}}
+				return stream.Send(response)
+			}
+			return nil
+		},
+	})
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, service)
+	server := httptest.NewUnstartedServer(mux)
+	server.Config.Protocols = new(http.Protocols)
+	server.Config.Protocols.SetHTTP1(true)
+	server.Config.Protocols.SetUnencryptedHTTP2(true)
+	if secure {
+		server.EnableHTTP2 = true
+		server.Config.Protocols.SetHTTP2(true)
 		server.StartTLS()
 	} else {
 		server.Start()
