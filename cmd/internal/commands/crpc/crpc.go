@@ -196,7 +196,7 @@ func validateFormat(settings *options) error {
 			return fmt.Errorf("%w: discovery format must be text, plain, or json", ErrInvalidFlags)
 		}
 	} else if settings.format != "" && settings.format != formatJSON && settings.format != formatJSONL {
-		return fmt.Errorf("%w: call format must be json or jsonl", ErrInvalidFlags)
+		return fmt.Errorf("%w: output format for calls and templates must be json or jsonl", ErrInvalidFlags)
 	}
 	return nil
 }

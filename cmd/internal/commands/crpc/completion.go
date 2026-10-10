@@ -73,6 +73,9 @@ func formatCompletion(settings *options) cobra.CompletionFunc {
 
 func streamCompletion(settings *options) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if hasDiscoveryFlag(cmd) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
 		mode, err := completionInvocationMode(cmd, args, settings)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
