@@ -155,3 +155,19 @@ func (fixture *completedFixture) Receive(any) error {
 	}
 	return io.EOF
 }
+
+func TestReflectionTransportPreservesEscapedTrailingSlash(t *testing.T) {
+	t.Parallel()
+	base, err := ParseBase("https://example.test/rpc%2F/")
+	require.NoError(t, err)
+	const procedure = "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example.test"+procedure, http.NoBody)
+	require.NoError(t, err)
+	transport := &requestTransport{endpoint: Endpoint{URL: base}, base: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, "/rpc%2F"+procedure, request.URL.RequestURI())
+		return &http.Response{Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	response, err := transport.RoundTrip(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+}

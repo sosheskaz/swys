@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/url"
 	"strings"
 	"time"
 
@@ -118,7 +119,12 @@ func (transport *requestTransport) RoundTrip(request *http.Request) (*http.Respo
 	if transport.endpoint.Procedure == "" {
 		// Reflection selects v1 or v1alpha dynamically under the same routing prefix.
 		urlCopy.RawPath = strings.TrimRight(urlCopy.EscapedPath(), "/") + request.URL.EscapedPath()
-		urlCopy.Path = strings.TrimRight(urlCopy.Path, "/") + request.URL.Path
+		path, err := url.PathUnescape(urlCopy.RawPath)
+		if err != nil {
+			cancel(nil)
+			return nil, fmt.Errorf("build reflection URL: %w", err)
+		}
+		urlCopy.Path = path
 	}
 	request.URL = &urlCopy
 	response, err := transport.base.RoundTrip(request)

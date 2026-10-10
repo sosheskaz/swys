@@ -57,8 +57,8 @@ write their single response only after successful final status.
 ## Discover a schema
 
 A bare origin lists services. Add --list SERVICE to list its methods, or
---describe SYMBOL to inspect a protobuf descriptor. A trailing slash marks a
-routed base URL. Explicit discovery flags always treat the URL as a base.
+--describe SYMBOL to inspect a protobuf descriptor. A literal trailing slash
+marks a routed base URL. Explicit discovery flags always treat the URL as a base.
 
 ```sh
 swys crpc api.example.com
