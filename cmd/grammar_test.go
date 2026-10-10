@@ -179,6 +179,7 @@ func commandTreeViolations(root *cobra.Command) []string {
 				isRootUtility := command == root && ((child.Name() == "http" && commandio.HasShape(child, "http-request")) ||
 					(child.Name() == "dns" && commandio.HasShape(child, "dns-query")) ||
 					(child.Name() == "grpc" && commandio.HasShape(child, "grpc-request")) ||
+					(child.Name() == "crpc" && commandio.HasShape(child, "crpc-request")) ||
 					(child.Name() == "skill" && commandio.HasShape(child, "skill-document")))
 				isHashAlgorithm := command.Name() == "hash" && command.Parent() == root && hashAlgorithmLeaves[child.Name()]
 				isAESKeyVerb := command.Name() == "aes" && command.Parent() == root &&
