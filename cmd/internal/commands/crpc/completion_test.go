@@ -65,6 +65,14 @@ func TestCRPCCompletionHidesInapplicableFlags(t *testing.T) {
 			assert.NotContains(t, output, absent+"\t")
 		}
 	}
+	for _, flag := range []string{"--list", "--describe", "--template"} {
+		t.Run("stream values with "+flag, func(t *testing.T) {
+			t.Parallel()
+			output, _, err := run(t, &unexpectedInput{t: t}, "__complete", "crpc", flag, "example.Service", "--stream", "")
+			require.NoError(t, err)
+			assert.Equal(t, ":4\n", output, "discovery must not suggest invocation modes")
+		})
+	}
 }
 
 func TestCRPCReflectionCompletionReusesHeadersAndDoesNotInvoke(t *testing.T) {
