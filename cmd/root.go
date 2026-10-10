@@ -14,6 +14,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/commands/aes"
 	"github.com/sosheskaz/swys/cmd/internal/commands/cert"
+	"github.com/sosheskaz/swys/cmd/internal/commands/crpc"
 	"github.com/sosheskaz/swys/cmd/internal/commands/dns"
 	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
 	"github.com/sosheskaz/swys/cmd/internal/commands/hash"
@@ -78,6 +79,7 @@ func newRootCmdWithGuideDependencies(dnsDeps dnsquery.Dependencies, guideDeps he
 		aes.NewCommand(lifecycle), cert.NewCommand(lifecycle),
 		hash.NewCommand(lifecycle), net.NewCommand(lifecycle), httpCmd,
 		dns.NewCommand(lifecycle, dnsDeps), grpccommand.NewCommand(lifecycle),
+		crpc.NewCommand(lifecycle),
 		skill.NewCommand(lifecycle),
 	)
 	http.RegisterBodyCompletionGroups(httpCmd)

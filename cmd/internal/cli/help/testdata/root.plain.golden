@@ -8,6 +8,7 @@ Start with the task
 
 • dns resolves names or asks a particular DNS server.
 • grpc discovers services and invokes unary RPC methods.
+• crpc calls Connect RPC services with JSON and optional HTTP/1.1 transport.
 • http makes an HTTP request and writes its response body.
 • net sends or receives raw bytes over TCP, TLS, or UDP.
 • cert manages certificates and asymmetric keys for test identities.
@@ -36,7 +37,7 @@ This hashes the exported PEM bytes, including their line breaks. A digest identi
 
 Follow the command hierarchy
 
-Most families use a noun followed by an operation. Net connect and net listen use TCP by default; select UDP with --udp or TLS with --tls. DNS, gRPC, and HTTP accept their target directly.
+Most families use a noun followed by an operation. Net connect and net listen use TCP by default; select UDP with --udp or TLS with --tls. DNS, gRPC, Connect RPC, and HTTP accept their target directly.
 
 Key-file options use --key (-k). AES also accepts literal base64 keys with --key-base64. Use --version (-V) for the version and --verbose (-v) where verbosity is supported. Request data uses --data (-d); network duplex uses the long --duplex flag.
 
