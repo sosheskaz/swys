@@ -74,6 +74,8 @@ func TestCRPCRejectsInvalidRequestBeforeIO(t *testing.T) {
 		{"-d", "{}", "-i", "-"},
 		{"--stdin", "sometimes"},
 		{"-d", "{}", "--stdin", "always"},
+		{"--wait", "-1s"},
+		{"--stream", "invalid"},
 		{"--timeout", "-1s"},
 		{"--connect-timeout", "-1s"},
 		{"--max-message-size", "0"},
