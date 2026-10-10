@@ -32,17 +32,19 @@ const (
 	formatJSON   = "json"
 	formatJSONL  = "jsonl"
 	streamBidi   = "bidi"
+	streamUnary  = "unary"
+	streamClient = "client"
 	streamServer = "server"
 )
 
 type options struct {
-	stream                        string
-	data, stdin, format           string
-	ca, cert, key, serverName     string
-	headers, resolves             []string
-	connectTimeout, timeout, wait time.Duration
-	maxMessageSize                int
-	systemCA, insecure, verbose   bool
+	stream, protoset, list, describe                      string
+	data, stdin, format                                   string
+	ca, cert, key, serverName                             string
+	headers, resolves                                     []string
+	connectTimeout, timeout, wait, reflectionTimeout      time.Duration
+	maxMessageSize                                        int
+	systemCA, insecure, verbose, reflectSchema, discovery bool
 }
 
 // NewCommand constructs Connect RPC invocation and registers its I/O lifecycle.
@@ -50,10 +52,10 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	settings := &options{}
 	var pending *preparation
 	command := &cobra.Command{
-		Use:               "crpc URL [SERVICE/METHOD]",
+		Use:               "crpc [URL] [SERVICE/METHOD]",
 		Aliases:           []string{"connectrpc"},
 		Short:             "Call Connect RPC services with JSON",
-		Args:              cobra.RangeArgs(1, 2),
+		Args:              cobra.MaximumNArgs(2),
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if pending == nil {
@@ -91,11 +93,16 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	commandio.AddInputEncodingFlag(command)
 	commandio.AddOutputEncodingFlag(command)
 	flags := command.Flags()
+	flags.StringVar(&settings.protoset, "protoset", "", "binary protobuf FileDescriptorSet path")
+	flags.BoolVar(&settings.reflectSchema, "reflect", false, "use server reflection to validate the method and request")
+	flags.DurationVar(&settings.reflectionTimeout, "reflection-timeout", commandio.DefaultNetworkTimeout, "whole reflection lookup timeout (0 disables)")
+	flags.StringVar(&settings.list, "list", "", "list methods of a service")
+	flags.StringVar(&settings.describe, "describe", "", "describe a protobuf symbol")
 	flags.StringVar(&settings.stream, "stream", "", "RPC mode: unary, server, client, or bidi (default unary)")
 	flags.DurationVarP(&settings.wait, "wait", "w", 0, "response drain timeout after sending ends (0 disables)")
 	flags.StringVarP(&settings.data, "data", "d", "", "literal JSON request")
 	flags.StringVar(&settings.stdin, "stdin", stdinAuto, "read stdin: auto (non-terminal), never, or always")
-	flags.StringVarP(&settings.format, "format", "f", "", "response format (json or jsonl); streams default to jsonl")
+	flags.StringVarP(&settings.format, "format", "f", "", "format: json/jsonl for calls; text/plain/json for discovery")
 	flags.StringArrayVarP(&settings.headers, "header", "H", nil, "request header (name: value); repeatable")
 	flags.StringArrayVar(&settings.resolves, "resolve", nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
 	flags.DurationVarP(&settings.connectTimeout, "connect-timeout", "c", commandio.DefaultNetworkTimeout, "connection and TLS setup timeout (0 disables)")
@@ -110,11 +117,11 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.BoolVarP(&settings.verbose, "verbose", "v", false, "write status, response headers, and TLS details to stderr")
 	commandio.RegisterFlagCompletion(command, "stdin", func() []string { return []string{stdinAuto, stdinNever, stdinAlways} })
 	commandio.RegisterFlagCompletion(command, "format", func() []string { return []string{formatJSON, formatJSONL} })
-	commandio.RegisterFlagCompletion(command, "stream", func() []string { return []string{"unary", streamServer, "client", streamBidi} })
-	for _, name := range []string{"connect-timeout", "timeout", "wait"} {
+	commandio.RegisterFlagCompletion(command, "stream", func() []string { return []string{streamUnary, streamServer, streamClient, streamBidi} })
+	for _, name := range []string{"connect-timeout", "timeout", "wait", "reflection-timeout"} {
 		commandio.RegisterDurationCompletion(command, name, "Disable this timeout", commandio.NetworkCompletion{})
 	}
-	for _, name := range []string{"ca", "cert", "key"} {
+	for _, name := range []string{"ca", "cert", "key", "protoset"} {
 		if err := command.MarkFlagFilename(name); err != nil {
 			panic(err)
 		}
@@ -133,11 +140,11 @@ func tlsApplicable(_ *cobra.Command, args []string) bool {
 
 func streamType(value string) (connect.StreamType, error) {
 	switch value {
-	case "", "unary":
+	case "", streamUnary:
 		return connect.StreamTypeUnary, nil
 	case streamServer:
 		return connect.StreamTypeServer, nil
-	case "client":
+	case streamClient:
 		return connect.StreamTypeClient, nil
 	case streamBidi:
 		return connect.StreamTypeBidi, nil
@@ -147,19 +154,30 @@ func streamType(value string) (connect.StreamType, error) {
 }
 
 func validate(cmd *cobra.Command, settings *options, secure bool) error {
-	if settings.connectTimeout < 0 || settings.timeout < 0 || settings.wait < 0 || settings.maxMessageSize <= 0 {
+	if settings.connectTimeout < 0 || settings.timeout < 0 || settings.wait < 0 || settings.reflectionTimeout < 0 || settings.maxMessageSize <= 0 {
 		return fmt.Errorf("%w: timeouts must be non-negative and --max-message-size must be positive", ErrInvalidFlags)
 	}
-	if settings.format != "" && settings.format != formatJSON && settings.format != formatJSONL {
-		return fmt.Errorf("%w: --format must be json or jsonl", ErrInvalidFlags)
+	if err := validateSchemaOptions(cmd, settings); err != nil {
+		return err
 	}
-	if settings.format == formatJSON && (settings.stream == streamServer || settings.stream == streamBidi) {
-		return fmt.Errorf("%w: multiple-response streams require --format jsonl", ErrInvalidFlags)
+	if err := validateFormat(settings); err != nil {
+		return err
 	}
 	if err := validateRequestSources(cmd, settings); err != nil {
 		return err
 	}
 	return validateTLS(cmd, settings, secure)
+}
+
+func validateFormat(settings *options) error {
+	if settings.discovery {
+		if settings.format != "" && settings.format != "text" && settings.format != "plain" && settings.format != formatJSON {
+			return fmt.Errorf("%w: discovery format must be text, plain, or json", ErrInvalidFlags)
+		}
+	} else if settings.format != "" && settings.format != formatJSON && settings.format != formatJSONL {
+		return fmt.Errorf("%w: call format must be json or jsonl", ErrInvalidFlags)
+	}
+	return nil
 }
 
 func validateRequestSources(cmd *cobra.Command, settings *options) error {
@@ -192,10 +210,13 @@ func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
 	if err := tlsconfig.ValidateArtifactSources(cmd, secure, usesStdin(cmd, settings), ErrInvalidFlags); err != nil {
 		return err
 	}
-	return certinput.ValidatePaths(cmd, "ca", "cert", "key")
+	return certinput.ValidatePaths(cmd, "ca", "cert", "key", "protoset")
 }
 
 func usesStdin(cmd *cobra.Command, settings *options) bool {
+	if settings.discovery {
+		return false
+	}
 	if cmd.Flags().Changed("input") {
 		return cmd.Flag("input").Value.String() == "-"
 	}

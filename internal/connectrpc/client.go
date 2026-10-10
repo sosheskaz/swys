@@ -6,9 +6,11 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect/v2"
@@ -36,6 +38,27 @@ type Client struct {
 
 // NewClient uses the Connect protocol over negotiated HTTPS or HTTP/1.1 cleartext.
 func NewClient(endpoint Endpoint, options Options) *Client {
+	httpClient, transport := newHTTPClient(endpoint, options)
+	baseURL := endpoint.URL.Scheme + "://" + endpoint.URL.Host
+	connectTransport := connecthttp.NewTransport(httpClient, baseURL,
+		connecthttp.WithCodecs(JSONCodec{MaxBytes: options.MaxMessageSize}),
+		connecthttp.WithReadMaxBytes(wireReadLimit(options.MaxMessageSize)),
+		connecthttp.WithSendMaxBytes(options.MaxMessageSize),
+	)
+	return &Client{client: connect.NewClient(connectTransport, responseWait(options.Wait)), transport: transport, endpoint: endpoint}
+}
+
+func wireReadLimit(limit int) int {
+	// Small gzip messages may be larger on the wire. The codec enforces the
+	// exact JSON limit while Connect bounds framing and decompression buffers.
+	overhead := limit/8 + 1024
+	if limit > math.MaxInt-overhead {
+		return math.MaxInt
+	}
+	return limit + overhead
+}
+
+func newHTTPClient(endpoint Endpoint, options Options) (*http.Client, *http.Transport) {
 	dialer := &net.Dialer{Timeout: options.ConnectTimeout}
 	transport := &http.Transport{
 		Proxy:                  http.ProxyFromEnvironment,
@@ -54,13 +77,7 @@ func NewClient(endpoint Endpoint, options Options) *Client {
 		Transport:     &requestTransport{base: transport, endpoint: endpoint, setup: options.ConnectTimeout, requireHTTP2: options.RequireHTTP2},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	baseURL := endpoint.URL.Scheme + "://" + endpoint.URL.Host
-	connectTransport := connecthttp.NewTransport(httpClient, baseURL,
-		connecthttp.WithCodecs(JSONCodec{}),
-		connecthttp.WithReadMaxBytes(options.MaxMessageSize),
-		connecthttp.WithSendMaxBytes(options.MaxMessageSize),
-	)
-	return &Client{client: connect.NewClient(connectTransport, responseWait(options.Wait)), transport: transport, endpoint: endpoint}
+	return httpClient, transport
 }
 
 // Close releases idle HTTP connections after the command completes.
@@ -98,6 +115,11 @@ func (transport *requestTransport) RoundTrip(request *http.Request) (*http.Respo
 	request = request.Clone(ctx)
 	// Connect-Go joins decoded paths. Retain escaped routing prefixes verbatim.
 	urlCopy := *transport.endpoint.URL
+	if transport.endpoint.Procedure == "" {
+		// Reflection selects v1 or v1alpha dynamically under the same routing prefix.
+		urlCopy.RawPath = strings.TrimRight(urlCopy.EscapedPath(), "/") + request.URL.EscapedPath()
+		urlCopy.Path = strings.TrimRight(urlCopy.Path, "/") + request.URL.Path
+	}
 	request.URL = &urlCopy
 	response, err := transport.base.RoundTrip(request)
 	if err != nil {
