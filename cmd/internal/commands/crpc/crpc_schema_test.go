@@ -25,6 +25,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/sosheskaz/swys/internal/connectrpc"
 )
 
 func TestCRPCSchemaInfersStreamingAndRejectsInvalidRequests(t *testing.T) {
@@ -235,4 +237,12 @@ func TestCRPCSchemaResolvesAnyFromLocalTypes(t *testing.T) {
 	output, _, err := run(t, nil, "crpc", server.URL+echoMethod, "--protoset", path, "-d", message)
 	require.NoError(t, err)
 	assert.JSONEq(t, message, output)
+}
+
+func TestCRPCDiscoveryRequiresALiteralTrailingSlash(t *testing.T) {
+	t.Parallel()
+	path := writeProtoset(t, schemaSet(false))
+	output, _, err := run(t, nil, "crpc", "https://example.test/rpc%2F", "--protoset", path)
+	require.ErrorIs(t, err, connectrpc.ErrEndpoint)
+	assert.Empty(t, output)
 }

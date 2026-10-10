@@ -43,7 +43,7 @@ func selectTarget(args []string, settings *options) (targetSelection, error) {
 	if explicit && len(args) > 1 {
 		return targetSelection{}, fmt.Errorf("%w: discovery does not take a positional method", ErrInvalidFlags)
 	}
-	if len(args) == 1 && (explicit || base.Path == "" || strings.HasSuffix(base.Path, "/")) {
+	if len(args) == 1 && (explicit || base.Path == "" || strings.HasSuffix(base.EscapedPath(), "/")) {
 		return targetSelection{base: base, discovery: true}, nil
 	}
 	method := ""
