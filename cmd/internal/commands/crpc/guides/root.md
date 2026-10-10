@@ -91,6 +91,35 @@ stream completion; it is separate from the invocation timeout. Schemas have
 independent limits of 16 MiB of descriptors, 1,024 files, and 100 nested message
 levels. --max-message-size controls RPC payloads only.
 
+## Build a request from the schema
+
+--template SERVICE/METHOD prints editable protobuf JSON without calling the
+method. Use reflection, or provide a local protoset for offline work:
+
+```sh
+swys crpc api.example.com --template example.v1.EchoService/Echo -o request.json
+swys crpc --protoset api.protoset --template example.v1.EchoService/Echo -o request.json
+swys crpc api.example.com example.v1.EchoService/Echo --reflect -i request.json -o response.json
+```
+
+Edit request.json before sending it. Templates show field defaults, empty
+lists/maps, and nested objects. They leave oneof choices unselected and do not
+invent IDs or other business values. Recursive references and messages beyond
+four object levels remain null. Expansion is bounded to 4,096 fields; a template
+is a starting point, not a promise that the service accepts those values.
+--format jsonl puts the template on one line for a streaming request file.
+
+With shell completion installed, use the base-URL-plus-method form and press
+Tab after the service prefix, then after SERVICE/ to see methods with request,
+response, and streaming descriptions. --list, --describe, and --template also
+complete schema symbols. See swys help completion for shell setup.
+
+Completion uses --protoset when supplied; otherwise it queries reflection with
+a hard two-second cap and honors shorter connection/reflection timeouts. It
+reuses TLS, header, and address-override flags, but never invokes application
+methods, reads stdin or FIFOs, or writes output files. Unavailable reflection
+returns no suggestions. It does not crawl all service schemas or persist them.
+
 ## Authentication and diagnostics
 
 ```sh

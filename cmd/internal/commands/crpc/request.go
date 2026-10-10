@@ -174,7 +174,7 @@ func prepareMessages(
 	cmd *cobra.Command, settings *options, kind connect.StreamType,
 	method protoreflect.MethodDescriptor, schema *protoschema.Schema,
 ) (connectrpc.NextMessage, func() error, error) {
-	if kind == connect.StreamTypeServer || cmd.Flags().Changed("data") {
+	if kind == connect.StreamTypeServer || cmd.Flags().Changed(flagData) {
 		data, err := readRequest(cmd, settings)
 		if err != nil {
 			return nil, nil, err
@@ -197,9 +197,9 @@ func prepareMessages(
 		return nil, nil, err
 	}
 	input := io.NopCloser(strings.NewReader(""))
-	if cmd.Flags().Changed("input") && cmd.Flag("input").Value.String() != "-" {
+	if cmd.Flags().Changed(flagInput) && cmd.Flag(flagInput).Value.String() != "-" {
 		file, err := contextio.OpenFile(cmd.Context(), func() (*os.File, error) {
-			return os.Open(cmd.Flag("input").Value.String())
+			return os.Open(cmd.Flag(flagInput).Value.String())
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("open Connect input: %w", err)
@@ -231,17 +231,17 @@ func readRequest(cmd *cobra.Command, settings *options) ([]byte, error) {
 	}
 	var data []byte
 	switch {
-	case cmd.Flags().Changed("data"):
+	case cmd.Flags().Changed(flagData):
 		data, err = artifact.Read(decoder(strings.NewReader(settings.data)), int64(settings.maxMessageSize))
-	case cmd.Flags().Changed("input"):
-		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), cmd.Flag("input").Value.String(), decoder, int64(settings.maxMessageSize))
+	case cmd.Flags().Changed(flagInput):
+		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), cmd.Flag(flagInput).Value.String(), decoder, int64(settings.maxMessageSize))
 	case usesStdin(cmd, settings):
 		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), "-", decoder, int64(settings.maxMessageSize))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read Connect request: %w", err)
 	}
-	if len(bytes.TrimSpace(data)) == 0 && !cmd.Flags().Changed("data") && !cmd.Flags().Changed("input") {
+	if len(bytes.TrimSpace(data)) == 0 && !cmd.Flags().Changed(flagData) && !cmd.Flags().Changed(flagInput) {
 		return []byte("{}"), nil
 	}
 	return data, nil

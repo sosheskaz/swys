@@ -158,12 +158,22 @@ func TestCRPCExplicitSchemaFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	server, calls := schemaServer(t, schemaSet(false), "")
 	path := writeProtoset(t, schemaSet(false))
+	malformed := schemaSet(false)
+	malformed.File[0].MessageType[0].Field[0].Type = descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum()
+	malformed.File[0].MessageType[0].Field[0].TypeName = new(".google.protobuf.Value")
+	malformed.File[0].Dependency = []string{"value.proto"}
+	malformed.File = append(malformed.File, &descriptorpb.FileDescriptorProto{
+		Name: new("value.proto"), Package: new("google.protobuf"), Syntax: new("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{Name: new("Value")}},
+	})
+	malformedPath := writeProtoset(t, malformed)
 	output := filepath.Join(t.TempDir(), "response.json")
 	require.NoError(t, os.WriteFile(output, []byte("keep"), 0o600))
 	for _, flags := range [][]string{
 		{"--protoset", path, "-d", `{"unknown":true}`},
 		{"--protoset", path, "--stream", "bidi", "-d", `{}`},
 		{"--protoset", path, "--reflect"},
+		{"--protoset", malformedPath, "-d", `{"text":"value"}`},
 		{"--protoset", filepath.Join(t.TempDir(), "absent")},
 	} {
 		_, _, err := run(t, nil, append([]string{"crpc", server.URL + echoMethod, "-o", output}, flags...)...)
