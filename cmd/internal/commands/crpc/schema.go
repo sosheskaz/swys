@@ -29,7 +29,7 @@ type targetSelection struct {
 }
 
 func selectTarget(args []string, settings *options) (targetSelection, error) {
-	explicit := settings.list != "" || settings.describe != ""
+	explicit := settings.list != "" || settings.describe != "" || settings.template != ""
 	if len(args) == 0 {
 		if settings.protoset == "" {
 			return targetSelection{}, fmt.Errorf("%w: provide a URL, or --protoset for offline discovery", ErrInvalidFlags)
@@ -61,17 +61,23 @@ func validateSchemaOptions(cmd *cobra.Command, settings *options) error {
 	if settings.protoset != "" && settings.reflectSchema {
 		return fmt.Errorf("%w: --protoset and --reflect are mutually exclusive", ErrInvalidFlags)
 	}
-	if cmd.Flags().Changed("protoset") && (settings.protoset == "" || settings.protoset == "-") {
+	if cmd.Flags().Changed(flagProtoset) && (settings.protoset == "" || settings.protoset == "-") {
 		return fmt.Errorf("%w: --protoset requires a file path", ErrInvalidFlags)
 	}
-	if cmd.Flags().Changed("list") && settings.list == "" || cmd.Flags().Changed("describe") && settings.describe == "" {
-		return fmt.Errorf("%w: discovery requires a nonempty symbol", ErrInvalidFlags)
+	selections := 0
+	for _, name := range []string{flagList, flagDescribe, flagTemplate} {
+		if cmd.Flags().Changed(name) {
+			if cmd.Flag(name).Value.String() == "" {
+				return fmt.Errorf("%w: --%s requires a nonempty symbol", ErrInvalidFlags, name)
+			}
+			selections++
+		}
 	}
-	if settings.list != "" && settings.describe != "" {
-		return fmt.Errorf("%w: --list and --describe are mutually exclusive", ErrInvalidFlags)
+	if selections > 1 {
+		return fmt.Errorf("%w: --list, --describe, and --template are mutually exclusive", ErrInvalidFlags)
 	}
 	if settings.discovery {
-		for _, name := range []string{"data", "input", "input-encoding", "stdin", "stream", "wait", "timeout", "max-message-size"} {
+		for _, name := range []string{flagData, flagInput, flagInputEncoding, flagStdin, flagStream, flagWait, flagTimeout, flagMaxMessageSize} {
 			if cmd.Flags().Changed(name) {
 				return fmt.Errorf("%w: --%s applies only to invocation", ErrInvalidFlags, name)
 			}
@@ -92,6 +98,9 @@ func loadSchema(
 	symbol := settings.describe
 	if settings.list != "" {
 		symbol = settings.list
+	}
+	if settings.template != "" {
+		symbol, _, _ = strings.Cut(settings.template, "/")
 	}
 	if !target.discovery {
 		symbol, _, _ = strings.Cut(strings.TrimPrefix(target.endpoint.Procedure, "/"), "/")
@@ -142,7 +151,7 @@ func resolveMethod(
 	if method.IsStreamingServer() {
 		kind |= connect.StreamTypeServer
 	}
-	if cmd.Flags().Changed("stream") && requested != kind {
+	if cmd.Flags().Changed(flagStream) && requested != kind {
 		return nil, 0, fmt.Errorf("%w: --stream %s conflicts with the method's %s cardinality", ErrInvalidFlags, settings.stream, streamName(kind))
 	}
 	return method, kind, nil
@@ -178,6 +187,9 @@ func validateMessage(data []byte, method protoreflect.MethodDescriptor, schema *
 }
 
 func renderDiscovery(schema *protoschema.Schema, settings *options) ([]byte, error) {
+	if settings.template != "" {
+		return renderTemplate(schema, settings.template, settings.format)
+	}
 	if settings.describe != "" {
 		return renderDescriptor(schema, settings.describe, settings.format)
 	}
@@ -234,4 +246,25 @@ func renderDescriptor(schema *protoschema.Schema, symbol, format string) ([]byte
 		return append(data, '\n'), nil
 	}
 	return []byte(prototext.Format(message)), nil
+}
+
+func renderTemplate(schema *protoschema.Schema, selector, format string) ([]byte, error) {
+	method, err := schema.Method(selector)
+	if err != nil {
+		return nil, err
+	}
+	message, err := protoschema.Template(method.Input())
+	if err != nil {
+		return nil, err
+	}
+	options := protojson.MarshalOptions{EmitUnpopulated: true, AllowPartial: true}
+	if format != formatJSONL {
+		options.Multiline = true
+		options.Indent = "  "
+	}
+	data, err := options.Marshal(message)
+	if err != nil {
+		return nil, fmt.Errorf("format request template: %w", err)
+	}
+	return append(data, '\n'), nil
 }

@@ -192,3 +192,27 @@ func TestExampleCRPCDiscoversAndInvokesWithSchemas(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(output), &description))
 	assert.Equal(t, "Request", description["name"])
 }
+
+func TestExampleCRPCCompletesAndBootstrapsRequests(t *testing.T) {
+	t.Parallel()
+	set := schemaSet(false)
+	path := writeProtoset(t, set)
+	server, calls := schemaServer(t, set, "")
+	for _, source := range [][]string{nil, {"--protoset", path}} {
+		args := append([]string{"__complete", "crpc", server.URL}, source...)
+		output, _, err := run(t, nil, append(args, "example.v1.EchoService/E")...)
+		require.NoError(t, err)
+		assert.Contains(t, output, "example.v1.EchoService/Echo\tunary: example.v1.Request -> example.v1.Request")
+	}
+	assert.Zero(t, calls.Load(), "completion must never invoke a business method")
+	online, _, err := run(t, nil, "crpc", server.URL, "--template", "example.v1.EchoService/Echo")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":""}`, online)
+	assert.Zero(t, calls.Load(), "templates use reflection without invoking the method")
+	output, _, err := run(t, nil, "crpc", "--protoset", path, "--template", "example.v1.EchoService/Echo")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":""}`, output)
+	response, _, err := run(t, strings.NewReader(output), "crpc", server.URL+echoMethod, "--protoset", path)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":""}`, response)
+}
