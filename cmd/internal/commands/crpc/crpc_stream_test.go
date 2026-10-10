@@ -206,3 +206,22 @@ var errBrokenOutput = errors.New("fixture output failed")
 type failingOutput struct{}
 
 func (failingOutput) Write([]byte) (int, error) { return 0, errBrokenOutput }
+
+func TestCRPCResponseWaitBoundsWithheldHeaders(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"unary", "server", "client"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+				_, err := io.Copy(io.Discard, request.Body)
+				assert.NoError(t, err)
+				<-request.Context().Done()
+			}))
+			t.Cleanup(server.Close)
+			output, _, err := run(t, nil, "crpc", server.URL+echoMethod, "--stream", mode, "-d", "{}", "--wait", "20ms", "--timeout", "2s")
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.ErrorContains(t, err, "response drain timed out", "--wait must cover a server that sends no response headers")
+			assert.Empty(t, output)
+		})
+	}
+}
