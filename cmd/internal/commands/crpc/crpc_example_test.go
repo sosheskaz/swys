@@ -2,6 +2,7 @@ package crpc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -167,4 +168,27 @@ func run(t *testing.T, input io.Reader, args ...string) (string, string, error) 
 	root.SetContext(t.Context())
 	output, diagnostics, err := testcmd.RunStreams(t, root, input, args...)
 	return string(output), string(diagnostics), err
+}
+
+func TestExampleCRPCDiscoversAndInvokesWithSchemas(t *testing.T) {
+	t.Parallel()
+	set := schemaSet(false)
+	path := writeProtoset(t, set)
+	server, _ := schemaServer(t, set, "")
+	for _, source := range [][]string{{"--protoset", path}, {"--reflect"}} {
+		output, _, err := run(t, nil, append([]string{"crpc", server.URL, "--list", "example.v1.EchoService"}, source...)...)
+		require.NoError(t, err)
+		assert.Equal(t, "Echo\n", output)
+		output, _, err = run(t, nil, append([]string{"crpc", server.URL, "example.v1.EchoService/Echo", "-d", `{"text":"hello"}`}, source...)...)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"text":"hello"}`, output)
+	}
+	output, _, err := run(t, nil, "crpc", "--protoset", path)
+	require.NoError(t, err)
+	assert.Equal(t, "example.v1.EchoService\n", output)
+	output, _, err = run(t, nil, "crpc", "--protoset", path, "--describe", "example.v1.Request", "--format", "json")
+	require.NoError(t, err)
+	var description map[string]any
+	require.NoError(t, json.Unmarshal([]byte(output), &description))
+	assert.Equal(t, "Request", description["name"])
 }

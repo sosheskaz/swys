@@ -54,6 +54,18 @@ func ParseEndpoint(address, method string) (Endpoint, error) {
 	return Endpoint{URL: parsed, Procedure: procedure}, nil
 }
 
+// ParseBase accepts a discovery endpoint with an optional routing prefix.
+func ParseBase(address string) (*url.URL, error) { return parseAddress(address) }
+
+// BaseURL removes the literal procedure while retaining escaped routing prefixes.
+func (endpoint Endpoint) BaseURL() *url.URL {
+	base := *endpoint.URL
+	escaped := strings.TrimSuffix(base.EscapedPath(), endpoint.Procedure)
+	base.Path = strings.TrimSuffix(base.Path, endpoint.Procedure)
+	base.RawPath = escaped
+	return &base
+}
+
 func parseAddress(address string) (*url.URL, error) {
 	if !strings.Contains(address, "://") {
 		address = "https://" + address
