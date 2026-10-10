@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http/httptrace"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect/v2"
@@ -97,54 +99,90 @@ func responseWait(duration time.Duration) connect.ClientInterceptor {
 	return func(next connect.ClientFunc) connect.ClientFunc {
 		return func(parent context.Context, spec connect.Spec) (connect.ClientStream, error) {
 			ctx, cancel := context.WithCancelCause(parent)
-			stream, err := next(ctx, spec)
+			stream := &waitingStream{ctx: ctx, cancel: cancel, wait: duration, kind: spec.StreamType}
+			// A failed Send can return before Connect closes the stream wrapper.
+			stream.stopOnCancel = context.AfterFunc(ctx, stream.stopTimer)
+			ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+				WroteRequest: func(info httptrace.WroteRequestInfo) {
+					if info.Err == nil {
+						stream.startTimer()
+					}
+				},
+			})
+			delegate, err := next(ctx, spec)
 			if err != nil {
+				stream.stopOnCancel()
+				stream.stopTimer()
 				cancel(nil)
 				return nil, err
 			}
-			return &waitingStream{ClientStream: stream, ctx: ctx, cancel: cancel, wait: duration}, nil
+			stream.ClientStream = delegate
+			return stream, nil
 		}
 	}
 }
 
 type waitingStream struct {
 	connect.ClientStream
-	ctx    context.Context //nolint:containedctx // Receive has no context argument; keep the stream's cancellation cause
-	cancel context.CancelCauseFunc
-	timer  *time.Timer
-	wait   time.Duration
+	ctx          context.Context //nolint:containedctx // Stream methods have no context argument; retain the cancellation cause.
+	cancel       context.CancelCauseFunc
+	stopOnCancel func() bool
+	timer        *time.Timer
+	wait         time.Duration
+	mu           sync.Mutex
+	kind         connect.StreamType
+	finished     bool
 }
 
-// CloseSend starts the drain budget only after request sending completes.
-func (stream *waitingStream) CloseSend() error {
-	if err := stream.ClientStream.CloseSend(); err != nil {
-		return fmt.Errorf("close Connect send side: %w", err)
+// Single-request Send waits for response headers; CloseSend is too late to start --wait.
+func (stream *waitingStream) startTimer() {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.finished || stream.timer != nil || stream.wait <= 0 {
+		return
 	}
-	if stream.wait > 0 {
-		stream.timer = time.AfterFunc(stream.wait, func() {
-			stream.cancel(fmt.Errorf("response drain timed out after %s: %w", stream.wait, context.DeadlineExceeded))
-		})
-	}
-	return nil
+	stream.timer = time.AfterFunc(stream.wait, func() {
+		stream.cancel(fmt.Errorf("response drain timed out after %s: %w", stream.wait, context.DeadlineExceeded))
+	})
 }
 
-// Receive retains the deadline identity when a drain timer cancels the transport.
-func (stream *waitingStream) Receive(message any) error {
-	err := stream.ClientStream.Receive(message)
-	if err != nil {
-		if cause := context.Cause(stream.ctx); cause != nil && errors.Is(cause, context.DeadlineExceeded) {
-			return connect.NewError(connect.CodeDeadlineExceeded, cause.Error()).WithCause(cause)
-		}
-		return fmt.Errorf("receive Connect stream: %w", err)
-	}
-	return nil
-}
-
-// Close is called after the sending goroutine has finished, releasing its timer.
-func (stream *waitingStream) Close() error {
+func (stream *waitingStream) stopTimer() {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.finished = true
 	if stream.timer != nil {
 		stream.timer.Stop()
 	}
+}
+
+// Send delegates while preserving the response deadline's cause.
+func (stream *waitingStream) Send(message any) error {
+	return stream.withDeadlineCause(stream.ClientStream.Send(message))
+}
+
+// Receive preserves completed protocol status even if output later exceeds a deadline.
+func (stream *waitingStream) Receive(message any) error {
+	err := stream.ClientStream.Receive(message)
+	if errors.Is(err, io.EOF) || err == nil && stream.kind&connect.StreamTypeServer == 0 {
+		stream.stopTimer()
+	}
+	return stream.withDeadlineCause(err)
+}
+
+func (stream *waitingStream) withDeadlineCause(err error) error {
+	if err == nil || errors.Is(err, io.EOF) {
+		return err
+	}
+	if cause := context.Cause(stream.ctx); errors.Is(cause, context.DeadlineExceeded) {
+		return connect.NewError(connect.CodeDeadlineExceeded, cause.Error()).WithCause(cause)
+	}
+	return err
+}
+
+// Close releases the timer after the sending goroutine has finished.
+func (stream *waitingStream) Close() error {
+	stream.stopOnCancel()
+	stream.stopTimer()
 	defer stream.cancel(nil)
 	return closeStream(stream.ClientStream)
 }

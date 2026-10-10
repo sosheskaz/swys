@@ -78,8 +78,9 @@ nonzero. Request validation and unary failures preserve existing output files. S
 -t/--timeout bounds the entire RPC after request input has been collected;
 its default is unlimited. For client and bidi streams, it includes pauses
 between input messages. -w/--wait bounds the entire response drain after
-sending finishes, without resetting for incoming messages. It also defaults
-to unlimited. A zero duration disables a timeout; the earliest applicable
+sending finishes, including waiting for response headers. It does not reset
+for incoming messages and also defaults to unlimited. A zero duration
+disables a timeout; the earliest applicable
 deadline wins. Single-request input collection remains interruptible by
 signals, independently of network timeouts.
 
