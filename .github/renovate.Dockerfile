@@ -1,1 +1,1 @@
-FROM docker.io/renovate/renovate:44.131.4@sha256:c9ac1a377f53e58e875000ab7c4ccd753228f60eeefc0745361a0fc8f78fa082
+FROM docker.io/renovate/renovate:44.133.0@sha256:05c512c35c764ef6a179e69c3b30567eca254d67f13a0143479fe3c84852c67a
