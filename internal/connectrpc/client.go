@@ -112,6 +112,13 @@ func (transport *requestTransport) RoundTrip(request *http.Request) (*http.Respo
 		}
 		return nil, fmt.Errorf("%s: %w", operation, err)
 	}
+	// HTTP/2 aborts an in-flight upload on rejection, so WroteRequest may fail
+	// even though Connect still needs to read the error response body.
+	if response.ProtoMajor == 2 && response.StatusCode > 299 {
+		if startWait, ok := ctx.Value(responseWaitKey{}).(func()); ok {
+			startWait()
+		}
+	}
 	response.Body = &responseBody{ReadCloser: response.Body, cancel: cancel}
 	return response, nil
 }

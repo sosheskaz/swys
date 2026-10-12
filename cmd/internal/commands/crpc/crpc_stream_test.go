@@ -225,3 +225,24 @@ func TestCRPCResponseWaitBoundsWithheldHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestCRPCResponseWaitBoundsEarlyHTTP2Rejection(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(output http.ResponseWriter, request *http.Request) {
+		assert.Equal(t, "HTTP/2.0", request.Proto)
+		output.Header().Set("Content-Type", "application/json")
+		output.WriteHeader(http.StatusBadRequest)
+		assert.NoError(t, http.NewResponseController(output).Flush())
+		<-request.Context().Done()
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	// Exceed HTTP/2's upload window so the rejection interrupts request writing.
+	message := `{"text":"` + strings.Repeat("x", 2<<20) + `"}`
+	output, _, err := run(t, strings.NewReader(message), "crpc", server.URL+echoMethod,
+		"--insecure", "--wait", "20ms", "--timeout", "2s")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "response drain timed out", "an aborted upload must still bound the error response body")
+	assert.Empty(t, output)
+}

@@ -95,6 +95,8 @@ func closeStream(stream connect.ClientStream) error {
 	return nil
 }
 
+type responseWaitKey struct{}
+
 func responseWait(duration time.Duration) connect.ClientInterceptor {
 	return func(next connect.ClientFunc) connect.ClientFunc {
 		return func(parent context.Context, spec connect.Spec) (connect.ClientStream, error) {
@@ -109,6 +111,7 @@ func responseWait(duration time.Duration) connect.ClientInterceptor {
 					}
 				},
 			})
+			ctx = context.WithValue(ctx, responseWaitKey{}, stream.startTimer)
 			delegate, err := next(ctx, spec)
 			if err != nil {
 				stream.stopOnCancel()
