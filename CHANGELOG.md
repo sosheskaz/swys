@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/sosheskaz/swys/compare/v0.2.0...v0.2.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **net:** document encrypted exchange between two machines ([#41](https://github.com/sosheskaz/swys/issues/41)) ([028bf3d](https://github.com/sosheskaz/swys/commit/028bf3d0135a3b6e3b2aa230331922dc2243210f))
+
+
+### Dependencies
+
+* **go:** update module codeberg.org/miekg/dns to v0.6.118 ([#40](https://github.com/sosheskaz/swys/issues/40)) ([e04be9f](https://github.com/sosheskaz/swys/commit/e04be9f8bdf1b6c27b4ce3956dbe6e7747f490d1))
+
 ## [0.2.0](https://github.com/sosheskaz/swys/compare/v0.1.0...v0.2.0) (2026-10-09)
 
 
