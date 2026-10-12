@@ -33,7 +33,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -46,6 +45,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/contextio"
+	"github.com/sosheskaz/swys/internal/protoschema"
 	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
@@ -55,9 +55,7 @@ var grpcGuideFiles embed.FS
 const (
 	grpcRequestShape       = "grpc-request"
 	grpcDefaultMessageSize = 16 << 20
-	grpcDescriptorBytes    = 16 << 20
-	grpcDescriptorFiles    = 1024
-	grpcDescriptorDepth    = 100
+	grpcDescriptorBytes    = protoschema.MaxBytes
 	grpcReflectionOverhead = 64 << 10
 )
 
@@ -728,54 +726,11 @@ type grpcSchema struct {
 }
 
 func newGRPCSchema(set *descriptorpb.FileDescriptorSet) (*grpcSchema, error) {
-	if err := validateGRPCDescriptorSet(set); err != nil {
-		return nil, err
-	}
-	files, err := protodesc.NewFiles(set)
+	schema, err := protoschema.New(set)
 	if err != nil {
-		return nil, fmt.Errorf("resolve gRPC descriptors: %w", err)
+		return nil, fmt.Errorf("resolve gRPC schema: %w", err)
 	}
-	services := []string{}
-	files.RangeFiles(func(file protoreflect.FileDescriptor) bool {
-		for index := range file.Services().Len() {
-			services = append(services, string(file.Services().Get(index).FullName()))
-		}
-		return true
-	})
-	sort.Strings(services)
-	return &grpcSchema{files: files, fileSet: set, services: services}, nil
-}
-
-func validateGRPCDescriptorSet(set *descriptorpb.FileDescriptorSet) error {
-	if len(set.File) > grpcDescriptorFiles {
-		return fmt.Errorf("%w: set has %d files, maximum is %d", errGRPCDescriptorLimit, len(set.File), grpcDescriptorFiles)
-	}
-	total := 0
-	type depthItem struct {
-		message *descriptorpb.DescriptorProto
-		depth   int
-	}
-	for _, file := range set.File {
-		total += proto.Size(file)
-		if total > grpcDescriptorBytes {
-			return fmt.Errorf("%w: descriptors exceed %d bytes", errGRPCDescriptorLimit, grpcDescriptorBytes)
-		}
-		stack := make([]depthItem, 0, len(file.GetMessageType()))
-		for _, message := range file.GetMessageType() {
-			stack = append(stack, depthItem{message: message, depth: 1})
-		}
-		for len(stack) != 0 {
-			current := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if current.depth > grpcDescriptorDepth {
-				return fmt.Errorf("%w: message nesting exceeds %d", errGRPCDescriptorLimit, grpcDescriptorDepth)
-			}
-			for _, nested := range current.message.GetNestedType() {
-				stack = append(stack, depthItem{message: nested, depth: current.depth + 1})
-			}
-		}
-	}
-	return nil
+	return &grpcSchema{files: schema.Files, fileSet: set, services: schema.Services}, nil
 }
 
 func loadGRPCProtoset(path string) (*grpcSchema, error) {
@@ -784,16 +739,9 @@ func loadGRPCProtoset(path string) (*grpcSchema, error) {
 		return nil, fmt.Errorf("open gRPC protoset %q: %w", path, err)
 	}
 	defer file.Close() //nolint:errcheck // read/unmarshal result is authoritative
-	data, err := io.ReadAll(io.LimitReader(file, grpcDescriptorBytes*2+1))
+	set, err := protoschema.Read(file)
 	if err != nil {
 		return nil, fmt.Errorf("read gRPC protoset: %w", err)
-	}
-	if len(data) > grpcDescriptorBytes*2 {
-		return nil, fmt.Errorf("%w: protoset file is too large", errGRPCDescriptorLimit)
-	}
-	set := &descriptorpb.FileDescriptorSet{}
-	if err := proto.Unmarshal(data, set); err != nil {
-		return nil, fmt.Errorf("parse gRPC protoset: %w", err)
 	}
 	return newGRPCSchema(set)
 }
@@ -865,26 +813,11 @@ func (selection grpcDiscoverySelection) render(format string) ([]byte, error) {
 }
 
 func grpcDescriptorProto(descriptor protoreflect.Descriptor) (proto.Message, error) {
-	switch value := descriptor.(type) {
-	case protoreflect.MessageDescriptor:
-		return protodesc.ToDescriptorProto(value), nil
-	case protoreflect.FieldDescriptor:
-		return protodesc.ToFieldDescriptorProto(value), nil
-	case protoreflect.OneofDescriptor:
-		return protodesc.ToOneofDescriptorProto(value), nil
-	case protoreflect.EnumDescriptor:
-		return protodesc.ToEnumDescriptorProto(value), nil
-	case protoreflect.EnumValueDescriptor:
-		return protodesc.ToEnumValueDescriptorProto(value), nil
-	case protoreflect.ServiceDescriptor:
-		return protodesc.ToServiceDescriptorProto(value), nil
-	case protoreflect.MethodDescriptor:
-		return protodesc.ToMethodDescriptorProto(value), nil
-	case protoreflect.FileDescriptor:
-		return protodesc.ToFileDescriptorProto(value), nil
-	default:
-		return nil, fmt.Errorf("%w: descriptor type %T", errUnsupportedGRPC, descriptor)
+	result, err := protoschema.DescriptorProto(descriptor)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errUnsupportedGRPC, err)
 	}
+	return result, nil
 }
 
 func grpcDiscoveryList(values []string, format string) ([]byte, error) {

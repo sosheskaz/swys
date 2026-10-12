@@ -84,7 +84,7 @@ func newHTTPTransport(options *httpOptions, configuredTLS *tls.Config, resolver 
 	dialer := &net.Dialer{Timeout: options.timeout}
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         resolver.dialContext(dialer, options.timeout),
+		DialContext:         resolver.DialContext(dialer, options.timeout),
 		ForceAttemptHTTP2:   true,
 		TLSClientConfig:     tlsConfig,
 		TLSHandshakeTimeout: options.timeout,
