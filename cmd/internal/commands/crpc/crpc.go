@@ -157,6 +157,9 @@ func validate(cmd *cobra.Command, settings *options, secure bool) error {
 	if settings.connectTimeout < 0 || settings.timeout < 0 || settings.wait < 0 || settings.reflectionTimeout < 0 || settings.maxMessageSize <= 0 {
 		return fmt.Errorf("%w: timeouts must be non-negative and --max-message-size must be positive", ErrInvalidFlags)
 	}
+	if _, err := streamType(settings.stream); err != nil {
+		return err
+	}
 	if err := validateSchemaOptions(cmd, settings); err != nil {
 		return err
 	}

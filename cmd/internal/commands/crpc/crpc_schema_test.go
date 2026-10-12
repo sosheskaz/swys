@@ -190,6 +190,21 @@ func TestCRPCSchemaLimitIsIndependentOfMessageLimit(t *testing.T) {
 	assert.JSONEq(t, `{"text":"hello"}`, output)
 }
 
+func TestCRPCInvalidStreamDoesNotCallReflection(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server, _ := schemaServer(t, schemaSet(false), "", func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			calls.Add(1)
+			return next(ctx, spec, stream)
+		}
+	})
+	_, _, err := run(t, &unexpectedInput{t: t}, "crpc", server.URL+echoMethod,
+		"--reflect", "--stream", "invalid", "--stdin", "never")
+	require.ErrorContains(t, err, "--stream must be")
+	assert.Zero(t, calls.Load(), "invalid local flags must be rejected before reflection")
+}
+
 func TestCRPCReflectionTimeoutIncludesFinalStatus(t *testing.T) {
 	t.Parallel()
 	server, _ := schemaServer(t, schemaSet(false), "", func(next connect.ServerFunc) connect.ServerFunc {
