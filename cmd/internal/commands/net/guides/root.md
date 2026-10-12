@@ -27,19 +27,29 @@ printf 'hello from client\n' | swys net connect localhost:9000
 
 Input EOF half-closes each outgoing stream by default, and each command drains its peer until EOF. Sending and receiving are independent by default, so peer EOF does not discard unfinished local input. Explicit --duplex=false restores early exit on peer EOF and can discard outgoing data that has not yet been sent. Use --close-write=false when input EOF must leave the outgoing side open.
 
-## Encrypt a local exchange
+## Encrypt an exchange between two machines
 
-Create a key in a fresh local directory before running the encrypted pipeline. Keep this key private; a new key cannot decrypt data encrypted with the previous one.
+On the sending machine, create a key in a fresh local directory:
 
 ```sh
 swys aes keygen -o aes.key
 ```
 
-Run the entire pipeline in one terminal. The receive-only listener reads the encrypted peer data without consuming its piped stdin. This works without startup sleeps because the connector retries a refused TCP setup within its five-second --connect-timeout (-c):
+Securely copy the same aes.key to the receiving machine before continuing. Keep this key private; generating a different key on the receiver will not decrypt the message. SwYS must be installed on both machines, and TCP port 4444 on the receiver must be reachable from the sender.
+
+On the receiving machine, start the receive-only listener and decrypt its output. This binds all available local IPv4 and IPv6 addresses; specify a local interface address to limit the bind:
 
 ```sh
-printf 'hello, world\n' | swys aes encrypt -k aes.key | swys net connect localhost:4444 | swys net listen localhost:4444 -r | swys aes decrypt -k aes.key
+swys net listen :4444 -r | swys aes decrypt -k aes.key
 ```
+
+Then, on the sending machine, encrypt the message and connect to the receiver. Replace receiver.example with the receiving machine's reachable hostname or IP address:
+
+```sh
+printf 'hello, world\n' | swys aes encrypt -k aes.key | swys net connect receiver.example:4444
+```
+
+The receiving machine prints hello, world and both pipelines exit after the exchange.
 
 ## Next steps
 
