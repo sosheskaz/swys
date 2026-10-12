@@ -3,7 +3,7 @@ module github.com/sosheskaz/swys
 go 1.27.2
 
 require (
-	codeberg.org/miekg/dns v0.6.117
+	codeberg.org/miekg/dns v0.6.118
 	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/ProtonMail/gopenpgp/v3 v3.5.2
 	github.com/clipperhouse/displaywidth v0.11.0
