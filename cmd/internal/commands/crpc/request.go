@@ -1,0 +1,248 @@
+package crpc
+
+import (
+	"bytes"
+	"context"
+	"encoding/json/jsontext"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"connectrpc.com/connect/v2"
+	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/internal/connectrpc"
+	"github.com/sosheskaz/swys/internal/contextio"
+	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/protoschema"
+)
+
+type preparation struct {
+	run   func(io.Writer) error
+	close func() error
+}
+
+func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation, error) {
+	target, err := selectTarget(args, settings)
+	if err != nil {
+		return nil, err
+	}
+	settings.discovery = target.discovery
+	secure := target.base != nil && target.base.Scheme == "https"
+	if err := validate(cmd, settings, secure); err != nil {
+		return nil, err
+	}
+
+	headers, err := parseHeaders(settings.headers)
+	if err != nil {
+		return nil, err
+	}
+	resolver, err := httptransport.ParseResolves(settings.resolves)
+	if err != nil {
+		return nil, err
+	}
+	tlsOptions, err := prepareTLS(cmd, settings)
+	if err != nil {
+		return nil, err
+	}
+	connection := connectrpc.Options{
+		TLS: tlsOptions, Resolves: resolver, ConnectTimeout: settings.connectTimeout,
+		Wait: settings.wait, MaxMessageSize: settings.maxMessageSize,
+	}
+	schema, err := loadSchema(cmd, settings, target, connection, headers)
+	if err != nil {
+		return nil, err
+	}
+	if target.discovery {
+		output, err := renderDiscovery(schema, settings)
+		if err != nil {
+			return nil, err
+		}
+		return preparedBytes(output), nil
+	}
+	return prepareInvocation(cmd, settings, target.endpoint, schema, connection, headers)
+}
+
+func prepareInvocation(
+	cmd *cobra.Command, settings *options, endpoint connectrpc.Endpoint,
+	schema *protoschema.Schema, connection connectrpc.Options, headers *connect.Header,
+) (*preparation, error) {
+	kind, err := streamType(settings.stream)
+	if err != nil {
+		return nil, err
+	}
+	method, kind, err := resolveMethod(cmd, settings, schema, endpoint.Procedure, kind)
+	if err != nil {
+		return nil, err
+	}
+	if settings.format == formatJSON && (kind == connect.StreamTypeServer || kind == connect.StreamTypeBidi) {
+		return nil, fmt.Errorf("%w: multiple-response streams require --format jsonl", ErrInvalidFlags)
+	}
+	connection.RequireHTTP2 = kind == connect.StreamTypeBidi
+	client := connectrpc.NewClient(endpoint, connection)
+	if kind == connect.StreamTypeUnary {
+		defer client.Close()
+		output, err := prepareUnary(cmd, settings, client, headers, method, schema)
+		if err != nil {
+			return nil, err
+		}
+		return preparedBytes(output), nil
+	}
+	next, closeInput, err := prepareMessages(cmd, settings, kind, method, schema)
+	if err != nil {
+		client.Close()
+		return nil, err
+	}
+	return &preparation{
+		close: func() error { client.Close(); return closeInput() },
+		run: func(output io.Writer) error {
+			ctx, cancel := commandio.NetworkSetupContext(cmd.Context(), settings.timeout)
+			defer cancel()
+			ctx, call := callContext(ctx, headers)
+			callErr := client.Stream(ctx, kind, next, func(message jsontext.Value) error {
+				if err := message.Compact(); err != nil {
+					return fmt.Errorf("format response JSON: %w", err)
+				}
+				if _, err := output.Write(append(message, '\n')); err != nil {
+					return fmt.Errorf("write response: %w", err)
+				}
+				return nil
+			})
+			if settings.verbose {
+				return errors.Join(safeError(callErr), writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr))
+			}
+			return safeError(callErr)
+		},
+	}, nil
+}
+
+func preparedBytes(data []byte) *preparation {
+	return &preparation{close: func() error { return nil }, run: func(writer io.Writer) error {
+		if _, err := writer.Write(data); err != nil {
+			return fmt.Errorf("write Connect output: %w", err)
+		}
+		return nil
+	}}
+}
+
+func callContext(ctx context.Context, headers *connect.Header) (context.Context, *connect.CallInfo) {
+	ctx, call := connect.NewClientContext(ctx)
+	for name, values := range headers.All() {
+		call.RequestHeader().SetValues(name, values)
+	}
+	return ctx, call
+}
+
+func prepareUnary(
+	cmd *cobra.Command, settings *options, client *connectrpc.Client,
+	headers *connect.Header, method protoreflect.MethodDescriptor, schema *protoschema.Schema,
+) ([]byte, error) {
+	request, err := readRequest(cmd, settings)
+	if err != nil {
+		return nil, err
+	}
+	value, err := validateMessage(request, method, schema)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := commandio.NetworkSetupContext(cmd.Context(), settings.timeout)
+	defer cancel()
+	ctx, call := callContext(ctx, headers)
+	response, callErr := client.Unary(ctx, value)
+	if settings.verbose {
+		if err := writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr); err != nil {
+			return nil, errors.Join(safeError(callErr), err)
+		}
+	}
+	if callErr != nil {
+		return nil, safeError(callErr)
+	}
+	if settings.format == formatJSONL {
+		if err := response.Compact(); err != nil {
+			return nil, fmt.Errorf("format response JSON: %w", err)
+		}
+	}
+	return append(response, '\n'), nil
+}
+
+func prepareMessages(
+	cmd *cobra.Command, settings *options, kind connect.StreamType,
+	method protoreflect.MethodDescriptor, schema *protoschema.Schema,
+) (connectrpc.NextMessage, func() error, error) {
+	if kind == connect.StreamTypeServer || cmd.Flags().Changed(flagData) {
+		data, err := readRequest(cmd, settings)
+		if err != nil {
+			return nil, nil, err
+		}
+		value, err := validateMessage(data, method, schema)
+		if err != nil {
+			return nil, nil, err
+		}
+		return func(context.Context) (jsontext.Value, error) {
+			if value == nil {
+				return nil, io.EOF
+			}
+			message := value
+			value = nil
+			return message, nil
+		}, func() error { return nil }, nil
+	}
+	decoder, err := commandio.InputDecoderFromCommand(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+	input := io.NopCloser(strings.NewReader(""))
+	if cmd.Flags().Changed(flagInput) && cmd.Flag(flagInput).Value.String() != "-" {
+		file, err := contextio.OpenFile(cmd.Context(), func() (*os.File, error) {
+			return os.Open(cmd.Flag(flagInput).Value.String())
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("open Connect input: %w", err)
+		}
+		input, err = contextio.NewOwnedFileReader(cmd.Context(), file)
+		if err != nil {
+			return nil, nil, fmt.Errorf("prepare Connect input: %w", err)
+		}
+	} else if usesStdin(cmd, settings) {
+		input = io.NopCloser(cmd.InOrStdin())
+	}
+	var lines *connectrpc.JSONLines
+	return func(ctx context.Context) (jsontext.Value, error) {
+		if lines == nil {
+			lines = connectrpc.NewJSONLines(decoder(contextio.NewReader(ctx, input)), settings.maxMessageSize)
+		}
+		message, err := lines.Next()
+		if err != nil {
+			return nil, err
+		}
+		return validateMessage(message, method, schema)
+	}, input.Close, nil
+}
+
+func readRequest(cmd *cobra.Command, settings *options) ([]byte, error) {
+	decoder, err := commandio.InputDecoderFromCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	var data []byte
+	switch {
+	case cmd.Flags().Changed(flagData):
+		data, err = artifact.Read(decoder(strings.NewReader(settings.data)), int64(settings.maxMessageSize))
+	case cmd.Flags().Changed(flagInput):
+		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), cmd.Flag(flagInput).Value.String(), decoder, int64(settings.maxMessageSize))
+	case usesStdin(cmd, settings):
+		data, err = artifact.ReadEncodedSource(cmd.Context(), cmd.InOrStdin(), "-", decoder, int64(settings.maxMessageSize))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read Connect request: %w", err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 && !cmd.Flags().Changed(flagData) && !cmd.Flags().Changed(flagInput) {
+		return []byte("{}"), nil
+	}
+	return data, nil
+}

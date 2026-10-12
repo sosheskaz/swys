@@ -1,0 +1,166 @@
+package connectrpc
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json/jsontext"
+	"fmt"
+	"io"
+	"math"
+	"net"
+	"net/http"
+	"net/http/httptrace"
+	"net/url"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+
+	"github.com/sosheskaz/swys/internal/httptransport"
+)
+
+// Options bounds individual messages and connection establishment independently.
+type Options struct {
+	TLS            *tls.Config
+	Resolves       httptransport.Resolver
+	ConnectTimeout time.Duration
+	Wait           time.Duration
+	MaxMessageSize int
+	RequireHTTP2   bool
+}
+
+// Client owns the HTTP connection pool for one command invocation.
+type Client struct {
+	client    *connect.Client
+	transport *http.Transport
+	endpoint  Endpoint
+}
+
+// NewClient uses the Connect protocol over negotiated HTTPS or HTTP/1.1 cleartext.
+func NewClient(endpoint Endpoint, options Options) *Client {
+	httpClient, transport := newHTTPClient(endpoint, options)
+	baseURL := endpoint.URL.Scheme + "://" + endpoint.URL.Host
+	connectTransport := connecthttp.NewTransport(httpClient, baseURL,
+		connecthttp.WithCodecs(JSONCodec{MaxBytes: options.MaxMessageSize}),
+		connecthttp.WithReadMaxBytes(wireReadLimit(options.MaxMessageSize)),
+		connecthttp.WithSendMaxBytes(options.MaxMessageSize),
+	)
+	return &Client{client: connect.NewClient(connectTransport, responseWait(options.Wait)), transport: transport, endpoint: endpoint}
+}
+
+func wireReadLimit(limit int) int {
+	// Small gzip messages may be larger on the wire. The codec enforces the
+	// exact JSON limit while Connect bounds framing and decompression buffers.
+	overhead := limit/8 + 1024
+	if limit > math.MaxInt-overhead {
+		return math.MaxInt
+	}
+	return limit + overhead
+}
+
+func newHTTPClient(endpoint Endpoint, options Options) (*http.Client, *http.Transport) {
+	dialer := &net.Dialer{Timeout: options.ConnectTimeout}
+	transport := &http.Transport{
+		Proxy:                  http.ProxyFromEnvironment,
+		DialContext:            options.Resolves.DialContext(dialer, options.ConnectTimeout),
+		TLSClientConfig:        options.TLS,
+		TLSHandshakeTimeout:    options.ConnectTimeout,
+		ForceAttemptHTTP2:      true,
+		MaxResponseHeaderBytes: 1 << 20,
+	}
+	if options.RequireHTTP2 {
+		transport.Protocols = new(http.Protocols)
+		transport.Protocols.SetHTTP2(true)
+		transport.Protocols.SetUnencryptedHTTP2(true)
+	}
+	httpClient := &http.Client{
+		Transport:     &requestTransport{base: transport, endpoint: endpoint, setup: options.ConnectTimeout, requireHTTP2: options.RequireHTTP2},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	return httpClient, transport
+}
+
+// Close releases idle HTTP connections after the command completes.
+func (client *Client) Close() { client.transport.CloseIdleConnections() }
+
+// Unary invokes a procedure, preserving headers and transport details in ctx's CallInfo.
+func (client *Client) Unary(ctx context.Context, request jsontext.Value) (jsontext.Value, error) {
+	var response jsontext.Value
+	if err := client.client.CallUnary(ctx, connect.Spec{Procedure: client.endpoint.Procedure}, &request, &response); err != nil {
+		return nil, fmt.Errorf("invoke Connect method: %w", err)
+	}
+	return response, nil
+}
+
+type requestTransport struct {
+	base         http.RoundTripper
+	endpoint     Endpoint
+	setup        time.Duration
+	requireHTTP2 bool
+}
+
+// RoundTrip bounds setup without imposing a deadline on an acquired connection.
+func (transport *requestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithCancelCause(request.Context())
+	var timer *time.Timer
+	if transport.setup > 0 {
+		timer = time.AfterFunc(transport.setup, func() {
+			cancel(fmt.Errorf("connection setup timed out after %s: %w", transport.setup, context.DeadlineExceeded))
+		})
+		defer timer.Stop()
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			GotConn: func(httptrace.GotConnInfo) { timer.Stop() },
+		})
+	}
+	request = request.Clone(ctx)
+	// Connect-Go joins decoded paths. Retain escaped routing prefixes verbatim.
+	urlCopy := *transport.endpoint.URL
+	if transport.endpoint.Procedure == "" {
+		// Reflection selects v1 or v1alpha dynamically under the same routing prefix.
+		urlCopy.RawPath = strings.TrimRight(urlCopy.EscapedPath(), "/") + request.URL.EscapedPath()
+		path, err := url.PathUnescape(urlCopy.RawPath)
+		if err != nil {
+			cancel(nil)
+			return nil, fmt.Errorf("build reflection URL: %w", err)
+		}
+		urlCopy.Path = path
+	}
+	request.URL = &urlCopy
+	response, err := transport.base.RoundTrip(request)
+	if err != nil {
+		operation := "perform Connect HTTP request"
+		if transport.requireHTTP2 {
+			operation += " (HTTP/2 required for this call)"
+		}
+		cause := context.Cause(ctx)
+		cancel(nil)
+		if cause != nil {
+			return nil, fmt.Errorf("%s: %w", operation, cause)
+		}
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	// HTTP/2 aborts an in-flight upload on rejection, so WroteRequest may fail
+	// even though Connect still needs to read the error response body.
+	if response.ProtoMajor == 2 && response.StatusCode > 299 {
+		if startWait, ok := ctx.Value(responseWaitKey{}).(func()); ok {
+			startWait()
+		}
+	}
+	response.Body = &responseBody{ReadCloser: response.Body, cancel: cancel}
+	return response, nil
+}
+
+type responseBody struct {
+	io.ReadCloser
+	cancel context.CancelCauseFunc
+}
+
+// Close releases both the response and its request context.
+func (body *responseBody) Close() error {
+	defer body.cancel(nil)
+	if err := body.ReadCloser.Close(); err != nil {
+		return fmt.Errorf("close Connect response: %w", err)
+	}
+	return nil
+}
