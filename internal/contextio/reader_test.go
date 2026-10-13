@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"testing/iotest"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -149,6 +150,46 @@ func TestReaderStopsAfterDeliveredData(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReaderCancelsWhileWaitingToDispatchRead(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		defer cancel(nil)
+		source := &recordingReader{reader: strings.NewReader("unread")}
+		reader := &blockingReader{
+			ctx:   ctx,
+			input: source,
+			// An unserved request channel models a helper that has not been scheduled.
+			requests: make(chan int),
+		}
+		buffer := bytes.Repeat([]byte{0xa5}, 6)
+		result := make(chan readResult, 1)
+		go func() {
+			n, err := reader.Read(buffer)
+			result <- readResult{n: n, err: err}
+		}()
+		synctest.Wait()
+		select {
+		case got := <-result:
+			t.Fatalf("Read before cancellation = (%d, %v), want a pending read", got.n, got.err)
+		default:
+		}
+
+		cancel(errCause)
+		synctest.Wait()
+
+		select {
+		case got := <-result:
+			assert.Zero(t, got.n)
+			require.ErrorIs(t, got.err, errCause)
+		default:
+			t.Fatal("Read stayed blocked after cancellation")
+		}
+		assert.Zero(t, source.reads, "canceled request must not reach the source")
+		assert.Equal(t, bytes.Repeat([]byte{0xa5}, len(buffer)), buffer, "canceled read must not change caller buffer")
+	})
 }
 
 func TestReaderReleasesBlockedRead(t *testing.T) {
