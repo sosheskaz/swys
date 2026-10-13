@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -232,6 +234,61 @@ func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
 		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
 	}
 	require.ErrorIs(t, err, errDialWrappedCancellation)
+}
+
+func TestDialTCPRetryRefusedPreservesRefusalWhenNextDialIsCanceled(t *testing.T) {
+	t.Parallel()
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	synctest.Test(t, func(t *testing.T) {
+		parent, cancel := context.WithCancelCause(t.Context())
+		ctx := &gatedDialContext{Context: parent, entered: make(chan struct{}), release: make(chan struct{})}
+		release := sync.OnceFunc(func() { close(ctx.release) })
+		t.Cleanup(func() { cancel(nil); release() })
+		result := make(chan error, 1)
+		go func() {
+			connection, err := DialTCPRetryRefused(ctx, address)
+			if connection != nil {
+				err = errors.Join(err, connection.Close())
+			}
+			result <- err
+		}()
+		synctest.Wait()
+		require.Empty(t, result, "the refused connection must enter its retry wait")
+		ctx.gateNext.Store(true)
+		synctest.Sleep(tcpRefusedRetryInterval)
+		select {
+		case <-ctx.entered:
+		default:
+			t.Fatal("the next dial did not reach its context deadline check")
+		}
+		cancel(errDialRetryCanceled)
+		release()
+		synctest.Wait()
+		require.Len(t, result, 1)
+		err := <-result
+		require.ErrorIs(t, err, errDialRetryCanceled)
+		require.ErrorIs(t, err, context.Canceled)
+		require.True(t, isConnectionRefused(err), "preserve the previous refusal after the next dial is canceled: %v", err)
+	})
+}
+
+// Hold the next dial until cancellation to avoid racing the retry timer.
+type gatedDialContext struct {
+	context.Context //nolint:containedctx // preserve cancellation values while coordinating the next dial
+	entered         chan struct{}
+	release         chan struct{}
+	gateNext        atomic.Bool
+}
+
+func (ctx *gatedDialContext) Deadline() (time.Time, bool) {
+	if ctx.gateNext.Swap(false) {
+		close(ctx.entered)
+		<-ctx.release
+	}
+	return ctx.Context.Deadline()
 }
 
 func TestWithContextCausePreservesPendingSocketDeadlineCause(t *testing.T) {
