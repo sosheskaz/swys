@@ -41,13 +41,7 @@ func validateCertInspectFlags(cmd *cobra.Command) error {
 	if err := validateInspectionFlags(cmd); err != nil {
 		return err
 	}
-	if err := validateCertificateCAFlags(cmd); err != nil {
-		return err
-	}
-	if err := validateCertificateChainInputSelection(cmd, "ca"); err != nil {
-		return err
-	}
-	return certinput.ValidatePaths(cmd, "ca")
+	return certinput.ValidatePaths(cmd)
 }
 
 func validateCertificateChainInputSelection(cmd *cobra.Command, sources ...string) error {
@@ -86,9 +80,6 @@ func certVerificationRoots(cmd *cobra.Command) (*x509.CertPool, error) {
 	includeSystem, err := cmd.Flags().GetBool("system-ca")
 	if err != nil {
 		return nil, fmt.Errorf("read system-ca flag: %w", err)
-	}
-	if caPath == "" && caData == "" && cmd.Name() == certInspectCommandName {
-		return nil, nil //nolint:nilnil // nil Roots preserve inspection's default platform verifier.
 	}
 	var roots *x509.CertPool
 	if (caPath == "" && caData == "") || includeSystem {

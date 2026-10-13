@@ -44,7 +44,7 @@ func certificateArtifactEncodingApplicable(cmd *cobra.Command, name string) bool
 	if source == "" {
 		return false
 	}
-	if cmd.Name() != certVerifyCommandName && cmd.Name() != certInspectCommandName && source == "-" && cmd.Flags().Changed(commandio.InputEncodingFlagName) {
+	if cmd.Name() != certVerifyCommandName && source == "-" && cmd.Flags().Changed(commandio.InputEncodingFlagName) {
 		return false
 	}
 	if mode, ok := certificateCompletionMode(cmd); ok {

@@ -46,6 +46,9 @@ func certificateTextReport(report *CertificateReport, writer io.Writer, options 
 	if err := printer.Err(); err != nil {
 		return err
 	}
+	if report.Verification == nil {
+		return nil
+	}
 	return report.Verification.WriteReport(writer, options)
 }
 

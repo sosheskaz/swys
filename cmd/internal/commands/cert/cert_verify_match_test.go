@@ -195,21 +195,22 @@ func TestCertVerifyReadsCustomRootsFromStdin(t *testing.T) {
 	})
 }
 
-func TestCertificateRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
+func TestCertificateRejectsInvalidStdinSourcesBeforeIO(t *testing.T) {
 	t.Parallel()
 	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
 	chainPath := writeCertTestFile(t, t.TempDir(), "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
 	for _, test := range []struct {
-		name string
-		args []string
+		name       string
+		diagnostic string
+		args       []string
 	}{
 		{name: "default chain stdin", args: []string{"cert", "verify", "--ca", "-"}},
 		{name: "explicit chain stdin", args: []string{"cert", "verify", "--input", "-", "--ca", "-"}},
 		{name: "default chain with intermediate stdin", args: []string{"cert", "verify", "--intermediates", "-"}},
 		{name: "explicit chain with intermediate stdin", args: []string{"cert", "verify", "--input", "-", "--intermediates", "-"}},
 		{name: "two supplemental stdin sources", args: []string{"cert", "verify", "--input", chainPath, "--ca", "-", "--intermediates", "-"}},
-		{name: "inspect default chain stdin", args: []string{"cert", "inspect", "--ca", "-"}},
-		{name: "inspect explicit chain stdin", args: []string{"cert", "inspect", "--input", "-", "--ca", "-"}},
+		{name: "inspect removed CA with default stdin", args: []string{"cert", "inspect", "--ca", "-"}, diagnostic: "unknown flag: --ca"},
+		{name: "inspect removed CA with explicit stdin", args: []string{"cert", "inspect", "--input", "-", "--ca", "-"}, diagnostic: "unknown flag: --ca"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -218,7 +219,11 @@ func TestCertificateRejectsMultipleStdinSourcesBeforeIO(t *testing.T) {
 			input := &certVerifyReadCounter{}
 			root.SetIn(input)
 			_, _, err := executeRootCommandStreams(t, root, append(test.args, "--output", outputPath)...)
-			require.ErrorIs(t, err, errCertificateInputSelection, "error = %v, want errCertificateInputSelection", err)
+			if test.diagnostic != "" {
+				require.ErrorContains(t, err, test.diagnostic)
+			} else {
+				require.ErrorIs(t, err, errCertificateInputSelection, "error = %v, want errCertificateInputSelection", err)
+			}
 			if reads := input.count.Load(); reads != 0 {
 				t.Fatalf("invalid stdin selection read stdin %d times", reads)
 			}

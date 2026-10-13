@@ -117,7 +117,7 @@ func completeCertificatePaths(prefix string) ([]string, bool) {
 }
 
 func certificateStdinOwnedByOtherFlag(command *cobra.Command, completing string) bool {
-	if command.Name() == certVerifyCommandName || command.Name() == certInspectCommandName {
+	if command.Name() == certVerifyCommandName {
 		path, err := command.Flags().GetString("input")
 		if err != nil || path == "" || path == "-" {
 			return true
@@ -290,7 +290,7 @@ func prepareCertificateArtifactEncodingCompletion(completionCmd *cobra.Command, 
 		return
 	}
 	switch actual.Name() {
-	case "create", csrFlagName, "match", certVerifyCommandName, certInspectCommandName:
+	case "create", csrFlagName, "match", certVerifyCommandName:
 	default:
 		return
 	}
@@ -308,7 +308,7 @@ func prepareCertificateArtifactEncodingCompletion(completionCmd *cobra.Command, 
 	for _, name := range []string{"cert", "key", csrFlagName, "issuer-cert", "issuer-key", "ca", certIntermediatesFlagName} {
 		if flag := actual.Flags().Lookup(name + "-encoding"); flag != nil {
 			flag.Hidden = !certificateArtifactEncodingApplicable(probe, name)
-			if probe.Name() != certVerifyCommandName && probe.Name() != certInspectCommandName {
+			if probe.Name() != certVerifyCommandName {
 				source, err := probe.Flags().GetString(name)
 				if err == nil && source == "-" && probe.Flags().Changed(name+"-encoding") {
 					actual.Flags().Lookup(commandio.InputEncodingFlagName).Hidden = true

@@ -21,11 +21,11 @@ const (
 // ErrCertificateSelection identifies an invalid or unavailable selection.
 var ErrCertificateSelection = errors.New("certificate selection unavailable")
 
-// CertificateReport separates retrieved certificate material from leaf verification.
+// CertificateReport contains selected metadata and optional leaf verification.
 type CertificateReport struct {
+	Verification *CertificateVerification
 	Selection    string
 	Certificates []*CertInfo
-	Verification CertificateVerification
 }
 
 // CertificateVerification describes the original leaf, regardless of selection.
@@ -47,7 +47,8 @@ func ValidateCertificateSelection(selection string) error {
 	}
 }
 
-// InspectCertificates verifies the leaf before selecting certificates for export.
+// InspectCertificates selects certificate metadata for export. Non-nil options
+// also request leaf verification; nil options never consult the trust store.
 // source describes supplied material (peer or input); discovered roots retain
 // verified_chain provenance instead of being presented as supplied material.
 func InspectCertificates(certs []*x509.Certificate, options *x509.VerifyOptions, selection, source string) (*CertificateReport, error) {
@@ -57,35 +58,34 @@ func InspectCertificates(certs []*x509.Certificate, options *x509.VerifyOptions,
 	if len(certs) == 0 {
 		return nil, errEmptyCertChain
 	}
-	opts := x509.VerifyOptions{}
+	report := &CertificateReport{Selection: selection}
+	var chains [][]*x509.Certificate
 	if options != nil {
-		opts = *options
-	}
-	if opts.Intermediates == nil {
-		opts.Intermediates = x509.NewCertPool()
-	} else {
-		opts.Intermediates = opts.Intermediates.Clone()
-	}
-	for _, cert := range certs[1:] {
-		opts.Intermediates.AddCert(cert)
-	}
-	leaf := NewCertInfo(certs[0])
-	chains, err := verifyCertInfo(leaf, certs[0], &opts)
-	if err != nil {
-		return nil, fmt.Errorf("inspect leaf certificate: %w", err)
-	}
-	report := &CertificateReport{
-		Selection: selection,
-		Verification: CertificateVerification{
-			Verified: leaf.Verified, Error: leaf.VerifyError, Chains: make([][]string, 0, len(chains)), chainNames: leaf.Chains,
-		},
-	}
-	for _, chain := range chains {
-		fingerprints := make([]string, 0, len(chain))
-		for _, cert := range chain {
-			fingerprints = append(fingerprints, NewCertInfo(cert).SHA256Fingerprint)
+		opts := *options
+		if opts.Intermediates == nil {
+			opts.Intermediates = x509.NewCertPool()
+		} else {
+			opts.Intermediates = opts.Intermediates.Clone()
 		}
-		report.Verification.Chains = append(report.Verification.Chains, fingerprints)
+		for _, cert := range certs[1:] {
+			opts.Intermediates.AddCert(cert)
+		}
+		leaf := NewCertInfo(certs[0])
+		verifiedChains, err := verifyCertInfo(leaf, certs[0], &opts)
+		if err != nil {
+			return nil, fmt.Errorf("inspect leaf certificate: %w", err)
+		}
+		chains = verifiedChains
+		report.Verification = &CertificateVerification{
+			Verified: leaf.Verified, Error: leaf.VerifyError, Chains: make([][]string, 0, len(chains)), chainNames: leaf.Chains,
+		}
+		for _, chain := range chains {
+			fingerprints := make([]string, 0, len(chain))
+			for _, cert := range chain {
+				fingerprints = append(fingerprints, NewCertInfo(cert).SHA256Fingerprint)
+			}
+			report.Verification.Chains = append(report.Verification.Chains, fingerprints)
+		}
 	}
 	selected, err := selectCertificates(certs, chains, selection)
 	if err != nil {
@@ -125,7 +125,7 @@ func selectCertificates(supplied []*x509.Certificate, chains [][]*x509.Certifica
 		if suppliedRoot(supplied) {
 			return supplied[len(supplied)-1:], nil
 		}
-		return nil, fmt.Errorf("%w: root unavailable; no verified chain or supplied leaf-first signature chain ending in a self-signed CA", ErrCertificateSelection)
+		return nil, fmt.Errorf("%w: root unavailable; no complete signature chain ending in a root CA", ErrCertificateSelection)
 	default:
 		return selectCertificateIndex(supplied, chains, selection)
 	}
