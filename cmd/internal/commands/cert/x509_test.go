@@ -3,8 +3,10 @@ package cert_test
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +36,26 @@ func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
 	require.ErrorIs(t, err, errUnexpectedPEMType, "error = %v, want errUnexpectedPEMType", err)
 	require.ErrorContains(t, err, "PRIVATE KEY", "want the offending block type reported")
 	assert.Empty(t, output, "output = %q, want no output for invalid input", output)
+}
+
+func TestCertificateInspectRejectsHardLinkedOutput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	contents := []byte("preserve before parsing")
+	inputPath := writeCertTestFile(t, dir, "input.pem", contents)
+	outputPath := filepath.Join(dir, "output.pem")
+	require.NoError(t, os.Link(inputPath, outputPath))
+	root := newRootCmd()
+	input := &certVerifyReadCounter{}
+	root.SetIn(input)
+
+	stdout, _, err := executeRootCommandStreams(t, root, "cert", "inspect", "--input", inputPath, "--output", outputPath)
+	require.ErrorIs(t, err, errCertificatePathCollision)
+	assert.Zero(t, input.count.Load())
+	assert.Empty(t, stdout)
+	preserved, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, contents, preserved)
 }
 
 func TestCertificateInspectAcceptsDERAndPreservesFraming(t *testing.T) {
@@ -66,6 +88,68 @@ func TestCertificateInspectAcceptsDERAndPreservesFraming(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, string(fixture.leafPEM), stdout)
 		})
+	}
+}
+
+func TestCertificateInspectDescribesUnverifiedCertificates(t *testing.T) {
+	t.Parallel()
+	first := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	second := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	expired := newCertVerifyMatchFixture(t, certFixtureOptions{
+		leafNotBefore: time.Unix(0, 0), leafNotAfter: time.Unix(3600, 0),
+	})
+	restricted := newCertVerifyMatchFixture(t, certFixtureOptions{
+		extKeyUsage:   []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		leafNotBefore: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		leafNotAfter:  time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	for _, test := range []struct {
+		name    string
+		pems    [][]byte
+		expired bool
+	}{
+		{name: "unrelated CAs", pems: [][]byte{first.rootPEM, second.rootPEM}},
+		{name: "expired certificate", pems: [][]byte{expired.leafPEM}, expired: true},
+		{name: "restricted purpose", pems: [][]byte{restricted.leafPEM}},
+	} {
+		for _, format := range []string{"text", "plain", "json", "pem"} {
+			t.Run(test.name+"/"+format, func(t *testing.T) {
+				t.Parallel()
+				input := bytes.Join(test.pems, nil)
+				stdout, stderr, err := executeCertTestWithInput(t, input, "cert", "inspect", "--format", format)
+				require.NoError(t, err)
+				assert.Empty(t, stderr)
+				switch format {
+				case "pem":
+					assert.Equal(t, string(input), stdout)
+				case "json":
+					var report struct {
+						Certificates []struct {
+							PEM         string   `json:"pem"`
+							ExtKeyUsage []string `json:"ext_key_usage"`
+							IsExpired   bool     `json:"is_expired"`
+						} `json:"certificates"`
+						Verification json.RawMessage `json:"verification"`
+					}
+					require.NoError(t, json.Unmarshal([]byte(stdout), &report))
+					assert.Nil(t, report.Verification)
+					require.Len(t, report.Certificates, len(test.pems))
+					for index, want := range test.pems {
+						assert.Equal(t, string(want), report.Certificates[index].PEM)
+						assert.Equal(t, test.expired, report.Certificates[index].IsExpired)
+					}
+					if test.name == "restricted purpose" {
+						assert.Equal(t, []string{"Code Signing"}, report.Certificates[0].ExtKeyUsage)
+					}
+				default:
+					assert.NotContains(t, stdout, "Verification")
+					assert.NotContains(t, stdout, "not verified")
+					for index := range test.pems {
+						assert.Contains(t, stdout, fmt.Sprintf("Certificate %d", index+1))
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -141,10 +225,17 @@ func TestCertificateTextIncludesDetails(t *testing.T) {
 			assert.Empty(t, explicitStderr)
 			for _, field := range []string{
 				"Subject    ", "Issuer     ", "Serial     ", "DNS Names  ", "IPs        ", "Not Before  ", "Not After   ",
-				"Key                ", "SHA256             ", "Public Key SHA256  ", "Certificate Verification · original leaf",
+				"Key                ", "SHA256             ", "Public Key SHA256  ",
 			} {
 				assert.Contains(t, output, field, "default format")
 				assert.Contains(t, explicit, field, "explicit text format")
+			}
+			if command[1] == "connect" {
+				assert.Contains(t, output, "Certificate Verification · original leaf")
+				assert.Contains(t, explicit, "Certificate Verification · original leaf")
+			} else {
+				assert.NotContains(t, output, "Verification")
+				assert.NotContains(t, explicit, "Verification")
 			}
 		})
 	}

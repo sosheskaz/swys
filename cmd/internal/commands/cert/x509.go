@@ -1,7 +1,6 @@
 package cert
 
 import (
-	"crypto/x509"
 	"embed"
 	"fmt"
 	"io"
@@ -156,7 +155,6 @@ func newCertInspectCmd() *cobra.Command {
 	}, certFormatNames)
 	commandio.AddInputEncodingFlag(certInspectCmd)
 	commandio.AddOutputEncodingFlag(certInspectCmd)
-	addCertificateCAFlags(certInspectCmd)
 	addCertificateSelection(certInspectCmd, asym.SelectFullChain)
 	certInspectCmd.ValidArgsFunction = cobra.NoFileCompletions
 	return certInspectCmd
@@ -171,12 +169,5 @@ func prepareInspectedCertificates(cmd *cobra.Command, input io.Reader) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	roots, err := certVerificationRoots(cmd)
-	if err != nil {
-		return nil, err
-	}
-	return prepareInspection(cmd, certs, &x509.VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-	}, "input")
+	return prepareInspection(cmd, certs, nil, "input")
 }

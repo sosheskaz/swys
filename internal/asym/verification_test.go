@@ -63,6 +63,19 @@ func TestCertificateReportPreservesNamesAndLeafVerification(t *testing.T) {
 	assert.Contains(t, output.String(), "certificate verification: verified")
 }
 
+func TestCertificateMetadataReportOmitsVerification(t *testing.T) {
+	t.Parallel()
+	leaf, intermediate, root := generateCertificateChain(t)
+	report, err := InspectCertificates([]*x509.Certificate{leaf, intermediate, root}, nil, SelectFullChain, "input")
+	require.NoError(t, err)
+	assert.Nil(t, report.Verification)
+	require.Len(t, report.Certificates, 3)
+	var output bytes.Buffer
+	require.NoError(t, (&TextFormatter{}).FormatReport(report, &output))
+	assert.NotContains(t, output.String(), "verification")
+	assert.Contains(t, output.String(), "Service, Leaf")
+}
+
 func TestNewCertInfoVerifiedDoesNotMutateOptions(t *testing.T) {
 	t.Parallel()
 	leaf, intermediate, root := generateCertificateChain(t)

@@ -127,10 +127,10 @@ func (f *JSONFormatter) FormatReport(report *CertificateReport, w io.Writer) err
 			Source:                  info.Source,
 		})
 	}
-	value := struct {
-		Selection    string                  `json:"selection"`
-		Certificates []reportCertificateJSON `json:"certificates"`
-		Verification CertificateVerification `json:"verification"`
+	value := struct { //nolint:govet // Field order preserves the existing JSON envelope.
+		Selection    string                   `json:"selection"`
+		Certificates []reportCertificateJSON  `json:"certificates"`
+		Verification *CertificateVerification `json:"verification,omitempty"`
 	}{report.Selection, certificates, report.Verification}
 	encoder := json.NewEncoder(w)
 	if f.Indent {

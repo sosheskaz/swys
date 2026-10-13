@@ -100,7 +100,7 @@ func writeCertificateChains(writer io.Writer, chains [][]ChainCertInfo) error {
 	return nil
 }
 
-// FormatReport renders selection details and reports verification of the original leaf.
+// FormatReport renders selection details and any requested leaf verification.
 func (f *TextFormatter) FormatReport(report *CertificateReport, w io.Writer) error {
 	if f.Presentation != nil {
 		return certificateTextReport(report, w, *f.Presentation)
@@ -108,6 +108,9 @@ func (f *TextFormatter) FormatReport(report *CertificateReport, w io.Writer) err
 	metadata := &TextFormatter{metadataOnly: true}
 	if err := metadata.FormatMultiple(report.Certificates, w); err != nil {
 		return err
+	}
+	if report.Verification == nil {
+		return nil
 	}
 	if err := report.Verification.WriteText(w); err != nil {
 		return err

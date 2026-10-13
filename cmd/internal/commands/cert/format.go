@@ -82,8 +82,8 @@ func prepareInspection(cmd *cobra.Command, certs []*x509.Certificate, options *x
 	if err := formatter.FormatReport(report, &output); err != nil {
 		return nil, err
 	}
-	if _, pemOutput := formatter.(*asym.PEMFormatter); pemOutput {
-		cmd.SetContext(context.WithValue(cmd.Context(), inspectionResultKey{}, report.Verification))
+	if _, pemOutput := formatter.(*asym.PEMFormatter); pemOutput && report.Verification != nil {
+		cmd.SetContext(context.WithValue(cmd.Context(), inspectionResultKey{}, *report.Verification))
 	}
 	return output.Bytes(), nil
 }
@@ -103,6 +103,10 @@ func runPreparedInspection(cmd *cobra.Command, _ []string) error {
 }
 
 func addCertificateSelection(cmd *cobra.Command, defaultSelection string) {
+	rootDescription := "supplied self-signed CA in a complete signature chain"
+	if cmd.Name() != certInspectCommandName {
+		rootDescription = "verified trust anchors or a supplied self-signed CA"
+	}
 	cmd.Flags().StringP("select", "s", defaultSelection, "certificates to export (leaf, chain, fullchain, root, or index: 0=root, last=leaf)")
 	commandio.RegisterDescribedFlagCompletion(cmd, "select", func() []string {
 		return []string{asym.SelectLeaf, asym.SelectChain, asym.SelectFullChain, asym.SelectRoot, "0", "1"}
@@ -110,7 +114,7 @@ func addCertificateSelection(cmd *cobra.Command, defaultSelection string) {
 		asym.SelectLeaf:      "first certificate",
 		asym.SelectChain:     "supplied certificates after the leaf",
 		asym.SelectFullChain: "all supplied certificates",
-		asym.SelectRoot:      "verified trust anchors or a supplied self-signed CA",
+		asym.SelectRoot:      rootDescription,
 		"0":                  "root of an unambiguous complete chain",
 		"1":                  "next certificate toward the leaf, if present",
 	})
