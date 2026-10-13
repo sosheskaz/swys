@@ -2,6 +2,7 @@ package connectrpc
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -159,6 +160,29 @@ func (fixture *completedFixture) Receive(any) error {
 	}
 	return io.EOF
 }
+
+func TestSendMessagesStopsAfterSendFailure(t *testing.T) {
+	t.Parallel()
+	stream := &failingSendFixture{}
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	reads := 0
+	err := sendMessages(ctx, cancel, stream, func(context.Context) (jsontext.Value, error) {
+		reads++
+		if reads > 1 {
+			return nil, io.EOF
+		}
+		return jsontext.Value(`{"text":"first"}`), nil
+	})
+	require.ErrorIs(t, err, io.ErrClosedPipe)
+	assert.Equal(t, 1, reads, "a failed send must stop consuming input")
+}
+
+type failingSendFixture struct {
+	completedFixture
+}
+
+func (*failingSendFixture) Send(any) error { return io.ErrClosedPipe }
 
 func TestReflectionTransportPreservesEscapedTrailingSlash(t *testing.T) {
 	t.Parallel()
