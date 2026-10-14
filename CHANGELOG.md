@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/sosheskaz/swys/compare/v0.2.1...v0.3.0) (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cert:** remove CA flags and JSON verification from cert inspect ([#48](https://github.com/sosheskaz/swys/issues/48))
+
+### Features
+
+* **crpc:** add Connect RPC calls, streaming, and discovery ([#43](https://github.com/sosheskaz/swys/issues/43)) ([dffc2ec](https://github.com/sosheskaz/swys/commit/dffc2ec00cc4403a461f73d9287b2a0781a49aac))
+
+
+### Bug Fixes
+
+* **cert:** remove CA flags and JSON verification from cert inspect ([#48](https://github.com/sosheskaz/swys/issues/48)) ([8dd9eba](https://github.com/sosheskaz/swys/commit/8dd9eba57907bb59a80c869fae68331365546931))
+
+
+### Dependencies
+
+* **go:** update module golang.org/x/sys to v0.49.0 ([#54](https://github.com/sosheskaz/swys/issues/54)) ([34a5783](https://github.com/sosheskaz/swys/commit/34a5783fd4918bf97596f3cc2519b785ceaa302c))
+
 ## [0.2.1](https://github.com/sosheskaz/swys/compare/v0.2.0...v0.2.1) (2026-10-12)
 
 

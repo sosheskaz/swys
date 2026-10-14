@@ -28,7 +28,7 @@ then install SwYS globally using its [GitHub backend](https://mise.jdx.dev/dev-t
 
 <!-- x-release-please-start-version -->
 ```sh
-mise use --global github:sosheskaz/swys@0.2.1
+mise use --global github:sosheskaz/swys@0.3.0
 swys --version
 ```
 <!-- x-release-please-end -->
@@ -140,12 +140,12 @@ With a GitHub CLI that provides `gh skill` (the repository pins 2.102.0), instal
 the discovery entry from the release tag corresponding to `swys --version`.
 
 <!-- x-release-please-start-version -->
-For `v0.2.1`:
+For `v0.3.0`:
 
 ```sh
-gh skill install sosheskaz/swys swys --pin v0.2.1 --agent codex --scope user
-gh skill install sosheskaz/swys swys --pin v0.2.1 --agent claude-code --scope user
-gh skill install sosheskaz/swys swys --pin v0.2.1 --agent github-copilot --scope user
+gh skill install sosheskaz/swys swys --pin v0.3.0 --agent codex --scope user
+gh skill install sosheskaz/swys swys --pin v0.3.0 --agent claude-code --scope user
+gh skill install sosheskaz/swys swys --pin v0.3.0 --agent github-copilot --scope user
 ```
 <!-- x-release-please-end -->
 
