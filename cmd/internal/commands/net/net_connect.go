@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -362,16 +361,7 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 }
 
 func parseALPN(text string) ([]string, error) {
-	if text == "" {
-		return nil, nil
-	}
-	protocols := strings.Split(text, ",")
-	for _, protocol := range protocols {
-		if protocol == "" || protocol != strings.TrimSpace(protocol) || len(protocol) > 255 {
-			return nil, fmt.Errorf("%w: --alpn values must be 1-255 bytes with no surrounding whitespace", ErrInvalidFlags)
-		}
-	}
-	return protocols, nil
+	return tlsconfig.ParseALPN(text, ErrInvalidFlags)
 }
 
 func validateNetFlagsBeforeIO(cmd *cobra.Command) error {

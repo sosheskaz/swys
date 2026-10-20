@@ -17,20 +17,6 @@ const (
 	completionBoolFalse = "false"
 )
 
-var alpnCompletions = []struct {
-	value       string
-	description string
-}{
-	{value: "h2", description: "HTTP/2"},
-	{value: "http/1.1", description: "HTTP/1.1"},
-	{value: "dot", description: "DNS over TLS"},
-	{value: "mqtt", description: "MQTT"},
-	{value: "postgresql", description: "PostgreSQL"},
-	{value: "imap", description: "IMAP"},
-	{value: "pop3", description: "POP3"},
-	{value: "acme-tls/1", description: "ACME TLS-ALPN challenge"},
-}
-
 func registerALPNCompletion(command *cobra.Command) {
 	if err := command.RegisterFlagCompletionFunc(netALPNFlagName, completeALPN); err != nil {
 		panic(err)
@@ -41,27 +27,7 @@ func completeALPN(cmd *cobra.Command, _ []string, toComplete string) ([]string, 
 	if !netFlagValueCompletionApplicable(cmd, netALPNFlagName) {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	prefix := ""
-	component := toComplete
-	used := make(map[string]struct{})
-	if comma := strings.LastIndexByte(toComplete, ','); comma >= 0 {
-		prefix = toComplete[:comma+1]
-		component = toComplete[comma+1:]
-		for value := range strings.SplitSeq(toComplete[:comma], ",") {
-			used[value] = struct{}{}
-		}
-	}
-
-	completions := make([]string, 0, len(alpnCompletions))
-	for _, candidate := range alpnCompletions {
-		if _, duplicate := used[candidate.value]; duplicate || !strings.HasPrefix(candidate.value, component) {
-			continue
-		}
-		completions = append(completions, prefix+candidate.value+"\t"+candidate.description)
-	}
-	return completions, cobra.ShellCompDirectiveNoSpace |
-		cobra.ShellCompDirectiveNoFileComp |
-		cobra.ShellCompDirectiveKeepOrder
+	return tlsconfig.CompleteALPN(toComplete)
 }
 
 func registerNoFileFlagCompletion(command *cobra.Command, name string) {
