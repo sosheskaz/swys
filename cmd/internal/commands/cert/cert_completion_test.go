@@ -186,6 +186,7 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{name: "CSR key", args: []string{"cert", "csr", "--key", ""}},
 		{name: "verify intermediate", args: []string{"cert", "verify", "--input", "chain.pem", "--intermediates", ""}},
 		{name: "verify CA", args: []string{"cert", "verify", "--input", "chain.pem", "--ca", ""}},
+		{name: "connect CA", args: []string{"cert", "connect", "localhost:443", "--ca", ""}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -402,6 +403,15 @@ func TestCertificateCADataCompletion(t *testing.T) {
 		"--input-encoding", "base64", "--ca", "-", "--ca-encoding", "h")
 	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 	assert.True(t, certificateCompletionContains(values, "hex"))
+
+	values, directive = executeCertificateCompletion(t, "cert", "connect", "localhost:443", "--ca-data", "")
+	assert.Empty(t, values)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	values, _ = executeCertificateCompletion(t, "cert", "connect", "localhost:443", "--ca-data", "literal", "--")
+	assert.True(t, completionContainsFlag(values, "--ca-encoding"))
+	// Connect has no main input codec to hide when --ca owns stdin.
+	values, _ = executeCertificateCompletion(t, "cert", "connect", "localhost:443", "--ca", "-", "--ca-encoding", "hex", "--")
+	assert.True(t, completionContainsFlag(values, "--system-ca"))
 }
 
 func TestCertificateCompletionHidesInapplicableArtifactEncodings(t *testing.T) {
@@ -414,6 +424,7 @@ func TestCertificateCompletionHidesInapplicableArtifactEncodings(t *testing.T) {
 		{args: []string{"cert", "csr"}, flag: "key-encoding"},
 		{args: []string{"cert", "match", "--cert", "missing.pem"}, flag: "csr-encoding"},
 		{args: []string{"cert", "verify"}, flag: "ca-encoding"},
+		{args: []string{"cert", "connect", "localhost:443"}, flag: "ca-encoding"},
 		{args: []string{"cert", "verify", "--intermediates="}, flag: "intermediates-encoding"},
 		{args: []string{"cert", "create", "--ca", "--issuer-cert", "missing.pem"}, flag: "issuer-cert-encoding"},
 		{args: []string{"cert", "create", "--csr", "missing.csr", "--key", "missing.key"}, flag: "key-encoding"},

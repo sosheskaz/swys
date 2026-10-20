@@ -3,15 +3,19 @@ package cert_test
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	rootcmd "github.com/sosheskaz/swys/cmd"
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestCertificateCustomCAData(t *testing.T) {
@@ -48,23 +52,87 @@ func TestCertificateCustomCAData(t *testing.T) {
 
 func TestCertificateCASelectionValidatesBeforeIO(t *testing.T) {
 	t.Parallel()
+	for _, command := range [][]string{
+		{"cert", "verify"},
+		// A refused endpoint would fail differently if validation reached the network.
+		{"cert", "connect", "127.0.0.1:1"},
+	} {
+		for _, test := range []struct {
+			name string
+			args []string
+		}{
+			{name: "conflicting sources", args: []string{"--ca", "missing.pem", "--ca-data", "literal"}},
+			{name: "empty literal", args: []string{"--ca-data="}},
+			{name: "codec without source", args: []string{"--ca-encoding", "raw"}},
+			{name: "unknown codec", args: []string{"--ca-data", "literal", "--ca-encoding", "missing"}},
+		} {
+			t.Run(command[1]+"/"+test.name, func(t *testing.T) {
+				t.Parallel()
+				err := assertCertArtifactPreIOFailure(t, append(slices.Clone(command), test.args...))
+				require.NotContains(t, err.Error(), "dial")
+				if test.name == "unknown codec" {
+					require.ErrorIs(t, err, byteencoding.ErrUnknownInputEncoding)
+				}
+			})
+		}
+	}
+}
+
+func TestCertificateConnectCASources(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	unrelated := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	endpoint := newIdentityTLSServer(t, &identity)
+	caPEM, err := os.ReadFile(identity.CACert)
+	require.NoError(t, err)
+	block, _ := pem.Decode(caPEM)
+	require.NotNil(t, block)
+	derPath := writeCertTestFile(t, t.TempDir(), "ca.der", block.Bytes)
 	for _, test := range []struct {
-		name string
-		args []string
+		name     string
+		input    []byte
+		args     []string
+		verified bool
 	}{
-		{name: "conflicting sources", args: []string{"--ca", "missing.pem", "--ca-data", "literal"}},
-		{name: "empty literal", args: []string{"--ca-data="}},
-		{name: "codec without source", args: []string{"--ca-encoding", "raw"}},
-		{name: "unknown codec", args: []string{"--ca-data", "literal", "--ca-encoding", "missing"}},
+		{name: "PEM file", args: []string{"--ca", identity.CACert}, verified: true},
+		{name: "DER file", args: []string{"--ca", derPath}, verified: true},
+		{name: "stdin", input: caPEM, args: []string{"--ca", "-"}, verified: true},
+		{name: "encoded stdin", input: []byte(hex.EncodeToString(caPEM)), args: []string{"--ca", "-", "--ca-encoding", "hex"}, verified: true},
+		{name: "literal", args: []string{"--ca-data", string(caPEM)}, verified: true},
+		{name: "encoded literal", args: []string{"--ca-data", base64.StdEncoding.EncodeToString(block.Bytes), "--ca-encoding", "base64"}, verified: true},
+		{name: "combine system roots", args: []string{"--ca", identity.CACert, "--system-ca"}, verified: true},
+		{name: "unrelated CA replaces system roots", args: []string{"--ca", unrelated.CACert}},
+		{name: "system roots alone", args: []string{"--system-ca"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			err := assertCertArtifactPreIOFailure(t, append([]string{"cert", "verify"}, test.args...))
-			if test.name == "unknown codec" {
-				require.ErrorIs(t, err, byteencoding.ErrUnknownInputEncoding)
-			}
+			args := append([]string{"cert", "connect", endpoint, "--format", "json"}, test.args...)
+			stdout, stderr, err := executeCertTestWithInput(t, test.input, args...)
+			require.NoError(t, err, "verification never fails retrieval; stderr %q", stderr)
+			verification := decodeConnectVerification(t, stdout)
+			require.Equal(t, test.verified, verification.Verified, "verification error: %s", verification.Error)
 		})
 	}
+	t.Run("CA failure precedes the connection and preserves output", func(t *testing.T) {
+		t.Parallel()
+		output := writeCertTestFile(t, t.TempDir(), "output", []byte("preserve"))
+		stdout, _, err := executeRootStreams(t, "cert", "connect", "127.0.0.1:1", "--ca-data", "not a certificate", "--output", output)
+		require.ErrorContains(t, err, "read --ca-data")
+		require.Empty(t, stdout)
+		contents, readErr := os.ReadFile(output)
+		require.NoError(t, readErr)
+		require.Equal(t, "preserve", string(contents))
+	})
+	t.Run("output collides with CA", func(t *testing.T) {
+		t.Parallel()
+		output := writeCertTestFile(t, t.TempDir(), "ca.pem", caPEM)
+		stdout, _, err := executeRootStreams(t, "cert", "connect", endpoint, "--ca", output, "--output", output)
+		require.ErrorIs(t, err, errCertificatePathCollision)
+		require.Empty(t, stdout)
+		contents, readErr := os.ReadFile(output)
+		require.NoError(t, readErr)
+		require.Equal(t, caPEM, contents)
+	})
 }
 
 func TestCertificateCADataFailuresPreserveOutput(t *testing.T) {
