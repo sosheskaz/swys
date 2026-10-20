@@ -52,6 +52,15 @@ Verification uses the system trust store by default. --ca reads trust anchors fr
 
 Trust anchors change only the verification report and the root and numeric selections that build on verified chains. Retrieval still succeeds when verification fails.
 
+Choose the server name
+
+Servers that host several names choose a certificate from the TLS server name indication (SNI). SNI defaults to the endpoint host. --servername sends another name, and verification checks the leaf against that same name. --no-servername omits SNI, and verification falls back to the endpoint host.
+
+  swys cert connect 192.0.2.10:443 --servername www.example.com
+  swys cert connect example.com:443 --no-servername -f json
+
+TLS never sends an IP address as SNI, so an IP endpoint without --servername also omits it.
+
 Reference
 
   swys help cert inspect

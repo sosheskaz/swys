@@ -241,26 +241,69 @@ func TestCertificateTextIncludesDetails(t *testing.T) {
 	}
 }
 
-func TestConnectCommandPreservesEndpointSNI(t *testing.T) {
+func TestConnectCommandSelectsSNI(t *testing.T) {
 	t.Parallel()
-	serverName := make(chan string, 1)
-	server := newChainTLSServerWithClientHello(t, func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-		serverName <- hello.ServerName
-		return nil, nil //nolint:nilnil // nil directs TLS to continue with the existing configuration
-	})
-	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
-	require.NoError(t, err)
-
-	if _, err := executeRoot(t, "cert", "connect", net.JoinHostPort("localhost", port)); err != nil {
-		t.Fatal(err)
+	for _, test := range []struct {
+		name string
+		host string
+		want string
+		args []string
+	}{
+		{name: "endpoint host", host: "localhost", want: "localhost"},
+		{name: "override", host: "localhost", args: []string{"--servername", "www.example.test"}, want: "www.example.test"},
+		{name: "override IP endpoint", host: "127.0.0.1", args: []string{"--servername", "www.example.test"}, want: "www.example.test"},
+		{name: "omitted", host: "localhost", args: []string{"--no-servername"}},
+		{name: "IP endpoint", host: "127.0.0.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			serverNames := make(chan string, 1)
+			server := newChainTLSServerWithClientHello(t, func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+				serverNames <- hello.ServerName
+				return nil, nil //nolint:nilnil // nil directs TLS to continue with the existing configuration
+			})
+			_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			_, err = executeRoot(t, append([]string{"cert", "connect", net.JoinHostPort(test.host, port)}, test.args...)...)
+			require.NoError(t, err)
+			select {
+			case got := <-serverNames:
+				assert.Equal(t, test.want, got)
+			case <-time.After(time.Second):
+				t.Fatal("server did not receive ClientHello")
+			}
+		})
 	}
-	select {
-	case got := <-serverName:
-		if got != "localhost" {
-			t.Fatalf("SNI = %q, want localhost", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("server did not receive ClientHello")
+}
+
+func TestConnectCommandVerifiesServerName(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	endpoint := newIdentityTLSServer(t, &identity)
+	_, port, err := net.SplitHostPort(endpoint)
+	require.NoError(t, err)
+	ipEndpoint := net.JoinHostPort("127.0.0.1", port)
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		mismatch string
+		args     []string
+		verified bool
+	}{
+		{name: "servername names the leaf", endpoint: ipEndpoint, args: []string{"--servername", "localhost"}, verified: true},
+		{name: "servername differs from the leaf", endpoint: endpoint, args: []string{"--servername", "other.test"}, mismatch: "other.test"},
+		{name: "omitted SNI verifies the endpoint host", endpoint: endpoint, args: []string{"--no-servername"}, verified: true},
+		{name: "omitted SNI verifies the endpoint IP", endpoint: ipEndpoint, args: []string{"--no-servername"}, mismatch: "127.0.0.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"cert", "connect", test.endpoint, "--ca", identity.CACert, "-f", "json"}, test.args...)
+			output, _, err := executeRootStreams(t, args...)
+			require.NoError(t, err, "a name mismatch is reported, not fatal")
+			verification := decodeConnectVerification(t, output)
+			assert.Equal(t, test.verified, verification.Verified, "verification error: %s", verification.Error)
+			assert.Contains(t, verification.Error, test.mismatch)
+		})
 	}
 }
 
@@ -300,6 +343,25 @@ func newIdentityTLSServer(t *testing.T, identity *testcmd.NetworkIdentity) strin
 	return net.JoinHostPort("localhost", port)
 }
 
+// newVirtualHostTLSServer presents identity's localhost leaf only for that SNI
+// and the fixture chain otherwise, returning an IP endpoint.
+func newVirtualHostTLSServer(t *testing.T, identity *testcmd.NetworkIdentity) string {
+	t.Helper()
+	certificate, err := tls.LoadX509KeyPair(identity.ServerCert, identity.ServerKey)
+	require.NoError(t, err)
+	fallback := testcmd.NewTLSCertificateChain(t)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = &tls.Config{GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if hello.ServerName == "localhost" {
+			return &certificate, nil
+		}
+		return &fallback, nil
+	}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server.Listener.Addr().String()
+}
+
 func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	server := newChainTLSServer(t)
@@ -311,6 +373,11 @@ func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 	}{
 		{name: "removed inspect format", args: []string{"cert", "inspect", "--format", "long"}, diagnostic: "unknown output format"},
 		{name: "removed connect format", args: []string{"cert", "connect", server.Listener.Addr().String(), "--format", "long"}, diagnostic: "unknown output format"},
+		{name: "empty servername", args: []string{"cert", "connect", server.Listener.Addr().String(), "--servername="}, diagnostic: "use --no-servername"},
+		{
+			name: "servername with no-servername", args: []string{"cert", "connect", server.Listener.Addr().String(), "--servername", "a.test", "--no-servername"},
+			diagnostic: "none of the others",
+		},
 		{name: "missing root", args: []string{"cert", "inspect", "--select", "root"}, diagnostic: "root unavailable"},
 		{name: "numeric missing root", args: []string{"cert", "inspect", "--select", "0"}, diagnostic: "root unavailable"},
 		{name: "negative index", args: []string{"cert", "inspect", "--select", "-1"}, diagnostic: "non-negative decimal index"},

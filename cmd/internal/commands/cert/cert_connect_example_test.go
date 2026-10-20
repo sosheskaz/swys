@@ -13,6 +13,23 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
+func TestExampleConnectChoosesServerName(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	// The server presents the localhost identity only to clients that ask for it.
+	endpoint := newVirtualHostTLSServer(t, &identity)
+
+	output, _, err := executeRootStreams(t, "cert", "connect", endpoint, "--servername", "localhost", "--ca", identity.CACert, "-f", "json")
+	require.NoError(t, err)
+	assert.Equal(t, certificateFileDER(t, identity.ServerCert), connectLeafDER(t, output))
+	verification := decodeConnectVerification(t, output)
+	assert.True(t, verification.Verified, "the leaf is verified against --servername: %s", verification.Error)
+
+	output, _, err = executeRootStreams(t, "cert", "connect", endpoint, "--ca", identity.CACert, "-f", "json")
+	require.NoError(t, err)
+	assert.NotEqual(t, certificateFileDER(t, identity.ServerCert), connectLeafDER(t, output), "an IP endpoint sends no SNI")
+}
+
 func TestExampleConnectVerifiesWithPrivateCA(t *testing.T) {
 	t.Parallel()
 	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
@@ -55,6 +72,18 @@ func decodeConnectVerification(t *testing.T, output string) connectVerification 
 	}
 	require.NoError(t, json.Unmarshal([]byte(output), &report))
 	return report.Verification
+}
+
+func connectLeafDER(t *testing.T, output string) []byte {
+	t.Helper()
+	var report struct {
+		Certificates []struct {
+			PEM string `json:"pem"`
+		} `json:"certificates"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &report))
+	require.NotEmpty(t, report.Certificates)
+	return singlePEMCertificate(t, report.Certificates[0].PEM)
 }
 
 func singlePEMCertificate(t *testing.T, output string) []byte {
