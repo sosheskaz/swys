@@ -112,6 +112,9 @@ func loadSchema(
 	if settings.verbose {
 		err = errors.Join(err, writeDiagnostics(ctx, cmd.ErrOrStderr(), call, err))
 	}
+	if errors.Is(err, connectrpc.ErrReflectionProtocol) {
+		return nil, fmt.Errorf("discover Connect schema: %w (use swys grpc for gRPC-only servers)", safeError(err))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("discover Connect schema: %w", safeError(err))
 	}

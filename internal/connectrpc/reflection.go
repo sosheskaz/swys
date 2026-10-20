@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
+	"sync/atomic"
 
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
@@ -19,16 +21,23 @@ import (
 
 var errReflection = errors.New("invalid reflection schema")
 
+// ErrReflectionProtocol identifies a server that rejects Connect-protocol
+// reflection requests, as gRPC-only servers do.
+var ErrReflectionProtocol = errors.New("server does not accept Connect-protocol reflection")
+
 // Reflect lists services, or resolves only the requested symbol and its imports.
-// Reflection always uses gRPC over HTTP/2; application calls still use Connect.
+// Reflection uses the Connect protocol like application calls; its bidirectional
+// stream still requires HTTP/2.
 func Reflect(parent context.Context, base *url.URL, options Options, symbol string) (*protoschema.Schema, error) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	options.RequireHTTP2 = true
 	httpClient, transport := newHTTPClient(Endpoint{URL: base}, options)
 	defer transport.CloseIdleConnections()
+	media := &mediaTypeRecorder{next: httpClient.Transport}
+	httpClient.Transport = media
 	wire := connecthttp.NewTransport(httpClient, base.Scheme+"://"+base.Host,
-		connecthttp.WithGRPC(), connecthttp.WithReadMaxBytes(protoschema.MaxBytes+64<<10),
+		connecthttp.WithReadMaxBytes(protoschema.MaxBytes+64<<10),
 		connecthttp.WithSendMaxBytes(protoschema.MaxBytes),
 	)
 	stream := grpcreflect.NewClient(connect.NewClient(wire)).NewStream(ctx)
@@ -39,7 +48,26 @@ func Reflect(parent context.Context, base *url.URL, options Options, symbol stri
 	if closeErr := stream.Close(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("finish reflection: %w", closeErr))
 	}
+	if err != nil && media.rejected.Load() {
+		err = fmt.Errorf("%w: %w", ErrReflectionProtocol, err)
+	}
 	return schema, err
+}
+
+// mediaTypeRecorder notes HTTP 415 responses, which Connect-Go reports only as
+// error text.
+type mediaTypeRecorder struct {
+	next     http.RoundTripper
+	rejected atomic.Bool
+}
+
+// RoundTrip records a 415 response without changing the exchange.
+func (recorder *mediaTypeRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := recorder.next.RoundTrip(request)
+	if err == nil && response.StatusCode == http.StatusUnsupportedMediaType {
+		recorder.rejected.Store(true)
+	}
+	return response, err //nolint:wrapcheck // requestTransport already describes transport failures
 }
 
 func reflectSchema(stream *grpcreflect.ClientStream, symbol string) (*protoschema.Schema, error) {
