@@ -1,5 +1,4 @@
-// Package httptransport shares HTTP address overrides between network clients.
-package httptransport
+package netconn
 
 import (
 	"context"

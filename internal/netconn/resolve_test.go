@@ -1,4 +1,4 @@
-package httptransport_test
+package netconn_test
 
 import (
 	"net/netip"
@@ -7,13 +7,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 func TestParseHTTPResolves(t *testing.T) {
 	t.Parallel()
 
-	resolver, err := httptransport.ParseResolves([]string{
+	resolver, err := netconn.ParseResolves([]string{
 		"mixed.test:8443:192.0.2.1,[2001:db8::1]",
 		"Example.TEST:443:192.0.2.1",
 		"example.test:443:192.0.2.2",
@@ -62,8 +62,8 @@ func TestParseHTTPResolvesRejectsInvalidRules(t *testing.T) {
 	} {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
-			resolver, err := httptransport.ParseResolves([]string{value})
-			require.ErrorIs(t, err, httptransport.ErrInvalidResolve)
+			resolver, err := netconn.ParseResolves([]string{value})
+			require.ErrorIs(t, err, netconn.ErrInvalidResolve)
 			require.Nil(t, resolver)
 		})
 	}
