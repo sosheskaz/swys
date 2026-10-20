@@ -2,7 +2,7 @@
 # jdx/mise-action, so local and CI toolchains cannot drift.
 # Tasks live in .config/mise/tasks/ as standalone scripts; run `mise tasks` to list.
 [tools]
-go = "1.27.2"
+go = "1.27.3"
 gh = "2.102.0"
 node = "24.21.0"
 "npm:release-please" = "17.11.2"
