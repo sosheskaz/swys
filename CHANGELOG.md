@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.1](https://github.com/sosheskaz/swys/compare/v0.3.0...v0.3.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **crpc:** reflect over the Connect protocol ([#68](https://github.com/sosheskaz/swys/issues/68)) ([7128a87](https://github.com/sosheskaz/swys/commit/7128a878b0a73907d3e0659554f8074ba024a419))
+
+
+### Dependencies
+
+* **go:** update dependency go to v1.27.3 ([#65](https://github.com/sosheskaz/swys/issues/65)) ([a10e8ff](https://github.com/sosheskaz/swys/commit/a10e8ff939416d88d85b9473e2eab701d96b00ba))
+* **go:** update module golang.org/x/crypto to v0.58.0 ([#62](https://github.com/sosheskaz/swys/issues/62)) ([d7333c4](https://github.com/sosheskaz/swys/commit/d7333c4480ba7864811bd2268bf47a473e685d78))
+* **go:** update module golang.org/x/net to v0.61.0 ([#63](https://github.com/sosheskaz/swys/issues/63)) ([2fd7cbe](https://github.com/sosheskaz/swys/commit/2fd7cbe48c422136ae11d520273a3a1a0e978213))
+
 ## [0.3.0](https://github.com/sosheskaz/swys/compare/v0.2.1...v0.3.0) (2026-10-14)
 
 
