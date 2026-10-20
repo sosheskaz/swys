@@ -187,6 +187,8 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{name: "verify intermediate", args: []string{"cert", "verify", "--input", "chain.pem", "--intermediates", ""}},
 		{name: "verify CA", args: []string{"cert", "verify", "--input", "chain.pem", "--ca", ""}},
 		{name: "connect CA", args: []string{"cert", "connect", "localhost:443", "--ca", ""}},
+		{name: "connect client certificate", args: []string{"cert", "connect", "localhost:443", "--cert", ""}},
+		{name: "connect client key", args: []string{"cert", "connect", "localhost:443", "-k", ""}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -206,6 +208,8 @@ func TestCertificateArtifactCompletionOffersFilesAndOneStdinOwner(t *testing.T) 
 		{"cert", "verify", "--input", "chain.pem", "--intermediates", "-", "--ca", ""},
 		{"cert", "verify", "--ca", ""},
 		{"cert", "verify", "--input", "-", "--ca", ""},
+		{"cert", "connect", "localhost:443", "--ca", "-", "--cert", ""},
+		{"cert", "connect", "localhost:443", "--cert", "-", "--key", ""},
 	} {
 		got, _ := executeCertificateCompletion(t, args...)
 		if certificateCompletionContains(got, "-") {
@@ -387,6 +391,19 @@ func TestCertificateArtifactEncodingCompletion(t *testing.T) {
 	}
 }
 
+func TestCertificateConnectHandshakeCompletion(t *testing.T) {
+	t.Parallel()
+	values, directive := executeCertificateCompletion(t, "cert", "connect", "localhost:443", "--tls-min", "")
+	assert.Equal(t, []string{"1.0\tTLS 1.0 (legacy)", "1.1\tTLS 1.1 (legacy)", "1.2\tTLS 1.2", "1.3\tTLS 1.3"}, values)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	values, _ = executeCertificateCompletion(t, "cert", "connect", "localhost:443", "--tls-max", "1.")
+	assert.Len(t, values, 4)
+	values, directive = executeCertificateCompletion(t, "cert", "connect", "localhost:443", "--alpn", "h2,")
+	assert.Contains(t, values, "h2,http/1.1\tHTTP/1.1")
+	assert.NotContains(t, values, "h2,h2\tHTTP/2", "listed protocols are not suggested again")
+	assert.NotZero(t, directive&cobra.ShellCompDirectiveNoSpace)
+}
+
 func TestCertificateCADataCompletion(t *testing.T) {
 	t.Parallel()
 	values, directive := executeCertificateCompletion(t, "cert", "verify", "--ca-data", "")
@@ -426,6 +443,8 @@ func TestCertificateCompletionHidesInapplicableArtifactEncodings(t *testing.T) {
 		{args: []string{"cert", "match", "--cert", "missing.pem"}, flag: "csr-encoding"},
 		{args: []string{"cert", "verify"}, flag: "ca-encoding"},
 		{args: []string{"cert", "connect", "localhost:443"}, flag: "ca-encoding"},
+		{args: []string{"cert", "connect", "localhost:443"}, flag: "cert-encoding"},
+		{args: []string{"cert", "connect", "localhost:443", "--cert", "client.pem"}, flag: "key-encoding"},
 		{args: []string{"cert", "verify", "--intermediates="}, flag: "intermediates-encoding"},
 		{args: []string{"cert", "create", "--ca", "--issuer-cert", "missing.pem"}, flag: "issuer-cert-encoding"},
 		{args: []string{"cert", "create", "--csr", "missing.csr", "--key", "missing.key"}, flag: "key-encoding"},

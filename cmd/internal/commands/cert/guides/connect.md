@@ -76,6 +76,23 @@ swys cert connect example.com:443 --no-servername -f json
 
 TLS never sends an IP address as SNI, so an IP endpoint without **--servername** also omits it.
 
+## Shape the handshake
+
+Servers can also choose a certificate from the offered application protocols, TLS versions, or client identity. **--alpn** offers a comma-separated list of ALPN protocols; none are offered by default. **--tls-min** and **--tls-max** bound the offered versions to 1.0, 1.1, 1.2, or 1.3; by default, SwYS offers TLS 1.2 and 1.3, and lower versions are legacy. **--cert** and **--key** (**-k**) present a client certificate chain and sign with its private key, which never leaves SwYS; each reads a PEM file or - for stdin, and **--cert-encoding** and **--key-encoding** decode their outer bytes. Because inspection does not require a trusted server, SwYS presents that certificate to whichever server answers, before and regardless of verification.
+
+```sh
+swys cert connect example.com:443 --alpn acme-tls/1
+swys cert connect example.com:443 --tls-max 1.2 -f json
+```
+
+Prepare client.pem and client.key before presenting a client identity:
+
+```sh
+swys cert connect mtls.example.com:443 --cert client.pem --key client.key
+```
+
+Over TLS 1.2, a server that requires client authentication rejects the handshake without **--cert** and **--key**. Over TLS 1.3, the client finishes its handshake before the server checks the client certificate, so inspection can succeed without one.
+
 ## Reference
 
 ```sh
