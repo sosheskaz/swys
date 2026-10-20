@@ -995,7 +995,8 @@ func TestGRPCMetadataAppliesToReflectionAndCall(t *testing.T) {
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
 	_, _, err := executeRootStreams(t,
 		"grpc", address, grpcFixtureMethodName, "--plaintext", "-d", `{}`,
-		"-H", "x-trace: first", "-H", "x-trace: second", "-H", "auth-bin: YmluYXJ5", "-H", "x-space: value",
+		"-H", "x-trace: first", "-H", "X-Trace: second", "-H", "Auth-Bin: YmluYXJ5", "-H", "x-space: value",
+		"-H", "Authorization: Bearer example",
 	)
 	require.NoError(t, err)
 	_, callMD, reflectionMD := record.snapshot()
@@ -1009,13 +1010,17 @@ func TestGRPCMetadataAppliesToReflectionAndCall(t *testing.T) {
 		if got := md.Get("x-space"); len(got) != 1 || got[0] != "value" {
 			t.Fatalf("%s space-separated metadata = %q", label, got)
 		}
+		if got := md.Get("authorization"); len(got) != 1 || got[0] != "Bearer example" {
+			t.Fatalf("%s mixed-case key metadata = %q", label, got)
+		}
 	}
 }
 
 func TestGRPCRejectsInvalidAndReservedMetadataBeforeNetwork(t *testing.T) {
 	t.Parallel()
 	for _, header := range []string{
-		"Bad_Key: value",
+		"Bad Key: value",
+		"\u212Aey: value",
 		"x-test: good\nbad",
 		"x-test: tab\tvalue",
 		"x-test:\rvalue",
@@ -1027,6 +1032,8 @@ func TestGRPCRejectsInvalidAndReservedMetadataBeforeNetwork(t *testing.T) {
 		"x-test-bin: ***",
 		":authority: example.test",
 		"grpc-timeout: 1S",
+		"Grpc-Timeout: 1S",
+		"Content-Type: application/grpc",
 		"content-type: application/grpc",
 		"te: trailers",
 		"connection: close",

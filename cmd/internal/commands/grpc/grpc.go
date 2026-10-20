@@ -548,15 +548,18 @@ func parseGRPCMetadata(values []string) (metadata.MD, error) {
 	result := metadata.MD{}
 	for _, value := range values {
 		key, content, ok := strings.Cut(value, ":")
-		if !ok || key == "" || key != strings.ToLower(key) {
+		if !ok || key == "" {
 			return nil, fmt.Errorf("%w %q", ErrInvalidMetadata, value)
 		}
 		for _, char := range key {
-			if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || strings.ContainsRune("-_.", char) {
+			if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("-_.", char) {
 				continue
 			}
 			return nil, fmt.Errorf("%w key %q", ErrInvalidMetadata, key)
 		}
+		// Lowercase only after the ASCII check: Unicode folding maps some non-ASCII
+		// runes, such as the Kelvin sign, to ASCII letters.
+		key = strings.ToLower(key)
 		if reservedGRPCMetadataKey(key) {
 			return nil, fmt.Errorf("%w: reserved key %q", ErrInvalidMetadata, key)
 		}

@@ -172,7 +172,10 @@ func FuzzGRPCMetadata(f *testing.F) {
 		"x-test-bin: YmluYXJ5",
 		"x-repeat: first",
 		"Bad_Key: value",
+		"Bad Key: value",
+		"\u212Aey: value",
 		"grpc-timeout: 1S",
+		"Grpc-Timeout: 1S",
 		"connection: close",
 		"keep-alive: timeout=5",
 		"proxy-connection: close",
@@ -212,15 +215,18 @@ func FuzzGRPCMetadata(f *testing.F) {
 
 func referenceGRPCMetadata(header string) bool {
 	key, value, found := strings.Cut(header, ":")
-	if !found || key == "" || key != strings.ToLower(key) {
+	if !found || key == "" {
 		return false
 	}
 	for _, character := range key {
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-_.", character) {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || strings.ContainsRune("-_.", character) {
+
 			continue
 		}
 		return false
 	}
+	key = strings.ToLower(key)
 	if strings.HasPrefix(key, "grpc-") {
 		return false
 	}
