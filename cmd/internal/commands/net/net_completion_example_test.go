@@ -171,6 +171,7 @@ func TestNetCompletionSuppressesFilesForNonPathValues(t *testing.T) {
 		[]string{"nc", "connect", "--udp", "example.test:53", "extra"},
 		[]string{"netcat", "listen", "--tls", "9443", "extra"},
 		[]string{"net", "connect", "--tls", "--servername", "example"},
+		[]string{"net", "connect", "--resolve", "example.test:443:"},
 	)
 	for _, args := range nonPathCompletions {
 		lines := completionLines(completeCommand(t, args...))

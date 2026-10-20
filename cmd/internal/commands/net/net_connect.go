@@ -73,7 +73,9 @@ protocols explicitly; it does not transform the application payload.`,
 	command.Flags().String(tlsconfig.ServerNameFlagName, "", "TLS SNI and verification name (default endpoint host; TLS only)")
 	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")
 	command.Flags().Bool(netInsecureFlagName, false, "disable TLS certificate and hostname verification (TLS only)")
+	command.Flags().StringArray(netResolveFlagName, nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
 	registerNoFileFlagCompletion(command, tlsconfig.ServerNameFlagName)
+	registerNoFileFlagCompletion(command, netResolveFlagName)
 	registerALPNCompletion(command)
 	configureTLSConnectFlagCompletion(command)
 	tlsconfig.AddArtifactEncodingFlags(command, netTLSCompletionApplicable)
@@ -130,8 +132,12 @@ func runNetConnectTCP(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
 	setupContext, cancel := commandio.NetworkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialTCPRetryRefused(setupContext, args[0])
+	connection, err := netconn.Dialer{Resolver: resolver}.DialTCPRetryRefused(setupContext, args[0])
 	cancel()
 	if err != nil {
 		return err
@@ -155,8 +161,12 @@ func runNetConnectUDP(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
 	setupContext, cancel := commandio.NetworkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialUDP(setupContext, args[0])
+	connection, err := netconn.Dialer{Resolver: resolver}.DialUDP(setupContext, args[0])
 	cancel()
 	if err != nil {
 		return err
@@ -234,8 +244,12 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
 	setupContext, cancel := commandio.NetworkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialTLSRetryRefused(setupContext, args[0], config)
+	connection, err := netconn.Dialer{Resolver: resolver}.DialTLSRetryRefused(setupContext, args[0], config)
 	cancel()
 	if err != nil {
 		return err

@@ -13,7 +13,7 @@ import (
 )
 
 // ErrInvalidResolve identifies a malformed address override.
-var ErrInvalidResolve = errors.New("invalid HTTP resolve rule")
+var ErrInvalidResolve = errors.New("invalid resolve rule")
 
 type resolveKey struct {
 	host string
@@ -189,7 +189,21 @@ func dialResolvedAddresses(
 		}
 		attemptErrors = append(attemptErrors, fmt.Errorf("dial %s: %w", mappedAddress, err))
 	}
-	return nil, fmt.Errorf("dial %s using --resolve: %w", originalAddress, errors.Join(attemptErrors...))
+	return nil, &resolvedDialError{address: originalAddress, attempts: attemptErrors}
+}
+
+// resolvedDialError keeps each override attempt so callers can classify them.
+type resolvedDialError struct {
+	address  string
+	attempts []error
+}
+
+func (err *resolvedDialError) Error() string {
+	return fmt.Sprintf("dial %s using --resolve: %v", err.address, errors.Join(err.attempts...))
+}
+
+func (err *resolvedDialError) Unwrap() []error {
+	return err.attempts
 }
 
 func resolveAttemptContext(ctx context.Context, attemptsRemaining int) (context.Context, context.CancelFunc) {
