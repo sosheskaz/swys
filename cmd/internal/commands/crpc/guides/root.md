@@ -83,9 +83,11 @@ swys crpc api.example.com example.v1.EchoService/Echo --reflect -d '{"text":"hel
 swys crpc http://localhost:8080/example.v1.Events/Watch --protoset api.protoset -d '{"topic":"deployments"}'
 ```
 
-Reflection requires HTTP/2, using cleartext HTTP/2 for http://. It supports
-standard gRPC reflection v1, falling back to v1alpha only when v1 reports
-Unimplemented. It fetches the requested symbol and imports, not every service.
+Reflection uses the Connect protocol, like calls, and requires HTTP/2, using
+cleartext HTTP/2 for http://. It queries the standard reflection service v1,
+falling back to v1alpha only when v1 reports Unimplemented, and fetches the
+requested symbol and imports, not every service. Connect-Go servers accept it;
+for gRPC-only servers, use swys grpc instead.
 --reflection-timeout defaults to 10 seconds for the whole lookup, including
 stream completion; it is separate from the invocation timeout. Schemas have
 independent limits of 16 MiB of descriptors, 1,024 files, and 100 nested message

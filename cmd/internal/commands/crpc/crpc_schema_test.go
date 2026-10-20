@@ -120,6 +120,7 @@ func TestCRPCReflectionVersionFallbackAndScope(t *testing.T) {
 				return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
 					call, _ := connect.CallInfoForServerContext(ctx)
 					assert.Equal(t, "fixture", call.RequestHeader().Get("X-Auth"))
+					assert.Equal(t, "connect", call.Protocol, "reflection uses the Connect protocol like application calls")
 					if strings.HasPrefix(spec.Procedure, "/grpc.reflection.v1.") {
 						v1.Add(1)
 						if code != 0 {
@@ -232,7 +233,7 @@ func TestCRPCReflectionTimeoutIncludesFinalStatus(t *testing.T) {
 	assert.Empty(t, output, "successful lookup must still finish the reflection stream")
 }
 
-func TestCRPCUsesStandardGRPCReflection(t *testing.T) {
+func TestCRPCPointsGRPCOnlyReflectionToGRPCCommand(t *testing.T) {
 	t.Parallel()
 	files, err := protodesc.NewFiles(schemaSet(false))
 	require.NoError(t, err)
@@ -243,8 +244,14 @@ func TestCRPCUsesStandardGRPCReflection(t *testing.T) {
 	stopped := make(chan error, 1)
 	go func() { stopped <- server.Serve(listener) }()
 	t.Cleanup(func() { server.Stop(); assert.NoError(t, <-stopped) })
+
 	output, _, err := run(t, nil, "crpc", "http://"+listener.Addr().String(), "--describe", "example.v1.Request", "--format", "json")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, connectrpc.ErrReflectionProtocol)
+	require.ErrorContains(t, err, "use swys grpc")
+	assert.Empty(t, output)
+
+	output, _, err = run(t, nil, "grpc", listener.Addr().String(), "--plaintext", "--describe", "example.v1.Request", "--format", "json")
+	require.NoError(t, err, "the suggested command reflects the same server")
 	assert.Contains(t, output, `"Request"`)
 }
 
