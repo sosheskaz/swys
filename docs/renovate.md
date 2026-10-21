@@ -64,10 +64,20 @@ can grant these permissions before activation. Renovate discovers the App's bot
 identity from its installation token; no author identity is hardcoded.
 
 The production workflow checks out main, serializes runs without cancellation,
-mints a token scoped to the current repository, and runs the container without
-host mounts. It uses native repository-config discovery and permits no custom
-post-upgrade commands. The token is revoked by the token Action after the job.
-No credentials or production cache are shared with PR checks.
+mints a token scoped to the current repository, and mounts only Renovate's
+cache directory into the container. It uses native repository-config discovery
+and permits no custom post-upgrade commands. The token is revoked by the token
+Action after the job. No credentials are shared with PR checks.
+
+Production persists only Renovate's package cache between runs, so release and
+tag history is fetched incrementally rather than in full on every run. The
+cache holds lookup data for public packages and repositories. It lives in
+main's Actions cache scope: PR workflows, including those
+from forks, can restore it, and any workflow on main can write it. A tampered
+entry could steer proposed versions and digests, including automerged Actions
+updates. Tool downloads are not persisted, because Renovate would execute them
+with the write token. The repository cache stays disabled, because it would
+store Dependabot alerts.
 
 Automerge policy remains in the config. Repository automerge availability,
 required checks, and enforcement must be established before activating those
@@ -90,3 +100,7 @@ This authenticates the Renovate distribution. It does not independently attest
 every bundled dependency. Review and verify the replacement distribution when
 updating the image pin; a valid image signature does not settle missing
 provenance for individual packages.
+
+Image update PRs omit release notes. Renovate's tag history is large enough
+that fetching notes dominated each run's duration. Review the release notes
+through the PR's source and compare links.
