@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2](https://github.com/sosheskaz/swys/compare/v0.3.1...v0.3.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **crpc:** end each reflection request before awaiting its reply ([#71](https://github.com/sosheskaz/swys/issues/71)) ([402c7e9](https://github.com/sosheskaz/swys/commit/402c7e9ca499e1ac411bca594ad3c34dfe92fe72))
+* **grpc:** accept mixed-case metadata keys ([#72](https://github.com/sosheskaz/swys/issues/72)) ([20d529e](https://github.com/sosheskaz/swys/commit/20d529e4d7bb3b2c39156cc9ad82185821f31fab))
+* **grpc:** omit header value from malformed metadata errors ([#73](https://github.com/sosheskaz/swys/issues/73)) ([3ea1cca](https://github.com/sosheskaz/swys/commit/3ea1cca883560e5d16e16e79d1aa47fd21e71b24))
+
 ## [0.3.1](https://github.com/sosheskaz/swys/compare/v0.3.0...v0.3.1) (2026-10-20)
 
 
