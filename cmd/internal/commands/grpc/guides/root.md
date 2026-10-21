@@ -25,6 +25,13 @@ swys grpc api.example.test:443 example.v1.EchoService/Echo \
   -d '{"text":"hello"}'
 ```
 
+Send request metadata with **--header** (**-H**) as name: value, repeating it for additional values. Reflection requests carry the same metadata. Names are case-insensitive and sent in lowercase, and values of names ending in -bin are base64-decoded before sending.
+
+```sh
+swys grpc api.example.test:443 example.v1.EchoService/Echo \
+  -d '{"text":"hello"}' -H "Authorization: Bearer $TOKEN"
+```
+
 To extract the response text, install jq and compose the same invocation:
 
 ```sh
