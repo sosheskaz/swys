@@ -1,10 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"net"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -49,21 +50,43 @@ func newNetPipeProcess(ctx context.Context, arguments ...string) *exec.Cmd {
 	return command
 }
 
-func unusedNetPipeAddress(t *testing.T) string {
+// startNetPipeListener starts a verbose port-0 net listen stage, replacing its
+// stderr, and returns the address from its listening diagnostic with a channel
+// for its remaining stderr. The child binds before announcing the port, so no
+// other test can claim it first, unlike a port reserved and released by the parent.
+func startNetPipeListener(t *testing.T, listen *exec.Cmd) (string, <-chan string) {
 	t.Helper()
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
+	stderrRead, stderrWrite, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		closeErr := listener.Close()
-		t.Fatalf("parse reserved pipeline address: %v (close listener: %v)", err, closeErr)
-	}
-	if err := listener.Close(); err != nil {
+	t.Cleanup(func() { closeNetPipeFiles(t, [2]*os.File{stderrRead, stderrWrite}) })
+	listen.Stderr = stderrWrite
+	if err := listen.Start(); err != nil {
 		t.Fatal(err)
 	}
-	return net.JoinHostPort("localhost", port)
+	if err := stderrWrite.Close(); err != nil {
+		stopNetPipeProcesses([]*exec.Cmd{listen})
+		t.Fatalf("close parent listener stderr: %v", err)
+	}
+	stderr := bufio.NewReader(stderrRead)
+	line, err := stderr.ReadString('\n')
+	address, found := strings.CutPrefix(strings.TrimSpace(line), "listening tcp ")
+	if err != nil || !found {
+		stopNetPipeProcesses([]*exec.Cmd{listen})
+		rest, readErr := io.ReadAll(stderr)
+		t.Fatalf("listener stderr = %q (%v), want listening address", line+string(rest), errors.Join(err, readErr))
+	}
+	remaining := make(chan string, 1)
+	go func() {
+		data, err := io.ReadAll(stderr)
+		if err != nil {
+			remaining <- fmt.Sprintf("read remaining stderr: %v", err)
+			return
+		}
+		remaining <- string(data)
+	}()
+	return address, remaining
 }
 
 func closeNetPipeFiles(t *testing.T, pipes ...[2]*os.File) {

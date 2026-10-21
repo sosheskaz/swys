@@ -37,13 +37,13 @@ func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
 	}
 	wantDigest := fileSHA256(t, plaintextPath)
 
-	address := unusedNetPipeAddress(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
+	const connectStage, listenStage = 1, 2
 	commands := []*exec.Cmd{
 		newNetPipeProcess(ctx, "aes", "encrypt", "--key", keyPath, "--input", plaintextPath),
-		newNetPipeProcess(ctx, "net", "connect", address),
-		newNetPipeProcess(ctx, "net", "listen", address, "--recv-only"),
+		newNetPipeProcess(ctx, "net", "connect"),
+		newNetPipeProcess(ctx, "net", "listen", "127.0.0.1:0", "--recv-only", "--verbose"),
 		newNetPipeProcess(ctx, "aes", "decrypt", "--key", keyPath),
 		newNetPipeProcess(ctx, "hash", "sha256"),
 	}
@@ -68,13 +68,18 @@ func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
 		commands[i].Stderr = &stderrs[i]
 	}
 
-	started := 0
+	address, listenStderr := startNetPipeListener(t, commands[listenStage])
+	commands[connectStage].Args = append(commands[connectStage].Args, address)
+	running := []*exec.Cmd{commands[listenStage]}
 	for i, command := range commands {
+		if i == listenStage {
+			continue
+		}
 		if err := command.Start(); err != nil {
-			stopNetPipeProcesses(commands[:started])
+			stopNetPipeProcesses(running)
 			t.Fatalf("start pipeline stage %d: %v", i, err)
 		}
-		started++
+		running = append(running, command)
 	}
 	closeNetPipeFiles(t, pipes...)
 
@@ -95,6 +100,7 @@ func TestExampleAESStreamingLargerThanSingleMessageThroughTCP(t *testing.T) {
 		}
 	}
 	if err := errors.Join(stageErrors...); err != nil {
+		stderrs[listenStage].WriteString(<-listenStderr)
 		diagnostics := make([]string, len(commands))
 		for i := range commands {
 			diagnostics[i] = fmt.Sprintf("stage %d: error=%v stderr=%q", i, stageErrors[i], stderrs[i].String())
