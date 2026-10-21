@@ -73,7 +73,7 @@ func TestCRPCEarlyCompletionCancelsBorrowedInput(t *testing.T) {
 
 func TestCRPCStreamKeepsMessagesOnFinalFailure(t *testing.T) {
 	t.Parallel()
-	for _, failure := range []string{"remote status", "wait deadline", "broken output"} {
+	for _, failure := range []string{"remote status", "broken output"} {
 		t.Run(failure, func(t *testing.T) {
 			t.Parallel()
 			server := streamHandlerServer(t, connect.StreamTypeServer, func(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
@@ -91,9 +91,6 @@ func TestCRPCStreamKeepsMessagesOnFinalFailure(t *testing.T) {
 				return ctx.Err()
 			})
 			args := []string{"crpc", server.URL + echoMethod, "--stream", "server", "-d", `{"received":true}`, "--timeout", "5s"}
-			if failure == "wait deadline" {
-				args = append(args, "--wait", "20ms")
-			}
 			if failure == "broken output" {
 				root := cmd.NewCommand()
 				root.SetContext(t.Context())
@@ -104,13 +101,48 @@ func TestCRPCStreamKeepsMessagesOnFinalFailure(t *testing.T) {
 			output, _, err := run(t, nil, args...)
 			require.Error(t, err)
 			assert.JSONEq(t, `{"received":true}`, output)
-			if failure == "wait deadline" {
-				assert.ErrorIs(t, err, context.DeadlineExceeded)
-			} else {
-				assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
-			}
+			assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
 		})
 	}
+}
+
+func TestCRPCStreamKeepsMessagesOnWaitDeadline(t *testing.T) {
+	t.Parallel()
+	server := streamHandlerServer(t, connect.StreamTypeBidi, func(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+		var request structpb.Struct
+		if err := stream.Receive(&request); err != nil {
+			return fmt.Errorf("receive fixture request: %w", err)
+		}
+		if err := stream.Send(&request); err != nil {
+			return fmt.Errorf("send fixture response: %w", err)
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	input, send := io.Pipe()
+	t.Cleanup(func() { assert.NoError(t, input.Close()); assert.NoError(t, send.Close()) })
+	output := &messageOutput{messages: make(chan string, 1)}
+	root := cmd.NewCommand()
+	root.SetContext(t.Context())
+	finished := make(chan error, 1)
+	go func() {
+		finished <- testcmd.Run(t, root, input, output, io.Discard,
+			"crpc", server.URL+echoMethod, "--stream", "bidi", "--wait", "20ms", "--timeout", "5s")
+	}()
+	_, err := io.WriteString(send, "{\"received\":true}\n")
+	require.NoError(t, err)
+	// Ending input starts the drain timer, so wait for the response first; a
+	// server stream starts it as soon as the request is written.
+	select {
+	case message := <-output.messages:
+		assert.JSONEq(t, `{"received":true}`, message)
+	case err := <-finished:
+		t.Fatalf("command finished before its response: %v", err)
+	}
+	require.NoError(t, send.Close())
+	err = <-finished
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "response drain timed out")
 }
 
 func TestCRPCClientStreamSendsNoInventedEmptyMessage(t *testing.T) {
