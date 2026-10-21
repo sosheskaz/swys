@@ -543,7 +543,6 @@ func grpcOverallContext(parent context.Context, timeout time.Duration) (context.
 	return context.WithTimeout(parent, timeout)
 }
 
-//nolint:gocyclo // one pass keeps validation and decoded values inseparable
 func parseGRPCMetadata(values []string) (metadata.MD, error) {
 	result := metadata.MD{}
 	for _, value := range values {
@@ -552,10 +551,7 @@ func parseGRPCMetadata(values []string) (metadata.MD, error) {
 			// Omit the value: a malformed header is often an Authorization credential.
 			return nil, fmt.Errorf("%w: header must be name: value", ErrInvalidMetadata)
 		}
-		for _, char := range key {
-			if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("-_.", char) {
-				continue
-			}
+		if strings.ContainsFunc(key, func(char rune) bool { return !validGRPCMetadataKeyRune(char) }) {
 			return nil, fmt.Errorf("%w key %q", ErrInvalidMetadata, key)
 		}
 		// Lowercase only after the ASCII check: Unicode folding maps some non-ASCII
@@ -564,10 +560,8 @@ func parseGRPCMetadata(values []string) (metadata.MD, error) {
 		if reservedGRPCMetadataKey(key) {
 			return nil, fmt.Errorf("%w: reserved key %q", ErrInvalidMetadata, key)
 		}
-		for _, char := range content {
-			if char < ' ' || char > '~' {
-				return nil, fmt.Errorf("%w: non-printable ASCII value in %q", ErrInvalidMetadata, key)
-			}
+		if strings.ContainsFunc(content, nonPrintableASCII) {
+			return nil, fmt.Errorf("%w: non-printable ASCII value in %q", ErrInvalidMetadata, key)
 		}
 		content = strings.Trim(content, " ")
 		if strings.HasSuffix(key, "-bin") {
@@ -580,6 +574,14 @@ func parseGRPCMetadata(values []string) (metadata.MD, error) {
 		result.Append(key, content)
 	}
 	return result, nil
+}
+
+func validGRPCMetadataKeyRune(char rune) bool {
+	return char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("-_.", char)
+}
+
+func nonPrintableASCII(char rune) bool {
+	return char < ' ' || char > '~'
 }
 
 func reservedGRPCMetadataKey(key string) bool {
