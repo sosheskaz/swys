@@ -117,7 +117,8 @@
       "matchFileNames": [".github/renovate.Dockerfile"],
       "semanticCommitType": "ci",
       "semanticCommitScope": "renovate",
-      "pinDigests": true
+      "pinDigests": true,
+      "fetchChangeLogs": "off"
     }
   ]
 }

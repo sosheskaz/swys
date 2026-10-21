@@ -47,14 +47,36 @@ jobs:
           permission-statuses: write
           permission-vulnerability-alerts: read
 
+      # Only the package cache persists: it holds public lookup data. Tool
+      # downloads would be executables run with the write token, and the
+      # repository cache would hold Dependabot alerts that PR workflows can read.
+      - name: Restore package cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/renovate-cache/renovate/renovate-cache-v1
+          key: renovate-package-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: renovate-package-${{ runner.os }}-
+
       - name: Run Renovate
         env:
           RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
           RENOVATE_REPOSITORY: ${{ github.repository }}
+          CACHE_DIR: ${{ runner.temp }}/renovate-cache
         run: |
           image=$(awk '$1 == "FROM" { print $2 }' .github/renovate.Dockerfile)
-          docker run --rm --env RENOVATE_TOKEN \
+          # The image runs as uid 12021.
+          mkdir -p "$CACHE_DIR"
+          sudo chown -R 12021:0 "$CACHE_DIR"
+          docker run --rm --env RENOVATE_TOKEN --volume "$CACHE_DIR:/tmp/renovate/cache" \
+            --env RENOVATE_CACHE_DIR=/tmp/renovate/cache \
             --env RENOVATE_PLATFORM=github --env RENOVATE_ONBOARDING=false \
             --env RENOVATE_REQUIRE_CONFIG=required --env RENOVATE_DOCKER_MAX_PAGES=10 \
             --env 'RENOVATE_ALLOWED_POST_UPGRADE_COMMANDS=[]' \
             "$image" renovate "$RENOVATE_REPOSITORY"
+          sudo chown -R "$(id -u):$(id -g)" "$CACHE_DIR"
+
+      - name: Save package cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/renovate-cache/renovate/renovate-cache-v1
+          key: renovate-package-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
