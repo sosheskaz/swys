@@ -1,8 +1,10 @@
 package crpc_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +62,17 @@ func schemaSet(streaming bool) *descriptorpb.FileDescriptorSet {
 	}}}
 }
 
+// anySchemaSet adds a google.protobuf.Any field, which imports a second file.
+func anySchemaSet() *descriptorpb.FileDescriptorSet {
+	set := schemaSet(false)
+	set.File[0].Dependency = []string{"google/protobuf/any.proto"}
+	set.File[0].MessageType[0].Field = append(set.File[0].MessageType[0].Field, &descriptorpb.FieldDescriptorProto{
+		Name: new("payload"), Number: new(int32(2)), Type: descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(), TypeName: new(".google.protobuf.Any"),
+	})
+	set.File = append(set.File, protodesc.ToFileDescriptorProto(anypb.File_google_protobuf_any_proto))
+	return set
+}
+
 func writeProtoset(t *testing.T, set *descriptorpb.FileDescriptorSet) string {
 	t.Helper()
 	data, err := proto.Marshal(set)
@@ -72,6 +85,14 @@ func writeProtoset(t *testing.T, set *descriptorpb.FileDescriptorSet) string {
 func schemaServer(
 	t *testing.T, set *descriptorpb.FileDescriptorSet, prefix string, interceptors ...connect.ServerInterceptor,
 ) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	handler, methods := schemaHandler(t, set, prefix, interceptors...)
+	return startSchemaServer(t, handler), methods
+}
+
+func schemaHandler(
+	t *testing.T, set *descriptorpb.FileDescriptorSet, prefix string, interceptors ...connect.ServerInterceptor,
+) (http.Handler, *atomic.Int32) {
 	t.Helper()
 	files, err := protodesc.NewFiles(set)
 	require.NoError(t, err)
@@ -101,13 +122,18 @@ func schemaServer(
 			mux.ServeHTTP(w, r)
 		})
 	}
+	return handler, methods
+}
+
+func startSchemaServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
 	server := httptest.NewUnstartedServer(handler)
 	server.Config.Protocols = new(http.Protocols)
 	server.Config.Protocols.SetHTTP1(true)
 	server.Config.Protocols.SetUnencryptedHTTP2(true)
 	server.Start()
 	t.Cleanup(server.Close)
-	return server, methods
+	return server
 }
 
 func TestCRPCReflectionVersionFallbackAndScope(t *testing.T) {
@@ -233,6 +259,64 @@ func TestCRPCReflectionTimeoutIncludesFinalStatus(t *testing.T) {
 	assert.Empty(t, output, "successful lookup must still finish the reflection stream")
 }
 
+func TestCRPCReflectionEndsEachRequestBeforeAwaitingItsResponse(t *testing.T) {
+	t.Parallel()
+	var omitted atomic.Int32
+	handler, calls := schemaHandler(t, anySchemaSet(), "", func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			return next(ctx, spec, requestedFileOnly{ServerStream: stream, omitted: &omitted})
+		}
+	})
+	// Some gateways forward a request only after its body ends.
+	server := startSchemaServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		handler.ServeHTTP(w, r)
+	}))
+	for _, test := range []struct {
+		want string
+		args []string
+	}{
+		{"example.v1.EchoService\n", []string{"crpc", "--reflection-timeout", "2s", server.URL}},
+		{"Echo\n", []string{"crpc", "--reflection-timeout", "2s", server.URL, "--list", "example.v1.EchoService"}},
+		{`".google.protobuf.Any"`, []string{"crpc", "--reflection-timeout", "2s", server.URL, "--describe", "example.v1.Request", "--format", "json"}},
+		{"example.v1.EchoService/Echo\t", []string{"__complete", "crpc", "--reflection-timeout", "2s", server.URL, "example.v1.EchoService/E"}},
+	} {
+		output, _, err := run(t, nil, test.args...)
+		require.NoError(t, err)
+		assert.Contains(t, output, test.want)
+	}
+	assert.Zero(t, calls.Load())
+	assert.Positive(t, omitted.Load(), "the client must fetch imports the server omitted")
+}
+
+// requestedFileOnly omits imports from reflection replies, as servers may for
+// files they consider already sent.
+type requestedFileOnly struct {
+	connect.ServerStream
+	omitted *atomic.Int32
+}
+
+func (stream requestedFileOnly) Send(message any) error {
+	if response, ok := message.(proto.Message); ok {
+		reply := response.ProtoReflect()
+		if field := reply.Descriptor().Fields().ByName("file_descriptor_response"); field != nil && reply.Has(field) {
+			files := reply.Mutable(field).Message()
+			if list := files.Mutable(files.Descriptor().Fields().ByName("file_descriptor_proto")).List(); list.Len() > 1 {
+				list.Truncate(1)
+				stream.omitted.Add(1)
+			}
+		}
+	}
+	if err := stream.ServerStream.Send(message); err != nil {
+		return fmt.Errorf("fixture send: %w", err)
+	}
+	return nil
+}
+
 func TestCRPCPointsGRPCOnlyReflectionToGRPCCommand(t *testing.T) {
 	t.Parallel()
 	files, err := protodesc.NewFiles(schemaSet(false))
@@ -257,13 +341,7 @@ func TestCRPCPointsGRPCOnlyReflectionToGRPCCommand(t *testing.T) {
 
 func TestCRPCSchemaResolvesAnyFromLocalTypes(t *testing.T) {
 	t.Parallel()
-	set := schemaSet(false)
-	set.File[0].Dependency = []string{"google/protobuf/any.proto"}
-	set.File[0].MessageType[0].Field = append(set.File[0].MessageType[0].Field, &descriptorpb.FieldDescriptorProto{
-		Name: new("payload"), Number: new(int32(2)), Type: descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(), TypeName: new(".google.protobuf.Any"),
-	})
-	set.File = append(set.File, protodesc.ToFileDescriptorProto(anypb.File_google_protobuf_any_proto))
-	path := writeProtoset(t, set)
+	path := writeProtoset(t, anySchemaSet())
 	server := echoServer(t, false, false)
 	message := `{"payload":{"@type":"type.googleapis.com/example.v1.Request","text":"inside Any"}}`
 	output, _, err := run(t, nil, "crpc", server.URL+echoMethod, "--protoset", path, "-d", message)
