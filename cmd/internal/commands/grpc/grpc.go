@@ -549,7 +549,8 @@ func parseGRPCMetadata(values []string) (metadata.MD, error) {
 	for _, value := range values {
 		key, content, ok := strings.Cut(value, ":")
 		if !ok || key == "" {
-			return nil, fmt.Errorf("%w %q", ErrInvalidMetadata, value)
+			// Omit the value: a malformed header is often an Authorization credential.
+			return nil, fmt.Errorf("%w: header must be name: value", ErrInvalidMetadata)
 		}
 		for _, char := range key {
 			if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("-_.", char) {
