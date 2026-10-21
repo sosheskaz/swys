@@ -1,6 +1,7 @@
 package net_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -25,15 +26,15 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 
 	keyPath := filepath.Join(t.TempDir(), "aes.key")
 	require.NoError(t, os.WriteFile(keyPath, bytes.Repeat([]byte{0x42}, 32), 0o600))
-	address := unusedNetPipeAddress(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	encrypt := newNetPipeProcess(ctx, "aes", "encrypt", "-k", keyPath)
-	connect := newNetPipeProcess(ctx, "net", "connect", address)
-	listen := newNetPipeProcess(ctx, "net", "listen", address, "-r")
+	connect := newNetPipeProcess(ctx, "net", "connect")
+	listen := newNetPipeProcess(ctx, "net", "listen", "127.0.0.1:0", "-r", "--verbose")
 	decrypt := newNetPipeProcess(ctx, "aes", "decrypt", "-k", keyPath)
 	commands := []*exec.Cmd{encrypt, connect, listen, decrypt}
+	const connectStage, listenStage = 1, 2
 
 	encryptedRead, encryptedWrite, err := os.Pipe()
 	require.NoError(t, err)
@@ -67,13 +68,18 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 		command.Stderr = &stderrs[i]
 	}
 
-	started := 0
+	address, listenStderr := startNetPipeListener(t, commands[listenStage])
+	commands[connectStage].Args = append(commands[connectStage].Args, address)
+	running := []*exec.Cmd{commands[listenStage]}
 	for i, command := range commands {
+		if i == listenStage {
+			continue
+		}
 		if err := command.Start(); err != nil {
-			stopNetPipeProcesses(commands[:started])
+			stopNetPipeProcesses(running)
 			t.Fatalf("start pipeline stage %d: %v", i, err)
 		}
-		started++
+		running = append(running, command)
 	}
 	for _, pipe := range pipes {
 		if err := pipe.Close(); err != nil {
@@ -101,6 +107,7 @@ func TestExampleAESRoundTripThroughNetPipe(t *testing.T) {
 		}
 	}
 	if err := errors.Join(stageErrors...); err != nil {
+		stderrs[listenStage].WriteString(<-listenStderr)
 		diagnostics := make([]string, len(commands))
 		for i := range commands {
 			diagnostics[i] = fmt.Sprintf("stage %d: error=%v stderr=%q", i, stageErrors[i], stderrs[i].String())
@@ -206,17 +213,30 @@ func newNetPipeProcess(ctx context.Context, arguments ...string) *exec.Cmd {
 	return command
 }
 
-func unusedNetPipeAddress(t *testing.T) string {
+// startNetPipeListener starts a verbose port-0 net listen stage, replacing its
+// stderr, and returns the address from its listening diagnostic with a channel
+// for its remaining stderr. The child binds before announcing the port, so no
+// other test can claim it first, unlike a port reserved and released by the parent.
+func startNetPipeListener(t *testing.T, listen *exec.Cmd) (string, <-chan string) {
 	t.Helper()
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
+	stderrRead, stderrWrite, err := os.Pipe()
 	require.NoError(t, err)
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		closeErr := listener.Close()
-		t.Fatalf("parse reserved pipeline address: %v (close listener: %v)", err, closeErr)
+	t.Cleanup(func() { closeNetPipeFiles(t, [2]*os.File{stderrRead, stderrWrite}) })
+	listen.Stderr = stderrWrite
+	require.NoError(t, listen.Start())
+	if err := stderrWrite.Close(); err != nil {
+		stopNetPipeProcesses([]*exec.Cmd{listen})
+		t.Fatalf("close parent listener stderr: %v", err)
 	}
-	require.NoError(t, listener.Close())
-	return net.JoinHostPort("localhost", port)
+	stderr := bufio.NewReader(stderrRead)
+	line, err := stderr.ReadString('\n')
+	address, found := strings.CutPrefix(strings.TrimSpace(line), "listening tcp ")
+	if err != nil || !found {
+		stopNetPipeProcesses([]*exec.Cmd{listen})
+		rest, readErr := io.ReadAll(stderr)
+		t.Fatalf("listener stderr = %q (%v), want listening address", line+string(rest), errors.Join(err, readErr))
+	}
+	return address, drainExampleStderr(stderr)
 }
 
 func startNetPipePeerEOFServer(t *testing.T, response string) (string, <-chan error) {
