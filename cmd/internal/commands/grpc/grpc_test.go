@@ -1060,6 +1060,26 @@ func TestGRPCRejectsInvalidAndReservedMetadataBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestGRPCMalformedMetadataErrorOmitsValue(t *testing.T) {
+	t.Parallel()
+	const secret = "example-secret-token"
+	for _, header := range []string{
+		"Authorization Bearer " + secret,
+		": " + secret,
+	} {
+		t.Run(fmt.Sprintf("%q", header), func(t *testing.T) {
+			t.Parallel()
+			_, stderr, err := executeRootStreams(t, "grpc", "127.0.0.1:1", grpcFixtureMethodName, "--plaintext", "-d", `{}`, "-H", header)
+			if !errors.Is(err, errInvalidGRPCMetadata) {
+				t.Fatalf("error = %v, want invalid metadata", err)
+			}
+			if strings.Contains(err.Error(), secret) || strings.Contains(stderr, secret) {
+				t.Fatalf("error %q or stderr %q exposes the header value", err, stderr)
+			}
+		})
+	}
+}
+
 func TestGRPCRejectsNonASCIIApplicationMetadataBeforeNetwork(t *testing.T) {
 	t.Parallel()
 	for _, header := range []string{
