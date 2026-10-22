@@ -291,6 +291,19 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 	values, _ = completeHTTPCommand(t, "-H", "Content-Type:multipart/form-data", "-")
 	assertHTTPCompletionAbsent(t, values, "--file")
 
+	values, _ = completeHTTPCommand(t, "--")
+	assertHTTPCompletions(t, values, "--auth-bearer", "--auth-basic-file", "--insecure-no-verify")
+	assertHTTPCompletionAbsent(t, values, "--insecure-cleartext-auth")
+	values, _ = completeHTTPCommand(t, "--auth-bearer-env", "TOKEN", "--")
+	assertHTTPCompletions(t, values, "--insecure-cleartext-auth")
+	assertHTTPCompletionAbsent(t, values, "--auth-bearer", "--auth-basic-file")
+	values, _ = completeHTTPCommand(t, "--auth-bearer-env", "TOKEN", "-H", "Auth")
+	assertHTTPCompletionAbsent(t, values, "Authorization: ")
+	values, _ = completeHTTPCommand(t, "--auth-bearer-env", "TOKEN", "-H", "Authorization: ")
+	assertHTTPCompletionAbsent(t, values, "Authorization: Bearer ")
+	values, _ = completeHTTPCommand(t, "-H", "Authorization: Bearer x", "--")
+	assertHTTPCompletionAbsent(t, values, "--auth-bearer", "--auth-basic-env", "--insecure-cleartext-auth")
+
 	for _, test := range []struct {
 		name           string
 		args           []string
@@ -316,6 +329,19 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 		{
 			name: "system CA before partner remains selectable", args: []string{"--insecure=false", "--system-ca="},
 			want: []string{"true", "false"},
+		},
+		{
+			name: "no-verify hides trust flags", args: []string{"--insecure-no-verify", "--"},
+			want: []string{"--servername"}, unwanted: []string{"--ca", "--system-ca"},
+		},
+		{
+			name: "CA hides both verification carve-outs", args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--"},
+			want: []string{"--servername"}, unwanted: []string{"--insecure", "--insecure-no-verify"},
+		},
+		{
+			name: "CA excludes prospective no-verify true",
+			args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--insecure-no-verify="},
+			want: []string{"false"}, unwanted: []string{"true"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

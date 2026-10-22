@@ -128,7 +128,7 @@ func TestDNSCompletionFiltersResolverConflicts(t *testing.T) {
 		}
 		args = append(args, "--")
 		candidates, flagDirective := executeDNSCompletion(t, args...)
-		for _, flag := range []string{"--ca", "--system-ca", "--servername", "--cert", "--key", "--insecure"} {
+		for _, flag := range []string{"--ca", "--system-ca", "--servername", "--cert", "--key", "--insecure", "--insecure-no-verify"} {
 			assert.Equal(t, test.wantTLS, slices.Contains(candidates, flag), "TLS flag %s after %q: %q", flag, args, candidates)
 		}
 		assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, flagDirective)
@@ -165,6 +165,28 @@ func TestDNSCompletionFiltersEncryptedTrustValues(t *testing.T) {
 		},
 		{name: "plaintext excludes even false", args: []string{"@udp://192.0.2.53", "--insecure="}},
 		{name: "name first excludes encrypted trust values", args: []string{"example.test", "--insecure="}},
+		{name: "no-verify blocks typed CA", args: []string{"@tls://resolver.example", "--insecure-no-verify", "--ca", caPath}},
+		{
+			name: "CA constrains prospective no-verify", args: []string{"@tls://resolver.example", "--ca", caPath, "--insecure-no-verify="},
+			want: []string{"false"},
+		},
+		{
+			name: "system CA constrains prospective no-verify", args: []string{"@tls://resolver.example", "--system-ca", "--insecure-no-verify="},
+			want: []string{"false"},
+		},
+		{
+			name: "no-verify excludes system CA true", args: []string{"@tls://resolver.example", "--insecure-no-verify", "--system-ca="},
+			want: []string{"false"},
+		},
+		{
+			name: "insecure does not constrain no-verify", args: []string{"@tls://resolver.example", "--insecure", "--insecure-no-verify="},
+			want: []string{"true", "false"},
+		},
+		{
+			name: "empty CA permits no-verify values", args: []string{"@tls://resolver.example", "--ca", "", "--insecure-no-verify="},
+			want: []string{"true", "false"},
+		},
+		{name: "plaintext excludes no-verify values", args: []string{"@udp://192.0.2.53", "--insecure-no-verify="}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -274,4 +296,19 @@ func TestDNSCompletionPreservesReusedRootReferenceHelp(t *testing.T) {
 	reusedHelp, _, err := executeRootCommandStreams(t, root, helpArgs...)
 	require.NoError(t, err)
 	assert.Equal(t, freshHelp, reusedHelp, "completion must preserve the full reference help on later executions")
+}
+
+func TestDNSCompletionHidesTrustFlagsWhenVerificationIsDisabled(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
+		candidates, _ := executeDNSCompletion(t, "dns", "@tls://resolver.example", flag, "--ca", "missing", "--")
+		for _, hidden := range []string{"--system-ca", "--ca-encoding"} {
+			assert.NotContains(t, candidates, hidden, "trust flag after %s", flag)
+		}
+		assert.Contains(t, candidates, "--cert", "client identity after %s", flag)
+
+		candidates, _ = executeDNSCompletion(t, "dns", "@tls://resolver.example", "--ca", "missing", "--")
+		assert.NotContains(t, candidates, flag, "after a custom CA")
+		assert.Contains(t, candidates, "--ca-encoding")
+	}
 }

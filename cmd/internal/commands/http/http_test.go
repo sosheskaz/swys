@@ -340,6 +340,24 @@ func TestHTTPHeaders(t *testing.T) {
 	assert.Equal(t, []string{"first", "second"}, <-received, "repeated header values")
 }
 
+func TestHTTPMalformedHeaderErrorOmitsValue(t *testing.T) {
+	t.Parallel()
+	const secret = "example-secret-token"
+	for _, header := range []string{
+		"Authorization Bearer " + secret,
+		"Authorization: Bearer " + secret + "\x01",
+		"Bearer " + secret + ": value",
+	} {
+		t.Run(fmt.Sprintf("%q", header), func(t *testing.T) {
+			t.Parallel()
+			_, stderr, err := executeRootStreams(t, "http", "http://127.0.0.1:1/", "-H", header)
+			require.ErrorIs(t, err, errInvalidHTTPFlags)
+			assert.NotContains(t, err.Error(), secret, "error exposes the header value")
+			assert.NotContains(t, stderr, secret, "stderr exposes the header value")
+		})
+	}
+}
+
 func TestHTTPUserAgent(t *testing.T) {
 	t.Parallel()
 	buildVersion := version.Get().Version

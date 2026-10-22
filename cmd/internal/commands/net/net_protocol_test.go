@@ -33,7 +33,7 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 			name:   "default TCP connect",
 			args:   []string{"net", "connect", "--"},
 			shown:  []string{"--udp", "--tls", "--close-write", "--duplex", "--wait"},
-			hidden: []string{"--cert", "--ca", "--servername", "--insecure", "--alpn"},
+			hidden: []string{"--cert", "--ca", "--servername", "--insecure", "--insecure-no-verify", "--alpn"},
 		},
 		{
 			name:   "UDP connect",
@@ -44,7 +44,7 @@ func TestNetProtocolCompletionContract(t *testing.T) {
 		{
 			name:   "TLS connect",
 			args:   []string{"net", "connect", "--tls", "--"},
-			shown:  []string{"--close-write", "--duplex", "--cert", "--ca", "--servername", "--insecure", "--alpn"},
+			shown:  []string{"--close-write", "--duplex", "--cert", "--ca", "--servername", "--insecure", "--insecure-no-verify", "--alpn"},
 			hidden: []string{"--udp"},
 		},
 		{
@@ -120,18 +120,18 @@ func TestNetInapplicableFlagValueCompletionIsSuppressed(t *testing.T) {
 		boolean  bool
 	}
 	var tests []completionCase
-	for _, flag := range []string{"cert", "key", "ca", "system-ca", "alpn", "servername", "insecure"} {
+	for _, flag := range []string{"cert", "key", "ca", "system-ca", "alpn", "servername", "insecure", "insecure-no-verify"} {
 		tests = append(tests, completionCase{
 			verb: "connect", protocol: netProtocolTCP, flag: flag,
-			boolean: flag == "system-ca" || flag == "insecure",
+			boolean: slices.Contains([]string{"system-ca", "insecure", "insecure-no-verify"}, flag),
 		})
 	}
 	for _, flag := range []string{
-		"cert", "key", "ca", "system-ca", "alpn", "servername", "insecure", "close-write", "duplex",
+		"cert", "key", "ca", "system-ca", "alpn", "servername", "insecure", "insecure-no-verify", "close-write", "duplex",
 	} {
 		tests = append(tests, completionCase{
 			verb: "connect", protocol: netProtocolUDP, flag: flag,
-			boolean: slices.Contains([]string{"system-ca", "insecure", "close-write", "duplex"}, flag),
+			boolean: slices.Contains([]string{"system-ca", "insecure", "insecure-no-verify", "close-write", "duplex"}, flag),
 		})
 	}
 	for _, flag := range []string{"cert", "key", "ca", "system-ca", "alpn"} {
@@ -186,6 +186,11 @@ func TestNetFlagValueCompletionContract(t *testing.T) {
 		{
 			name: "TLS connect insecure boolean",
 			args: []string{"net", "connect", "--tls", "--insecure="},
+			want: []string{"true", "false", ":4"},
+		},
+		{
+			name: "TLS connect no-verify boolean",
+			args: []string{"net", "connect", "--tls", "--insecure-no-verify="},
 			want: []string{"true", "false", ":4"},
 		},
 		{
@@ -245,7 +250,7 @@ func TestNetProtocolHelpDocumentsFullFlagUnion(t *testing.T) {
 			verb: "connect",
 			flags: []string{
 				"--udp", "--tls", "--connect-timeout", "--wait", "--close-write", "--duplex",
-				"--cert", "--key", "--ca", "--system-ca", "--alpn", "--servername", "--insecure",
+				"--cert", "--key", "--ca", "--system-ca", "--alpn", "--servername", "--insecure", "--insecure-no-verify",
 			},
 		},
 		{
@@ -359,17 +364,19 @@ func TestNetTLSArtifactEncodingCompletion(t *testing.T) {
 		}
 	}
 	assert.Contains(t, completeCommand(t, "net", "connect", "--tls", "--ca", "missing", "--ca-"), "--ca-encoding\t")
-	for _, source := range []string{"ca", "cert", "key"} {
-		names := completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", "--insecure", "--"+source+"-")
-		values := completionLines(completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", "--insecure", "--"+source+"-encoding", "ba"))
-		if source == "ca" {
-			assert.Equal(t, []string{":4"}, completionLines(names), "insecure mode suppresses the CA companion name")
-			assert.Equal(t, []string{":4"}, values, "insecure mode suppresses CA codecs without filename fallback")
-			continue
+	for _, insecure := range []string{"--insecure", "--insecure-no-verify"} {
+		for _, source := range []string{"ca", "cert", "key"} {
+			names := completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", insecure, "--"+source+"-")
+			values := completionLines(completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", insecure, "--"+source+"-encoding", "ba"))
+			if source == "ca" {
+				assert.Equal(t, []string{":4"}, completionLines(names), "%s suppresses the CA companion name", insecure)
+				assert.Equal(t, []string{":4"}, values, "%s suppresses CA codecs without filename fallback", insecure)
+				continue
+			}
+			assert.Contains(t, names, "--"+source+"-encoding\t", "%s retains client identity companion names", insecure)
+			assert.Contains(t, strings.Join(values, "\n"), "base64")
+			assert.Contains(t, strings.Join(values, "\n"), "base32")
+			assert.Equal(t, ":4", values[len(values)-1])
 		}
-		assert.Contains(t, names, "--"+source+"-encoding\t", "insecure mode retains client identity companion names")
-		assert.Contains(t, strings.Join(values, "\n"), "base64")
-		assert.Contains(t, strings.Join(values, "\n"), "base32")
-		assert.Equal(t, ":4", values[len(values)-1])
 	}
 }

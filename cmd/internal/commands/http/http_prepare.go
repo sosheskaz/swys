@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
@@ -21,6 +24,8 @@ type httpPreparedRequest struct {
 	body      *httpBody
 	tlsConfig *tls.Config
 	resolver  httpResolver
+	// authorized marks a flag-generated Authorization header for redirect policy.
+	authorized bool
 }
 
 func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions) (*httpPreparedRequest, error) {
@@ -35,12 +40,9 @@ func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions)
 	if err != nil {
 		return nil, err
 	}
-	headers, err := parseHTTPHeaders(options.headers)
+	headers, authorized, err := prepareHTTPHeaders(cmd, options, method, address)
 	if err != nil {
 		return nil, err
-	}
-	if len(options.files) != 0 && headers.Get("Content-Type") != "" {
-		return nil, fmt.Errorf("%w: multipart Content-Type is generated with its boundary", ErrInvalidFlags)
 	}
 	config, err := httpTLSConfig(cmd, options)
 	if err != nil {
@@ -70,7 +72,36 @@ func prepareHTTPRequest(cmd *cobra.Command, args []string, options *httpOptions)
 	if body.contentType != "" && request.Header.Get("Content-Type") == "" {
 		request.Header.Set("Content-Type", body.contentType)
 	}
-	return &httpPreparedRequest{request: request, body: body, tlsConfig: config, resolver: resolver}, nil
+	return &httpPreparedRequest{request: request, body: body, tlsConfig: config, resolver: resolver, authorized: authorized}, nil
+}
+
+// prepareHTTPHeaders parses --header values and adds any flag-generated Authorization header.
+func prepareHTTPHeaders(cmd *cobra.Command, options *httpOptions, method string, address *url.URL) (http.Header, bool, error) {
+	headers, err := parseHTTPHeaders(options.headers)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(options.files) != 0 && headers.Get("Content-Type") != "" {
+		return nil, false, fmt.Errorf("%w: multipart Content-Type is generated with its boundary", ErrInvalidFlags)
+	}
+	if err := auth.Validate(cmd.Flags(), address.Scheme != httpsScheme, httpBodyUsesStdin(cmd, options, method), ErrInvalidFlags); err != nil {
+		return nil, false, err
+	}
+	if err := auth.RejectHeader(cmd.Flags(), len(headers.Values("Authorization")) != 0, ErrInvalidFlags); err != nil {
+		return nil, false, err
+	}
+	if source, selected := auth.Selected(cmd.Flags()); selected && address.User != nil {
+		// net/http applies URL credentials only when no Authorization header is present.
+		return nil, false, fmt.Errorf("%w: --%s cannot be combined with URL credentials", ErrInvalidFlags, source)
+	}
+	value, ok, err := auth.Value(cmd.Context(), cmd.InOrStdin(), cmd.Flags(), os.LookupEnv, ErrInvalidFlags)
+	if err != nil {
+		return nil, false, err
+	}
+	if ok {
+		headers.Set("Authorization", value)
+	}
+	return headers, ok, nil
 }
 
 func defaultHTTPUserAgent() string {
@@ -138,10 +169,10 @@ func validateHTTPTLSOptions(cmd *cobra.Command, options *httpOptions) error {
 	if options.systemCA && options.ca == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidFlags)
 	}
-	if options.insecure && (options.ca != "" || options.systemCA) {
-		return fmt.Errorf("%w: --insecure cannot be combined with trust flags", ErrInvalidFlags)
+	if skip := tlsconfig.SkipVerifyFlag(cmd.Flags()); skip != "" && (options.ca != "" || options.systemCA) {
+		return fmt.Errorf("%w: --%s cannot be combined with trust flags", ErrInvalidFlags, skip)
 	}
-	return certinput.ValidatePaths(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName)
+	return certinput.ValidatePaths(cmd, append([]string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName}, auth.FileFlagNames...)...)
 }
 
 func validateHTTPBodySelection(cmd *cobra.Command, options *httpOptions) error {
@@ -202,7 +233,7 @@ func httpTLSConfig(cmd *cobra.Command, options *httpOptions) (*tls.Config, error
 		MinVersion: tls.VersionTLS12,
 		ServerName: options.serverName,
 	}
-	config.InsecureSkipVerify = options.insecure
+	config.InsecureSkipVerify = tlsconfig.SkipVerifyFlag(cmd.Flags()) != ""
 	if err := tlsconfig.AddRootCAs(cmd, config); err != nil {
 		return nil, err
 	}
@@ -220,8 +251,12 @@ func parseHTTPHeaders(values []string) (http.Header, error) {
 	headers := make(http.Header)
 	for _, value := range values {
 		name, content, exists := strings.Cut(value, ":")
-		if !exists || !httpToken(name) || !httpHeaderValue(content) {
-			return nil, fmt.Errorf("%w: invalid header %q", ErrInvalidFlags, value)
+		// Omit header text: a malformed header is often an Authorization credential.
+		if !exists || !httpToken(name) {
+			return nil, fmt.Errorf("%w: header must be Name: value", ErrInvalidFlags)
+		}
+		if !httpHeaderValue(content) {
+			return nil, fmt.Errorf("%w: invalid value for header %q", ErrInvalidFlags, name)
 		}
 		if strings.EqualFold(name, "Content-Length") || strings.EqualFold(name, "Transfer-Encoding") {
 			return nil, fmt.Errorf("%w: %s is determined by the request body", ErrInvalidFlags, name)

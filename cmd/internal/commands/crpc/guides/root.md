@@ -125,12 +125,21 @@ returns no suggestions. It does not crawl all service schemas or persist them.
 ## Authentication and diagnostics
 
 ```sh
-swys crpc api.example.com/example.v1.EchoService/Echo -H 'Authorization: Bearer TOKEN' -d '{}' -v
+swys crpc api.example.com/example.v1.EchoService/Echo --auth-bearer-env TOKEN -d '{}' -v
+swys crpc api.example.com/example.v1.EchoService/Echo --auth-basic-file credentials.txt -d '{}'
 swys crpc api.example.com/example.v1.EchoService/Echo --cert client.pem -k client.key -d '{}'
 swys crpc api.example.com/example.v1.EchoService/Echo --resolve api.example.com:443:127.0.0.1 -d '{}'
 ```
 
-Custom CAs replace system roots unless --system-ca is supplied. TLS artifacts
+--auth-bearer-file, --auth-bearer-env, and --auth-bearer send the token alone
+as Authorization: Bearer; the matching --auth-basic forms take USER:PASSWORD.
+Prefer files or variables because literal values appear in process listings
+and shell history. These flags own the Authorization header, apply to
+reflection and completion, and conflict with an Authorization --header.
+Credentials over http:// also need --insecure-cleartext-auth or --insecure.
+
+--insecure-no-verify disables TLS verification; --insecure enables every
+insecure carve-out. Custom CAs replace system roots unless --system-ca is supplied. TLS artifacts
 have independent --ca-encoding, --cert-encoding, and --key-encoding flags;
 only one payload or artifact can own stdin. --resolve changes the connection
 address while preserving the URL's host and TLS identity. Standard HTTP proxy

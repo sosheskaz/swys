@@ -72,7 +72,8 @@ protocols explicitly; it does not transform the application payload.`,
 	command.Flags().Bool(tlsconfig.SystemCAFlagName, false, "include system roots with --ca (TLS only)")
 	command.Flags().String(tlsconfig.ServerNameFlagName, "", "TLS SNI and verification name (default endpoint host; TLS only)")
 	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")
-	command.Flags().Bool(netInsecureFlagName, false, "disable TLS certificate and hostname verification (TLS only)")
+	command.Flags().Bool(netInsecureFlagName, false, "disable TLS verification; enables every --insecure-* behavior (TLS only)")
+	command.Flags().Bool(tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage+" (TLS only)")
 	command.Flags().StringArray(netResolveFlagName, nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
 	registerNoFileFlagCompletion(command, tlsconfig.ServerNameFlagName)
 	registerNoFileFlagCompletion(command, netResolveFlagName)
@@ -354,12 +355,8 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 	if err != nil {
 		return nil, err
 	}
-	insecure, err := cmd.Flags().GetBool(netInsecureFlagName)
-	if err != nil {
-		return nil, fmt.Errorf("read insecure flag: %w", err)
-	}
 	config := &tls.Config{ServerName: serverName, NextProtos: alpn}
-	config.InsecureSkipVerify = insecure
+	config.InsecureSkipVerify = tlsconfig.SkipVerifyFlag(cmd.Flags()) != ""
 
 	if err := tlsconfig.AddRootCAs(cmd, config); err != nil {
 		return nil, err
@@ -469,12 +466,8 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read system-ca flag: %w", err)
 	}
-	insecure, err := cmd.Flags().GetBool(netInsecureFlagName)
-	if err != nil {
-		return fmt.Errorf("read insecure flag: %w", err)
-	}
-	if insecure && (caPath != "" || systemCA) {
-		return fmt.Errorf("%w: --insecure cannot be combined with --ca or --system-ca", ErrInvalidFlags)
+	if skipVerify := tlsconfig.SkipVerifyFlag(cmd.Flags()); skipVerify != "" && (caPath != "" || systemCA) {
+		return fmt.Errorf("%w: --%s cannot be combined with --ca or --system-ca", ErrInvalidFlags, skipVerify)
 	}
 	if systemCA && caPath == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidFlags)

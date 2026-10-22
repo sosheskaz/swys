@@ -43,7 +43,7 @@ const (
 	dnsTypeA            = "A"
 	dnsTypeAAAA         = "AAAA"
 	dnsTypePTR          = "PTR"
-	dnsInsecureFlagName = "insecure"
+	dnsInsecureFlagName = tlsconfig.InsecureFlagName
 )
 
 type dnsOptions struct {
@@ -59,6 +59,7 @@ type dnsOptions struct {
 	reverse    bool
 	systemCA   bool
 	insecure   bool
+	noVerify   bool
 }
 
 type dnsQuery struct {
@@ -188,7 +189,8 @@ certificates by default.`,
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&options.insecure, dnsInsecureFlagName, false, "disable TLS certificate and hostname verification")
+	flags.BoolVar(&options.insecure, dnsInsecureFlagName, false, "disable TLS verification; enables every --insecure-* behavior")
+	flags.BoolVar(&options.noVerify, tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage)
 	if err := command.RegisterFlagCompletionFunc("resolver", func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		values := []string{dnsResolverSystem, dnsResolverDirect}
 		if dnsDirectSelectorSupplied(cmd, args) {
@@ -229,7 +231,7 @@ func registerDNSContextCompletions(command *cobra.Command) {
 			panic(err)
 		}
 	}
-	for _, name := range []string{dnsInsecureFlagName, tlsconfig.SystemCAFlagName} {
+	for _, name := range []string{dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName} {
 		if err := command.RegisterFlagCompletionFunc(name, completeDNSTrustBoolean(name)); err != nil {
 			panic(err)
 		}
@@ -260,7 +262,7 @@ func prepareDNSCompletion(completionCmd *cobra.Command, args []string, command *
 	}
 	for _, name := range []string{
 		tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName, tlsconfig.ServerNameFlagName,
-		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName,
+		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
 	} {
 		if !dnsTLSCompletionAllowed(probe, probe.Flags().Args()) || !dnsTrustCompletionAllowed(probe, name) {
 			command.Flags().Lookup(name).Hidden = true
@@ -287,10 +289,7 @@ func dnsTLSCompletionAllowed(command *cobra.Command, args []string) bool {
 }
 
 func dnsTrustCompletionAllowed(command *cobra.Command, name string) bool {
-	insecure, err := command.Flags().GetBool(dnsInsecureFlagName)
-	if err != nil {
-		return false
-	}
+	insecure := tlsconfig.SkipVerifyFlag(command.Flags()) != ""
 	ca, err := command.Flags().GetString(tlsconfig.CAFlagName)
 	if err != nil {
 		return false
@@ -302,7 +301,7 @@ func dnsTrustCompletionAllowed(command *cobra.Command, name string) bool {
 	switch name {
 	case tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName:
 		return !insecure
-	case dnsInsecureFlagName:
+	case dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName:
 		return ca == "" && !systemCA
 	default:
 		return true
@@ -584,7 +583,7 @@ func validateDirectDNSOptions(cmd *cobra.Command, query *dnsQuery, tlsSelected b
 func dnsTLSOptionsSelected(cmd *cobra.Command) bool {
 	for _, name := range []string{
 		tlsconfig.CAFlagName, "system-ca", tlsconfig.ServerNameFlagName,
-		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName,
+		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
 		tlsconfig.CAEncodingFlagName, tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName,
 	} {
 		if cmd.Flags().Changed(name) {

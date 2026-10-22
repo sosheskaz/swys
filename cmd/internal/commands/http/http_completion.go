@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
@@ -46,7 +47,7 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 	for _, name := range []string{httpDataFlagName, "resolve", tlsconfig.ServerNameFlagName, commandio.ConnectTimeoutFlagName, "timeout", "max-redirects"} {
 		mustRegisterHTTPCompletion(cmd, name, noFileHTTPCompletion)
 	}
-	for _, name := range []string{httpInsecureFlagName, tlsconfig.SystemCAFlagName} {
+	for _, name := range []string{httpInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName} {
 		mustRegisterHTTPCompletion(cmd, name, func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
 			var values []string
 			for _, value := range []string{"true", "false"} {
@@ -193,10 +194,7 @@ func completeHTTPHeader(cmd *cobra.Command, _ []string, toComplete string) ([]st
 	if !hasColon {
 		values := make([]string, 0, len(httpHeaderNames))
 		for _, candidate := range httpHeaderNames {
-			if strings.HasPrefix(strings.ToLower(candidate), strings.ToLower(name)) {
-				if strings.EqualFold(candidate, "Content-Type") && httpCompletionHasFiles(cmd) {
-					continue
-				}
+			if strings.HasPrefix(strings.ToLower(candidate), strings.ToLower(name)) && !httpCompletionExcludesHeader(cmd, candidate) {
 				completion := name + candidate[len(name):] + ": "
 				values = append(values, cobra.CompletionWithDesc(completion, "request header"))
 			}
@@ -205,7 +203,7 @@ func completeHTTPHeader(cmd *cobra.Command, _ []string, toComplete string) ([]st
 	}
 
 	common := httpHeaderValues[strings.ToLower(strings.TrimSpace(name))]
-	if strings.EqualFold(strings.TrimSpace(name), "Content-Type") && httpCompletionHasFiles(cmd) {
+	if httpCompletionExcludesHeader(cmd, name) {
 		common = nil
 	}
 	if len(common) == 0 {
@@ -299,6 +297,18 @@ func httpCompletionHasFiles(cmd *cobra.Command) bool {
 	return len(httpCompletionStringArray(cmd, "file")) != 0
 }
 
+// httpCompletionExcludesHeader hides headers that other flags generate.
+func httpCompletionExcludesHeader(cmd *cobra.Command, name string) bool {
+	name = strings.TrimSpace(name)
+	return strings.EqualFold(name, "Content-Type") && httpCompletionHasFiles(cmd) ||
+		strings.EqualFold(name, "Authorization") && httpCompletionHasCredential(cmd)
+}
+
+func httpCompletionHasCredential(cmd *cobra.Command) bool {
+	_, selected := auth.Selected(cmd.Flags())
+	return selected
+}
+
 func prepareHTTPCompletion(completionCmd *cobra.Command, args []string) {
 	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
 		return
@@ -329,18 +339,18 @@ func prepareHTTPCompletion(completionCmd *cobra.Command, args []string) {
 	prepareHTTPBodyCompletion(probeCommand, hide)
 	tlsconfig.SetArtifactEncodingVisibility(actualCommand, probeCommand, true)
 	prepareHTTPTrustCompletion(probeCommand, hide)
+	hide(auth.HiddenForCompletion(probeCommand.Flags(), httpCompletionStringArray(probeCommand, "header"))...)
 }
 
 func httpTrustCompletionCompatible(cmd *cobra.Command, name string, enabled bool) bool {
 	if !enabled {
 		return true
 	}
-	if name == httpInsecureFlagName {
+	if name == httpInsecureFlagName || name == tlsconfig.InsecureNoVerifyFlagName {
 		systemCA, err := cmd.Flags().GetBool(tlsconfig.SystemCAFlagName)
 		return err == nil && !systemCA && httpCompletionString(cmd, tlsconfig.CAFlagName) == ""
 	}
-	insecure, err := cmd.Flags().GetBool(httpInsecureFlagName)
-	return err == nil && !insecure
+	return tlsconfig.SkipVerifyFlag(cmd.Flags()) == ""
 }
 
 func prepareHTTPTrustCompletion(cmd *cobra.Command, hide func(...string)) {
@@ -348,7 +358,7 @@ func prepareHTTPTrustCompletion(cmd *cobra.Command, hide func(...string)) {
 		hide(tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName)
 	}
 	if !httpTrustCompletionCompatible(cmd, httpInsecureFlagName, true) {
-		hide(httpInsecureFlagName)
+		hide(httpInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName)
 	}
 }
 

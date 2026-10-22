@@ -38,6 +38,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
@@ -77,7 +78,12 @@ type grpcOptions struct { //nolint:govet // group resolved presentation and rela
 	plaintext              bool
 	systemCA               bool
 	insecure               bool
+	insecureNoVerify       bool
 	verbose                bool
+}
+
+func (options *grpcOptions) skipVerify() bool {
+	return options.insecure || options.insecureNoVerify
 }
 
 type grpcPreparation struct {
@@ -238,7 +244,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.StringVar(&options.serverName, "servername", "", "override TLS SNI and verification name")
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
 	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
-	flags.BoolVar(&options.insecure, "insecure", false, "disable TLS certificate and hostname verification")
+	flags.BoolVar(&options.insecure, grpcInsecureFlagName, false, "enable every --insecure-* behavior: unverified TLS and cleartext --auth-*")
+	flags.BoolVar(&options.insecureNoVerify, tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage)
+	auth.AddFlags(command, flags)
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
 	registerGRPCCompletion(command, options)
 	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) {
@@ -273,6 +281,9 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	options.diagnosticPresentation = presentation.Diagnostics(cmd)
 	md, err := parseGRPCMetadata(options.headers)
 	if err != nil {
+		return nil, err
+	}
+	if err := applyGRPCAuthorization(cmd, md); err != nil {
 		return nil, err
 	}
 	commandCtx := cmd.Context()
@@ -487,13 +498,18 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if cmd.Flags().Changed("data") && cmd.Flags().Changed("input") {
 		return fmt.Errorf("%w: --data and --input are mutually exclusive", ErrInvalidOptions)
 	}
-	if err := validateGRPCTLSOptionCombinations(options); err != nil {
+	if err := validateGRPCTLSOptionCombinations(cmd, options); err != nil {
 		return err
 	}
-	if err := tlsconfig.ValidateArtifactSources(cmd, !options.plaintext, selectorPresent && grpcRequestUsesStdin(cmd), ErrInvalidOptions); err != nil {
+	payloadStdin := selectorPresent && grpcRequestUsesStdin(cmd)
+	if err := tlsconfig.ValidateArtifactSources(cmd, !options.plaintext, payloadStdin, ErrInvalidOptions); err != nil {
 		return err
 	}
-	if err := certinput.ValidatePaths(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName); err != nil {
+	if err := auth.Validate(cmd.Flags(), options.plaintext, payloadStdin, ErrInvalidOptions); err != nil {
+		return err
+	}
+	certPaths := append([]string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName}, auth.FileFlagNames...)
+	if err := certinput.ValidatePaths(cmd, certPaths...); err != nil {
 		return err
 	}
 	identityInput := ""
@@ -515,8 +531,8 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	return commandio.RejectSameFile(options.protoset, output)
 }
 
-func validateGRPCTLSOptionCombinations(options *grpcOptions) error {
-	if options.plaintext && (options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "" || options.insecure) {
+func validateGRPCTLSOptionCombinations(cmd *cobra.Command, options *grpcOptions) error {
+	if options.plaintext && grpcTLSOnlyOptions(cmd, options) {
 		return fmt.Errorf("%w: --plaintext conflicts with TLS flags", ErrInvalidOptions)
 	}
 	if (options.cert == "") != (options.key == "") {
@@ -525,10 +541,29 @@ func validateGRPCTLSOptionCombinations(options *grpcOptions) error {
 	if options.systemCA && options.ca == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidOptions)
 	}
-	if options.insecure && (options.ca != "" || options.systemCA) {
-		return fmt.Errorf("%w: --insecure conflicts with --ca and --system-ca", ErrInvalidOptions)
+	if skip := tlsconfig.SkipVerifyFlag(cmd.Flags()); skip != "" && (options.ca != "" || options.systemCA) {
+		return fmt.Errorf("%w: --%s conflicts with --ca and --system-ca", ErrInvalidOptions, skip)
 	}
 	return nil
+}
+
+func grpcTLSOnlyOptions(cmd *cobra.Command, options *grpcOptions) bool {
+	// The --insecure umbrella also permits cleartext credentials, so it accompanies
+	// --plaintext only when a credential flag gives it that meaning.
+	_, credential := auth.Selected(cmd.Flags())
+	return options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "" ||
+		options.insecureNoVerify || options.insecure && !credential
+}
+
+func applyGRPCAuthorization(cmd *cobra.Command, md metadata.MD) error {
+	if err := auth.RejectHeader(cmd.Flags(), len(md["authorization"]) != 0, ErrInvalidOptions); err != nil {
+		return err
+	}
+	value, ok, err := auth.Value(cmd.Context(), cmd.InOrStdin(), cmd.Flags(), os.LookupEnv, ErrInvalidOptions)
+	if ok {
+		md.Set("authorization", value)
+	}
+	return err
 }
 
 func validGRPCMethodSelector(selector string) bool {
@@ -633,7 +668,7 @@ func grpcTransportCredentials(cmd *cobra.Command, endpoint string, options *grpc
 		return nil, fmt.Errorf("parse gRPC endpoint %q: %w", endpoint, err)
 	}
 	config := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: options.serverName}
-	config.InsecureSkipVerify = options.insecure
+	config.InsecureSkipVerify = options.skipVerify()
 	if config.ServerName == "" {
 		config.ServerName = host
 	}
@@ -876,7 +911,7 @@ func grpcDiagnostics(options *grpcOptions, details grpcCallDetails) []byte {
 		{Label: "Version", Value: tls.VersionName(tlsState.Version)},
 		{Label: "Cipher", Value: tls.CipherSuiteName(tlsState.CipherSuite)},
 		{Label: "Server Name", Value: tlsState.ServerName},
-		{Label: "Verified", Value: strconv.FormatBool(len(tlsState.VerifiedChains) != 0 && !options.insecure)},
+		{Label: "Verified", Value: strconv.FormatBool(len(tlsState.VerifiedChains) != 0 && !options.skipVerify())},
 	})
 	return []byte(output.String())
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/connectrpc"
@@ -164,7 +165,12 @@ func completionSchema(cmd *cobra.Command, args []string, prefix string, settings
 }
 
 func remoteCompletionSchema(cmd *cobra.Command, address, prefix string, settings *options, kind completionKind) (*protoschema.Schema, error) {
-	if !regularFiles(settings.ca, settings.cert, settings.key) || tlsconfig.UsesStdin(cmd) {
+	credentialFiles := make([]string, 0, 3+len(auth.FileFlagNames))
+	credentialFiles = append(credentialFiles, settings.ca, settings.cert, settings.key)
+	for _, name := range auth.FileFlagNames {
+		credentialFiles = append(credentialFiles, cmd.Flag(name).Value.String())
+	}
+	if !regularFiles(credentialFiles...) || tlsconfig.UsesStdin(cmd) || auth.UsesStdin(cmd.Flags()) {
 		return nil, ErrInvalidFlags
 	}
 	base, err := connectrpc.ParseBase(address)
@@ -178,6 +184,9 @@ func remoteCompletionSchema(cmd *cobra.Command, address, prefix string, settings
 	}
 	headers, err := parseHeaders(completionArray(settings.headers))
 	if err != nil {
+		return nil, err
+	}
+	if err := applyAuthorization(cmd, headers); err != nil {
 		return nil, err
 	}
 	resolver, err := netconn.ParseResolves(completionArray(settings.resolves))
@@ -400,8 +409,13 @@ func hideInapplicableFlags(command, probe *cobra.Command) {
 		hide(flagProtoset)
 	}
 	if !tlsApplicable(probe, probe.Flags().Args()) {
-		hide(flagCA, flagSystemCA, flagCert, flagKey, flagServerName, flagInsecure)
+		hide(flagCA, flagSystemCA, flagCert, flagKey, flagServerName, flagInsecureNoVerify)
+		if _, credential := auth.Selected(probe.Flags()); !credential {
+			hide(flagInsecure)
+		}
 	}
+	headers, _ := probe.Flags().GetStringArray(flagHeader) //nolint:errcheck // a missing value hides nothing
+	hide(auth.HiddenForCompletion(probe.Flags(), headers)...)
 	if probe.Flag(flagCA).Value.String() == "" {
 		hide(flagSystemCA)
 	}

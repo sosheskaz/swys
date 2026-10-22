@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
@@ -25,7 +26,23 @@ const (
 	CAFlagName           = "ca"
 	ServerNameFlagName   = "servername"
 	SystemCAFlagName     = "system-ca"
+	// InsecureFlagName enables every applicable --insecure-* carve-out.
+	InsecureFlagName         = "insecure"
+	InsecureNoVerifyFlagName = "insecure-no-verify"
 )
+
+// InsecureNoVerifyUsage describes the verification carve-out identically in every family.
+const InsecureNoVerifyUsage = "disable TLS certificate and hostname verification"
+
+// SkipVerifyFlag names the flag that disables TLS verification, or returns "" when verification applies.
+func SkipVerifyFlag(flags *pflag.FlagSet) string {
+	for _, name := range []string{InsecureNoVerifyFlagName, InsecureFlagName} {
+		if flag := flags.Lookup(name); flag != nil && flag.Value.String() == "true" {
+			return name
+		}
+	}
+	return ""
+}
 
 // ErrClientKeyMismatch identifies a client certificate whose public key differs from --key.
 var ErrClientKeyMismatch = errors.New("TLS client certificate and private key do not match")

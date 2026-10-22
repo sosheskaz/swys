@@ -214,9 +214,23 @@ func TestNetTLSConnectConflictCompletion(t *testing.T) {
 		hidden []string
 		shown  []string
 	}{
-		{name: "CA before completion", args: []string{"--ca", "ca.pem"}, hidden: []string{"--insecure"}, shown: []string{"--system-ca", "--cert"}},
-		{name: "system CA before completion", args: []string{"--system-ca"}, hidden: []string{"--insecure"}, shown: []string{"--ca", "--cert"}},
-		{name: "insecure before completion", args: []string{"--insecure"}, hidden: []string{"--ca", "--system-ca"}, shown: []string{"--cert", "--key"}},
+		{
+			name: "CA before completion", args: []string{"--ca", "ca.pem"},
+			hidden: []string{"--insecure", "--insecure-no-verify"}, shown: []string{"--system-ca", "--cert"},
+		},
+		{
+			name: "system CA before completion", args: []string{"--system-ca"},
+			hidden: []string{"--insecure", "--insecure-no-verify"}, shown: []string{"--ca", "--cert"},
+		},
+		{
+			name: "insecure before completion", args: []string{"--insecure"},
+			hidden: []string{"--ca", "--system-ca"}, shown: []string{"--cert", "--key", "--insecure-no-verify"},
+		},
+		{
+			name: "no-verify before completion", args: []string{"--insecure-no-verify"},
+			hidden: []string{"--ca", "--system-ca"}, shown: []string{"--cert", "--key", "--insecure"},
+		},
+		{name: "false no-verify before CA", args: []string{"--insecure-no-verify=false"}, shown: []string{"--ca", "--system-ca"}},
 		{name: "false insecure before CA", args: []string{"--insecure=false"}, shown: []string{"--ca", "--system-ca"}},
 		{name: "false insecure after CA", args: []string{"--ca", "ca.pem", "--insecure=false"}, shown: []string{"--system-ca", "--cert"}},
 		{name: "false system CA", args: []string{"--system-ca=false"}, shown: []string{"--ca", "--insecure"}},
@@ -236,15 +250,16 @@ func TestNetTLSConnectConflictCompletion(t *testing.T) {
 
 	stdout := completeCommand(t, "net", "listen", "--tls", "--ca", "ca.pem", "--")
 	assert.NotContains(t, stdout, "--insecure\t")
+	assert.NotContains(t, stdout, "--insecure-no-verify\t")
 }
 
 func TestNetTLSCompletionDoesNotChangeNormalHelp(t *testing.T) {
 	t.Parallel()
-	for _, flags := range [][]string{{"--ca", "ca.pem"}, {"--insecure"}, {"--system-ca"}} {
+	for _, flags := range [][]string{{"--ca", "ca.pem"}, {"--insecure"}, {"--insecure-no-verify"}, {"--system-ca"}} {
 		args := append([]string{"net", "connect", "--tls"}, flags...)
 		stdout, _, err := executeRootStreams(t, append(args, "--help")...)
 		require.NoError(t, err)
-		for _, name := range []string{"--ca", "--system-ca", "--insecure"} {
+		for _, name := range []string{"--ca", "--system-ca", "--insecure", "--insecure-no-verify"} {
 			if !strings.Contains(stdout, "\n      "+name+" ") {
 				t.Errorf("help after %q omits %s", flags, name)
 			}
@@ -281,6 +296,12 @@ func TestNetTLSConflictingValueCompletion(t *testing.T) {
 		{args: []string{"--insecure", "--system-ca="}, want: []string{"false", ":4"}},
 		{args: []string{"--system-ca", "--insecure="}, want: []string{"false", ":4"}},
 		{args: []string{"--system-ca=false", "--insecure="}, want: []string{"true", "false", ":4"}},
+		{args: []string{"--insecure-no-verify", "--ca", ""}, want: []string{":4"}},
+		{args: []string{"--insecure-no-verify=false", "--ca", ""}, want: []string{":0"}},
+		{args: []string{"--ca", "ca.pem", "--insecure-no-verify="}, want: []string{"false", ":4"}},
+		{args: []string{"--insecure-no-verify", "--system-ca="}, want: []string{"false", ":4"}},
+		{args: []string{"--system-ca", "--insecure-no-verify="}, want: []string{"false", ":4"}},
+		{args: []string{"--insecure", "--insecure-no-verify="}, want: []string{"true", "false", ":4"}},
 	} {
 		args := append([]string{"net", "connect", "--tls"}, test.args...)
 		got := completionLines(completeCommand(t, args...))

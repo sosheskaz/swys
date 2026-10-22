@@ -171,30 +171,35 @@ func TestNetConnectTLSDefaultsToHalfCloseAndDrain(t *testing.T) {
 func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 	t.Parallel()
 	const hostileALPN = "h2\n  server name: attacker.example"
-	identity := createNetworkTestIdentity(t)
-	address, serverResult := startTLSExchangeServer(t, &identity, false, []string{hostileALPN})
-	inputPath := filepath.Join(t.TempDir(), "request")
-	require.NoError(t, os.WriteFile(inputPath, []byte("request"), 0o600))
+	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			identity := createNetworkTestIdentity(t)
+			address, serverResult := startTLSExchangeServer(t, &identity, false, []string{hostileALPN})
+			inputPath := filepath.Join(t.TempDir(), "request")
+			require.NoError(t, os.WriteFile(inputPath, []byte("request"), 0o600))
 
-	stdout, stderr, err := executeRootStreams(
-		t,
-		"net", "connect", "--tls", address,
-		"--input", inputPath,
-		"--servername", "localhost",
-		"--alpn", hostileALPN,
-		"--insecure",
-		"--verbose",
-		"--wait", "1s",
-	)
-	require.NoError(t, err)
-	assert.Equal(t, "response", stdout)
-	assert.Contains(t, stderr, "warning: TLS certificate verification is disabled")
-	assert.NotContains(t, stderr, "\n  server name: attacker.example")
-	if want := `alpn         h2\n  server name: attacker.example`; !strings.Contains(stderr, want) {
-		t.Fatalf("stderr = %q, want escaped ALPN %q", stderr, want)
-	}
-	if result := <-serverResult; result.err != nil || result.alpn != hostileALPN {
-		t.Fatalf("server result = %+v", result)
+			stdout, stderr, err := executeRootStreams(
+				t,
+				"net", "connect", "--tls", address,
+				"--input", inputPath,
+				"--servername", "localhost",
+				"--alpn", hostileALPN,
+				flag,
+				"--verbose",
+				"--wait", "1s",
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "response", stdout)
+			assert.Contains(t, stderr, "warning: TLS certificate verification is disabled")
+			assert.NotContains(t, stderr, "\n  server name: attacker.example")
+			if want := `alpn         h2\n  server name: attacker.example`; !strings.Contains(stderr, want) {
+				t.Fatalf("stderr = %q, want escaped ALPN %q", stderr, want)
+			}
+			if result := <-serverResult; result.err != nil || result.alpn != hostileALPN {
+				t.Fatalf("server result = %+v", result)
+			}
+		})
 	}
 }
 
@@ -275,14 +280,23 @@ func TestNetConnectTLSVerificationFailurePreventsPayload(t *testing.T) {
 func TestNetConnectTLSFlagValidation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		args []string
+		name    string
+		message string
+		args    []string
 	}{
 		{name: "cert without key", args: []string{"--cert", "client.crt"}},
 		{name: "key without cert", args: []string{"--key", "client.key"}},
 		{name: "system CA without custom CA", args: []string{"--system-ca"}},
-		{name: "insecure with CA", args: []string{"--insecure", "--ca", "ca.crt"}},
-		{name: "insecure with system CA", args: []string{"--insecure", "--system-ca"}},
+		{name: "insecure with CA", message: "--insecure cannot be combined", args: []string{"--insecure", "--ca", "ca.crt"}},
+		{name: "insecure with system CA", message: "--insecure cannot be combined", args: []string{"--insecure", "--system-ca"}},
+		{
+			name: "no-verify with CA", message: "--insecure-no-verify cannot be combined",
+			args: []string{"--insecure-no-verify", "--ca", "ca.crt"},
+		},
+		{
+			name: "no-verify with system CA", message: "--insecure-no-verify cannot be combined",
+			args: []string{"--insecure-no-verify", "--system-ca"},
+		},
 		{name: "ALPN with whitespace", args: []string{"--alpn", "h2, http/1.1"}},
 		{name: "negative wait", args: []string{"--wait", "-1s"}},
 		{name: "negative timeout", args: []string{"--connect-timeout", "-1s"}},
@@ -293,6 +307,9 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 			args := append([]string{"net", "connect", "--tls", "localhost:443"}, test.args...)
 			_, _, err := executeRootStreams(t, args...)
 			require.ErrorIs(t, err, errInvalidNetworkFlags)
+			if test.message != "" {
+				assert.ErrorContains(t, err, test.message)
+			}
 		})
 	}
 }
