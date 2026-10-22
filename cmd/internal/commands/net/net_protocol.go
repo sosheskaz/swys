@@ -19,7 +19,7 @@ const (
 	netProtocolUDP              = "udp"
 	netProtocolTLS              = "tls"
 	netConnectTimeoutFlagName   = commandio.ConnectTimeoutFlagName
-	netALPNFlagName             = "alpn"
+	netALPNFlagName             = tlsconfig.ALPNFlagName
 	netStreamOnlyHelp           = " (TCP/TLS only)"
 	netCloseWriteFlagName       = "close-write"
 	netDuplexFlagName           = "duplex"
