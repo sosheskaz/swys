@@ -1,5 +1,5 @@
-codeberg.org/miekg/dns v0.6.118 h1:OGqwrxdJvXHeX7711q4YKYly+PG7C4AwP2v6jPqwJFU=
-codeberg.org/miekg/dns v0.6.118/go.mod h1:vbidSyLJl5JcDUL2LrXCUjRYSFa5tJweseQox0GOrTk=
+codeberg.org/miekg/dns v0.6.119 h1:8i+Dd7Z3bnc8grrSYVNtG5t4u0c0LthfHhfEvGNS7PM=
+codeberg.org/miekg/dns v0.6.119/go.mod h1:vbidSyLJl5JcDUL2LrXCUjRYSFa5tJweseQox0GOrTk=
 connectrpc.com/connect/v2 v2.0.1 h1:WTAycxe87UqxSM5oxS30d1dalZ+C5xz8Ec8O6zVYkHQ=
 connectrpc.com/connect/v2 v2.0.1/go.mod h1:N32OLrstcPUzkykFynnefFro3+xzSdOrZlK2jHmS/xo=
 connectrpc.com/grpcreflect/v2 v2.0.0 h1:Ah7U5kSd/kslH5KFNS8jh/e3u6UYVoX7lwkjcIfSq6A=
