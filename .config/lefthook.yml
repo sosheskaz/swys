@@ -61,9 +61,12 @@ commit-msg:
     conventional:
       run: |
         commit_msg_file="{1}"
-        pattern='^(feat|fix|refactor|test|docs|chore|build|ci|perf|deps)(\([a-z0-9-]+\))?!?: .+'
+        # release-please's changelog sections are the one list of commit types;
+        # the PR labels workflow enforces the same list on PR titles.
+        types=$(mise exec jq -- jq -r '[."changelog-sections"[].type] | join("|")' release-please-config.json)
+        pattern="^(${types})(\\([a-z0-9-]+\\))?!?: .+"
         if ! grep -Eq "$pattern" "$commit_msg_file"; then
           echo "invalid commit message. use conventional commits: type(scope): subject"
-          echo "types: feat fix refactor test docs chore build ci perf deps"
+          echo "types: $(echo "$types" | tr "|" " ")"
           exit 1
         fi

@@ -106,6 +106,9 @@ jobs:
       - name: Test coverage reporting
         run: 'mise run test:coverage-report ::: test:coverage-publisher'
 
+      - name: Test PR labeling
+        run: mise run test:pr-labels
+
       - name: Vulnerability scan
         run: mise run scan:vuln
 

@@ -1,0 +1,107 @@
+name: PR labels
+
+# Squash merges use the PR title as the commit subject and the PR body as its
+# message, so the title is the conventional commit release-please reads.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  classify:
+    name: Conventional PR title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # list changed files
+    outputs:
+      labels: ${{ steps.classify.outputs.labels }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Classify pull request
+        id: classify
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { classify } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-labels.cjs`);
+            const pr = context.payload.pull_request;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo, pull_number: pr.number, per_page: 100
+            });
+            const result = classify({
+              root: process.env.GITHUB_WORKSPACE,
+              title: pr.title,
+              body: pr.body,
+              headRef: pr.head.ref,
+              files: files.flatMap(file => [file.filename, file.previous_filename].filter(Boolean)),
+            });
+            if (result.error) {
+              core.setFailed(result.error);
+              return;
+            }
+            core.setOutput('labels', JSON.stringify(result.labels));
+            await core.summary
+              .addHeading('PR labels', 2)
+              .addList(result.labels.map(label => label.name))
+              .write();
+
+  label:
+    name: Apply PR labels
+    needs: classify
+    # Fork PRs get a read-only token; they are still validated above.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # create, update, add, and remove labels
+    steps:
+      # Data only: this job never checks out or executes PR source.
+      - name: Reconcile managed labels
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_LABELS: ${{ needs.classify.outputs.labels }}
+        with:
+          script: |
+            const managed = /^(type: [a-z]+|area: [a-z]+|breaking change)$/;
+            const desired = JSON.parse(process.env.PR_LABELS);
+            if (!Array.isArray(desired) || !desired.every(label =>
+                managed.test(label.name) && /^[0-9a-f]{6}$/.test(label.color) &&
+                typeof label.description === 'string' && label.description.length <= 100)) {
+              throw new Error('Classifier produced an unmanaged or malformed label');
+            }
+            const issue_number = context.payload.pull_request.number;
+            for (const label of desired) {
+              try {
+                const { data } = await github.rest.issues.getLabel({...context.repo, name: label.name});
+                if (data.color !== label.color || data.description !== label.description) {
+                  await github.rest.issues.updateLabel({...context.repo, ...label});
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({...context.repo, ...label});
+              }
+            }
+            const wanted = new Set(desired.map(label => label.name));
+            const current = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              ...context.repo, issue_number, per_page: 100
+            });
+            for (const { name } of current) {
+              if (managed.test(name) && !wanted.has(name)) {
+                await github.rest.issues.removeLabel({...context.repo, issue_number, name});
+              }
+            }
+            const present = new Set(current.map(label => label.name));
+            const missing = [...wanted].filter(name => !present.has(name));
+            if (missing.length) {
+              await github.rest.issues.addLabels({...context.repo, issue_number, labels: missing});
+            }

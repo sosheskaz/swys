@@ -47,6 +47,7 @@ depends = [
   "lint:platforms",
   "test:coverage-report",
   "test:coverage-publisher",
+  "test:pr-labels",
   "test:tasks",
   "test:unit",
 ]
@@ -67,3 +68,7 @@ run = "lefthook install"
 [tasks."test:coverage-publisher"]
 description = "Test trusted coverage publication with local API fixtures"
 run = "node .github/tests/coverage-comment.test.cjs"
+
+[tasks."test:pr-labels"]
+description = "Test PR title classification and label reconciliation"
+run = "node --test .github/tests/pr-labels.test.cjs"
