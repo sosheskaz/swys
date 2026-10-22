@@ -1,23 +1,14 @@
 package cmd
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/sosheskaz/swys/cmd/internal/testcmd"
-	"github.com/sosheskaz/swys/internal/securefile"
 )
 
 func writeOwnerOnlyFixture(t *testing.T, path, contents string) {
 	t.Helper()
-	file, err := securefile.OpenOrCreateOwnerOnly(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, writeErr := file.WriteString(contents)
-	if err := errors.Join(writeErr, file.Close()); err != nil {
-		t.Fatal(err)
-	}
+	testcmd.WriteOwnerOnlyFixture(t, path, contents)
 }
 
 func assertPrivateOutput(t *testing.T, path string) {

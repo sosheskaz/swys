@@ -112,7 +112,7 @@ func TestAESKeyContainerPreservesMultipleKeysAndRequiresSelectionForRawExport(t 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			output := filepath.Join(t.TempDir(), "raw.key")
-			require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
+			testcmd.WriteOwnerOnlyFixture(t, output, "preserve")
 			args := []string{"aes", "key-convert", "--from", "tink-binary", "--to", "raw", "--input", binaryPath, "--output", output}
 			args = append(args, tc.flags...)
 			_, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil, args...)
