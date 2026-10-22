@@ -373,7 +373,8 @@ jobs:
   native:
     name: Go native (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    # Cold race builds without a cache; tighten once timings are known.
+    timeout-minutes: 45
     permissions:
       contents: read
     defaults:
@@ -447,6 +448,11 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Test
+        env:
+          TEST_TASK: ${{ matrix.race && 'test:race' || 'test:unit' }}
+        run: mise run "$TEST_TASK" -- -shuffle=on
 
   go:
     name: Build, test, lint
