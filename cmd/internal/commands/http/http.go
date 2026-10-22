@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
@@ -34,34 +35,36 @@ const (
 	httpStdinAlways      = "always"
 	httpMediaTypeJSON    = "application/json"
 	httpCodingGzip       = "gzip"
-	httpInsecureFlagName = "insecure"
+	httpInsecureFlagName = tlsconfig.InsecureFlagName
+	httpsScheme          = "https"
 	httpDataFlagName     = "data"
 )
 
 type httpOptions struct {
-	data           string
-	jsonData       string
-	stdin          string
-	format         string
-	selection      string
-	inputEncoding  string
-	encoding       string
-	cert           string
-	key            string
-	ca             string
-	serverName     string
-	headers        []string
-	forms          []string
-	files          []string
-	resolves       []string
-	requestTimeout time.Duration
-	timeout        time.Duration
-	maxRedirects   int
-	trace          bool
-	follow         bool
-	fail           bool
-	systemCA       bool
-	insecure       bool
+	data             string
+	jsonData         string
+	stdin            string
+	format           string
+	selection        string
+	inputEncoding    string
+	encoding         string
+	cert             string
+	key              string
+	ca               string
+	serverName       string
+	headers          []string
+	forms            []string
+	files            []string
+	resolves         []string
+	requestTimeout   time.Duration
+	timeout          time.Duration
+	maxRedirects     int
+	trace            bool
+	follow           bool
+	fail             bool
+	systemCA         bool
+	insecure         bool
+	insecureNoVerify bool
 }
 
 // NewCommand constructs the HTTP command and registers its I/O behavior.
@@ -169,7 +172,9 @@ func registerHTTPFlags(cmd *cobra.Command, options *httpOptions) {
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, tlsconfig.SystemCAFlagName, false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&options.insecure, httpInsecureFlagName, false, "disable TLS certificate and hostname verification")
+	flags.BoolVar(&options.insecure, httpInsecureFlagName, false, "enable every --insecure-* behavior: unverified TLS and cleartext --auth-*")
+	flags.BoolVar(&options.insecureNoVerify, tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage)
+	auth.AddFlags(cmd, flags)
 	registerHTTPCompletions(cmd, options)
 	tlsconfig.AddArtifactEncodingFlags(cmd, func(*cobra.Command, []string) bool { return true })
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {

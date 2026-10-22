@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -37,7 +38,7 @@ func executeHTTPRequest(cmd *cobra.Command, options *httpOptions, prepared *http
 	stopBodyClose := closeHTTPBodyOnCancellation(request.Context(), prepared.body)
 	roundTripper, trace := httpTracingTransport(transport, options.trace)
 
-	checkRedirect, redirectError := httpRedirectChecker(options)
+	checkRedirect, redirectError := httpRedirectChecker(options, prepared.authorized)
 	client := &http.Client{
 		Transport:     roundTripper,
 		CheckRedirect: checkRedirect,
@@ -109,9 +110,9 @@ func httpTracingTransport(transport http.RoundTripper, enabled bool) (http.Round
 	}), trace
 }
 
-func httpRedirectChecker(options *httpOptions) (func(*http.Request, []*http.Request) error, func() error) {
+func httpRedirectChecker(options *httpOptions, authorized bool) (func(*http.Request, []*http.Request) error, func() error) {
 	var redirectErr error
-	checker := func(_ *http.Request, via []*http.Request) error {
+	checker := func(request *http.Request, via []*http.Request) error {
 		if !options.follow {
 			return http.ErrUseLastResponse
 		}
@@ -119,9 +120,24 @@ func httpRedirectChecker(options *httpOptions) (func(*http.Request, []*http.Requ
 			redirectErr = fmt.Errorf("%w: maximum of %d redirects exceeded", errHTTPRedirect, options.maxRedirects)
 			return http.ErrUseLastResponse
 		}
+		if authorized && httpRedirectLeftTLS(request, via) {
+			request.Header.Del("Authorization")
+		}
 		return nil
 	}
 	return checker, func() error { return redirectErr }
+}
+
+// httpRedirectLeftTLS reports whether an HTTPS chain reached cleartext at any hop.
+// net/http copies the initial headers onto every hop and strips credentials only
+// on a hostname change, so the whole chain is checked each time.
+func httpRedirectLeftTLS(request *http.Request, via []*http.Request) bool {
+	if via[0].URL.Scheme != httpsScheme {
+		return false
+	}
+	return request.URL.Scheme != httpsScheme || slices.ContainsFunc(via[1:], func(hop *http.Request) bool {
+		return hop.URL.Scheme != httpsScheme
+	})
 }
 
 func httpPendingError(options *httpOptions, response *http.Response, pendingErr error) error {

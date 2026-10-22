@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 )
@@ -23,7 +24,7 @@ import (
 const (
 	grpcCompletionTimeout = 2 * time.Second
 	grpcPlaintextFlagName = "plaintext"
-	grpcInsecureFlagName  = "insecure"
+	grpcInsecureFlagName  = tlsconfig.InsecureFlagName
 	grpcListFlagName      = "list"
 	grpcDescribeFlagName  = "describe"
 	grpcDataFlagName      = "data"
@@ -79,7 +80,7 @@ func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
 			return nil, cobra.ShellCompDirectiveDefault
 		})
 	}
-	for _, name := range []string{grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.SystemCAFlagName} {
+	for _, name := range []string{grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName} {
 		flagName := name
 		mustRegisterGRPCCompletion(command, name, func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
 			var values []string
@@ -114,12 +115,16 @@ func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command 
 		return
 	}
 	for _, name := range []string{
-		grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.SystemCAFlagName, tlsconfig.CAFlagName,
-		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.ServerNameFlagName,
+		grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName,
+		tlsconfig.CAFlagName, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.ServerNameFlagName,
 	} {
 		if !grpcTLSCompletionAllowed(probe, name) {
 			command.Flag(name).Hidden = true
 		}
+	}
+	headers, _ := probe.Flags().GetStringArray("header") //nolint:errcheck // a missing value hides nothing
+	for _, name := range auth.HiddenForCompletion(probe.Flags(), headers) {
+		command.Flag(name).Hidden = true
 	}
 	for name, kind := range map[string]grpcCompletionKind{grpcListFlagName: grpcCompleteService, grpcDescribeFlagName: grpcCompleteSymbol} {
 		if !grpcSelectionCompletionAllowed(probe, probe.Flags().Args(), kind) {
@@ -185,21 +190,35 @@ func grpcCompletionString(command *cobra.Command, name string) string {
 
 func grpcTLSCompletionAllowed(command *cobra.Command, name string) bool {
 	plaintext := grpcCompletionBool(command, grpcPlaintextFlagName)
-	insecure := grpcCompletionBool(command, grpcInsecureFlagName)
-	ca := grpcCompletionString(command, tlsconfig.CAFlagName)
-	systemCA := grpcCompletionBool(command, tlsconfig.SystemCAFlagName)
 	switch name {
-	case grpcPlaintextFlagName:
-		return ca == "" && !systemCA && !insecure &&
-			grpcCompletionString(command, tlsconfig.ServerNameFlagName) == "" &&
-			grpcCompletionString(command, tlsconfig.CertFlagName) == "" && grpcCompletionString(command, tlsconfig.KeyFlagName) == ""
-	case grpcInsecureFlagName:
-		return !plaintext && ca == "" && !systemCA
+	case grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName:
+		return grpcTransportCompletionAllowed(command, name, plaintext)
 	case tlsconfig.SystemCAFlagName, tlsconfig.CAFlagName:
-		return !plaintext && !insecure
+		return !plaintext && tlsconfig.SkipVerifyFlag(command.Flags()) == ""
 	default:
 		return !plaintext
 	}
+}
+
+// grpcTransportCompletionAllowed keeps transport and verification choices compatible with trust flags.
+func grpcTransportCompletionAllowed(command *cobra.Command, name string, plaintext bool) bool {
+	trusted := grpcCompletionString(command, tlsconfig.CAFlagName) != "" || grpcCompletionBool(command, tlsconfig.SystemCAFlagName)
+	_, credential := auth.Selected(command.Flags())
+	switch name {
+	case grpcPlaintextFlagName:
+		umbrella := grpcCompletionBool(command, grpcInsecureFlagName)
+		return !trusted && !grpcCompletionBool(command, tlsconfig.InsecureNoVerifyFlagName) && (!umbrella || credential) &&
+			!grpcCompletionHasTLSIdentity(command)
+	case grpcInsecureFlagName:
+		return !trusted && (!plaintext || credential)
+	default:
+		return !trusted && !plaintext
+	}
+}
+
+func grpcCompletionHasTLSIdentity(command *cobra.Command) bool {
+	return grpcCompletionString(command, tlsconfig.ServerNameFlagName) != "" ||
+		grpcCompletionString(command, tlsconfig.CertFlagName) != "" || grpcCompletionString(command, tlsconfig.KeyFlagName) != ""
 }
 
 func completeGRPC(
@@ -244,7 +263,10 @@ func grpcCompletionSchema(
 	endpoint string,
 	options *grpcOptions,
 ) (*grpcSchema, *grpc.ClientConn, context.Context) {
-	if validateGRPCTLSOptionCombinations(options) != nil || tlsconfig.ValidateArtifactSources(command, !options.plaintext, false, ErrInvalidOptions) != nil {
+	if validateGRPCTLSOptionCombinations(command, options) != nil ||
+		tlsconfig.ValidateArtifactSources(command, !options.plaintext, false, ErrInvalidOptions) != nil ||
+		auth.Validate(command.Flags(), !options.plaintext, false, ErrInvalidOptions) != nil {
+
 		return nil, nil, ctx
 	}
 	if command.Flags().Changed("protoset") {
@@ -257,7 +279,9 @@ func grpcCompletionSchema(
 	}
 
 	requestMetadata, err := parseGRPCMetadata(grpcCompletionHeaders(options.headers))
-	if err != nil || !regularGRPCCompletionCredentialFiles(options) {
+	if err != nil || !regularGRPCCompletionCredentialFiles(command, options) || auth.UsesStdin(command.Flags()) ||
+		applyGRPCAuthorization(command, requestMetadata) != nil {
+
 		return nil, nil, ctx
 	}
 	ctx = metadata.NewOutgoingContext(ctx, requestMetadata)
@@ -272,8 +296,13 @@ func grpcCompletionSchema(
 	return schema, connection, ctx
 }
 
-func regularGRPCCompletionCredentialFiles(options *grpcOptions) bool {
-	for _, path := range []string{options.ca, options.cert, options.key} {
+func regularGRPCCompletionCredentialFiles(command *cobra.Command, options *grpcOptions) bool {
+	paths := make([]string, 0, 3+len(auth.FileFlagNames))
+	paths = append(paths, options.ca, options.cert, options.key)
+	for _, name := range auth.FileFlagNames {
+		paths = append(paths, grpcCompletionString(command, name))
+	}
+	for _, path := range paths {
 		if path == "" {
 			continue
 		}

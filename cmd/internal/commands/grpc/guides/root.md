@@ -29,7 +29,7 @@ Send request metadata with **--header** (**-H**) as name: value, repeating it fo
 
 ```sh
 swys grpc api.example.test:443 example.v1.EchoService/Echo \
-  -d '{"text":"hello"}' -H "Authorization: Bearer $TOKEN"
+  -d '{"text":"hello"}' -H "x-request-id: demo-1"
 ```
 
 To extract the response text, install jq and compose the same invocation:
@@ -42,9 +42,20 @@ Responses are protobuf JSON followed by a newline by default. Use the format fla
 
 Discovery defaults to text. Use the format flag with json for JSON lists or descriptors. The encoding flag transforms the complete stdout result, including its trailing newline. For example, base64 encoding applies to the whole protobuf JSON or text response. Verbose diagnostics remain on stderr outside the encoder.
 
+## Authenticate
+
+--auth-bearer-file, --auth-bearer-env, and --auth-bearer send a bearer token as authorization metadata on reflection and the call. The matching --auth-basic forms take USER:PASSWORD. Prefer the file and environment forms; literal values are visible to other local users in process listings and shell history. One trailing line ending is removed from a credential file.
+
+```sh
+swys grpc api.example.test:443 example.v1.EchoService/Echo \
+  -d '{"text":"hello"}' --auth-bearer-env TOKEN
+```
+
+These flags own authorization metadata and conflict with an authorization --header. With **--plaintext**, credentials also need **--insecure-cleartext-auth** or the **--insecure** umbrella. Reflection completion sends the same credential but stays quiet when its file is stdin or not a regular file.
+
 ## Use TLS or an offline protoset
 
-TLS certificate and hostname verification are enabled by default. Use **--ca**, **--servername**, or **--cert** with **--key** for private services; those credential files must already exist. Use **--plaintext** only for an explicitly cleartext HTTP/2 endpoint; it conflicts with effective TLS options.
+TLS certificate and hostname verification are enabled by default. Use **--ca**, **--servername**, or **--cert** with **--key** for private services; those credential files must already exist. Use **--plaintext** only for an explicitly cleartext HTTP/2 endpoint; it conflicts with effective TLS options. **--insecure-no-verify** disables verification for controlled diagnostics. **--insecure** enables every insecure carve-out: it disables verification over TLS and, with a credential flag, permits **--plaintext**.
 
 The protoset flag replaces reflection. Service listing and description then use the supplied FileDescriptorSet without connecting to the endpoint. Invoking a method still connects after SwYS resolves the schema and validates the request.
 

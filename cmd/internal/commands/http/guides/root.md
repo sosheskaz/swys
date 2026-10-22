@@ -29,7 +29,18 @@ swys http https://api.example.test/items -X PUT -d 'literal body'
 
 The --connect-timeout (-c) option bounds connection setup and TLS handshaking, with a ten-second default. The --timeout (-t) option bounds the whole request, including upload and response transfer; zero, the default, disables it.
 
-Tracing writes connection and timing diagnostics to stderr, leaving ordinary body output on stdout. TLS verification is enabled by default; use custom trust settings for private services instead of disabling verification when possible.
+Tracing writes connection and timing diagnostics to stderr, leaving ordinary body output on stdout. TLS verification is enabled by default; use custom trust settings for private services instead of disabling verification when possible. --insecure-no-verify disables only verification, while --insecure enables every insecure carve-out, including cleartext credentials.
+
+## Authenticate
+
+--auth-bearer-file, --auth-bearer-env, and --auth-bearer send the token alone as Authorization: Bearer. The matching --auth-basic forms take USER:PASSWORD and send Basic credentials. Prefer the file and environment forms; literal values are visible to other local users in process listings and shell history. One trailing line ending is removed from a credential file.
+
+```sh
+swys http https://api.example.test/items --auth-bearer-file token.txt
+swys http https://api.example.test/items --auth-basic-env API_CREDENTIALS
+```
+
+These flags own the Authorization header, so an Authorization --header (-H) or credentials in the URL are rejected alongside them. Credentials require HTTPS: an http:// URL also needs --insecure-cleartext-auth or the --insecure umbrella. A redirect chain drops the credential once it leaves HTTPS or reaches a host other than the original host or its subdomains. An exact - reads the credential file from stdin when no body or TLS credential owns it.
 
 ## Compose the response
 

@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/internal/connectrpc"
 	"github.com/sosheskaz/swys/internal/contextio"
@@ -33,6 +34,9 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 		return nil, err
 	}
 	settings.discovery = target.discovery
+	if source, ok := auth.Selected(cmd.Flags()); ok && target.base == nil {
+		return nil, fmt.Errorf("%w: --%s requires a remote target", ErrInvalidFlags, source)
+	}
 	secure := target.base != nil && target.base.Scheme == "https"
 	if err := validate(cmd, settings, secure); err != nil {
 		return nil, err
@@ -40,6 +44,9 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 
 	headers, err := parseHeaders(settings.headers)
 	if err != nil {
+		return nil, err
+	}
+	if err := applyAuthorization(cmd, headers); err != nil {
 		return nil, err
 	}
 	resolver, err := httptransport.ParseResolves(settings.resolves)

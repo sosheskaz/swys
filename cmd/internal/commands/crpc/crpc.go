@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http/httpguts"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/certinput"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/help"
@@ -39,7 +41,8 @@ const (
 	flagReflect           = "reflect"
 	flagReflectionTimeout = "reflection-timeout"
 	flagHeader            = "header"
-	flagInsecure          = "insecure"
+	flagInsecure          = tlsconfig.InsecureFlagName
+	flagInsecureNoVerify  = tlsconfig.InsecureNoVerifyFlagName
 	flagInputEncoding     = "input-encoding"
 	flagList              = "list"
 	flagWait              = "wait"
@@ -59,13 +62,14 @@ const (
 )
 
 type options struct {
-	stream, protoset, list, describe, template            string
-	data, stdin, format                                   string
-	ca, cert, key, serverName                             string
-	headers, resolves                                     []string
-	connectTimeout, timeout, wait, reflectionTimeout      time.Duration
-	maxMessageSize                                        int
-	systemCA, insecure, verbose, reflectSchema, discovery bool
+	stream, protoset, list, describe, template       string
+	data, stdin, format                              string
+	ca, cert, key, serverName                        string
+	headers, resolves                                []string
+	connectTimeout, timeout, wait, reflectionTimeout time.Duration
+	maxMessageSize                                   int
+	systemCA, insecure, insecureNoVerify, verbose    bool
+	reflectSchema, discovery                         bool
 }
 
 // NewCommand constructs Connect RPC invocation and registers its I/O lifecycle.
@@ -135,7 +139,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.StringVar(&settings.cert, flagCert, "", "client certificate chain path; - reads stdin")
 	flags.StringVarP(&settings.key, flagKey, "k", "", "client private key path; - reads stdin")
 	flags.StringVar(&settings.serverName, flagServerName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&settings.insecure, flagInsecure, false, "disable TLS certificate and hostname verification")
+	flags.BoolVar(&settings.insecure, flagInsecure, false, "enable every --insecure-* behavior: unverified TLS and cleartext --auth-*")
+	flags.BoolVar(&settings.insecureNoVerify, flagInsecureNoVerify, false, tlsconfig.InsecureNoVerifyUsage)
+	auth.AddFlags(command, flags)
 	flags.BoolVarP(&settings.verbose, "verbose", "v", false, "write status, response headers, and TLS details to stderr")
 	commandio.RegisterFlagCompletion(command, flagStdin, func() []string { return []string{stdinAuto, stdinNever, stdinAlways} })
 	for _, name := range []string{"connect-timeout", flagTimeout, flagWait, flagReflectionTimeout} {
@@ -225,16 +231,33 @@ func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidFlags)
 	}
 	if !secure {
-		for _, name := range []string{flagCA, flagSystemCA, flagCert, flagKey, flagServerName, flagInsecure} {
-			if cmd.Flags().Changed(name) {
+		_, credential := auth.Selected(cmd.Flags())
+		for _, name := range []string{flagCA, flagSystemCA, flagCert, flagKey, flagServerName, flagInsecureNoVerify, flagInsecure} {
+			// The --insecure umbrella also permits cleartext credentials.
+			if cmd.Flags().Changed(name) && (name != flagInsecure || !credential) {
 				return fmt.Errorf("%w: --%s requires HTTPS", ErrInvalidFlags, name)
 			}
 		}
 	}
-	if err := tlsconfig.ValidateArtifactSources(cmd, secure, usesStdin(cmd, settings), ErrInvalidFlags); err != nil {
+	payloadStdin := usesStdin(cmd, settings)
+	if err := tlsconfig.ValidateArtifactSources(cmd, secure, payloadStdin, ErrInvalidFlags); err != nil {
 		return err
 	}
-	return certinput.ValidatePaths(cmd, flagCA, flagCert, flagKey, flagProtoset)
+	if err := auth.Validate(cmd.Flags(), secure, payloadStdin, ErrInvalidFlags); err != nil {
+		return err
+	}
+	return certinput.ValidatePaths(cmd, append([]string{flagCA, flagCert, flagKey, flagProtoset}, auth.FileFlagNames...)...)
+}
+
+func applyAuthorization(cmd *cobra.Command, headers *connect.Header) error {
+	if err := auth.RejectHeader(cmd.Flags(), len(headers.Values("Authorization")) != 0, ErrInvalidFlags); err != nil {
+		return err
+	}
+	value, ok, err := auth.Value(cmd.Context(), cmd.InOrStdin(), cmd.Flags(), os.LookupEnv, ErrInvalidFlags)
+	if ok {
+		headers.Set("Authorization", value)
+	}
+	return err
 }
 
 func usesStdin(cmd *cobra.Command, settings *options) bool {
@@ -253,7 +276,7 @@ func usesStdin(cmd *cobra.Command, settings *options) bool {
 func prepareTLS(cmd *cobra.Command, settings *options) (*tls.Config, error) {
 	config := &tls.Config{
 		MinVersion: tls.VersionTLS12, ServerName: settings.serverName,
-		InsecureSkipVerify: settings.insecure,
+		InsecureSkipVerify: tlsconfig.SkipVerifyFlag(cmd.Flags()) != "",
 	}
 	if err := tlsconfig.AddRootCAs(cmd, config); err != nil {
 		return nil, err
