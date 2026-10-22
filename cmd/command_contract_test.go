@@ -182,7 +182,7 @@ func TestOldOutputFlagNamesAreRemoved(t *testing.T) {
 
 func TestKeyFlagsShareFileShorthand(t *testing.T) {
 	t.Parallel()
-	for _, path := range [][]string{{"aes", "encrypt"}, {"cert", "create"}, {"net", "connect"}} {
+	for _, path := range [][]string{{"aes", "encrypt"}, {"cert", "create"}, {"cert", "connect"}, {"net", "connect"}} {
 		command, _, err := NewCommand().Find(path)
 		require.NoError(t, err)
 		flag := command.Flags().Lookup("key")

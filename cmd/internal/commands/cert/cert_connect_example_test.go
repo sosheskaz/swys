@@ -1,6 +1,7 @@
 package cert_test
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"encoding/pem"
 	"os"
@@ -58,6 +59,38 @@ func TestExampleConnectReportsUntrustedPrivateCAWithoutFailing(t *testing.T) {
 
 	_, _, err = executeRootStreams(t, "cert", "connect", endpoint, "--select", "root", "-f", "pem")
 	require.ErrorContains(t, err, "root unavailable", "the default trust store cannot discover a private root")
+}
+
+func TestExampleConnectOffersALPN(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	// Like an ACME TLS-ALPN-01 responder, the server presents a challenge
+	// certificate only to clients that offer acme-tls/1.
+	endpoint, challenge := newACMEChallengeTLSServer(t, &identity)
+
+	output, _, err := executeRootStreams(t, "cert", "connect", endpoint, "--alpn", "acme-tls/1", "-f", "json")
+	require.NoError(t, err)
+	assert.Equal(t, challenge, connectLeafDER(t, output))
+
+	output, _, err = executeRootStreams(t, "cert", "connect", endpoint, "-f", "json")
+	require.NoError(t, err)
+	assert.Equal(t, certificateFileDER(t, identity.ServerCert), connectLeafDER(t, output))
+}
+
+func TestExampleConnectPresentsClientCertificate(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	endpoint := newClientAuthTLSServer(t, &identity, tls.VersionTLS12)
+
+	_, _, err := executeRootStreams(t, "cert", "connect", endpoint)
+	require.ErrorContains(t, err, "handshake", "the TLS 1.2 server rejects a client without a certificate")
+
+	output, _, err := executeRootStreams(t, "cert", "connect", endpoint,
+		"--cert", identity.ClientCert, "--key", identity.ClientKey, "--ca", identity.CACert, "-f", "json")
+	require.NoError(t, err)
+	assert.Equal(t, certificateFileDER(t, identity.ServerCert), connectLeafDER(t, output))
+	verification := decodeConnectVerification(t, output)
+	assert.True(t, verification.Verified, "verification error: %s", verification.Error)
 }
 
 type connectVerification struct {
