@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +30,10 @@ import (
 //nolint:paralleltest,nestif // the helper process re-enters this test using its own controlling PTY
 func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 	if source := os.Getenv("SWYS_PROMPT_HELPER"); source != "" {
+		// Shells without job control, such as the FreeBSD CI session, start the
+		// tests with TSTP ignored, and an ignored signal survives exec; catching it
+		// gives the supplier the default action that ^Z relies on.
+		signal.Notify(make(chan os.Signal, 1), syscall.SIGTSTP)
 		var value []byte
 		var err error
 		if strings.HasPrefix(source, "command") {
@@ -87,8 +92,8 @@ func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 		if _, err := ready.Write(group[:]); err != nil {
 			os.Exit(3)
 		}
-		var signal [1]byte
-		if _, err := release.Read(signal[:]); err != nil {
+		var released [1]byte
+		if _, err := release.Read(released[:]); err != nil {
 			os.Exit(4)
 		}
 		os.Exit(0)
