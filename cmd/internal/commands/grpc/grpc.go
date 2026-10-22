@@ -1058,8 +1058,8 @@ func grpcContextFailure(ctx context.Context, err error, details *grpcCallDetails
 	return err
 }
 
-func grpcInvokeFailure(_ context.Context, err error, _ *grpcCallDetails) error {
-	return grpcStatusError("invoke gRPC method", err)
+func grpcInvokeFailure(ctx context.Context, err error, details *grpcCallDetails) error {
+	return grpcStatusError("invoke gRPC method", grpcContextFailure(ctx, err, details))
 }
 
 // Reflection implementations return serialized FileDescriptorProto values.
