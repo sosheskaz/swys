@@ -3,7 +3,6 @@ package contextio
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
@@ -83,7 +82,7 @@ func TestOpenFileStopsWaitingAndClosesTheLateFile(t *testing.T) {
 	// The abandoned open completes later; its file must not leak.
 	close(release)
 	file := <-opened
-	waitUntil(t, func() bool { _, err := file.Stat(); return errors.Is(err, os.ErrClosed) }, "abandoned open leaked its file")
+	waitUntil(t, func() bool { return fileClosed(file) }, "abandoned open leaked its file")
 }
 
 func TestOpenFileCancellationLeavesOneWorkerForBlockedOpen(t *testing.T) {

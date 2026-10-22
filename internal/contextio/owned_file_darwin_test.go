@@ -5,7 +5,6 @@ package contextio
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"runtime/pprof"
 	"strconv"
@@ -58,10 +57,7 @@ func TestOwnedFileReaderRestoresSharedNonblockingFlagOnClose(t *testing.T) {
 
 			if test.cancel {
 				cancel()
-				waitUntil(t, func() bool {
-					_, statErr := alias.Stat()
-					return errors.Is(statErr, os.ErrClosed)
-				}, "cancellation did not close the owned descriptor alias")
+				waitUntil(t, func() bool { return fileClosed(alias) }, "cancellation did not close the owned descriptor alias")
 			} else if err := reader.Close(); err != nil {
 				t.Fatalf("close owned descriptor alias: %v", err)
 			}
@@ -169,10 +165,7 @@ func TestOwnedFileReaderCloseReleasesEnteredDarwinFIFORead(t *testing.T) {
 			if test.cancel {
 				require.ErrorIs(t, result.err, context.Canceled)
 			}
-			waitUntil(t, func() bool {
-				_, statErr := input.Stat()
-				return errors.Is(statErr, os.ErrClosed)
-			}, "runtime-poll input remained open after cleanup")
+			waitUntil(t, func() bool { return fileClosed(input) }, "runtime-poll input remained open after cleanup")
 		})
 	}
 }
