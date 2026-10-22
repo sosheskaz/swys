@@ -377,9 +377,11 @@ func TestGRPCReflectionDoesNotWaitForServerToCloseAfterValidResponse(t *testing.
 					calls, v1Calls, alphaCalls, test.wantV1, test.wantV1Alpha,
 				)
 			}
+			// A leaked stream never signals; the bound only absorbs slow
+			// scheduling on loaded runners.
 			select {
 			case <-record.reflectionContextDone:
-			case <-time.After(time.Second):
+			case <-time.After(5 * time.Second):
 				t.Fatal("open reflection fixture did not observe client cleanup")
 			}
 		})
