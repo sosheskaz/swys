@@ -8,15 +8,6 @@ import (
 	"testing"
 )
 
-func openPromptPTMX(t *testing.T) *os.File {
-	t.Helper()
-	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		t.Fatalf("open pseudo-terminal master: %v", err)
-	}
-	return master
-}
-
 func openPromptPTYSlave(t *testing.T, master *os.File, name string) *os.File {
 	t.Helper()
 	slave, err := os.OpenFile(name, os.O_RDWR|syscall.O_NOCTTY, 0)

@@ -14,7 +14,7 @@ const promptTermiosRequest = unix.TCGETS
 func openPromptPTY(t *testing.T) (*os.File, *os.File) {
 	t.Helper()
 	master := openPromptPTMX(t)
-	if err := unix.IoctlSetPointerInt(int(master.Fd()), unix.TIOCSPTLCK, 0); err != nil {
+	if err := controlPromptPTY(master, func(fd int) error { return unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0) }); err != nil {
 		_ = master.Close() //nolint:errcheck // the unlock failure is the reported error
 		t.Fatalf("unlock pseudo-terminal: %v", err)
 	}
