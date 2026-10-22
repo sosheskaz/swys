@@ -505,7 +505,7 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if err := tlsconfig.ValidateArtifactSources(cmd, !options.plaintext, payloadStdin, ErrInvalidOptions); err != nil {
 		return err
 	}
-	if err := auth.Validate(cmd.Flags(), !options.plaintext, payloadStdin, ErrInvalidOptions); err != nil {
+	if err := auth.Validate(cmd.Flags(), options.plaintext, payloadStdin, ErrInvalidOptions); err != nil {
 		return err
 	}
 	certPaths := append([]string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName}, auth.FileFlagNames...)

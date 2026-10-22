@@ -84,7 +84,7 @@ func prepareHTTPHeaders(cmd *cobra.Command, options *httpOptions, method string,
 	if len(options.files) != 0 && headers.Get("Content-Type") != "" {
 		return nil, false, fmt.Errorf("%w: multipart Content-Type is generated with its boundary", ErrInvalidFlags)
 	}
-	if err := auth.Validate(cmd.Flags(), address.Scheme == httpsScheme, httpBodyUsesStdin(cmd, options, method), ErrInvalidFlags); err != nil {
+	if err := auth.Validate(cmd.Flags(), address.Scheme != httpsScheme, httpBodyUsesStdin(cmd, options, method), ErrInvalidFlags); err != nil {
 		return nil, false, err
 	}
 	if err := auth.RejectHeader(cmd.Flags(), len(headers.Values("Authorization")) != 0, ErrInvalidFlags); err != nil {

@@ -265,7 +265,7 @@ func grpcCompletionSchema(
 ) (*grpcSchema, *grpc.ClientConn, context.Context) {
 	if validateGRPCTLSOptionCombinations(command, options) != nil ||
 		tlsconfig.ValidateArtifactSources(command, !options.plaintext, false, ErrInvalidOptions) != nil ||
-		auth.Validate(command.Flags(), !options.plaintext, false, ErrInvalidOptions) != nil {
+		auth.Validate(command.Flags(), options.plaintext, false, ErrInvalidOptions) != nil {
 
 		return nil, nil, ctx
 	}

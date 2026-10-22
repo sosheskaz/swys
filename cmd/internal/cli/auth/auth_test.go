@@ -126,30 +126,30 @@ func TestValidate(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		args         []string
-		secure       bool
+		cleartext    bool
 		payloadStdin bool
 		wantErr      bool
 	}{
-		{name: "no credential", secure: false},
-		{name: "TLS credential", args: []string{"--auth-bearer", "x"}, secure: true},
-		{name: "two sources", args: []string{"--auth-bearer", "x", "--auth-basic-env", "BASIC"}, secure: true, wantErr: true},
-		{name: "cleartext refused", args: []string{"--auth-bearer", "x"}, wantErr: true},
-		{name: "cleartext carve-out", args: []string{"--auth-basic", "u:p", "--insecure-cleartext-auth"}},
-		{name: "cleartext umbrella", args: []string{"--auth-bearer-env", "TOKEN", "--insecure"}},
-		{name: "TLS umbrella", args: []string{"--auth-bearer", "x", "--insecure"}, secure: true},
-		{name: "carve-out without credential", args: []string{"--insecure-cleartext-auth"}, wantErr: true},
-		{name: "carve-out with TLS", args: []string{"--auth-bearer", "x", "--insecure-cleartext-auth"}, secure: true, wantErr: true},
-		{name: "carve-out false is inert", args: []string{"--insecure-cleartext-auth=false"}, secure: true},
-		{name: "empty file path", args: []string{"--auth-bearer-file", ""}, secure: true, wantErr: true},
-		{name: "empty variable name", args: []string{"--auth-basic-env", ""}, secure: true, wantErr: true},
-		{name: "stdin file", args: []string{"--auth-bearer-file", "-"}, secure: true},
-		{name: "payload stdin conflict", args: []string{"--auth-basic-file", "-"}, secure: true, payloadStdin: true, wantErr: true},
-		{name: "TLS stdin conflict", args: []string{"--auth-bearer-file", "-", "--ca", "-"}, secure: true, wantErr: true},
-		{name: "dot-dash is a file", args: []string{"--auth-bearer-file", "./-"}, secure: true, payloadStdin: true},
+		{name: "no credential", cleartext: true},
+		{name: "TLS credential", args: []string{"--auth-bearer", "x"}},
+		{name: "two sources", args: []string{"--auth-bearer", "x", "--auth-basic-env", "BASIC"}, wantErr: true},
+		{name: "cleartext refused", args: []string{"--auth-bearer", "x"}, cleartext: true, wantErr: true},
+		{name: "cleartext carve-out", args: []string{"--auth-basic", "u:p", "--insecure-cleartext-auth"}, cleartext: true},
+		{name: "cleartext umbrella", args: []string{"--auth-bearer-env", "TOKEN", "--insecure"}, cleartext: true},
+		{name: "TLS umbrella", args: []string{"--auth-bearer", "x", "--insecure"}},
+		{name: "carve-out without credential", args: []string{"--insecure-cleartext-auth"}, cleartext: true, wantErr: true},
+		{name: "carve-out with TLS", args: []string{"--auth-bearer", "x", "--insecure-cleartext-auth"}, wantErr: true},
+		{name: "carve-out false is inert", args: []string{"--insecure-cleartext-auth=false"}},
+		{name: "empty file path", args: []string{"--auth-bearer-file", ""}, wantErr: true},
+		{name: "empty variable name", args: []string{"--auth-basic-env", ""}, wantErr: true},
+		{name: "stdin file", args: []string{"--auth-bearer-file", "-"}},
+		{name: "payload stdin conflict", args: []string{"--auth-basic-file", "-"}, payloadStdin: true, wantErr: true},
+		{name: "TLS stdin conflict", args: []string{"--auth-bearer-file", "-", "--ca", "-"}, wantErr: true},
+		{name: "dot-dash is a file", args: []string{"--auth-bearer-file", "./-"}, payloadStdin: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			err := auth.Validate(parseFlags(t, test.args...), test.secure, test.payloadStdin, errInvalid)
+			err := auth.Validate(parseFlags(t, test.args...), test.cleartext, test.payloadStdin, errInvalid)
 			if test.wantErr {
 				require.ErrorIs(t, err, errInvalid)
 				return

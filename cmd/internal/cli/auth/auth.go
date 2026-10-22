@@ -80,8 +80,9 @@ func UsesStdin(flags *pflag.FlagSet) bool {
 }
 
 // Validate checks selection, transport, and stdin ownership before any credential I/O.
-// payloadStdin reports the family's effective payload ownership; TLS artifacts are checked here.
-func Validate(flags *pflag.FlagSet, secure, payloadStdin bool, invalid error) error {
+// cleartext reports a request target without TLS. payloadStdin reports the family's
+// effective payload ownership; TLS artifacts are checked here.
+func Validate(flags *pflag.FlagSet, cleartext, payloadStdin bool, invalid error) error {
 	selected := 0
 	for _, name := range sourceFlagNames {
 		if flag := flags.Lookup(name); flag != nil && flag.Changed {
@@ -96,13 +97,13 @@ func Validate(flags *pflag.FlagSet, secure, payloadStdin bool, invalid error) er
 	if allowCleartext && !ok {
 		return fmt.Errorf("%w: --%s requires an --auth-* credential", invalid, CleartextFlagName)
 	}
-	if allowCleartext && secure {
+	if allowCleartext && !cleartext {
 		return fmt.Errorf("%w: --%s requires a cleartext target", invalid, CleartextFlagName)
 	}
 	if !ok {
 		return nil
 	}
-	if !secure && !allowCleartext && !boolFlag(flags, tlsconfig.InsecureFlagName) {
+	if cleartext && !allowCleartext && !boolFlag(flags, tlsconfig.InsecureFlagName) {
 		return fmt.Errorf("%w: --%s without TLS requires --%s", invalid, source, CleartextFlagName)
 	}
 	return validateSource(flags, source, payloadStdin, invalid)

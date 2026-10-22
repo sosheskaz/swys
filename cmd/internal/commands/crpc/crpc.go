@@ -243,7 +243,7 @@ func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
 	if err := tlsconfig.ValidateArtifactSources(cmd, secure, payloadStdin, ErrInvalidFlags); err != nil {
 		return err
 	}
-	if err := auth.Validate(cmd.Flags(), secure, payloadStdin, ErrInvalidFlags); err != nil {
+	if err := auth.Validate(cmd.Flags(), !secure, payloadStdin, ErrInvalidFlags); err != nil {
 		return err
 	}
 	return certinput.ValidatePaths(cmd, append([]string{flagCA, flagCert, flagKey, flagProtoset}, auth.FileFlagNames...)...)
