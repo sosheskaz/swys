@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.4.0](https://github.com/sosheskaz/swys/compare/v0.3.2...v0.4.0) (2026-10-22)
+
+
+### Features
+
+* add --auth-* credential flags to http, grpc, and crpc ([#93](https://github.com/sosheskaz/swys/issues/93)) ([6abf9e6](https://github.com/sosheskaz/swys/commit/6abf9e64a9ad97c999a58da7df405412cfd77167))
+* **cert:** choose SNI for cert connect ([#84](https://github.com/sosheskaz/swys/issues/84)) ([e2fa63d](https://github.com/sosheskaz/swys/commit/e2fa63d25deabc89a76646b096f7a8193af13445))
+* **cert:** choose trust roots for cert connect ([#83](https://github.com/sosheskaz/swys/issues/83)) ([35778df](https://github.com/sosheskaz/swys/commit/35778dfbb82acdc5f22898bc9de51f6bad403f28))
+* **cert:** resolve connection addresses for cert connect ([#89](https://github.com/sosheskaz/swys/issues/89)) ([3bf63db](https://github.com/sosheskaz/swys/commit/3bf63db99c5511ea29d6a3f5cda09988d4a7cf40))
+* **cert:** set handshake options for cert connect ([#86](https://github.com/sosheskaz/swys/issues/86)) ([20bf214](https://github.com/sosheskaz/swys/commit/20bf214f8220d3fa59b9534e2cf7887405ce32dc))
+* **net:** resolve connection addresses for net connect ([#88](https://github.com/sosheskaz/swys/issues/88)) ([191a22f](https://github.com/sosheskaz/swys/commit/191a22f77ea512d519b30c59900aa86c776664ed))
+
+
+### Bug Fixes
+
+* **grpc:** report the deadline when an invocation outlives --timeout ([#104](https://github.com/sosheskaz/swys/issues/104)) ([838df77](https://github.com/sosheskaz/swys/commit/838df77b1c41e576777c1f724a9a924d3b08db85))
+* treat --insecure flags as permissions ([#96](https://github.com/sosheskaz/swys/issues/96)) ([285dff0](https://github.com/sosheskaz/swys/commit/285dff0721bf556659bc78cac1e1292fa731a537))
+
+
+### Dependencies
+
+* **go:** update module connectrpc.com/connect/v2 to v2.0.1 ([#81](https://github.com/sosheskaz/swys/issues/81)) ([e7f760d](https://github.com/sosheskaz/swys/commit/e7f760d67e34e86ec7af5eab90f08f4d5001749c))
+* **go:** update module connectrpc.com/connect/v2 to v2.0.2 ([#107](https://github.com/sosheskaz/swys/issues/107)) ([023faa4](https://github.com/sosheskaz/swys/commit/023faa4b7b22f55201a86a75f25e5baa2f545325))
+* **go:** update module github.com/tink-crypto/tink-go/v2 to v2.9.0 ([#109](https://github.com/sosheskaz/swys/issues/109)) ([a3c4307](https://github.com/sosheskaz/swys/commit/a3c4307bb2d5094af665dd8f3a78f7ac89502e2a))
+
 ## [0.3.2](https://github.com/sosheskaz/swys/compare/v0.3.1...v0.3.2) (2026-10-21)
 
 
