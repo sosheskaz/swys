@@ -1194,6 +1194,20 @@ func TestGRPCMutualTLSRequiresClientCertificatePair(t *testing.T) {
 	})
 }
 
+func TestGRPCInvocationOutlivingTimeoutReportsDeadline(t *testing.T) {
+	t.Parallel()
+	// When --timeout expires, the server's status for the canceled call can
+	// arrive before the client's own deadline error.
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	late := status.Error(codes.Canceled, "wait for fixture delay: context canceled")
+
+	rpcStatus, err := grpccommand.ExportInvokeFailure(ctx, late)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, strings.ToLower(err.Error()), "deadline")
+	assert.Equal(t, codes.DeadlineExceeded, rpcStatus.Code(), "diagnostic status")
+}
+
 func TestGRPCTimeoutBoundsInvocation(t *testing.T) {
 	t.Parallel()
 	_, set, _ := grpcFixtureSchema(t)

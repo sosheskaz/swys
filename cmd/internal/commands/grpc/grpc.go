@@ -396,12 +396,13 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	details := grpcCallDetails{header: header, trailer: trailer, peer: remotePeer, status: status.Convert(err)}
 	applyGRPCTLSCapture(&details, tlsCapture)
 	if err != nil {
+		err = grpcInvokeFailure(ctx, err, &details)
 		if options.verbose {
 			if diagnosticErr := writeGRPCDiagnostics(cmd.ErrOrStderr(), options, details); diagnosticErr != nil {
-				return nil, errors.Join(grpcStatusError("invoke gRPC method", err), diagnosticErr)
+				return nil, errors.Join(err, diagnosticErr)
 			}
 		}
-		return nil, grpcStatusError("invoke gRPC method", err)
+		return nil, err
 	}
 	format := options.format
 	if format == "" {
@@ -1046,6 +1047,21 @@ func grpcStatusError(operation string, err error) error {
 	return fmt.Errorf("%s: %w", operation, err)
 }
 
+// grpcContextFailure attributes an RPC failure to ctx once ctx has ended, so a
+// server status that races the deadline, such as a late Canceled, cannot
+// replace it. The RPC error stays in the chain.
+func grpcContextFailure(ctx context.Context, err error, details *grpcCallDetails) error {
+	if contextErr := ctx.Err(); contextErr != nil {
+		details.status = status.FromContextError(contextErr)
+		return errors.Join(contextErr, err)
+	}
+	return err
+}
+
+func grpcInvokeFailure(ctx context.Context, err error, details *grpcCallDetails) error {
+	return grpcStatusError("invoke gRPC method", grpcContextFailure(ctx, err, details))
+}
+
 // Reflection implementations return serialized FileDescriptorProto values.
 // The v1 request is attempted first and alpha is used only for Unimplemented.
 func reflectGRPCSchema(
@@ -1067,10 +1083,7 @@ func reflectGRPCSchema(
 		set, services, details, err = reflectGRPCV1Alpha(ctx, conn, symbol)
 	}
 	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			err = errors.Join(contextErr, err)
-			details.status = status.FromContextError(contextErr)
-		}
+		err = grpcContextFailure(ctx, err, &details)
 		return nil, details, err
 	}
 	schema, err := newGRPCSchema(set)
