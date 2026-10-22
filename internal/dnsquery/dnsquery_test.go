@@ -17,7 +17,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -601,7 +600,7 @@ func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
 		Type:      externalDNS.TypeA,
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	}, dnsquery.Dependencies{})
-	require.ErrorIs(t, err, syscall.ECONNREFUSED)
+	require.ErrorIs(t, err, errConnectionRefused)
 	assert.NoError(t, ctx.Err(), "DoT connection refusal must not exhaust caller context")
 }
 

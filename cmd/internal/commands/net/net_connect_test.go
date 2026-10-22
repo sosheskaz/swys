@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -474,7 +473,7 @@ func TestCertConnectConnectionRefusedDoesNotRetry(t *testing.T) {
 	root.SetContext(ctx)
 
 	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", address, "--connect-timeout", "0")
-	require.ErrorIs(t, err, syscall.ECONNREFUSED)
+	require.ErrorIs(t, err, errConnectionRefused)
 	if ctx.Err() != nil {
 		t.Fatalf("certificate connection refusal exhausted the caller context: %v", ctx.Err())
 	}
