@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || freebsd || linux
 
 package password_test
 
@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -141,8 +140,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	t.Helper()
 	fixtureCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_CLOEXEC, 0)
-	require.NoError(t, err)
+	master, slave := openPromptPTY(t)
 	stopClose := context.AfterFunc(fixtureCtx, func() { _ = master.Close() }) //nolint:errcheck // timed-out fixture closes its blocked PTY read
 	defer stopClose()
 	defer func() {
@@ -151,26 +149,13 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 			require.NoError(t, err)
 		}
 	}()
-	name := make([]byte, 128)
-	for _, request := range []uintptr{syscall.TIOCPTYGNAME, syscall.TIOCPTYGRANT, syscall.TIOCPTYUNLK} {
-		argument := uintptr(0)
-		if request == syscall.TIOCPTYGNAME {
-			argument = uintptr(unsafe.Pointer(&name[0]))
-		}
-		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), request, argument)
-		require.Zero(t, errno)
-	}
-	end := bytes.IndexByte(name, 0)
-	require.Positive(t, end)
-	slave, err := os.OpenFile(string(name[:end]), os.O_RDWR|syscall.O_NOCTTY, 0)
-	require.NoError(t, err)
 	defer func() {
 		err := slave.Close()
 		if !errors.Is(err, os.ErrClosed) {
 			require.NoError(t, err)
 		}
 	}()
-	before, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TIOCGETA)
+	before, err := unix.IoctlGetTermios(int(slave.Fd()), promptTermiosRequest)
 	require.NoError(t, err)
 	output := filepath.Join(t.TempDir(), "cipher")
 	if source == "command_suspend_root" {
@@ -226,7 +211,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 		require.NoError(t, err)
 	}
 	if source == "command_noecho_interrupt" {
-		during, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TIOCGETA)
+		during, err := unix.IoctlGetTermios(int(slave.Fd()), promptTermiosRequest)
 		require.NoError(t, err)
 		require.Zero(t, during.Lflag&unix.ECHO)
 	}
@@ -237,7 +222,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	var ready [4]byte
 	_, err = io.ReadFull(readyRead, ready[:])
 	require.NoError(t, err)
-	after, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TIOCGETA)
+	after, err := unix.IoctlGetTermios(int(slave.Fd()), promptTermiosRequest)
 	require.NoError(t, err)
 	require.Equal(t, helper.Process.Pid, int(binary.LittleEndian.Uint32(ready[:])))
 	require.Equal(t, before.Lflag&^unix.PENDIN, after.Lflag&^unix.PENDIN)
