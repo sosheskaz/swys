@@ -2,6 +2,7 @@ package contextio
 
 import (
 	"errors"
+	"os"
 	"testing"
 	"time"
 )
@@ -27,4 +28,13 @@ func waitUntil(t *testing.T, condition func() bool, failure string) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal(failure)
+}
+
+// fileClosed reports whether file has been closed. Stat cannot tell: on
+// Windows it reads the handle without taking a reference, so after Close it
+// fails with an invalid-handle error rather than os.ErrClosed, and polling it
+// races Close.
+func fileClosed(file *os.File) bool {
+	conn, err := file.SyscallConn()
+	return err == nil && conn.Control(func(uintptr) {}) != nil
 }

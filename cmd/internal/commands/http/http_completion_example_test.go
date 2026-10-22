@@ -30,9 +30,9 @@ func TestExampleHTTPJSONFileCompletion(t *testing.T) {
 	prefix := "@" + directory + string(filepath.Separator)
 
 	values, directive := completeHTTPCommand(t, "--json", prefix)
-	assertHTTPCompletions(t, values, prefix+"payload.json", prefix+"UPPER.JSON", prefix+"nested files/")
+	assertHTTPCompletions(t, values, prefix+"payload.json", prefix+"UPPER.JSON", prefix+"nested files"+string(filepath.Separator))
 	if symlinkCreated {
-		assertHTTPCompletions(t, values, prefix+"linked files/")
+		assertHTTPCompletions(t, values, prefix+"linked files"+string(filepath.Separator))
 	}
 	if fileSymlinkCreated {
 		assertHTTPCompletions(t, values, prefix+"linked payload")
@@ -81,7 +81,7 @@ func TestExampleHTTPMultipartPathCompletion(t *testing.T) {
 	prefix := directory + string(filepath.Separator)
 
 	values, directive := completeHTTPCommand(t, "--form", "name=demo", "--file", "attachment="+prefix)
-	assertHTTPCompletions(t, values, "attachment="+path, "attachment="+prefix+"uploads/")
+	assertHTTPCompletions(t, values, "attachment="+path, "attachment="+prefix+"uploads"+string(filepath.Separator))
 	assertHTTPDirective(t, directive)
 
 	values, _ = completeHTTPCommand(t, "--file", "avatar="+path, "--file", "document="+prefix)

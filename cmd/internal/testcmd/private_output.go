@@ -1,6 +1,7 @@
 package testcmd
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"testing"
@@ -23,6 +24,20 @@ func AssertPrivateOutput(t *testing.T, path string) {
 		t.Fatalf("output does not satisfy owner-only policy: %v", err)
 	}
 	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// WriteOwnerOnlyFixture creates or replaces path with contents under the
+// securefile owner-only policy, so sensitive outputs accept it on every platform.
+func WriteOwnerOnlyFixture(t *testing.T, path, contents string) {
+	t.Helper()
+	file, err := securefile.OpenOrCreateOwnerOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString(contents)
+	if err := errors.Join(writeErr, file.Close()); err != nil {
 		t.Fatal(err)
 	}
 }

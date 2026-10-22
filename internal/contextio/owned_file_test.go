@@ -32,8 +32,8 @@ func TestOwnedFileReaderCanceledConstructorClosesInput(t *testing.T) {
 		}
 		t.Fatalf("NewOwnedFileReader = (%v, %v), want (nil, cancellation cause)", reader, err)
 	}
-	if _, err := file.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("owned input Stat after constructor failure = %v, want os.ErrClosed", err)
+	if !fileClosed(file) {
+		t.Fatal("owned input remained open after constructor failure")
 	}
 }
 
@@ -92,14 +92,14 @@ func TestOwnedFileReaderCloseIsIdempotentAndClosesInput(t *testing.T) {
 	file := openOwnedTestFile(t, []byte("data"))
 	reader, err := NewOwnedFileReader(context.WithoutCancel(t.Context()), file)
 	require.NoError(t, err)
+	require.False(t, fileClosed(file), "owned input closed before Close")
 
 	firstErr := reader.Close()
 	secondErr := reader.Close()
 
 	assert.NoError(t, firstErr, "first Close")
 	assert.NoError(t, secondErr, "second Close")
-	_, err = file.Stat()
-	require.ErrorIs(t, err, os.ErrClosed, "owned input Stat after Close")
+	require.True(t, fileClosed(file), "owned input remained open after Close")
 	n, err := reader.Read(make([]byte, 1))
 	assert.Zero(t, n, "Read after Close")
 	assert.ErrorIs(t, err, os.ErrClosed, "Read after Close")
@@ -132,10 +132,7 @@ func TestOwnedFileReaderCancellationReleasesEnteredRead(t *testing.T) {
 	}
 	require.Zero(t, result.n)
 	require.ErrorIs(t, result.err, errOwnedFileCanceled)
-	waitUntil(t, func() bool {
-		_, err := input.Stat()
-		return errors.Is(err, os.ErrClosed)
-	}, "cancellation left the entered reader's owned input open")
+	waitUntil(t, func() bool { return fileClosed(input) }, "cancellation left the entered reader's owned input open")
 }
 
 func TestOwnedFileReaderCloseReleasesEnteredRead(t *testing.T) {
@@ -164,8 +161,8 @@ func TestOwnedFileReaderCloseReleasesEnteredRead(t *testing.T) {
 		}
 		t.Fatal("Close did not release an entered delegated Read")
 	}
-	if _, err := input.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("entered reader input Stat after Close = %v, want os.ErrClosed", err)
+	if !fileClosed(input) {
+		t.Fatal("entered reader input remained open after Close")
 	}
 }
 

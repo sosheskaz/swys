@@ -444,16 +444,7 @@ func TestDNSDirectRetriesTruncatedUDPOverTCP(t *testing.T) {
 
 func TestDNSDirectLocalUDPTruncationFallback(t *testing.T) {
 	t.Parallel()
-	listenConfig := net.ListenConfig{}
-	tcpListener, err := listenConfig.Listen(t.Context(), "tcp4", "127.0.0.1:0")
-	require.NoError(t, err)
-	udpConn, err := listenConfig.ListenPacket(t.Context(), "udp4", tcpListener.Addr().String())
-	if err != nil {
-		if closeErr := tcpListener.Close(); closeErr != nil {
-			t.Errorf("close TCP listener: %v", closeErr)
-		}
-		t.Fatal(err)
-	}
+	tcpListener, udpConn := listenLocalTCPAndUDP(t)
 	udpDone := serveUDPFixtureOnce(udpConn, func(request *dns.Msg) *dns.Msg {
 		response := replyFor(request)
 		response.Truncated = true
@@ -471,6 +462,27 @@ func TestDNSDirectLocalUDPTruncationFallback(t *testing.T) {
 	require.NoError(t, <-udpDone)
 	require.NoError(t, <-tcpDone)
 	require.NoError(t, errors.Join(udpConn.Close(), tcpListener.Close()), "close DNS fixtures")
+}
+
+// listenLocalTCPAndUDP binds TCP and UDP to one loopback port. A port free for
+// TCP can still be refused for UDP, as inside a Windows excluded port range, so
+// it retries with fresh ports.
+func listenLocalTCPAndUDP(t *testing.T) (net.Listener, net.PacketConn) {
+	t.Helper()
+	listenConfig := net.ListenConfig{}
+	var lastErr error
+	for range 10 {
+		tcpListener, err := listenConfig.Listen(t.Context(), "tcp4", "127.0.0.1:0")
+		require.NoError(t, err)
+		udpConn, err := listenConfig.ListenPacket(t.Context(), "udp4", tcpListener.Addr().String())
+		if err == nil {
+			return tcpListener, udpConn
+		}
+		lastErr = err
+		require.NoError(t, tcpListener.Close(), "close TCP listener")
+	}
+	t.Fatalf("bind UDP beside TCP on one loopback port: %v", lastErr)
+	return nil, nil
 }
 
 func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {

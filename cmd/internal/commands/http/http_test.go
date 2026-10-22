@@ -962,7 +962,9 @@ func TestHTTPSetupTimeoutStopsBlockedTLSHandshake(t *testing.T) {
 		_, _, requestErr := executeRootStreams(
 			t,
 			"http", "https://"+listener.Addr().String(),
-			"--insecure", "-c", "50ms", "--timeout", "0",
+			// The setup budget also covers the TCP connect, which a loaded
+			// runner can take tens of milliseconds to finish.
+			"--insecure", "-c", "500ms", "--timeout", "0",
 		)
 		requestDone <- requestErr
 	}()

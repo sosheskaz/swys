@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -468,13 +467,15 @@ func TestCertConnectConnectionRefusedDoesNotRetry(t *testing.T) {
 	require.NoError(t, err)
 	address := reservation.Addr().String()
 	require.NoError(t, reservation.Close())
-	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	// A retrying implementation exhausts any budget; a short one only fails
+	// loaded runners that are slow to observe the refusal.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	root := newRootCmd()
 	root.SetContext(ctx)
 
 	_, _, err = executeRootCommandStreams(t, root, "cert", "connect", address, "--connect-timeout", "0")
-	require.ErrorIs(t, err, syscall.ECONNREFUSED)
+	require.ErrorIs(t, err, errConnectionRefused)
 	if ctx.Err() != nil {
 		t.Fatalf("certificate connection refusal exhausted the caller context: %v", ctx.Err())
 	}
@@ -666,6 +667,13 @@ func startTLSExchangeServer(
 			return
 		}
 		_, writeErr := io.WriteString(tlsConnection, "response")
+		// Closing with the client's close_notify still unread sends RST, which
+		// on Windows discards the response before the client reads it.
+		if writeErr == nil && tlsConnection.CloseWrite() == nil {
+			if tlsConnection.SetReadDeadline(time.Now().Add(5*time.Second)) == nil {
+				_, _ = io.Copy(io.Discard, tlsConnection) //nolint:errcheck // drain only orders the shutdown
+			}
+		}
 		result <- exchangeResult{
 			err:            writeErr,
 			request:        string(request),

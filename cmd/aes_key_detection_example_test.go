@@ -261,7 +261,7 @@ func TestAESAutoKeyConversionKeepsRawExportSelection(t *testing.T) {
 	}
 	input := writeAESKeysetFixture(t, keyset)
 	output := filepath.Join(t.TempDir(), "raw.key")
-	require.NoError(t, os.WriteFile(output, []byte("preserve"), 0o600))
+	testcmd.WriteOwnerOnlyFixture(t, output, "preserve")
 	_, _, err := testcmd.RunStreams(t, rootcmd.NewCommand(), nil,
 		"aes", "key-convert", "--to", "raw", "--input", input, "--output", output)
 	require.Error(t, err)

@@ -102,10 +102,7 @@ func TestOwnedFileReaderFIFOCancellationClosesInput(t *testing.T) {
 	}
 	require.Zero(t, result.n)
 	require.ErrorIs(t, result.err, errOwnedFileCanceled)
-	waitUntil(t, func() bool {
-		_, err := input.Stat()
-		return errors.Is(err, os.ErrClosed)
-	}, "cancellation left the owned FIFO input open")
+	waitUntil(t, func() bool { return fileClosed(input) }, "cancellation left the owned FIFO input open")
 	if err := reader.Close(); err != nil {
 		t.Fatalf("Close after cancellation: %v", err)
 	}
@@ -149,8 +146,8 @@ func TestOwnedFileReaderCloseReleasesBlockedFIFORead(t *testing.T) {
 	}
 	require.NoError(t, firstErr, "first Close")
 	require.NoError(t, reader.Close(), "second Close")
-	if _, err := input.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("owned FIFO Stat after Close = %v, want os.ErrClosed", err)
+	if !fileClosed(input) {
+		t.Fatal("owned FIFO input remained open after Close")
 	}
 }
 

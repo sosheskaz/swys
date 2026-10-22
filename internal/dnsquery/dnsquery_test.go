@@ -17,7 +17,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -590,7 +589,9 @@ func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
 	address := reservation.Addr().String()
 	require.NoError(t, reservation.Close())
 	endpoint := mustEndpoint(t, "tls://"+address)
-	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	// A retrying implementation exhausts any budget; a short one only fails
+	// loaded runners that are slow to observe the refusal.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	_, err = dnsquery.Resolve(ctx, dnsquery.Request{
@@ -601,7 +602,7 @@ func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
 		Type:      externalDNS.TypeA,
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	}, dnsquery.Dependencies{})
-	require.ErrorIs(t, err, syscall.ECONNREFUSED)
+	require.ErrorIs(t, err, errConnectionRefused)
 	assert.NoError(t, ctx.Err(), "DoT connection refusal must not exhaust caller context")
 }
 
