@@ -8,6 +8,7 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 const (
@@ -20,6 +21,7 @@ const (
 	netProtocolTLS              = "tls"
 	netConnectTimeoutFlagName   = commandio.ConnectTimeoutFlagName
 	netALPNFlagName             = tlsconfig.ALPNFlagName
+	netResolveFlagName          = "resolve"
 	netStreamOnlyHelp           = " (TCP/TLS only)"
 	netCloseWriteFlagName       = "close-write"
 	netDuplexFlagName           = "duplex"
@@ -72,6 +74,9 @@ func validateNetProtocolFlagsBeforeIO(cmd *cobra.Command) error {
 		}
 		return fmt.Errorf("%w: --%s is not applicable to %s%s", ErrInvalidFlags, name, protocol, hint)
 	}
+	if err := validateNetResolveFlagsBeforeIO(cmd, protocol); err != nil {
+		return err
+	}
 	if protocol == netProtocolTLS {
 		if cmd.Name() == "listen" {
 			return validateTLSListenFlagsBeforeIO(cmd)
@@ -79,6 +84,36 @@ func validateNetProtocolFlagsBeforeIO(cmd *cobra.Command) error {
 		return validateTLSFlagsBeforeIO(cmd)
 	}
 	return nil
+}
+
+func validateNetResolveFlagsBeforeIO(cmd *cobra.Command, protocol string) error {
+	if cmd.Flags().Lookup(netResolveFlagName) == nil {
+		return nil
+	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	// A connected UDP socket cannot detect an unreachable address, so fallback
+	// addresses would never be tried.
+	if protocol == netProtocolUDP {
+		if addresses, _, exists := resolver.Lookup(cmd.Flags().Arg(0)); exists && len(addresses) != 1 {
+			return fmt.Errorf("%w: UDP --resolve for %s requires exactly one address", ErrInvalidFlags, cmd.Flags().Arg(0))
+		}
+	}
+	return nil
+}
+
+func netResolverFromCommand(cmd *cobra.Command) (netconn.Resolver, error) {
+	values, err := cmd.Flags().GetStringArray(netResolveFlagName)
+	if err != nil {
+		return nil, fmt.Errorf("read resolve flag: %w", err)
+	}
+	resolver, err := netconn.ParseResolves(values)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFlags, err)
+	}
+	return resolver, nil
 }
 
 func isNetTLSFlag(name string) bool {
