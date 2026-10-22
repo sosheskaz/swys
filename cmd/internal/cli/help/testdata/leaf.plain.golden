@@ -74,6 +74,14 @@ Prepare client.pem and client.key before presenting a client identity:
 
 Over TLS 1.2, a server that requires client authentication rejects the handshake without --cert and --key. Over TLS 1.3, the client finishes its handshake before the server checks the client certificate, so inspection can succeed without one.
 
+Connect to a specific address
+
+--resolve HOST:PORT:ADDRESS[,ADDRESS] connects to numeric addresses instead of resolving HOST; repeat it to add rules. SNI and verification still use the endpoint host, or the --servername value, so you can inspect what one server behind a load balancer presents for the public name:
+
+  swys cert connect www.example.com:443 --resolve www.example.com:443:192.0.2.10
+
+Addresses are tried in order within the --connect-timeout (-c) budget. Unlike net connect, cert connect does not retry a refused connection.
+
 Reference
 
   swys help cert inspect

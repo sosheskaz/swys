@@ -284,6 +284,7 @@ func TestCertificateCompletionSuppressesNonPathFilenameFallback(t *testing.T) {
 		{"cert", "conn", ""},
 		{"cert", "connect", "localhost:443", ""},
 		{"cert", "connect", "localhost:443", "--servername", ""},
+		{"cert", "connect", "localhost:443", "--resolve", ""},
 	} {
 		_, directive := executeCertificateCompletion(t, args...)
 		if directive&cobra.ShellCompDirectiveNoFileComp == 0 {

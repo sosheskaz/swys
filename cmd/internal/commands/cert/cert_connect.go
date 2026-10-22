@@ -21,6 +21,7 @@ import (
 
 const (
 	certNoServerNameFlagName = "no-servername"
+	certResolveFlagName      = "resolve"
 	certTLSMinFlagName       = "tls-min"
 	certTLSMaxFlagName       = "tls-max"
 )
@@ -74,6 +75,8 @@ func newConnectCmd() *cobra.Command {
 		mustRegisterCertificateCompletion(cmd, name, completeCertificateArtifact(name))
 	}
 	addCertificateArtifactEncodingFlags(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName)
+	cmd.Flags().StringArray(certResolveFlagName, nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
+	mustRegisterCertificateCompletion(cmd, certResolveFlagName, cobra.NoFileCompletions)
 	cmd.ValidArgsFunction = cobra.NoFileCompletions
 	return cmd
 }
@@ -98,7 +101,22 @@ func validateCertConnectFlags(cmd *cobra.Command) error {
 	if err := validateConnectClientIdentity(cmd); err != nil {
 		return err
 	}
+	if _, err := connectResolver(cmd); err != nil {
+		return err
+	}
 	return certinput.ValidatePaths(cmd, "ca", tlsconfig.CertFlagName, tlsconfig.KeyFlagName)
+}
+
+func connectResolver(cmd *cobra.Command) (netconn.Resolver, error) {
+	values, err := cmd.Flags().GetStringArray(certResolveFlagName)
+	if err != nil {
+		return nil, fmt.Errorf("read resolve flag: %w", err)
+	}
+	resolver, err := netconn.ParseResolves(values)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidCertificateFlags, err)
+	}
+	return resolver, nil
 }
 
 // connectHandshakeConfig parses the offered protocols and versions; unset
@@ -193,6 +211,10 @@ func prepareConnectedCertificates(cmd *cobra.Command, _ io.Reader) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
+	resolver, err := connectResolver(cmd)
+	if err != nil {
+		return nil, err
+	}
 	// Retrieval and trust reporting are separate, including for private roots.
 	config.InsecureSkipVerify = true
 	config.ServerName = sni
@@ -210,7 +232,8 @@ func prepareConnectedCertificates(cmd *cobra.Command, _ io.Reader) ([]byte, erro
 	// Preparation precedes RunE, so its connection needs its own setup deadline.
 	ctx, cancel := commandio.NetworkSetupContext(cmd.Context(), timeout)
 	defer cancel()
-	connection, err := netconn.DialTLS(ctx, address, config)
+	// Unlike net connect, inspection does not wait for a listener by retrying refusals.
+	connection, err := netconn.Dialer{Resolver: resolver}.DialTLS(ctx, address, config)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"encoding/pem"
+	"net"
 	"os"
 	"testing"
 
@@ -87,6 +88,22 @@ func TestExampleConnectPresentsClientCertificate(t *testing.T) {
 
 	output, _, err := executeRootStreams(t, "cert", "connect", endpoint,
 		"--cert", identity.ClientCert, "--key", identity.ClientKey, "--ca", identity.CACert, "-f", "json")
+	require.NoError(t, err)
+	assert.Equal(t, certificateFileDER(t, identity.ServerCert), connectLeafDER(t, output))
+	verification := decodeConnectVerification(t, output)
+	assert.True(t, verification.Verified, "verification error: %s", verification.Error)
+}
+
+func TestExampleConnectResolvesEndpointAddress(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentityFor(t, rootcmd.NewCommand, "service.test")
+	_, port, err := net.SplitHostPort(newIdentityTLSServer(t, &identity))
+	require.NoError(t, err)
+	// service.test does not resolve; the override supplies its address while
+	// SNI and verification keep the requested name.
+	endpoint := net.JoinHostPort("service.test", port)
+
+	output, _, err := executeRootStreams(t, "cert", "connect", endpoint, "--resolve", endpoint+":127.0.0.1", "--ca", identity.CACert, "-f", "json")
 	require.NoError(t, err)
 	assert.Equal(t, certificateFileDER(t, identity.ServerCert), connectLeafDER(t, output))
 	verification := decodeConnectVerification(t, output)

@@ -28,6 +28,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/cmd/internal/commands/cert"
 	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
@@ -248,12 +249,14 @@ func TestCertificateTextIncludesDetails(t *testing.T) {
 func TestConnectCommandSelectsSNI(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name string
-		host string
-		want string
-		args []string
+		name    string
+		host    string
+		want    string
+		args    []string
+		resolve bool
 	}{
 		{name: "endpoint host", host: "localhost", want: "localhost"},
+		{name: "resolved endpoint host", host: "service.test", resolve: true, want: "service.test"},
 		{name: "override", host: "localhost", args: []string{"--servername", "www.example.test"}, want: "www.example.test"},
 		{name: "override IP endpoint", host: "127.0.0.1", args: []string{"--servername", "www.example.test"}, want: "www.example.test"},
 		{name: "omitted", host: "localhost", args: []string{"--no-servername"}},
@@ -268,7 +271,12 @@ func TestConnectCommandSelectsSNI(t *testing.T) {
 			})
 			_, port, err := net.SplitHostPort(server.Listener.Addr().String())
 			require.NoError(t, err)
-			_, err = executeRoot(t, append([]string{"cert", "connect", net.JoinHostPort(test.host, port)}, test.args...)...)
+			endpoint := net.JoinHostPort(test.host, port)
+			args := append([]string{"cert", "connect", endpoint}, test.args...)
+			if test.resolve {
+				args = append(args, "--resolve", endpoint+":127.0.0.1")
+			}
+			_, err = executeRoot(t, args...)
 			require.NoError(t, err)
 			select {
 			case got := <-serverNames:
@@ -399,6 +407,8 @@ func TestConnectHandshakeOptionsValidateBeforeIO(t *testing.T) {
 			want: byteencoding.ErrUnknownInputEncoding,
 		},
 		{name: "mismatched identity", args: []string{"--cert", identity.ClientCert, "--key", identity.ServerKey}, want: tlsconfig.ErrClientKeyMismatch},
+		{name: "invalid resolve rule", args: []string{"--resolve", "service.test:443"}, want: netconn.ErrInvalidResolve},
+		{name: "invalid resolve rule with CA stdin", args: []string{"--ca", "-", "--resolve", "service.test:443"}, want: netconn.ErrInvalidResolve},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -584,6 +594,10 @@ func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 		{name: "removed inspect format", args: []string{"cert", "inspect", "--format", "long"}, diagnostic: "unknown output format"},
 		{name: "removed connect format", args: []string{"cert", "connect", server.Listener.Addr().String(), "--format", "long"}, diagnostic: "unknown output format"},
 		{name: "empty servername", args: []string{"cert", "connect", server.Listener.Addr().String(), "--servername="}, diagnostic: "use --no-servername"},
+		{
+			name: "invalid resolve rule", args: []string{"cert", "connect", server.Listener.Addr().String(), "--resolve", "service.test:443"},
+			diagnostic: "invalid resolve rule",
+		},
 		{
 			name: "servername with no-servername", args: []string{"cert", "connect", server.Listener.Addr().String(), "--servername", "a.test", "--no-servername"},
 			diagnostic: "none of the others",
