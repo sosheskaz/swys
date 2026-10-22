@@ -42,6 +42,10 @@ func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 				script = `printf 'Supplier: %d\n' "$$" >/dev/tty; IFS= read -r p </dev/tty; printf '%s\n' "$p"`
 			case "command_suspend_external", "command_suspend_root":
 				script = `printf 'Supplier: %d\n' "$$" >/dev/tty; cat </dev/tty >/dev/null`
+			case "command_suspend_grandchild":
+				// The subshell stops while the supplier shell only waits for it, as
+				// when Ctrl-Z reaches a vfork child before it executes.
+				script = `printf 'Supplier: %d\n' "$$" >/dev/tty; sh -c 'kill -STOP $$'; IFS= read -r p </dev/tty`
 			}
 			if source == "command_suspend_root" {
 				root := cmd.NewCommand()
@@ -121,6 +125,11 @@ func TestCommandSuspensionCancelsAndRestoresTerminal(t *testing.T) {
 //nolint:paralleltest // the helper process re-enters the fixture using a controlling PTY
 func TestCommandExternalReaderSuspensionCancels(t *testing.T) {
 	runPromptFixture(t, "\x1a", "", "command_suspend_external")
+}
+
+//nolint:paralleltest // the helper process re-enters the fixture using a controlling PTY
+func TestCommandStoppedGrandchildCancels(t *testing.T) {
+	runPromptFixture(t, "", "", "command_suspend_grandchild")
 }
 
 //nolint:paralleltest // the helper process re-enters the fixture using a controlling PTY
@@ -236,7 +245,10 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	require.Equal(t, before.Oflag, after.Oflag)
 	require.Equal(t, before.Cflag, after.Cflag)
 	if strings.HasPrefix(source, "command_suspend") {
-		require.ErrorIs(t, unix.Kill(-supplierPID, 0), unix.ESRCH)
+		// The whole group is killed, but a process the shell started is reaped by
+		// init after the shell exits, so its group can outlive the command briefly.
+		require.Eventually(t, func() bool { return errors.Is(unix.Kill(-supplierPID, 0), unix.ESRCH) },
+			2*time.Second, 10*time.Millisecond, "suspended supplier process group survived")
 	}
 	if source == "command_suspend_root" {
 		contents, err := os.ReadFile(output)
