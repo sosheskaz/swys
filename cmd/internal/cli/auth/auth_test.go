@@ -138,7 +138,7 @@ func TestValidate(t *testing.T) {
 		{name: "cleartext umbrella", args: []string{"--auth-bearer-env", "TOKEN", "--insecure"}, cleartext: true},
 		{name: "TLS umbrella", args: []string{"--auth-bearer", "x", "--insecure"}},
 		{name: "carve-out without credential", args: []string{"--insecure-cleartext-auth"}, cleartext: true, wantErr: true},
-		{name: "carve-out with TLS", args: []string{"--auth-bearer", "x", "--insecure-cleartext-auth"}, wantErr: true},
+		{name: "carve-out is inert over TLS", args: []string{"--auth-bearer", "x", "--insecure-cleartext-auth"}},
 		{name: "carve-out false is inert", args: []string{"--insecure-cleartext-auth=false"}},
 		{name: "empty file path", args: []string{"--auth-bearer-file", ""}, wantErr: true},
 		{name: "empty variable name", args: []string{"--auth-basic-env", ""}, wantErr: true},

@@ -41,10 +41,6 @@ func TestHTTPAuthValidationPrecedesIO(t *testing.T) {
 		{name: "URL credentials", url: userinfoURL, flags: []string{"--auth-bearer", "a", "--insecure-cleartext-auth"}, want: "URL credentials"},
 		{name: "cleartext without opt-in", flags: []string{"--auth-bearer", secret}, want: "without TLS requires --insecure-cleartext-auth"},
 		{name: "cleartext opt-in without credential", flags: []string{"--insecure-cleartext-auth"}, want: "requires an --auth-* credential"},
-		{
-			name: "cleartext opt-in with TLS", url: "https://127.0.0.1:1/", want: "requires a cleartext target",
-			flags: []string{"--auth-bearer", "a", "--insecure-cleartext-auth"},
-		},
 		{name: "payload owns stdin", flags: []string{"--auth-bearer-file", "-", "--insecure", "--input", "-"}, want: "--auth-bearer-file and payload"},
 		{
 			name: "TLS owns stdin", want: "--auth-bearer-file and --ca",
@@ -107,6 +103,14 @@ func TestHTTPAuthUmbrellaPermitsCleartext(t *testing.T) {
 	_, _, err := executeRootStreams(t, "http", server.URL, "--auth-basic", "user:pass", "--insecure")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Basic dXNlcjpwYXNz"}, <-received)
+}
+
+func TestHTTPAuthCleartextOptInIsInertOverTLS(t *testing.T) {
+	t.Parallel()
+	server, caPath, received := startHTTPAuthServer(t)
+	_, _, err := executeRootStreams(t, "http", server.URL, "--ca", caPath, "--auth-bearer", "t", "--insecure-cleartext-auth")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Bearer t"}, <-received)
 }
 
 func TestHTTPAuthRedirectsDropCredentialsAfterLeavingTLS(t *testing.T) {

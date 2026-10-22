@@ -59,13 +59,6 @@ func TestCRPCAuthValidationPrecedesNetwork(t *testing.T) {
 		})
 	}
 
-	t.Run("opt-in with TLS", func(t *testing.T) {
-		t.Parallel()
-		_, _, err := run(t, &unexpectedInput{t: t}, "crpc", "https://127.0.0.1:1"+echoMethod, "--protoset", protoset,
-			"--auth-bearer", "a", "--insecure-cleartext-auth", "-d", `{}`)
-		require.ErrorIs(t, err, errInvalidCRPCFlags)
-		assert.Contains(t, err.Error(), "requires a cleartext target")
-	})
 	t.Run("local discovery", func(t *testing.T) {
 		t.Parallel()
 		_, _, err := run(t, &unexpectedInput{t: t}, "crpc", "--protoset", protoset, "--list", "example.v1.EchoService", "--auth-bearer", "a")
@@ -93,6 +86,17 @@ func TestCRPCAuthUmbrellaPermitsCleartextCredential(t *testing.T) {
 	require.NoError(t, err)
 	_, call := recorder.split()
 	assert.Equal(t, [][]string{{"Basic dXNlcjpwYXNz"}}, call)
+}
+
+func TestCRPCAuthCleartextOptInIsInertOverTLS(t *testing.T) {
+	t.Parallel()
+	recorder := &authorizationRecorder{}
+	server, caPath := startTLSSchemaServer(t, recorder)
+	_, _, err := run(t, nil, "crpc", server.URL+echoMethod, "--reflect", "--ca", caPath,
+		"--auth-bearer", "t", "--insecure-cleartext-auth", "-d", `{}`)
+	require.NoError(t, err)
+	_, call := recorder.split()
+	assert.Equal(t, [][]string{{"Bearer t"}}, call)
 }
 
 func TestCRPCAuthStaysOutOfVerboseDiagnostics(t *testing.T) {

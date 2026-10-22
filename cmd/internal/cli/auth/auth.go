@@ -97,9 +97,6 @@ func Validate(flags *pflag.FlagSet, cleartext, payloadStdin bool, invalid error)
 	if allowCleartext && !ok {
 		return fmt.Errorf("%w: --%s requires an --auth-* credential", invalid, CleartextFlagName)
 	}
-	if allowCleartext && !cleartext {
-		return fmt.Errorf("%w: --%s requires a cleartext target", invalid, CleartextFlagName)
-	}
 	if !ok {
 		return nil
 	}

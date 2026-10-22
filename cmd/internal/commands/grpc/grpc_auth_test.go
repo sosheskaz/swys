@@ -25,7 +25,6 @@ func TestGRPCAuthValidationPrecedesNetwork(t *testing.T) {
 		{name: "Authorization metadata", flags: []string{"--auth-bearer", "a", "-H", "Authorization: x"}, want: "Authorization --header"},
 		{name: "plaintext without opt-in", flags: []string{"--plaintext", "--auth-bearer", secret}, want: "without TLS requires"},
 		{name: "opt-in without credential", flags: []string{"--plaintext", "--insecure-cleartext-auth"}, want: "requires an --auth-* credential"},
-		{name: "opt-in with TLS", flags: []string{"--auth-bearer", "a", "--insecure-cleartext-auth"}, want: "requires a cleartext target"},
 		{name: "plaintext with no-verify", flags: []string{"--plaintext", "--insecure-no-verify", "--auth-bearer", "a"}, want: "--plaintext conflicts"},
 		{name: "plaintext umbrella without credential", flags: []string{"--plaintext", "--insecure"}, want: "--plaintext conflicts"},
 		{name: "payload owns stdin", flags: []string{"--auth-bearer-file", "-"}, stdin: true, want: "--auth-bearer-file and payload"},
@@ -71,6 +70,16 @@ func TestGRPCAuthUmbrellaPermitsPlaintextCredential(t *testing.T) {
 	require.NoError(t, err)
 	_, callMD, _ := record.snapshot()
 	assert.Equal(t, []string{"Bearer local-token"}, callMD.Get("authorization"))
+}
+
+func TestGRPCAuthCleartextOptInIsInertOverTLS(t *testing.T) {
+	t.Parallel()
+	address, caPath, record := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
+	_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "-d", `{}`,
+		"--ca", caPath, "--auth-bearer", "t", "--insecure-cleartext-auth")
+	require.NoError(t, err)
+	_, callMD, _ := record.snapshot()
+	assert.Equal(t, []string{"Bearer t"}, callMD.Get("authorization"))
 }
 
 func TestGRPCAuthStaysOutOfVerboseDiagnostics(t *testing.T) {
