@@ -671,6 +671,8 @@ func assertCSRIssueFailurePreservesOutput(t *testing.T, args []string) error {
 	outputPath := filepath.Join(t.TempDir(), "certificate.pem")
 	const preserved = "preserve existing output"
 	require.NoError(t, os.WriteFile(outputPath, []byte(preserved), 0o640))
+	before, statErr := os.Stat(outputPath)
+	require.NoError(t, statErr)
 	args = append(slices.Clone(args), "--output", outputPath)
 	stdout, _, runErr := executeRootStreams(t, args...)
 	require.Error(t, runErr, "execute %v succeeded", args)
@@ -685,6 +687,6 @@ func assertCSRIssueFailurePreservesOutput(t *testing.T, args []string) error {
 	}
 	info, statErr := os.Stat(outputPath)
 	require.NoError(t, statErr)
-	require.Equal(t, os.FileMode(0o640), info.Mode().Perm(), "output mode = %04o, want 0640", info.Mode().Perm())
+	require.Equal(t, before.Mode().Perm(), info.Mode().Perm(), "output mode = %04o, want preserved %04o", info.Mode().Perm(), before.Mode().Perm())
 	return runErr
 }
