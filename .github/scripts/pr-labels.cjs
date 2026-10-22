@@ -10,25 +10,6 @@ const BREAKING_FOOTER = /^BREAKING[ -]CHANGE: \S/m;
 const FAMILY_ROOT = "cmd/internal/commands";
 const RELEASE_BRANCH = "release-please--";
 
-const TYPE_COLOR = "c5def5";
-const BREAKING = {
-  name: "breaking change",
-  color: "b60205",
-  description: "Breaking change: requires a major (or pre-1.0 minor) release",
-};
-// Hues 36° apart starting at 18°, so the breaking label stays the only red.
-const AREA_COLORS = {
-  aes: "e2835a",
-  cert: "e2d45a",
-  crpc: "9ee25a",
-  dns: "5ae268",
-  grpc: "5ae2b9",
-  hash: "5ab9e2",
-  http: "5a68e2",
-  net: "9e5ae2",
-  skill: "e25ad4",
-  core: "e25a83",
-};
 const CORE_SCOPES = new Set(["cli", "help"]);
 // Non-Go paths owned by one family.
 const PATH_AREAS = [
@@ -40,9 +21,7 @@ function commitTypes(root) {
   const config = JSON.parse(
     fs.readFileSync(path.join(root, "release-please-config.json"), "utf8"),
   );
-  return new Map(
-    config["changelog-sections"].map(({ type, section }) => [type, section]),
-  );
+  return new Set(config["changelog-sections"].map(({ type }) => type));
 }
 
 function walkGoFiles(root, dir = "", out = []) {
@@ -160,7 +139,7 @@ function familyNames(root) {
 
 function classify({ root, title, body, files, headRef }) {
   const types = commitTypes(root);
-  const allowed = [...types.keys()].join(", ");
+  const allowed = [...types].join(", ");
   const match = title.match(TITLE);
   if (!match) {
     return {
@@ -185,25 +164,10 @@ function classify({ root, title, body, files, headRef }) {
     if (CORE_SCOPES.has(scope)) areas.add("core");
   }
 
-  const labels = [
-    {
-      name: `type: ${type}`,
-      color: TYPE_COLOR,
-      description: `Conventional commit type: ${types.get(type)}`,
-    },
-  ];
-  if (breaking) labels.push(BREAKING);
-  for (const area of [...areas].sort()) {
-    labels.push({
-      name: `area: ${area}`,
-      color: AREA_COLORS[area] ?? AREA_COLORS.core,
-      description:
-        area === "core"
-          ? "Shared CLI support and internal packages"
-          : `The ${area} command family`,
-    });
-  }
+  const labels = [`type: ${type}`];
+  if (breaking) labels.push("breaking change");
+  for (const area of [...areas].sort()) labels.push(`area: ${area}`);
   return { type, scope, breaking, labels };
 }
 
-module.exports = { classify, importGraph, consumers, AREA_COLORS };
+module.exports = { classify, importGraph, consumers };

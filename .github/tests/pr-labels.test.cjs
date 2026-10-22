@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
 
-const { classify, AREA_COLORS } = require("../scripts/pr-labels.cjs");
+const { classify } = require("../scripts/pr-labels.cjs");
 
 // A miniature module shaped like the real one: two families that share one
 // package, one family-exclusive package, and shared CLI plumbing.
@@ -40,7 +40,7 @@ test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 function labels(title, files = [], extra = {}) {
   const result = classify({ root, title, files, ...extra });
   assert.equal(result.error, undefined);
-  return result.labels.map((label) => label.name);
+  return result.labels;
 }
 
 test("labels the commit type, including deps", () => {
@@ -141,17 +141,6 @@ test("skips areas on release-please PRs", () => {
   );
 });
 
-test("every real command family has an area color", () => {
-  const families = fs
-    .readdirSync("cmd/internal/commands", { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name);
-  assert.deepEqual(
-    families.filter((family) => !(family in AREA_COLORS)),
-    [],
-  );
-});
-
 // Execute the actual no-checkout label step, with only its API consumers mocked.
 const workflow = fs.readFileSync(".github/workflows/pr-labels.yml", "utf8");
 const step = workflow.match(
@@ -165,58 +154,60 @@ const script = step
   .map((line) => line.slice(12))
   .join("\n");
 
-async function reconcile(desired, { current = [], repoLabels = {} } = {}) {
+async function reconcile(desired, { current = [], defined = [] } = {}) {
   const calls = [];
+  const notices = [];
   const record = (method) => async (data) => calls.push({ method, ...data });
+  const issues = {
+    removeLabel: record("remove"),
+    addLabels: record("add"),
+    listLabelsForRepo() {},
+    listLabelsOnIssue() {},
+  };
   const github = {
-    rest: {
-      issues: {
-        getLabel: async ({ name }) => {
-          if (!(name in repoLabels)) throw Object.assign(new Error(), { status: 404 });
-          return { data: { name, ...repoLabels[name] } };
-        },
-        createLabel: record("create"),
-        updateLabel: record("update"),
-        removeLabel: record("remove"),
-        addLabels: record("add"),
-        listLabelsOnIssue() {},
-      },
-    },
-    paginate: async () => current.map((name) => ({ name })),
+    rest: { issues },
+    paginate: async (method) =>
+      (method === issues.listLabelsForRepo ? defined : current).map((name) => ({ name })),
   };
   const context = {
     repo: { owner: "owner", repo: "project" },
     payload: { pull_request: { number: 7 } },
   };
+  const core = { notice: (message) => notices.push(message) };
   const process = { env: { PR_LABELS: JSON.stringify(desired) } };
   await vm.runInNewContext(`(async () => {\n${script}\n})()`, {
     github,
     context,
+    core,
     process,
   });
-  return JSON.parse(JSON.stringify(calls.map(({ owner, repo, ...call }) => call)));
+  // Normalize objects created in the VM realm for deepStrictEqual.
+  return JSON.parse(
+    JSON.stringify({
+      calls: calls.map(({ owner, repo, ...call }) => call),
+      notices,
+    }),
+  );
 }
 
-const feat = { name: "type: feat", color: "c5def5", description: "Features" };
-const cert = { name: "area: cert", color: "e2d45a", description: "cert" };
-
-test("creates missing labels and adds them to the PR", async () => {
-  assert.deepEqual(await reconcile([feat]), [
-    { method: "create", ...feat },
-    { method: "add", issue_number: 7, labels: ["type: feat"] },
-  ]);
+test("applies defined labels and skips undefined ones without creating them", async () => {
+  const result = await reconcile(["type: feat", "area: cert", "breaking change"], {
+    defined: ["type: feat", "breaking change", "bug"],
+  });
+  assert.deepEqual(result, {
+    calls: [
+      { method: "add", issue_number: 7, labels: ["type: feat", "breaking change"] },
+    ],
+    notices: ["Skipping labels not defined in this repository: area: cert"],
+  });
 });
 
 test("removes stale managed labels and preserves bot-owned labels", async () => {
-  const calls = await reconcile([feat, cert], {
+  const { calls } = await reconcile(["type: feat", "area: cert"], {
     current: ["type: fix", "area: net", "breaking change", "automerge", "ci", "type: feat"],
-    repoLabels: {
-      "type: feat": { color: "c5def5", description: "Features" },
-      "area: cert": { color: "000000", description: "cert" },
-    },
+    defined: ["type: feat", "type: fix", "area: cert", "area: net", "breaking change"],
   });
   assert.deepEqual(calls, [
-    { method: "update", ...cert },
     { method: "remove", issue_number: 7, name: "type: fix" },
     { method: "remove", issue_number: 7, name: "area: net" },
     { method: "remove", issue_number: 7, name: "breaking change" },
@@ -224,12 +215,16 @@ test("removes stale managed labels and preserves bot-owned labels", async () => 
   ]);
 });
 
+test("removes a stale managed label even when the replacement is undefined", async () => {
+  const { calls } = await reconcile(["type: feat"], {
+    current: ["type: fix"],
+    defined: ["type: fix"],
+  });
+  assert.deepEqual(calls, [{ method: "remove", issue_number: 7, name: "type: fix" }]);
+});
+
 test("refuses labels outside the managed namespace", async () => {
-  for (const label of [
-    { ...feat, name: "automerge" },
-    { ...feat, color: "red" },
-    { ...feat, description: "x".repeat(101) },
-  ]) {
-    await assert.rejects(reconcile([label]), /unmanaged or malformed/);
+  for (const desired of [["automerge"], ["type: Feat"], [{ name: "type: feat" }], "type: feat"]) {
+    await assert.rejects(reconcile(desired), /unmanaged or malformed/);
   }
 });

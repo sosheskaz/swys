@@ -52,7 +52,7 @@ jobs:
             core.setOutput('labels', JSON.stringify(result.labels));
             await core.summary
               .addHeading('PR labels', 2)
-              .addList(result.labels.map(label => label.name))
+              .addList(result.labels)
               .write();
 
   label:
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      pull-requests: write # create, update, add, and remove labels
+      pull-requests: write # add and remove labels
     steps:
       # Data only: this job never checks out or executes PR source.
       - name: Reconcile managed labels
@@ -74,24 +74,20 @@ jobs:
           script: |
             const managed = /^(type: [a-z]+|area: [a-z]+|breaking change)$/;
             const desired = JSON.parse(process.env.PR_LABELS);
-            if (!Array.isArray(desired) || !desired.every(label =>
-                managed.test(label.name) && /^[0-9a-f]{6}$/.test(label.color) &&
-                typeof label.description === 'string' && label.description.length <= 100)) {
+            if (!Array.isArray(desired) ||
+                !desired.every(name => typeof name === 'string' && managed.test(name))) {
               throw new Error('Classifier produced an unmanaged or malformed label');
             }
-            const issue_number = context.payload.pull_request.number;
-            for (const label of desired) {
-              try {
-                const { data } = await github.rest.issues.getLabel({...context.repo, name: label.name});
-                if (data.color !== label.color || data.description !== label.description) {
-                  await github.rest.issues.updateLabel({...context.repo, ...label});
-                }
-              } catch (error) {
-                if (error.status !== 404) throw error;
-                await github.rest.issues.createLabel({...context.repo, ...label});
-              }
+            // Maintainers own the label set; apply only labels that already exist.
+            const defined = new Set((await github.paginate(github.rest.issues.listLabelsForRepo, {
+              ...context.repo, per_page: 100
+            })).map(label => label.name));
+            const undefinedLabels = desired.filter(name => !defined.has(name));
+            if (undefinedLabels.length) {
+              core.notice(`Skipping labels not defined in this repository: ${undefinedLabels.join(', ')}`);
             }
-            const wanted = new Set(desired.map(label => label.name));
+            const wanted = new Set(desired.filter(name => defined.has(name)));
+            const issue_number = context.payload.pull_request.number;
             const current = await github.paginate(github.rest.issues.listLabelsOnIssue, {
               ...context.repo, issue_number, per_page: 100
             });
