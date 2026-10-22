@@ -206,28 +206,29 @@ func TestNetCompletionSuppressesFilesForNonPathValues(t *testing.T) {
 	}
 }
 
-func TestNetTLSConnectTrustAndInsecureCompletion(t *testing.T) {
+func TestNetTLSConnectConflictCompletion(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name  string
-		args  []string
-		shown []string
+		name   string
+		args   []string
+		hidden []string
+		shown  []string
 	}{
 		{
 			name: "CA before completion", args: []string{"--ca", "ca.pem"},
-			shown: []string{"--insecure", "--insecure-no-verify", "--system-ca", "--cert"},
+			hidden: []string{"--insecure", "--insecure-no-verify"}, shown: []string{"--system-ca", "--cert"},
 		},
 		{
 			name: "system CA before completion", args: []string{"--system-ca"},
-			shown: []string{"--insecure", "--insecure-no-verify", "--ca", "--cert"},
+			hidden: []string{"--insecure", "--insecure-no-verify"}, shown: []string{"--ca", "--cert"},
 		},
 		{
 			name: "insecure before completion", args: []string{"--insecure"},
-			shown: []string{"--ca", "--system-ca", "--cert", "--key", "--insecure-no-verify"},
+			hidden: []string{"--ca", "--system-ca"}, shown: []string{"--cert", "--key", "--insecure-no-verify"},
 		},
 		{
 			name: "no-verify before completion", args: []string{"--insecure-no-verify"},
-			shown: []string{"--ca", "--system-ca", "--cert", "--key", "--insecure"},
+			hidden: []string{"--ca", "--system-ca"}, shown: []string{"--cert", "--key", "--insecure"},
 		},
 		{name: "false no-verify before CA", args: []string{"--insecure-no-verify=false"}, shown: []string{"--ca", "--system-ca"}},
 		{name: "false insecure before CA", args: []string{"--insecure=false"}, shown: []string{"--ca", "--system-ca"}},
@@ -238,6 +239,9 @@ func TestNetTLSConnectTrustAndInsecureCompletion(t *testing.T) {
 			t.Parallel()
 			args := append([]string{"net", "connect", "--tls"}, test.args...)
 			stdout := completeCommand(t, append(args, "--")...)
+			for _, flag := range test.hidden {
+				assert.NotContains(t, stdout, flag+"\t")
+			}
 			for _, flag := range test.shown {
 				assert.Contains(t, stdout, flag+"\t")
 			}
@@ -279,24 +283,24 @@ func TestNetTLSCompletionDoesNotChangeNormalHelp(t *testing.T) {
 	}
 }
 
-func TestNetTLSTrustValueCompletion(t *testing.T) {
+func TestNetTLSConflictingValueCompletion(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		args []string
 		want []string
 	}{
-		{args: []string{"--insecure", "--ca", ""}, want: []string{":0"}},
-		{args: []string{"--insecure", "--ca="}, want: []string{":0"}},
+		{args: []string{"--insecure", "--ca", ""}, want: []string{":4"}},
+		{args: []string{"--insecure", "--ca="}, want: []string{":4"}},
 		{args: []string{"--insecure=false", "--ca", ""}, want: []string{":0"}},
-		{args: []string{"--ca", "ca.pem", "--insecure="}, want: []string{"true", "false", ":4"}},
-		{args: []string{"--insecure", "--system-ca="}, want: []string{"true", "false", ":4"}},
-		{args: []string{"--system-ca", "--insecure="}, want: []string{"true", "false", ":4"}},
+		{args: []string{"--ca", "ca.pem", "--insecure="}, want: []string{"false", ":4"}},
+		{args: []string{"--insecure", "--system-ca="}, want: []string{"false", ":4"}},
+		{args: []string{"--system-ca", "--insecure="}, want: []string{"false", ":4"}},
 		{args: []string{"--system-ca=false", "--insecure="}, want: []string{"true", "false", ":4"}},
-		{args: []string{"--insecure-no-verify", "--ca", ""}, want: []string{":0"}},
+		{args: []string{"--insecure-no-verify", "--ca", ""}, want: []string{":4"}},
 		{args: []string{"--insecure-no-verify=false", "--ca", ""}, want: []string{":0"}},
-		{args: []string{"--ca", "ca.pem", "--insecure-no-verify="}, want: []string{"true", "false", ":4"}},
-		{args: []string{"--insecure-no-verify", "--system-ca="}, want: []string{"true", "false", ":4"}},
-		{args: []string{"--system-ca", "--insecure-no-verify="}, want: []string{"true", "false", ":4"}},
+		{args: []string{"--ca", "ca.pem", "--insecure-no-verify="}, want: []string{"false", ":4"}},
+		{args: []string{"--insecure-no-verify", "--system-ca="}, want: []string{"false", ":4"}},
+		{args: []string{"--system-ca", "--insecure-no-verify="}, want: []string{"false", ":4"}},
 		{args: []string{"--insecure", "--insecure-no-verify="}, want: []string{"true", "false", ":4"}},
 	} {
 		args := append([]string{"net", "connect", "--tls"}, test.args...)

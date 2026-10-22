@@ -140,20 +140,19 @@ func TestDNSCompletionFiltersEncryptedTrustValues(t *testing.T) {
 	caPath := filepath.Join(t.TempDir(), "trust.pem")
 	require.NoError(t, os.WriteFile(caPath, []byte("completion must not parse credential contents"), 0))
 	for _, test := range []struct {
-		name  string
-		args  []string
-		want  []string
-		files bool
+		name string
+		args []string
+		want []string
 	}{
-		{name: "insecure permits typed CA", args: []string{"@tls://resolver.example", "--insecure", "--ca", caPath}, files: true},
+		{name: "insecure blocks typed CA", args: []string{"@tls://resolver.example", "--insecure", "--ca", caPath}},
 		{
-			name: "CA permits prospective insecure replacement",
+			name: "CA constrains prospective insecure replacement",
 			args: []string{"@https://resolver.example/dns-query", "--ca", caPath, "--insecure", "--insecure="},
-			want: []string{"true", "false"},
+			want: []string{"false"},
 		},
 		{
-			name: "insecure permits system CA true", args: []string{"@tls://resolver.example", "--insecure", "--system-ca="},
-			want: []string{"true", "false"},
+			name: "insecure excludes system CA true", args: []string{"@tls://resolver.example", "--insecure", "--system-ca="},
+			want: []string{"false"},
 		},
 		{
 			name: "last false permits system CA before partner",
@@ -166,18 +165,18 @@ func TestDNSCompletionFiltersEncryptedTrustValues(t *testing.T) {
 		},
 		{name: "plaintext excludes even false", args: []string{"@udp://192.0.2.53", "--insecure="}},
 		{name: "name first excludes encrypted trust values", args: []string{"example.test", "--insecure="}},
-		{name: "no-verify permits typed CA", args: []string{"@tls://resolver.example", "--insecure-no-verify", "--ca", caPath}, files: true},
+		{name: "no-verify blocks typed CA", args: []string{"@tls://resolver.example", "--insecure-no-verify", "--ca", caPath}},
 		{
-			name: "CA permits prospective no-verify", args: []string{"@tls://resolver.example", "--ca", caPath, "--insecure-no-verify="},
-			want: []string{"true", "false"},
+			name: "CA constrains prospective no-verify", args: []string{"@tls://resolver.example", "--ca", caPath, "--insecure-no-verify="},
+			want: []string{"false"},
 		},
 		{
-			name: "system CA permits prospective no-verify", args: []string{"@tls://resolver.example", "--system-ca", "--insecure-no-verify="},
-			want: []string{"true", "false"},
+			name: "system CA constrains prospective no-verify", args: []string{"@tls://resolver.example", "--system-ca", "--insecure-no-verify="},
+			want: []string{"false"},
 		},
 		{
-			name: "no-verify permits system CA true", args: []string{"@tls://resolver.example", "--insecure-no-verify", "--system-ca="},
-			want: []string{"true", "false"},
+			name: "no-verify excludes system CA true", args: []string{"@tls://resolver.example", "--insecure-no-verify", "--system-ca="},
+			want: []string{"false"},
 		},
 		{
 			name: "insecure does not constrain no-verify", args: []string{"@tls://resolver.example", "--insecure", "--insecure-no-verify="},
@@ -198,11 +197,7 @@ func TestDNSCompletionFiltersEncryptedTrustValues(t *testing.T) {
 			} else {
 				assert.Equal(t, test.want, values)
 			}
-			want := cobra.ShellCompDirectiveNoFileComp
-			if test.files {
-				want = cobra.ShellCompDirectiveDefault
-			}
-			assert.Equal(t, want, directive)
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 		})
 	}
 }
@@ -303,16 +298,17 @@ func TestDNSCompletionPreservesReusedRootReferenceHelp(t *testing.T) {
 	assert.Equal(t, freshHelp, reusedHelp, "completion must preserve the full reference help on later executions")
 }
 
-func TestDNSCompletionOffersTrustFlagsBesideInsecurePermissions(t *testing.T) {
+func TestDNSCompletionHidesTrustFlagsWhenVerificationIsDisabled(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
 		candidates, _ := executeDNSCompletion(t, "dns", "@tls://resolver.example", flag, "--ca", "missing", "--")
-		for _, shown := range []string{"--system-ca", "--ca-encoding", "--cert"} {
-			assert.Contains(t, candidates, shown, "trust flag after %s", flag)
+		for _, hidden := range []string{"--system-ca", "--ca-encoding"} {
+			assert.NotContains(t, candidates, hidden, "trust flag after %s", flag)
 		}
+		assert.Contains(t, candidates, "--cert", "client identity after %s", flag)
 
-		candidates, _ = executeDNSCompletion(t, "dns", "@tls://resolver.example", "--ca", "missing", "--system-ca", "--")
-		assert.Contains(t, candidates, flag, "after custom and system roots")
+		candidates, _ = executeDNSCompletion(t, "dns", "@tls://resolver.example", "--ca", "missing", "--")
+		assert.NotContains(t, candidates, flag, "after a custom CA")
 		assert.Contains(t, candidates, "--ca-encoding")
 	}
 }

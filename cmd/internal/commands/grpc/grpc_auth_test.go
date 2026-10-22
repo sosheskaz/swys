@@ -169,7 +169,11 @@ func TestGRPCCompletionCredentialVisibility(t *testing.T) {
 		{name: "Authorization metadata hides credentials", args: []string{"-H", "authorization: x", "--"}, unwanted: []string{"--auth-bearer", "--auth-basic-file"}},
 		{name: "plaintext hides no-verify", args: []string{"--plaintext", "--"}, unwanted: []string{"--insecure-no-verify", "--insecure"}},
 		{name: "plaintext credential keeps umbrella", args: []string{"--plaintext", "--auth-bearer", "t", "--"}, want: []string{"--insecure"}},
-		{name: "no-verify keeps trust and plaintext", args: []string{"--insecure-no-verify", "--"}, want: []string{"--ca", "--system-ca", "--plaintext"}},
+		{
+			name: "no-verify hides trust, keeps plaintext", args: []string{"--insecure-no-verify", "--"},
+			want: []string{"--plaintext"}, unwanted: []string{"--ca", "--system-ca"},
+		},
+		{name: "CA hides verification carve-outs", args: []string{"--ca", "unread-ca.pem", "--"}, unwanted: []string{"--insecure", "--insecure-no-verify"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

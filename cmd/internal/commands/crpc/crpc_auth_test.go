@@ -199,6 +199,14 @@ func TestCRPCCompletionCredentialVisibility(t *testing.T) {
 			name: "Authorization header hides credentials", args: []string{"https://example.test", "-H", "Authorization: x", "--"},
 			unwanted: []string{"--auth-bearer", "--auth-basic-env"},
 		},
+		{
+			name: "no-verify hides trust roots", args: []string{"https://example.test", "--insecure-no-verify", "--"},
+			want: []string{"--cert", "--servername"}, unwanted: []string{"--ca", "--system-ca"},
+		},
+		{
+			name: "CA hides verification carve-outs", args: []string{"https://example.test", "--ca", "unread-ca.pem", "--"},
+			want: []string{"--system-ca", "--cert"}, unwanted: []string{"--insecure", "--insecure-no-verify"},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

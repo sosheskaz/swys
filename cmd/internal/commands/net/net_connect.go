@@ -78,6 +78,7 @@ protocols explicitly; it does not transform the application payload.`,
 	registerNoFileFlagCompletion(command, tlsconfig.ServerNameFlagName)
 	registerNoFileFlagCompletion(command, netResolveFlagName)
 	registerALPNCompletion(command)
+	configureTLSConnectFlagCompletion(command)
 	tlsconfig.AddArtifactEncodingFlags(command, netTLSCompletionApplicable)
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
 		if err := command.MarkFlagFilename(name); err != nil {

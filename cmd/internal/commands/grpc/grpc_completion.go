@@ -188,16 +188,23 @@ func grpcCompletionString(command *cobra.Command, name string) string {
 	return value
 }
 
+// grpcTLSCompletionAllowed suggests only flags that can matter given those already typed.
+// Every combination is accepted; trust roots and verification carve-outs are just never
+// suggested together.
 func grpcTLSCompletionAllowed(command *cobra.Command, name string) bool {
 	plaintext := grpcCompletionBool(command, grpcPlaintextFlagName)
+	trusted := grpcCompletionString(command, tlsconfig.CAFlagName) != "" || grpcCompletionBool(command, tlsconfig.SystemCAFlagName)
 	switch name {
 	case grpcPlaintextFlagName:
-		trusted := grpcCompletionString(command, tlsconfig.CAFlagName) != "" || grpcCompletionBool(command, tlsconfig.SystemCAFlagName)
 		return !trusted && !grpcCompletionHasTLSIdentity(command)
 	case grpcInsecureFlagName:
 		// Over --plaintext the umbrella matters only by permitting a credential.
 		_, credential := auth.Selected(command.Flags())
-		return !plaintext || credential
+		return !trusted && (!plaintext || credential)
+	case tlsconfig.InsecureNoVerifyFlagName:
+		return !trusted && !plaintext
+	case tlsconfig.SystemCAFlagName, tlsconfig.CAFlagName:
+		return !plaintext && tlsconfig.SkipVerifyFlag(command.Flags()) == ""
 	default:
 		return !plaintext
 	}

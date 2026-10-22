@@ -222,7 +222,7 @@ certificates by default.`,
 
 func registerDNSContextCompletions(command *cobra.Command) {
 	for _, name := range []string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName} {
-		if err := command.RegisterFlagCompletionFunc(name, completeDNSCredentialPath); err != nil {
+		if err := command.RegisterFlagCompletionFunc(name, completeDNSCredentialPath(name)); err != nil {
 			panic(err)
 		}
 	}
@@ -232,7 +232,7 @@ func registerDNSContextCompletions(command *cobra.Command) {
 		}
 	}
 	for _, name := range []string{dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName} {
-		if err := command.RegisterFlagCompletionFunc(name, completeDNSTrustBoolean); err != nil {
+		if err := command.RegisterFlagCompletionFunc(name, completeDNSTrustBoolean(name)); err != nil {
 			panic(err)
 		}
 	}
@@ -264,7 +264,7 @@ func prepareDNSCompletion(completionCmd *cobra.Command, args []string, command *
 		tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName, tlsconfig.ServerNameFlagName,
 		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
 	} {
-		if !dnsTLSCompletionAllowed(probe, probe.Flags().Args()) {
+		if !dnsTLSCompletionAllowed(probe, probe.Flags().Args()) || !dnsTrustCompletionAllowed(probe, name) {
 			command.Flags().Lookup(name).Hidden = true
 		}
 	}
@@ -288,24 +288,49 @@ func dnsTLSCompletionAllowed(command *cobra.Command, args []string) bool {
 	return true
 }
 
-func completeDNSCredentialPath(command *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-	if !dnsTLSCompletionAllowed(command, args) {
-		return nil, cobra.ShellCompDirectiveNoFileComp
+func dnsTrustCompletionAllowed(command *cobra.Command, name string) bool {
+	insecure := tlsconfig.SkipVerifyFlag(command.Flags()) != ""
+	ca, err := command.Flags().GetString(tlsconfig.CAFlagName)
+	if err != nil {
+		return false
 	}
-	return nil, cobra.ShellCompDirectiveDefault
+	systemCA, err := command.Flags().GetBool(tlsconfig.SystemCAFlagName)
+	if err != nil {
+		return false
+	}
+	switch name {
+	case tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName:
+		return !insecure
+	case dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName:
+		return ca == "" && !systemCA
+	default:
+		return true
+	}
 }
 
-func completeDNSTrustBoolean(command *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
-	if !dnsTLSCompletionAllowed(command, args) {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	var values []string
-	for _, value := range []string{"true", "false"} {
-		if strings.HasPrefix(value, prefix) {
-			values = append(values, value)
+func completeDNSCredentialPath(name string) cobra.CompletionFunc {
+	return func(command *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if !dnsTLSCompletionAllowed(command, args) || !dnsTrustCompletionAllowed(command, name) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
+		return nil, cobra.ShellCompDirectiveDefault
 	}
-	return values, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeDNSTrustBoolean(name string) cobra.CompletionFunc {
+	return func(command *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if !dnsTLSCompletionAllowed(command, args) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var values []string
+		for _, candidate := range []bool{true, false} {
+			value := strconv.FormatBool(candidate)
+			if (!candidate || dnsTrustCompletionAllowed(command, name)) && strings.HasPrefix(value, prefix) {
+				values = append(values, value)
+			}
+		}
+		return values, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 func completeDNSArguments(command *cobra.Command, args []string, toComplete string, options *dnsOptions) ([]string, cobra.ShellCompDirective) {

@@ -391,7 +391,8 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 		want []string
 	}{
 		{name: "plaintext allows false replacement", args: []string{"--plaintext", "--insecure="}, want: []string{"false"}},
-		{name: "CA keeps insecure true", args: []string{"--ca", "unread-ca.pem", "--insecure="}, want: []string{"true", "false"}},
+		{name: "CA excludes insecure true", args: []string{"--ca", "unread-ca.pem", "--insecure="}, want: []string{"false"}},
+		{name: "CA excludes no-verify true", args: []string{"--ca", "unread-ca.pem", "--insecure-no-verify="}, want: []string{"false"}},
 		{
 			name: "empty CA allows plaintext values",
 			args: []string{"--ca", "", "--plaintext="}, want: []string{"true", "false"},
@@ -400,6 +401,8 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 			name: "last insecure false allows system CA before partner",
 			args: []string{"--insecure", "--insecure=false", "--system-ca="}, want: []string{"true", "false"},
 		},
+		{name: "insecure blocks typed CA", args: []string{"--insecure", "--ca", ""}},
+		{name: "no-verify blocks typed CA", args: []string{"--insecure-no-verify", "--ca", ""}},
 		{name: "plaintext blocks typed key", args: []string{"--plaintext", "--key", ""}},
 		{name: "empty list blocks typed input", args: []string{"--list", "", "--input", ""}},
 		{name: "empty data blocks typed input", args: []string{"--data", "", "--input", ""}},
@@ -414,14 +417,6 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 			}
 			assertGRPCCompletionDirective(t, directive)
 		})
-	}
-}
-
-func TestGRPCCompletionOffersCAFilesWithInsecure(t *testing.T) {
-	t.Parallel()
-	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
-		_, directive := completeGRPCCommand(t, "127.0.0.1:1", flag, "--ca", "")
-		assert.Zero(t, directive&cobra.ShellCompDirectiveNoFileComp, "--ca after %s offers files", flag)
 	}
 }
 
