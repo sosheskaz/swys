@@ -54,7 +54,16 @@ func TestAESValidKeyfileFIFOIsReadOnce(t *testing.T) {
 
 	select {
 	case result := <-commandDone:
-		require.NoError(t, result.err, "single-read FIFO encryption")
+		if result.err != nil {
+			// A writer error such as EPIPE would mean the key reached another reader;
+			// a blocked writer would mean the keyfile was never opened.
+			select {
+			case writerErr := <-writerDone:
+				t.Fatalf("single-read FIFO encryption: %v (key writer: %v)", result.err, writerErr)
+			case <-time.After(time.Second):
+				t.Fatalf("single-read FIFO encryption: %v (key writer still blocked)", result.err)
+			}
+		}
 		require.NotEmpty(t, result.stdout, "single-read FIFO encryption")
 	case <-time.After(5 * time.Second):
 		t.Fatal("AES command did not finish after one FIFO key write; keyfile may have been read more than once")
