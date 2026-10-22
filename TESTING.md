@@ -20,10 +20,11 @@ more assertions, fixtures, or coverage do not automatically mean better tests.
    skipped, or loosened to pass. If a test is wrong, the PR that changes it
    must explain why the pinned behavior was wrong.
 4. **Tests run raced and shuffled.** CI runs `-shuffle=on` on every PR
-   natively on Linux, macOS, and Windows for amd64 and arm64, and `-race`
-   once per OS (linux/amd64, darwin/arm64, windows/amd64): platform-specific
-   code is selected by OS, and race findings do not depend on architecture.
-   Tests must not depend on execution order or unsynchronized shared state.
+   natively on Linux, macOS, and Windows for amd64 and arm64 and on FreeBSD
+   amd64 in a QEMU VM, and `-race` once per OS (linux/amd64, darwin/arm64,
+   windows/amd64, freebsd/amd64): platform-specific code is selected by OS,
+   and race findings do not depend on architecture. Tests must not depend on
+   execution order or unsynchronized shared state.
    Package-global mutation in a test requires cleanup (`t.Cleanup`) and a
    comment noting the parallelism constraint.
 
@@ -223,7 +224,7 @@ never fixture data; generate ephemeral private fixtures during test setup.
 
 | Policy                                | Enforced by                                                                                                         |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Suite passes, raced + shuffled        | `ci.yml` test steps on every PR: shuffled on every native platform, raced once per OS                               |
+| Suite passes, raced + shuffled        | `ci.yml` test steps on every PR: shuffled on every native platform and FreeBSD VM, raced once per OS                |
 | Coverage changes investigated         | CI summary and artifact; sticky comment for same-repository PRs; explain meaningful losses                          |
 | Benchmarks don't rot                  | CI benchmark smoke run (`-benchtime=1x`)                                                                            |
 | Runnable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target)                                                    |
