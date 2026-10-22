@@ -667,6 +667,13 @@ func startTLSExchangeServer(
 			return
 		}
 		_, writeErr := io.WriteString(tlsConnection, "response")
+		// Closing with the client's close_notify still unread sends RST, which
+		// on Windows discards the response before the client reads it.
+		if writeErr == nil && tlsConnection.CloseWrite() == nil {
+			if tlsConnection.SetReadDeadline(time.Now().Add(5*time.Second)) == nil {
+				_, _ = io.Copy(io.Discard, tlsConnection) //nolint:errcheck // drain only orders the shutdown
+			}
+		}
 		result <- exchangeResult{
 			err:            writeErr,
 			request:        string(request),
