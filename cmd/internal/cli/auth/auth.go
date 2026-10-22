@@ -225,6 +225,8 @@ func basic(source, credentials string, invalid error) (string, error) {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(credentials)), nil
 }
 
+// isControl matches the ASCII control characters RFC 7617 excludes from credentials:
+// C0 controls below space and DEL (0x7f).
 func isControl(char rune) bool {
 	return char < ' ' || char == 0x7f
 }
