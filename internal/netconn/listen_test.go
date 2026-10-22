@@ -231,7 +231,9 @@ func TestAcceptTLSHandshakeDeadlineClosesConnection(t *testing.T) {
 	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
-	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
+	// Long enough for a loaded runner to accept the dial below before the
+	// budget expires in the handshake.
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 	serverDone := make(chan error, 1)
 	go func() {

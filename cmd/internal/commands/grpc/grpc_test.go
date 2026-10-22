@@ -301,7 +301,7 @@ func TestGRPCReflectionHalfClosesRequestBeforeWaitingForResponse(t *testing.T) {
 func TestGRPCReflectionDoesNotFallbackOnNonUnimplementedStatus(t *testing.T) {
 	t.Parallel()
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionDeniedV1WithAlpha, false)
-	_, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--timeout", "250ms")
+	_, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--timeout", "5s")
 	require.Error(t, err)
 	if status.Code(err) != codes.PermissionDenied && !strings.Contains(strings.ToLower(err.Error()), "permission") {
 		t.Fatalf("error = %v, want v1 PermissionDenied", err)

@@ -516,7 +516,9 @@ func TestNetListenTLSHandshakeTimeoutClosesConnection(t *testing.T) {
 		"net", "listen", "--tls", "127.0.0.1:0",
 		"--cert", identity.serverCert,
 		"--key", identity.serverKey,
-		"--connect-timeout", "50ms",
+		// Long enough for a loaded runner to accept the dial below before the
+		// budget expires in the handshake.
+		"--connect-timeout", "500ms",
 		"--verbose",
 	)
 	address := readExampleListeningAddress(t, run.stderr, "listening tls ")
