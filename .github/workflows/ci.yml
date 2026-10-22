@@ -370,9 +370,87 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
+  native:
+    name: Go native (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows/amd64
+            runner: windows-2025
+            race: true
+          # Go's race detector does not support windows/arm64.
+          - platform: windows/arm64
+            runner: windows-11-arm
+            race: false
+          - platform: darwin/arm64
+            runner: macos-26
+            race: true
+          - platform: darwin/amd64
+            runner: macos-26-intel
+            race: true
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            race: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Register problem matcher
+        run: echo "::add-matcher::.github/problem-matchers/go.json"
+
+      # The repository cache is at its 10 GB limit; saving five more toolchain
+      # and build caches would evict the Linux caches the other jobs rely on.
+      - name: Set up mise
+        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          version: 2026.9.6
+          install_args: 'go'
+          cache: false
+
+      # An emulated x64 toolchain on an arm64 runner would pass while testing
+      # the wrong platform.
+      - name: Verify native toolchain
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+        run: |
+          actual="$(go env GOHOSTOS)/$(go env GOHOSTARCH)"
+          if [[ "$actual" != "$EXPECTED_PLATFORM" ]]; then
+            echo "::error::Go toolchain is ${actual}, expected ${EXPECTED_PLATFORM}"
+            exit 1
+          fi
+          go version
+
+      # The Windows race runtime links against mingw-w64 v8+ libsynchronization;
+      # gcc echoes the bare name back when the library is missing.
+      - name: Verify race toolchain
+        if: matrix.race && runner.os == 'Windows'
+        run: |
+          gcc --version | head -n 1
+          library="$(gcc --print-file-name libsynchronization.a)"
+          if [[ ! -f "$library" ]]; then
+            echo "::error::-race needs the mingw-w64 v8+ runtime; gcc found '${library}'"
+            exit 1
+          fi
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
   go:
     name: Build, test, lint
-    needs: [core, platforms, race-fuzz]
+    needs: [core, platforms, race-fuzz, native]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -383,8 +461,9 @@ jobs:
           CORE_RESULT: ${{ needs.core.result }}
           PLATFORMS_RESULT: ${{ needs.platforms.result }}
           RACE_FUZZ_RESULT: ${{ needs.race-fuzz.result }}
+          NATIVE_RESULT: ${{ needs.native.result }}
         run: |
-          if [[ "$CORE_RESULT" != success || "$PLATFORMS_RESULT" != success || "$RACE_FUZZ_RESULT" != success ]]; then
-            printf 'Go jobs: core=%s platforms=%s race-fuzz=%s\n' "$CORE_RESULT" "$PLATFORMS_RESULT" "$RACE_FUZZ_RESULT" >&2
+          if [[ "$CORE_RESULT" != success || "$PLATFORMS_RESULT" != success || "$RACE_FUZZ_RESULT" != success || "$NATIVE_RESULT" != success ]]; then
+            printf 'Go jobs: core=%s platforms=%s race-fuzz=%s native=%s\n' "$CORE_RESULT" "$PLATFORMS_RESULT" "$RACE_FUZZ_RESULT" "$NATIVE_RESULT" >&2
             exit 1
           fi

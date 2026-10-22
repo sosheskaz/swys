@@ -3,13 +3,13 @@ package http
 import (
 	"fmt"
 
-	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
-type httpResolver = httptransport.Resolver
+type httpResolver = netconn.Resolver
 
 func parseHTTPResolves(values []string) (httpResolver, error) {
-	resolver, err := httptransport.ParseResolves(values)
+	resolver, err := netconn.ParseResolves(values)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidFlags, err)
 	}

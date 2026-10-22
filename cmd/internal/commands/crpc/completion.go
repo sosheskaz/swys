@@ -16,7 +16,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/connectrpc"
-	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/netconn"
 	"github.com/sosheskaz/swys/internal/protoschema"
 )
 
@@ -189,7 +189,7 @@ func remoteCompletionSchema(cmd *cobra.Command, address, prefix string, settings
 	if err := applyAuthorization(cmd, headers); err != nil {
 		return nil, err
 	}
-	resolver, err := httptransport.ParseResolves(completionArray(settings.resolves))
+	resolver, err := netconn.ParseResolves(completionArray(settings.resolves))
 	if err != nil {
 		return nil, err
 	}

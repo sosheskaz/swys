@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -22,8 +24,11 @@ import (
 
 	rootcmd "github.com/sosheskaz/swys/cmd"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/cmd/internal/commands/cert"
 	"github.com/sosheskaz/swys/cmd/internal/testcmd"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 func TestX509CommandRejectsPrivateKeyPEM(t *testing.T) {
@@ -241,26 +246,210 @@ func TestCertificateTextIncludesDetails(t *testing.T) {
 	}
 }
 
-func TestConnectCommandPreservesEndpointSNI(t *testing.T) {
+func TestConnectCommandSelectsSNI(t *testing.T) {
 	t.Parallel()
-	serverName := make(chan string, 1)
-	server := newChainTLSServerWithClientHello(t, func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-		serverName <- hello.ServerName
-		return nil, nil //nolint:nilnil // nil directs TLS to continue with the existing configuration
-	})
-	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
-	require.NoError(t, err)
-
-	if _, err := executeRoot(t, "cert", "connect", net.JoinHostPort("localhost", port)); err != nil {
-		t.Fatal(err)
+	for _, test := range []struct {
+		name    string
+		host    string
+		want    string
+		args    []string
+		resolve bool
+	}{
+		{name: "endpoint host", host: "localhost", want: "localhost"},
+		{name: "resolved endpoint host", host: "service.test", resolve: true, want: "service.test"},
+		{name: "override", host: "localhost", args: []string{"--servername", "www.example.test"}, want: "www.example.test"},
+		{name: "override IP endpoint", host: "127.0.0.1", args: []string{"--servername", "www.example.test"}, want: "www.example.test"},
+		{name: "omitted", host: "localhost", args: []string{"--no-servername"}},
+		{name: "IP endpoint", host: "127.0.0.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			serverNames := make(chan string, 1)
+			server := newChainTLSServerWithClientHello(t, func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+				serverNames <- hello.ServerName
+				return nil, nil //nolint:nilnil // nil directs TLS to continue with the existing configuration
+			})
+			_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			endpoint := net.JoinHostPort(test.host, port)
+			args := append([]string{"cert", "connect", endpoint}, test.args...)
+			if test.resolve {
+				args = append(args, "--resolve", endpoint+":127.0.0.1")
+			}
+			_, err = executeRoot(t, args...)
+			require.NoError(t, err)
+			select {
+			case got := <-serverNames:
+				assert.Equal(t, test.want, got)
+			case <-time.After(time.Second):
+				t.Fatal("server did not receive ClientHello")
+			}
+		})
 	}
-	select {
-	case got := <-serverName:
-		if got != "localhost" {
-			t.Fatalf("SNI = %q, want localhost", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("server did not receive ClientHello")
+}
+
+func TestConnectCommandOffersHandshakeOptions(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		args      []string
+		protocols []string
+		versions  []uint16
+	}{
+		{name: "defaults", versions: []uint16{tls.VersionTLS13, tls.VersionTLS12}},
+		{name: "ALPN", args: []string{"--alpn", "h2,http/1.1"}, protocols: []string{"h2", "http/1.1"}, versions: []uint16{tls.VersionTLS13, tls.VersionTLS12}},
+		{name: "minimum", args: []string{"--tls-min", "1.3"}, versions: []uint16{tls.VersionTLS13}},
+		{name: "maximum", args: []string{"--tls-max", "1.2"}, versions: []uint16{tls.VersionTLS12}},
+		{name: "legacy range", args: []string{"--tls-min", "1.0", "--tls-max", "1.1"}, versions: []uint16{tls.VersionTLS11, tls.VersionTLS10}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			endpoint, hellos := newClientHelloRecordingTLSServer(t)
+			_, err := executeRoot(t, append([]string{"cert", "connect", endpoint}, test.args...)...)
+			require.NoError(t, err, "the recording server accepts every offered version")
+			select {
+			case hello := <-hellos:
+				assert.Equal(t, test.protocols, hello.SupportedProtos)
+				assert.Equal(t, test.versions, hello.SupportedVersions)
+			case <-time.After(time.Second):
+				t.Fatal("server did not receive ClientHello")
+			}
+		})
+	}
+}
+
+func TestConnectCommandHandshakeFailuresPreserveOutput(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	for _, test := range []struct {
+		name       string
+		endpoint   string
+		diagnostic string
+		args       []string
+	}{
+		{
+			name: "version range excludes the server", endpoint: newClientAuthTLSServer(t, nil, tls.VersionTLS12),
+			args: []string{"--tls-min", "1.3"}, diagnostic: "protocol version",
+		},
+		{name: "TLS 1.2 client authentication", endpoint: newClientAuthTLSServer(t, &identity, tls.VersionTLS12), diagnostic: "handshake"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output := writeCertTestFile(t, t.TempDir(), "output", []byte("preserve"))
+			stdout, _, err := executeRootStreams(t, append([]string{"cert", "connect", test.endpoint, "--output", output}, test.args...)...)
+			require.ErrorContains(t, err, test.diagnostic)
+			assert.Empty(t, stdout)
+			contents, readErr := os.ReadFile(output)
+			require.NoError(t, readErr)
+			assert.Equal(t, "preserve", string(contents))
+		})
+	}
+}
+
+func TestConnectCommandClientIdentitySources(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	endpoint := newClientAuthTLSServer(t, &identity, tls.VersionTLS12)
+	certPEM, err := os.ReadFile(identity.ClientCert)
+	require.NoError(t, err)
+	keyPEM, err := os.ReadFile(identity.ClientKey)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name  string
+		input []byte
+		args  []string
+	}{
+		{name: "files", args: []string{"--cert", identity.ClientCert, "--key", identity.ClientKey}},
+		{
+			name: "encoded certificate stdin", input: []byte(base64.StdEncoding.EncodeToString(certPEM)),
+			args: []string{"--cert", "-", "--cert-encoding", "base64", "-k", identity.ClientKey},
+		},
+		{name: "encoded key stdin", input: []byte(hex.EncodeToString(keyPEM)), args: []string{"--cert", identity.ClientCert, "--key", "-", "--key-encoding", "hex"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr, err := executeCertTestWithInput(t, test.input, append([]string{"cert", "connect", endpoint, "-f", "pem"}, test.args...)...)
+			require.NoError(t, err, "stderr %q", stderr)
+			assert.Equal(t, certificateFileDER(t, identity.ServerCert), singlePEMCertificate(t, stdout))
+		})
+	}
+	// TLS 1.3 clients finish their handshake before the server checks the
+	// client certificate, so the presented certificates remain available.
+	t.Run("TLS 1.3 server presents before client authentication", func(t *testing.T) {
+		t.Parallel()
+		stdout, _, err := executeRootStreams(t, "cert", "connect", newClientAuthTLSServer(t, &identity, tls.VersionTLS13), "-f", "pem")
+		require.NoError(t, err)
+		assert.Equal(t, certificateFileDER(t, identity.ServerCert), singlePEMCertificate(t, stdout))
+	})
+}
+
+func TestConnectHandshakeOptionsValidateBeforeIO(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	for _, test := range []struct {
+		want error
+		name string
+		args []string
+	}{
+		{name: "certificate without key", args: []string{"--cert", "client.pem"}},
+		{name: "key without certificate", args: []string{"-k", "client.key"}},
+		{name: "empty ALPN element", args: []string{"--alpn", "h2,"}},
+		{name: "padded ALPN element", args: []string{"--alpn", " h2"}},
+		{name: "unknown version", args: []string{"--tls-min", "1.4"}},
+		{name: "inverted version range", args: []string{"--tls-min", "1.3", "--tls-max", "1.2"}},
+		{name: "maximum below the default minimum", args: []string{"--tls-max", "1.1"}},
+		{name: "empty version", args: []string{"--tls-min="}},
+		{name: "two stdin owners", args: []string{"--cert", "-", "--key", "-"}, want: errCertificateInputSelection},
+		{name: "CA and identity stdin", args: []string{"--ca", "-", "--cert", "-", "--key", "client.key"}, want: errCertificateInputSelection},
+		{name: "codec without source", args: []string{"--key-encoding", "hex"}},
+		{
+			name: "unknown codec", args: []string{"--cert", "client.pem", "--key", "client.key", "--cert-encoding", "missing"},
+			want: byteencoding.ErrUnknownInputEncoding,
+		},
+		{name: "mismatched identity", args: []string{"--cert", identity.ClientCert, "--key", identity.ServerKey}, want: tlsconfig.ErrClientKeyMismatch},
+		{name: "invalid resolve rule", args: []string{"--resolve", "service.test:443"}, want: netconn.ErrInvalidResolve},
+		{name: "invalid resolve rule with CA stdin", args: []string{"--ca", "-", "--resolve", "service.test:443"}, want: netconn.ErrInvalidResolve},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			// A refused endpoint would fail differently if validation reached the network.
+			err := assertCertArtifactPreIOFailure(t, append([]string{"cert", "connect", "127.0.0.1:1"}, test.args...))
+			require.NotContains(t, err.Error(), "dial")
+			if test.want != nil {
+				require.ErrorIs(t, err, test.want)
+			}
+		})
+	}
+}
+
+func TestConnectCommandVerifiesServerName(t *testing.T) {
+	t.Parallel()
+	identity := testcmd.CreateNetworkIdentity(t, rootcmd.NewCommand)
+	endpoint := newIdentityTLSServer(t, &identity)
+	_, port, err := net.SplitHostPort(endpoint)
+	require.NoError(t, err)
+	ipEndpoint := net.JoinHostPort("127.0.0.1", port)
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		mismatch string
+		args     []string
+		verified bool
+	}{
+		{name: "servername names the leaf", endpoint: ipEndpoint, args: []string{"--servername", "localhost"}, verified: true},
+		{name: "servername differs from the leaf", endpoint: endpoint, args: []string{"--servername", "other.test"}, mismatch: "other.test"},
+		{name: "omitted SNI verifies the endpoint host", endpoint: endpoint, args: []string{"--no-servername"}, verified: true},
+		{name: "omitted SNI verifies the endpoint IP", endpoint: ipEndpoint, args: []string{"--no-servername"}, mismatch: "127.0.0.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"cert", "connect", test.endpoint, "--ca", identity.CACert, "-f", "json"}, test.args...)
+			output, _, err := executeRootStreams(t, args...)
+			require.NoError(t, err, "a name mismatch is reported, not fatal")
+			verification := decodeConnectVerification(t, output)
+			assert.Equal(t, test.verified, verification.Verified, "verification error: %s", verification.Error)
+			assert.Contains(t, verification.Error, test.mismatch)
+		})
 	}
 }
 
@@ -285,6 +474,114 @@ func newChainTLSServerWithClientHello(
 	return server
 }
 
+// newIdentityTLSServer serves the CLI-created server identity, whose leaf names
+// only localhost, and returns that endpoint.
+func newIdentityTLSServer(t *testing.T, identity *testcmd.NetworkIdentity) string {
+	t.Helper()
+	certificate, err := tls.LoadX509KeyPair(identity.ServerCert, identity.ServerKey)
+	require.NoError(t, err)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{certificate}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	return net.JoinHostPort("localhost", port)
+}
+
+// newVirtualHostTLSServer presents identity's localhost leaf only for that SNI
+// and the fixture chain otherwise, returning an IP endpoint.
+func newVirtualHostTLSServer(t *testing.T, identity *testcmd.NetworkIdentity) string {
+	t.Helper()
+	certificate, err := tls.LoadX509KeyPair(identity.ServerCert, identity.ServerKey)
+	require.NoError(t, err)
+	fallback := testcmd.NewTLSCertificateChain(t)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = &tls.Config{GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if hello.ServerName == "localhost" {
+			return &certificate, nil
+		}
+		return &fallback, nil
+	}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server.Listener.Addr().String()
+}
+
+type recordedClientHello struct {
+	SupportedProtos   []string
+	SupportedVersions []uint16
+}
+
+// newClientHelloRecordingTLSServer accepts every TLS version and offered
+// protocol, recording each ClientHello.
+func newClientHelloRecordingTLSServer(t *testing.T) (string, <-chan recordedClientHello) {
+	t.Helper()
+	hellos := make(chan recordedClientHello, 1)
+	config := &tls.Config{Certificates: []tls.Certificate{testcmd.NewTLSCertificateChain(t)}, MinVersion: tls.VersionTLS10}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = config.Clone()
+	server.TLS.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		hellos <- recordedClientHello{SupportedProtos: slices.Clone(hello.SupportedProtos), SupportedVersions: slices.Clone(hello.SupportedVersions)}
+		negotiated := config.Clone()
+		negotiated.NextProtos = hello.SupportedProtos
+		return negotiated, nil
+	}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server.Listener.Addr().String(), hellos
+}
+
+// newACMEChallengeTLSServer presents identity's leaf, or a challenge leaf when
+// the client offers acme-tls/1. It returns the endpoint and the challenge DER.
+func newACMEChallengeTLSServer(t *testing.T, identity *testcmd.NetworkIdentity) (string, []byte) {
+	t.Helper()
+	certificate, err := tls.LoadX509KeyPair(identity.ServerCert, identity.ServerKey)
+	require.NoError(t, err)
+	challenge := testcmd.NewTLSCertificateChain(t)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{certificate},
+		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			if !slices.Contains(hello.SupportedProtos, "acme-tls/1") {
+				return nil, nil //nolint:nilnil // nil directs TLS to continue with the existing configuration
+			}
+			return &tls.Config{Certificates: []tls.Certificate{challenge}, NextProtos: []string{"acme-tls/1"}}, nil
+		},
+	}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server.Listener.Addr().String(), challenge.Certificate[0]
+}
+
+// newClientAuthTLSServer requires a client certificate issued by identity's CA
+// at exactly version and returns a localhost endpoint. A nil identity serves the
+// fixture chain without client authentication.
+func newClientAuthTLSServer(t *testing.T, identity *testcmd.NetworkIdentity, version uint16) string {
+	t.Helper()
+	config := &tls.Config{MinVersion: version, MaxVersion: version}
+	if identity == nil {
+		config.Certificates = []tls.Certificate{testcmd.NewTLSCertificateChain(t)}
+	} else {
+		certificate, err := tls.LoadX509KeyPair(identity.ServerCert, identity.ServerKey)
+		require.NoError(t, err)
+		caPEM, err := os.ReadFile(identity.CACert)
+		require.NoError(t, err)
+		clientCAs := x509.NewCertPool()
+		require.True(t, clientCAs.AppendCertsFromPEM(caPEM))
+		config.Certificates = []tls.Certificate{certificate}
+		config.ClientAuth = tls.RequireAndVerifyClientCert
+		config.ClientCAs = clientCAs
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = config
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	return net.JoinHostPort("localhost", port)
+}
+
 func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	server := newChainTLSServer(t)
@@ -296,6 +593,15 @@ func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 	}{
 		{name: "removed inspect format", args: []string{"cert", "inspect", "--format", "long"}, diagnostic: "unknown output format"},
 		{name: "removed connect format", args: []string{"cert", "connect", server.Listener.Addr().String(), "--format", "long"}, diagnostic: "unknown output format"},
+		{name: "empty servername", args: []string{"cert", "connect", server.Listener.Addr().String(), "--servername="}, diagnostic: "use --no-servername"},
+		{
+			name: "invalid resolve rule", args: []string{"cert", "connect", server.Listener.Addr().String(), "--resolve", "service.test:443"},
+			diagnostic: "invalid resolve rule",
+		},
+		{
+			name: "servername with no-servername", args: []string{"cert", "connect", server.Listener.Addr().String(), "--servername", "a.test", "--no-servername"},
+			diagnostic: "none of the others",
+		},
 		{name: "missing root", args: []string{"cert", "inspect", "--select", "root"}, diagnostic: "root unavailable"},
 		{name: "numeric missing root", args: []string{"cert", "inspect", "--select", "0"}, diagnostic: "root unavailable"},
 		{name: "negative index", args: []string{"cert", "inspect", "--select", "-1"}, diagnostic: "non-negative decimal index"},

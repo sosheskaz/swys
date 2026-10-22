@@ -290,7 +290,7 @@ func prepareCertificateArtifactEncodingCompletion(completionCmd *cobra.Command, 
 		return
 	}
 	switch actual.Name() {
-	case "create", csrFlagName, "match", certVerifyCommandName:
+	case "connect", "create", csrFlagName, "match", certVerifyCommandName:
 	default:
 		return
 	}
@@ -310,8 +310,9 @@ func prepareCertificateArtifactEncodingCompletion(completionCmd *cobra.Command, 
 			flag.Hidden = !certificateArtifactEncodingApplicable(probe, name)
 			if probe.Name() != certVerifyCommandName {
 				source, err := probe.Flags().GetString(name)
-				if err == nil && source == "-" && probe.Flags().Changed(name+"-encoding") {
-					actual.Flags().Lookup(commandio.InputEncodingFlagName).Hidden = true
+				inputEncoding := actual.Flags().Lookup(commandio.InputEncodingFlagName)
+				if err == nil && source == "-" && probe.Flags().Changed(name+"-encoding") && inputEncoding != nil {
+					inputEncoding.Hidden = true
 				}
 			}
 		}

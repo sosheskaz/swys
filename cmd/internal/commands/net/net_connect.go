@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -75,7 +74,9 @@ protocols explicitly; it does not transform the application payload.`,
 	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")
 	command.Flags().Bool(netInsecureFlagName, false, "disable TLS verification; enables every --insecure-* behavior (TLS only)")
 	command.Flags().Bool(tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage+" (TLS only)")
+	command.Flags().StringArray(netResolveFlagName, nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
 	registerNoFileFlagCompletion(command, tlsconfig.ServerNameFlagName)
+	registerNoFileFlagCompletion(command, netResolveFlagName)
 	registerALPNCompletion(command)
 	configureTLSConnectFlagCompletion(command)
 	tlsconfig.AddArtifactEncodingFlags(command, netTLSCompletionApplicable)
@@ -132,8 +133,12 @@ func runNetConnectTCP(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
 	setupContext, cancel := commandio.NetworkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialTCPRetryRefused(setupContext, args[0])
+	connection, err := netconn.Dialer{Resolver: resolver}.DialTCPRetryRefused(setupContext, args[0])
 	cancel()
 	if err != nil {
 		return err
@@ -157,8 +162,12 @@ func runNetConnectUDP(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
 	setupContext, cancel := commandio.NetworkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialUDP(setupContext, args[0])
+	connection, err := netconn.Dialer{Resolver: resolver}.DialUDP(setupContext, args[0])
 	cancel()
 	if err != nil {
 		return err
@@ -236,8 +245,12 @@ func runNetConnectTLS(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := netResolverFromCommand(cmd)
+	if err != nil {
+		return err
+	}
 	setupContext, cancel := commandio.NetworkSetupContext(cmd.Context(), options.timeout)
-	connection, err := netconn.DialTLSRetryRefused(setupContext, args[0], config)
+	connection, err := netconn.Dialer{Resolver: resolver}.DialTLSRetryRefused(setupContext, args[0], config)
 	cancel()
 	if err != nil {
 		return err
@@ -359,16 +372,7 @@ func tlsConfigFromCommand(cmd *cobra.Command, address string) (*tls.Config, erro
 }
 
 func parseALPN(text string) ([]string, error) {
-	if text == "" {
-		return nil, nil
-	}
-	protocols := strings.Split(text, ",")
-	for _, protocol := range protocols {
-		if protocol == "" || protocol != strings.TrimSpace(protocol) || len(protocol) > 255 {
-			return nil, fmt.Errorf("%w: --alpn values must be 1-255 bytes with no surrounding whitespace", ErrInvalidFlags)
-		}
-	}
-	return protocols, nil
+	return tlsconfig.ParseALPN(text, ErrInvalidFlags)
 }
 
 func validateNetFlagsBeforeIO(cmd *cobra.Command) error {

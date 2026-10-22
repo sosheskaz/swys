@@ -43,6 +43,45 @@ JSON always contains a certificates array, with complete pem strings, certificat
 
 Inspection retrieves certificates even when verification fails. Successful export is not proof that the endpoint or exported CA is trusted; read the separate verification result. SwYS does not install trust anchors. PEM export succeeds with a diagnostic when extraction succeeds but verification fails. Retrieval, selection, and formatting failures leave an existing output file untouched.
 
+Verify against a private CA
+
+Verification uses the system trust store by default. --ca reads trust anchors from a PEM or DER file, or - for stdin; --ca-data accepts literal certificate content instead. Custom anchors replace the system roots unless --system-ca is also set, and --ca-encoding decodes their outer bytes. Prepare the CA file before connecting:
+
+  swys cert connect localhost:8443 --ca ca.pem -f json
+  swys cert connect localhost:8443 --ca ca.pem --select root -f pem -o root.pem
+
+Trust anchors change only the verification report and the root and numeric selections that build on verified chains. Retrieval still succeeds when verification fails.
+
+Choose the server name
+
+Servers that host several names choose a certificate from the TLS server name indication (SNI). SNI defaults to the endpoint host. --servername sends another name, and verification checks the leaf against that same name. --no-servername omits SNI, and verification falls back to the endpoint host.
+
+  swys cert connect 192.0.2.10:443 --servername www.example.com
+  swys cert connect example.com:443 --no-servername -f json
+
+TLS never sends an IP address as SNI, so an IP endpoint without --servername also omits it.
+
+Shape the handshake
+
+Servers can also choose a certificate from the offered application protocols, TLS versions, or client identity. --alpn offers a comma-separated list of ALPN protocols; none are offered by default. --tls-min and --tls-max bound the offered versions to 1.0, 1.1, 1.2, or 1.3; by default, SwYS offers TLS 1.2 and 1.3, and lower versions are legacy. --cert and --key (-k) present a client certificate chain and sign with its private key, which never leaves SwYS; each reads a PEM file or - for stdin, and --cert-encoding and --key-encoding decode their outer bytes. Because inspection does not require a trusted server, SwYS presents that certificate to whichever server answers, before and regardless of verification.
+
+  swys cert connect example.com:443 --alpn acme-tls/1
+  swys cert connect example.com:443 --tls-max 1.2 -f json
+
+Prepare client.pem and client.key before presenting a client identity:
+
+  swys cert connect mtls.example.com:443 --cert client.pem --key client.key
+
+Over TLS 1.2, a server that requires client authentication rejects the handshake without --cert and --key. Over TLS 1.3, the client finishes its handshake before the server checks the client certificate, so inspection can succeed without one.
+
+Connect to a specific address
+
+--resolve HOST:PORT:ADDRESS[,ADDRESS] connects to numeric addresses instead of resolving HOST; repeat it to add rules. SNI and verification still use the endpoint host, or the --servername value, so you can inspect what one server behind a load balancer presents for the public name:
+
+  swys cert connect www.example.com:443 --resolve www.example.com:443:192.0.2.10
+
+Addresses are tried in order within the --connect-timeout (-c) budget. Unlike net connect, cert connect does not retry a refused connection.
+
 Reference
 
   swys help cert inspect

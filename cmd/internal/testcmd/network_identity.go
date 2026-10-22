@@ -26,8 +26,15 @@ type NetworkIdentity struct {
 	ClientKey  string
 }
 
-// CreateNetworkIdentity uses the CLI to create short-lived test certificates.
+// CreateNetworkIdentity uses the CLI to create short-lived test certificates
+// whose server leaf names localhost.
 func CreateNetworkIdentity(tb testing.TB, newRoot func() *cobra.Command) NetworkIdentity {
+	tb.Helper()
+	return CreateNetworkIdentityFor(tb, newRoot, "localhost")
+}
+
+// CreateNetworkIdentityFor creates the same identity with a server leaf for dnsName.
+func CreateNetworkIdentityFor(tb testing.TB, newRoot func() *cobra.Command, dnsName string) NetworkIdentity {
 	tb.Helper()
 	directory := tb.TempDir()
 	identity := NetworkIdentity{
@@ -44,7 +51,7 @@ func CreateNetworkIdentity(tb testing.TB, newRoot func() *cobra.Command) Network
 		{identityKeyNoun, identityGenerate, identityOutputFlag, identity.ClientKey},
 		{identityCertNoun, identityCreate, "--ca", "--subject", "CN=test-ca", identityKeyFlag, caKey, identityOutputFlag, identity.CACert},
 		{
-			identityCertNoun, identityCreate, "--dns", "localhost", "--server-only", identityKeyFlag, identity.ServerKey,
+			identityCertNoun, identityCreate, "--dns", dnsName, "--server-only", identityKeyFlag, identity.ServerKey,
 			"--issuer-cert", identity.CACert, "--issuer-key", caKey, identityOutputFlag, identity.ServerCert,
 		},
 		{

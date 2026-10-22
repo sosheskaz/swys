@@ -119,6 +119,11 @@
       "semanticCommitScope": "renovate",
       "pinDigests": true,
       "fetchChangeLogs": "off"
+    },
+    {
+      "description": "Test-only dependencies do not change released artifacts.",
+      "matchFileNames": ["tests/**"],
+      "semanticCommitType": "test"
     }
   ]
 }

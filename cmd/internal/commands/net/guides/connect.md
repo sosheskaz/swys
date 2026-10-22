@@ -70,6 +70,16 @@ swys net connect --tls localhost:9443 --ca - --ca-encoding hex \
   --input request.b64 --input-encoding base64 < ca.pem.hex
 ```
 
+## Override the connection address
+
+**--resolve** HOST:PORT:ADDRESS[,ADDRESS] connects to numeric addresses instead of resolving HOST, for every protocol. A rule applies only when HOST:PORT matches the endpoint; repeat the flag to add rules. TLS still sends the endpoint host, or the --servername value, as SNI and verifies that name, so you can test a server at another address under its public name:
+
+```sh
+printf 'hello\n' | swys net connect --tls www.example.com:443 --resolve www.example.com:443:192.0.2.10
+```
+
+TCP and TLS try the addresses in order within the --connect-timeout (-c) budget and retry only when every address refused the connection. A UDP rule takes exactly one address, because a UDP socket cannot detect an unreachable address before sending.
+
 ## Next steps
 
 ```sh
