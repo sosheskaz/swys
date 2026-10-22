@@ -563,7 +563,7 @@ func TestNetListenTLSFlagValidation(t *testing.T) {
 			}
 		})
 	}
-	for _, flag := range []string{"--insecure", "--servername"} {
+	for _, flag := range []string{"--insecure", "--insecure-no-verify", "--servername"} {
 		args := append(slices.Clone(base), flag)
 		if _, _, err := executeRootStreams(t, args...); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 			t.Fatalf("%s error = %v, want unsupported flag", flag, err)

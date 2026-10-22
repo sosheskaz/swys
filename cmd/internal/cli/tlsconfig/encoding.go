@@ -138,6 +138,5 @@ func SetArtifactEncodingVisibility(actual, probe *cobra.Command, applicable bool
 }
 
 func artifactSourceApplicable(cmd *cobra.Command, source string) bool {
-	insecure := cmd.Flag("insecure")
-	return source != CAFlagName || insecure == nil || insecure.Value.String() == "false"
+	return source != CAFlagName || SkipVerifyFlag(cmd.Flags()) == ""
 }

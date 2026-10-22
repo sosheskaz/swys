@@ -47,15 +47,12 @@ func validateEncryptedDNSOptions(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read system-ca flag: %w", err)
 	}
-	insecure, err := cmd.Flags().GetBool("insecure")
-	if err != nil {
-		return fmt.Errorf("read insecure flag: %w", err)
-	}
+	skipVerify := tlsconfig.SkipVerifyFlag(cmd.Flags())
 	if systemCA && caPath == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidDNSOptions)
 	}
-	if insecure && (caPath != "" || systemCA) {
-		return fmt.Errorf("%w: --insecure cannot be combined with --ca or --system-ca", ErrInvalidDNSOptions)
+	if skipVerify != "" && (caPath != "" || systemCA) {
+		return fmt.Errorf("%w: --%s cannot be combined with --ca or --system-ca", ErrInvalidDNSOptions, skipVerify)
 	}
 	return certinput.ValidatePaths(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName)
 }
@@ -65,11 +62,9 @@ func encryptedDNSTLSConfig(cmd *cobra.Command) (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read servername flag: %w", err)
 	}
-	insecure, err := cmd.Flags().GetBool("insecure")
-	if err != nil {
-		return nil, fmt.Errorf("read insecure flag: %w", err)
+	config := &tls.Config{
+		MinVersion: tls.VersionTLS12, ServerName: serverName, InsecureSkipVerify: tlsconfig.SkipVerifyFlag(cmd.Flags()) != "",
 	}
-	config := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: serverName, InsecureSkipVerify: insecure}
 	if err := tlsconfig.AddRootCAs(cmd, config); err != nil {
 		return nil, err
 	}

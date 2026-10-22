@@ -222,6 +222,7 @@ func TestEncryptedDNSRejectsTLSFlagsForPlaintextEndpoints(t *testing.T) {
 		{name: "server name over bare UDP", args: []string{"@127.0.0.1:9", "--servername", "localhost"}},
 		{name: "client certificate over UDP", args: []string{"@udp://127.0.0.1:9", "--cert", identity.clientCertPath, "--key", identity.clientKeyPath}},
 		{name: "insecure over TCP", args: []string{"@tcp://127.0.0.1:9", "--insecure"}},
+		{name: "no-verify over TCP", args: []string{"@tcp://127.0.0.1:9", "--insecure-no-verify"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -247,12 +248,24 @@ func TestEncryptedDNSRejectsConflictingTLSOptionsBeforeNetwork(t *testing.T) {
 
 	identity := newEncryptedDNSTestIdentity(t, []string{"localhost"}, nil)
 	tests := []struct {
-		name string
-		args []string
+		name    string
+		message string
+		args    []string
 	}{
 		{name: "system roots without custom CA", args: []string{"--system-ca"}},
-		{name: "insecure and custom CA", args: []string{"--insecure", "--ca", identity.caCertPath}},
+		{
+			name: "insecure and custom CA", message: "--insecure cannot be combined",
+			args: []string{"--insecure", "--ca", identity.caCertPath},
+		},
 		{name: "insecure and system roots", args: []string{"--insecure", "--ca", identity.caCertPath, "--system-ca"}},
+		{
+			name: "no-verify and custom CA", message: "--insecure-no-verify cannot be combined",
+			args: []string{"--insecure-no-verify", "--ca", identity.caCertPath},
+		},
+		{
+			name: "no-verify and system roots", message: "--insecure-no-verify cannot be combined",
+			args: []string{"--insecure-no-verify", "--ca", identity.caCertPath, "--system-ca"},
+		},
 		{name: "certificate without key", args: []string{"--cert", identity.clientCertPath}},
 		{name: "key without certificate", args: []string{"--key", identity.clientKeyPath}},
 	}
@@ -276,6 +289,10 @@ func TestEncryptedDNSRejectsConflictingTLSOptionsBeforeNetwork(t *testing.T) {
 			_ = listener.Close() //nolint:errcheck // releases a blocked fixture Accept
 			require.Error(t, err, "conflicting TLS options reached the network")
 			assert.False(t, <-connected, "conflicting TLS options opened a network connection")
+			if test.message != "" {
+				require.ErrorIs(t, err, errInvalidDNSOptions)
+				assert.ErrorContains(t, err, test.message)
+			}
 		})
 	}
 }
@@ -331,6 +348,10 @@ func TestDNSOverTLSTrustServerNameInsecureAndSystemRoots(t *testing.T) {
 			return []string{"--ca", identity.caCertPath, "--servername", "resolver.test"}
 		}},
 		{name: "insecure", identityName: "untrusted.test", args: func(encryptedDNSTestIdentity) []string { return []string{"--insecure"} }},
+		{name: "no-verify", identityName: "untrusted.test", args: func(encryptedDNSTestIdentity) []string { return []string{"--insecure-no-verify"} }},
+		{name: "insecure and no-verify", identityName: "untrusted.test", args: func(encryptedDNSTestIdentity) []string {
+			return []string{"--insecure", "--insecure-no-verify"}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

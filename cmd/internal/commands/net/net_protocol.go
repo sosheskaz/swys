@@ -60,7 +60,8 @@ func validateNetProtocolFlagsBeforeIO(cmd *cobra.Command) error {
 	for _, name := range []string{
 		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName,
 		tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName, tlsconfig.CAEncodingFlagName,
-		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName, netInsecureFlagName,
+		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName,
+		netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
 		netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName, netWaitFlagName,
 	} {
 		if !cmd.Flags().Changed(name) || netProtocolFlagApplicable(cmd, protocol, name) {
@@ -85,7 +86,8 @@ func isNetTLSFlag(name string) bool {
 	switch name {
 	case tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName,
 		tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName, tlsconfig.CAEncodingFlagName,
-		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName, netInsecureFlagName:
+		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName,
+		netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName:
 		return true
 	default:
 		return false

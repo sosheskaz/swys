@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	netInsecureFlagName = "insecure"
+	netInsecureFlagName = tlsconfig.InsecureFlagName
 	completionBoolTrue  = "true"
 	completionBoolFalse = "false"
 )
@@ -82,7 +82,7 @@ func configureTLSConnectFlagCompletion(command *cobra.Command) {
 	}); err != nil {
 		panic(err)
 	}
-	for _, name := range []string{tlsconfig.SystemCAFlagName, netInsecureFlagName} {
+	for _, name := range []string{tlsconfig.SystemCAFlagName, netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName} {
 		if err := command.RegisterFlagCompletionFunc(name, completeTLSBoolean(name)); err != nil {
 			panic(err)
 		}
@@ -90,16 +90,17 @@ func configureTLSConnectFlagCompletion(command *cobra.Command) {
 }
 
 func updateTLSConnectCompletionFlags(command, values *cobra.Command) {
-	for _, name := range []string{netInsecureFlagName, tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName} {
+	for _, name := range []string{netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName} {
 		command.Flags().Lookup(name).Hidden = !netTLSConnectCompletionAllowed(values, name)
 	}
 }
 
 func netTLSConnectCompletionAllowed(command *cobra.Command, name string) bool {
-	insecure := command.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse
+	insecure := command.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse ||
+		command.Flags().Lookup(tlsconfig.InsecureNoVerifyFlagName).Value.String() != completionBoolFalse
 	ca := command.Flags().Lookup(tlsconfig.CAFlagName).Value.String()
 	systemCA := command.Flags().Lookup(tlsconfig.SystemCAFlagName).Value.String() != completionBoolFalse
-	if name == netInsecureFlagName {
+	if name == netInsecureFlagName || name == tlsconfig.InsecureNoVerifyFlagName {
 		return ca == "" && !systemCA
 	}
 	return !insecure
@@ -210,7 +211,7 @@ func setNetProtocolFlagVisibility(command *cobra.Command, protocol string, liste
 	command.Flags().Lookup(netProtocolTLS).Hidden = protocol == netProtocolUDP
 	for _, name := range []string{
 		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName,
-		netALPNFlagName, tlsconfig.ServerNameFlagName, netInsecureFlagName,
+		netALPNFlagName, tlsconfig.ServerNameFlagName, netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
 	} {
 		if candidate := command.Flags().Lookup(name); candidate != nil {
 			candidate.Hidden = protocol != netProtocolTLS
@@ -273,7 +274,8 @@ func netFlagValueCompletionApplicable(cmd *cobra.Command, name string) bool {
 func registerNetDefaultValueCompletions(command *cobra.Command) {
 	for _, name := range []string{
 		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName,
-		netInsecureFlagName, netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName, netProtocolUDP,
+		netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
+		netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName, netProtocolUDP,
 	} {
 		flag := command.Flags().Lookup(name)
 		if flag == nil {
