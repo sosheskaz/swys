@@ -313,8 +313,8 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
-  race-fuzz:
-    name: Go race and fuzz
+  fuzz:
+    name: Go fuzz
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -347,16 +347,13 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-race-fuzz-${{ hashFiles('go.mod', 'go.sum') }}
+          key: ${{ steps.go-toolchain.outputs.cache_prefix }}-fuzz-${{ hashFiles('go.mod', 'go.sum') }}
           restore-keys: |
-            ${{ steps.go-toolchain.outputs.cache_prefix }}-race-fuzz-
+            ${{ steps.go-toolchain.outputs.cache_prefix }}-fuzz-
             ${{ steps.go-toolchain.outputs.cache_prefix }}-
 
       - name: Download modules
         run: go mod download
-
-      - name: Test (race detector)
-        run: mise run test:race -- -shuffle=on
 
       - name: Fuzz smoke campaign
         run: mise run test:fuzz
@@ -382,8 +379,8 @@ jobs:
     strategy:
       fail-fast: false
       # Race runs once per OS: platform code is selected by GOOS, and race
-      # findings do not depend on GOARCH. linux/amd64 races in race-fuzz, and
-      # Go's race detector does not support windows/arm64.
+      # findings do not depend on GOARCH. Go's race detector does not support
+      # windows/arm64.
       matrix:
         include:
           - platform: windows/amd64
@@ -398,6 +395,9 @@ jobs:
           - platform: darwin/amd64
             runner: macos-26-intel
             race: false
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            race: true
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
             race: false
@@ -457,7 +457,7 @@ jobs:
 
   go:
     name: Build, test, lint
-    needs: [core, platforms, race-fuzz, native]
+    needs: [core, platforms, fuzz, native]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -467,10 +467,10 @@ jobs:
         env:
           CORE_RESULT: ${{ needs.core.result }}
           PLATFORMS_RESULT: ${{ needs.platforms.result }}
-          RACE_FUZZ_RESULT: ${{ needs.race-fuzz.result }}
+          FUZZ_RESULT: ${{ needs.fuzz.result }}
           NATIVE_RESULT: ${{ needs.native.result }}
         run: |
-          if [[ "$CORE_RESULT" != success || "$PLATFORMS_RESULT" != success || "$RACE_FUZZ_RESULT" != success || "$NATIVE_RESULT" != success ]]; then
-            printf 'Go jobs: core=%s platforms=%s race-fuzz=%s native=%s\n' "$CORE_RESULT" "$PLATFORMS_RESULT" "$RACE_FUZZ_RESULT" "$NATIVE_RESULT" >&2
+          if [[ "$CORE_RESULT" != success || "$PLATFORMS_RESULT" != success || "$FUZZ_RESULT" != success || "$NATIVE_RESULT" != success ]]; then
+            printf 'Go jobs: core=%s platforms=%s fuzz=%s native=%s\n' "$CORE_RESULT" "$PLATFORMS_RESULT" "$FUZZ_RESULT" "$NATIVE_RESULT" >&2
             exit 1
           fi
