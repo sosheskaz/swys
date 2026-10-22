@@ -270,7 +270,9 @@ func TestGRPCReflectionHalfClosesRequestBeforeWaitingForResponse(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			address, _, record := startGRPCFixture(t, test.reflectionMode, false)
-			args := []string{"grpc", address, "--plaintext", "--timeout", "500ms"}
+			// A client that never half-closes waits out any budget; a short one only
+			// fails loaded runners that are slow to connect.
+			args := []string{"grpc", address, "--plaintext", "--timeout", "5s"}
 			args = append(args, test.selector...)
 			stdout, _, err := executeRootStreams(t, args...)
 
