@@ -11,9 +11,9 @@ import (
 
 const maxFuzzPagerConfigurationSize = 1 << 10
 
-// fuzzPagerAccepted and the three rejection fragments match parsePager's
-// outcome classes; the reference tokenizer reports the same class so the
-// oracle stays about structure, not message wording.
+// fuzzPagerAccepted and the three rejection fragments identify parsePager's
+// outcome classes. The fragment is the only class discriminator: the oracle
+// matches it with strings.Contains instead of restating full messages.
 const (
 	fuzzPagerAccepted       = "accepted"
 	fuzzPagerTrailingEscape = "trailing escape"
@@ -27,11 +27,13 @@ const (
 
 // FuzzParsePagerShellWords tokenizes generated PAGER values — environment
 // input that becomes a pager process's argv — against an independently
-// structured span-scanning reference. Configurations without any quoting or
-// escaping must match strings.Fields exactly, and every outcome (including
-// the three rejection classes) must agree with the reference. Because the
-// tokenizer splits directly into argv, shell metacharacters in the value can
-// never gain a second interpretation.
+// structured span-scanning reference. The reference is byte-preserving:
+// unquoted and escaped text keeps its own bytes, so invalid UTF-8 in PAGER
+// must reach argv verbatim. Configurations without any quoting or escaping
+// must match strings.Fields exactly, and every outcome (including the three
+// rejection classes) must agree with the reference. Because the tokenizer
+// splits directly into argv, shell metacharacters in the value can never gain
+// a second interpretation.
 func FuzzParsePagerShellWords(f *testing.F) {
 	f.Add("less -R")
 	f.Add("")
@@ -117,12 +119,14 @@ func fuzzReferencePagerWords(configuration string) ([]string, string) {
 		rest = rest[size:]
 		switch character {
 		case '\\':
-			escaped, escapedSize := utf8.DecodeRuneInString(rest)
+			_, escapedSize := utf8.DecodeRuneInString(rest)
 			if escapedSize == 0 {
 				return nil, fuzzPagerTrailingEscape
 			}
+			// Write the escaped character's own bytes: an invalid UTF-8
+			// byte must survive exactly, the way argv requires.
+			current.WriteString(rest[:escapedSize])
 			rest = rest[escapedSize:]
-			current.WriteRune(escaped)
 			started = true
 		case '\'':
 			started = true
@@ -148,7 +152,9 @@ func fuzzReferencePagerWords(configuration string) ([]string, string) {
 					break
 				}
 				// A backslash inside double quotes escapes only quotes and
-				// backslashes; any other escape keeps its backslash.
+				// backslashes; any other escape keeps its backslash. The
+				// escaped character's own bytes are written so invalid UTF-8
+				// survives exactly.
 				escaped, escapedSize := utf8.DecodeRuneInString(rest[1:])
 				if escapedSize == 0 {
 					return nil, fuzzPagerTrailingEscape
@@ -156,7 +162,7 @@ func fuzzReferencePagerWords(configuration string) ([]string, string) {
 				if escaped != '"' && escaped != '\\' {
 					current.WriteByte('\\')
 				}
-				current.WriteRune(escaped)
+				current.WriteString(rest[1 : 1+escapedSize])
 				rest = rest[1+escapedSize:]
 			}
 		default:

@@ -27,6 +27,7 @@ func FuzzJSONCodecUnmarshalReadLimits(f *testing.F) {
 	f.Add([]byte(`{"count":9007199254740993}`), uint16(27), uint8(255))
 	f.Add([]byte(`{"count":1} `), uint16(10), uint8(1))
 	f.Add([]byte(`  null  `), uint16(8), uint8(7))
+	f.Add([]byte(`"ok" `), uint16(3), uint8(1))
 	f.Add([]byte(`{"truncated":`), uint16(13), uint8(5))
 	f.Add([]byte(`"message"x`), uint16(9), uint8(2))
 	f.Add([]byte(`{"a":1,"a":2}`), uint16(100), uint8(64))
@@ -58,10 +59,14 @@ func FuzzJSONCodecUnmarshalReadLimits(f *testing.F) {
 			fuzzCheckSameConnectJSONDecode(t, limitedErr, unlimitedErr, limited, unlimited)
 			return
 		}
-		// The body exceeds the limit. Either the codec reports the size
-		// failure, or decoding failed on its own before the limit mattered —
-		// which must match the unlimited decode exactly.
+		// The body exceeds the limit. The codec must report the size failure,
+		// or decoding must have failed on its own before the limit mattered —
+		// matching the unlimited decode exactly. Partial acceptance of an
+		// over-limit body is never allowed.
 		if !errors.Is(limitedErr, connectrpc.ErrMessageSize) {
+			if limitedErr == nil {
+				t.Fatalf("over-limit body accepted: %d bytes at limit %d", len(body), limit)
+			}
 			fuzzCheckSameConnectJSONDecode(t, limitedErr, unlimitedErr, limited, unlimited)
 		}
 	})

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -91,6 +92,8 @@ func FuzzReadDescriptorSetLimits(f *testing.F) {
 			}
 			return
 		}
+		// A set protodesc resolves can still carry a malformed well-known
+		// message, which New rejects with ErrSymbol in validateKnownMessages.
 		if schemaErr != nil && !errors.Is(schemaErr, protoschema.ErrSymbol) {
 			t.Fatalf("resolvable set failed in New: %v", schemaErr)
 		}
@@ -100,8 +103,15 @@ func FuzzReadDescriptorSetLimits(f *testing.F) {
 		if !sort.StringsAreSorted(schema.Services) {
 			t.Fatalf("services are not sorted: %v", schema.Services)
 		}
-		if _, err := protoschema.New(set); err != nil {
+		repeat, err := protoschema.New(set)
+		if err != nil {
 			t.Fatalf("New is not deterministic: %v", err)
+		}
+		if !reflect.DeepEqual(schema.Services, repeat.Services) {
+			t.Fatalf("New is not deterministic: services %q then %q", schema.Services, repeat.Services)
+		}
+		if schema.Files.NumFiles() != repeat.Files.NumFiles() {
+			t.Fatalf("New is not deterministic: %d files then %d", schema.Files.NumFiles(), repeat.Files.NumFiles())
 		}
 	})
 }
