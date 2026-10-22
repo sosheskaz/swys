@@ -80,6 +80,8 @@ type grpcOptions struct { //nolint:govet // group resolved presentation and rela
 	insecure               bool
 	insecureNoVerify       bool
 	verbose                bool
+	// tlsConfig is the dialed configuration, kept so diagnostics can report tolerated verification failures.
+	tlsConfig *tls.Config
 }
 
 func (options *grpcOptions) skipVerify() bool {
@@ -244,7 +246,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.StringVar(&options.serverName, "servername", "", "override TLS SNI and verification name")
 	flags.StringVar(&options.cert, tlsconfig.CertFlagName, "", "client certificate chain PEM path")
 	flags.StringVarP(&options.key, tlsconfig.KeyFlagName, "k", "", "client private key path")
-	flags.BoolVar(&options.insecure, grpcInsecureFlagName, false, "enable every --insecure-* behavior: unverified TLS and cleartext --auth-*")
+	flags.BoolVar(&options.insecure, grpcInsecureFlagName, false, "permit every --insecure-* behavior: unverified TLS certificates and cleartext --auth-*")
 	flags.BoolVar(&options.insecureNoVerify, tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage)
 	auth.AddFlags(command, flags)
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
@@ -498,7 +500,7 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if cmd.Flags().Changed("data") && cmd.Flags().Changed("input") {
 		return fmt.Errorf("%w: --data and --input are mutually exclusive", ErrInvalidOptions)
 	}
-	if err := validateGRPCTLSOptionCombinations(cmd, options); err != nil {
+	if err := validateGRPCTLSOptionCombinations(options); err != nil {
 		return err
 	}
 	payloadStdin := selectorPresent && grpcRequestUsesStdin(cmd)
@@ -531,8 +533,9 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	return commandio.RejectSameFile(options.protoset, output)
 }
 
-func validateGRPCTLSOptionCombinations(cmd *cobra.Command, options *grpcOptions) error {
-	if options.plaintext && grpcTLSOnlyOptions(cmd, options) {
+func validateGRPCTLSOptionCombinations(options *grpcOptions) error {
+	// --insecure* flags only permit failures, so they are harmless with --plaintext.
+	if options.plaintext && (options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "") {
 		return fmt.Errorf("%w: --plaintext conflicts with TLS flags", ErrInvalidOptions)
 	}
 	if (options.cert == "") != (options.key == "") {
@@ -541,18 +544,7 @@ func validateGRPCTLSOptionCombinations(cmd *cobra.Command, options *grpcOptions)
 	if options.systemCA && options.ca == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidOptions)
 	}
-	if skip := tlsconfig.SkipVerifyFlag(cmd.Flags()); skip != "" && (options.ca != "" || options.systemCA) {
-		return fmt.Errorf("%w: --%s conflicts with --ca and --system-ca", ErrInvalidOptions, skip)
-	}
 	return nil
-}
-
-func grpcTLSOnlyOptions(cmd *cobra.Command, options *grpcOptions) bool {
-	// The --insecure umbrella also permits cleartext credentials, so it accompanies
-	// --plaintext only when a credential flag gives it that meaning.
-	_, credential := auth.Selected(cmd.Flags())
-	return options.ca != "" || options.systemCA || options.serverName != "" || options.cert != "" || options.key != "" ||
-		options.insecureNoVerify || options.insecure && !credential
 }
 
 func applyGRPCAuthorization(cmd *cobra.Command, md metadata.MD) error {
@@ -682,6 +674,7 @@ func grpcTransportCredentials(cmd *cobra.Command, endpoint string, options *grpc
 	if exists {
 		config.Certificates = []tls.Certificate{identity}
 	}
+	options.tlsConfig = config
 	return credentials.NewTLS(config), nil
 }
 
@@ -911,7 +904,7 @@ func grpcDiagnostics(options *grpcOptions, details grpcCallDetails) []byte {
 		{Label: "Version", Value: tls.VersionName(tlsState.Version)},
 		{Label: "Cipher", Value: tls.CipherSuiteName(tlsState.CipherSuite)},
 		{Label: "Server Name", Value: tlsState.ServerName},
-		{Label: "Verified", Value: strconv.FormatBool(len(tlsState.VerifiedChains) != 0 && !options.skipVerify())},
+		{Label: "Verified", Value: grpcVerifiedDiagnostic(&tlsState, options.tlsConfig)},
 	})
 	return []byte(output.String())
 }
@@ -993,6 +986,15 @@ func escapeGRPCStatusMessage(message, continuationPrefix string) string {
 		offset += size
 	}
 	return escaped.String()
+}
+
+// grpcVerifiedDiagnostic explains a verification failure that an --insecure* flag tolerated.
+func grpcVerifiedDiagnostic(state *tls.ConnectionState, config *tls.Config) string {
+	chains, err := tlsconfig.VerifiedChains(state, config, "")
+	if err != nil {
+		return "false (" + err.Error() + ")"
+	}
+	return strconv.FormatBool(len(chains) != 0)
 }
 
 func grpcTLSConnectionState(authInfo credentials.AuthInfo) (tls.ConnectionState, bool) {

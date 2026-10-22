@@ -221,8 +221,7 @@ func TestEncryptedDNSRejectsTLSFlagsForPlaintextEndpoints(t *testing.T) {
 		{name: "system CA over TCP", args: []string{"@tcp://127.0.0.1:9", "--ca", identity.caCertPath, "--system-ca"}},
 		{name: "server name over bare UDP", args: []string{"@127.0.0.1:9", "--servername", "localhost"}},
 		{name: "client certificate over UDP", args: []string{"@udp://127.0.0.1:9", "--cert", identity.clientCertPath, "--key", identity.clientKeyPath}},
-		{name: "insecure over TCP", args: []string{"@tcp://127.0.0.1:9", "--insecure"}},
-		{name: "no-verify over TCP", args: []string{"@tcp://127.0.0.1:9", "--insecure-no-verify"}},
+		{name: "server name beside insecure over TCP", args: []string{"@tcp://127.0.0.1:9", "--insecure", "--servername", "localhost"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -243,6 +242,42 @@ func TestEncryptedDNSRejectsTLSFlagsForPlaintextEndpoints(t *testing.T) {
 	}
 }
 
+func TestDNSInsecureFlagsAreNoOpsWithoutTLS(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "insecure over TCP", args: []string{"@tcp://127.0.0.1:9", "example.test", "--insecure"}},
+		{name: "no-verify over UDP", args: []string{"@udp://127.0.0.1:9", "example.test", "--insecure-no-verify"}},
+		{name: "insecure with explicit system resolver", args: []string{"example.test", "--resolver", "system", "--insecure"}},
+		{name: "no-verify with implicit system resolver", args: []string{"example.test", "--insecure-no-verify"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var resolved atomic.Bool
+			root := newRootCmdWithDNSDependencies(dnsquery.Dependencies{
+				System: stubSystemResolver{lookupNetIP: func(context.Context, string, string) ([]netip.Addr, error) {
+					resolved.Store(true)
+					return []netip.Addr{netip.MustParseAddr("192.0.2.44")}, nil
+				}},
+				PlaintextExchange: func(_ context.Context, request *dns.Msg, _ dnsquery.Transport, _ string) (*dns.Msg, error) {
+					resolved.Store(true)
+					return standardDNSReply(request), nil
+				},
+				ConfiguredServers: func() ([]string, error) { return []string{"127.0.0.1"}, nil },
+			})
+			args := append([]string{"dns"}, test.args...)
+			stdout, _, err := executeRootCommandStreams(t, root, append(args, "--select", "values")...)
+			require.NoError(t, err, "an inapplicable insecure permission must be accepted")
+			assert.Equal(t, "192.0.2.44\n", stdout)
+			assert.True(t, resolved.Load(), "lookup did not run")
+		})
+	}
+}
+
 func TestEncryptedDNSRejectsConflictingTLSOptionsBeforeNetwork(t *testing.T) {
 	t.Parallel()
 
@@ -252,20 +287,8 @@ func TestEncryptedDNSRejectsConflictingTLSOptionsBeforeNetwork(t *testing.T) {
 		message string
 		args    []string
 	}{
-		{name: "system roots without custom CA", args: []string{"--system-ca"}},
-		{
-			name: "insecure and custom CA", message: "--insecure cannot be combined",
-			args: []string{"--insecure", "--ca", identity.caCertPath},
-		},
-		{name: "insecure and system roots", args: []string{"--insecure", "--ca", identity.caCertPath, "--system-ca"}},
-		{
-			name: "no-verify and custom CA", message: "--insecure-no-verify cannot be combined",
-			args: []string{"--insecure-no-verify", "--ca", identity.caCertPath},
-		},
-		{
-			name: "no-verify and system roots", message: "--insecure-no-verify cannot be combined",
-			args: []string{"--insecure-no-verify", "--ca", identity.caCertPath, "--system-ca"},
-		},
+		{name: "system roots without custom CA", message: "--system-ca requires --ca", args: []string{"--system-ca"}},
+		{name: "system roots beside no-verify without custom CA", message: "--system-ca requires --ca", args: []string{"--insecure-no-verify", "--system-ca"}},
 		{name: "certificate without key", args: []string{"--cert", identity.clientCertPath}},
 		{name: "key without certificate", args: []string{"--key", identity.clientKeyPath}},
 	}
@@ -305,7 +328,6 @@ func TestEncryptedDNSExplicitSystemResolverConflictsWithDirectOptions(t *testing
 		{"--port", "853"},
 		{"--ca", identity.caCertPath},
 		{"--servername", "localhost"},
-		{"--insecure"},
 	}
 	for _, extra := range tests {
 		name := strings.Join(extra, " ")
@@ -351,6 +373,12 @@ func TestDNSOverTLSTrustServerNameInsecureAndSystemRoots(t *testing.T) {
 		{name: "no-verify", identityName: "untrusted.test", args: func(encryptedDNSTestIdentity) []string { return []string{"--insecure-no-verify"} }},
 		{name: "insecure and no-verify", identityName: "untrusted.test", args: func(encryptedDNSTestIdentity) []string {
 			return []string{"--insecure", "--insecure-no-verify"}
+		}},
+		{name: "no-verify tolerates hostname failure beside custom root", identityName: "untrusted.test", args: func(identity encryptedDNSTestIdentity) []string {
+			return []string{"--insecure-no-verify", "--ca", identity.caCertPath}
+		}},
+		{name: "insecure tolerates hostname failure beside all roots", identityName: "untrusted.test", args: func(identity encryptedDNSTestIdentity) []string {
+			return []string{"--insecure", "--ca", identity.caCertPath, "--system-ca"}
 		}},
 	}
 	for _, test := range tests {

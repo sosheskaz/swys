@@ -18,7 +18,7 @@ func AddArtifactEncodingFlags(cmd *cobra.Command, applicable func(*cobra.Command
 		cmd.Flags().String(name, encoding.Raw, "outer encoding of --"+source+" ("+strings.Join(encoding.Names(), ", ")+")")
 		if err := cmd.RegisterFlagCompletionFunc(name, func(command *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
 			path, err := command.Flags().GetString(source)
-			if err != nil || path == "" || !applicable(command, args) || !artifactSourceApplicable(command, source) {
+			if err != nil || path == "" || !applicable(command, args) {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
 			var values []string
@@ -132,11 +132,7 @@ func SetArtifactEncodingVisibility(actual, probe *cobra.Command, applicable bool
 	for _, source := range []string{CAFlagName, CertFlagName, KeyFlagName} {
 		path, err := probe.Flags().GetString(source)
 		if flag := actual.Flags().Lookup(source + "-encoding"); flag != nil {
-			flag.Hidden = err != nil || path == "" || !applicable || !artifactSourceApplicable(probe, source)
+			flag.Hidden = err != nil || path == "" || !applicable
 		}
 	}
-}
-
-func artifactSourceApplicable(cmd *cobra.Command, source string) bool {
-	return source != CAFlagName || SkipVerifyFlag(cmd.Flags()) == ""
 }

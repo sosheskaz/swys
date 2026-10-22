@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
@@ -46,14 +47,19 @@ func writeNetworkEvent(output io.Writer, options textdisplay.Options, event stri
 
 func writeTLSConnectionDetails(output io.Writer, options textdisplay.Options, connection *tls.Conn, config *tls.Config) error {
 	printer := textdisplay.New(output, options)
-	if config.InsecureSkipVerify {
-		printer.Line("warning: TLS certificate verification is disabled", textdisplay.Warning)
-	}
 	printer.Heading(fmt.Sprintf("connected tls %s -> %s", connection.LocalAddr(), connection.RemoteAddr()))
 	state := connection.ConnectionState()
 	alpn := state.NegotiatedProtocol
 	if alpn == "" {
 		alpn = networkNoValue
+	}
+	// An enforced handshake has already verified the peer; a tolerated one is
+	// rechecked so diagnostics report the outcome the insecure flag permitted.
+	verified := "yes"
+	if config.InsecureSkipVerify {
+		if _, err := tlsconfig.VerifyPeer(&state, config.RootCAs, config.ServerName); err != nil {
+			verified = "no (" + escapeNetworkDiagnosticValue(err.Error()) + ")"
+		}
 	}
 	printer.Section("TLS")
 	printer.Fields([]textdisplay.Field{
@@ -61,6 +67,7 @@ func writeTLSConnectionDetails(output io.Writer, options textdisplay.Options, co
 		{Label: "cipher", Value: tls.CipherSuiteName(state.CipherSuite)},
 		{Label: netALPNFlagName, Value: escapeNetworkDiagnosticValue(alpn)},
 		{Label: "server name", Value: escapeNetworkDiagnosticValue(config.ServerName)},
+		{Label: "verified", Value: verified},
 	})
 	return printer.Err()
 }

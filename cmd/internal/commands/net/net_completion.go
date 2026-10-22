@@ -36,58 +36,6 @@ func registerNoFileFlagCompletion(command *cobra.Command, name string) {
 	}
 }
 
-func configureTLSConnectFlagCompletion(command *cobra.Command) {
-	if err := command.RegisterFlagCompletionFunc(tlsconfig.CAFlagName, func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		if !netFlagValueCompletionApplicable(cmd, tlsconfig.CAFlagName) {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		if !netTLSConnectCompletionAllowed(cmd, tlsconfig.CAFlagName) {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return nil, cobra.ShellCompDirectiveDefault
-	}); err != nil {
-		panic(err)
-	}
-	for _, name := range []string{tlsconfig.SystemCAFlagName, netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName} {
-		if err := command.RegisterFlagCompletionFunc(name, completeTLSBoolean(name)); err != nil {
-			panic(err)
-		}
-	}
-}
-
-func updateTLSConnectCompletionFlags(command, values *cobra.Command) {
-	for _, name := range []string{netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName} {
-		command.Flags().Lookup(name).Hidden = !netTLSConnectCompletionAllowed(values, name)
-	}
-}
-
-func netTLSConnectCompletionAllowed(command *cobra.Command, name string) bool {
-	insecure := command.Flags().Lookup(netInsecureFlagName).Value.String() != completionBoolFalse ||
-		command.Flags().Lookup(tlsconfig.InsecureNoVerifyFlagName).Value.String() != completionBoolFalse
-	ca := command.Flags().Lookup(tlsconfig.CAFlagName).Value.String()
-	systemCA := command.Flags().Lookup(tlsconfig.SystemCAFlagName).Value.String() != completionBoolFalse
-	if name == netInsecureFlagName || name == tlsconfig.InsecureNoVerifyFlagName {
-		return ca == "" && !systemCA
-	}
-	return !insecure
-}
-
-func completeTLSBoolean(name string) cobra.CompletionFunc {
-	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		if !netFlagValueCompletionApplicable(cmd, name) {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		conflict := !netTLSConnectCompletionAllowed(cmd, name)
-		var values []string
-		for _, value := range []string{completionBoolTrue, completionBoolFalse} {
-			if (!conflict || value == completionBoolFalse) && strings.HasPrefix(value, prefix) {
-				values = append(values, value)
-			}
-		}
-		return values, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
 func configureNetProtocolCompletion(command *cobra.Command, listen bool) {
 	// The initial visibility is the default TCP selection. Help restores the full
 	// documented flag union before rendering.
@@ -113,9 +61,6 @@ func prepareNetCompletion(completionCmd *cobra.Command, args []string) {
 	}
 	setNetProtocolFlagVisibility(actual, protocol, probe.Name() != netConnectCommandName)
 	actual.Flag(netProtocolUDP).Hidden = !netUDPCompletionAllowed(probe)
-	if probe.Name() == netConnectCommandName && protocol == netProtocolTLS {
-		updateTLSConnectCompletionFlags(actual, probe)
-	}
 	actual.Flag("input").Hidden = netReceiveOnlySelected(probe)
 	if netReceiveOnlySelected(probe) {
 		actual.Flag(netDuplexFlagName).Hidden = true
@@ -165,7 +110,9 @@ func netUDPCompletionAllowed(command *cobra.Command) bool {
 	}
 	allowed := true
 	command.Flags().VisitAll(func(flag *pflag.Flag) {
-		if flag.Changed && !netProtocolFlagApplicable(command, netProtocolUDP, flag.Name) {
+		// Insecure permissions are accepted no-ops over UDP, so they do not rule it out.
+		insecure := flag.Name == netInsecureFlagName || flag.Name == tlsconfig.InsecureNoVerifyFlagName
+		if flag.Changed && !insecure && !netProtocolFlagApplicable(command, netProtocolUDP, flag.Name) {
 			allowed = false
 		}
 	})

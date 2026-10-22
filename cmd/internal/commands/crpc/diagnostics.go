@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
@@ -26,7 +28,7 @@ func safeError(err error) error {
 	return &diagnosticError{cause: err}
 }
 
-func writeDiagnostics(ctx context.Context, output io.Writer, call *connect.CallInfo, callErr error) error {
+func writeDiagnostics(ctx context.Context, output io.Writer, call *connect.CallInfo, callErr error, config *tls.Config) error {
 	var buffer strings.Builder
 	status := "OK"
 	if callErr != nil {
@@ -36,9 +38,10 @@ func writeDiagnostics(ctx context.Context, output io.Writer, call *connect.CallI
 	if info, exists := connecthttp.ClientInfoForContext(ctx); exists {
 		fmt.Fprintf(&buffer, "Connect transport: %s", textdisplay.Escape(info.ResponseProto()))
 		if state := info.TLS(); state != nil {
-			fmt.Fprintf(&buffer, "; %s; cipher=%s; server name=%s; verified=%t",
+			requestURL := info.RequestURL()
+			fmt.Fprintf(&buffer, "; %s; cipher=%s; server name=%s; verified=%s",
 				tls.VersionName(state.Version), tls.CipherSuiteName(state.CipherSuite),
-				textdisplay.Escape(state.ServerName), len(state.VerifiedChains) > 0)
+				textdisplay.Escape(state.ServerName), verifiedDiagnostic(state, config, requestURL.Hostname()))
 		}
 		buffer.WriteByte('\n')
 	}
@@ -63,4 +66,13 @@ func writeDiagnostics(ctx context.Context, output io.Writer, call *connect.CallI
 		return fmt.Errorf("write Connect diagnostics: %w", err)
 	}
 	return nil
+}
+
+// verifiedDiagnostic explains a verification failure that an --insecure* flag tolerated.
+func verifiedDiagnostic(state *tls.ConnectionState, config *tls.Config, host string) string {
+	chains, err := tlsconfig.VerifiedChains(state, config, host)
+	if err != nil {
+		return "false (" + textdisplay.Escape(err.Error()) + ")"
+	}
+	return strconv.FormatBool(len(chains) > 0)
 }

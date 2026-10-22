@@ -48,22 +48,10 @@ func registerHTTPCompletions(cmd *cobra.Command, options *httpOptions) {
 		mustRegisterHTTPCompletion(cmd, name, noFileHTTPCompletion)
 	}
 	for _, name := range []string{httpInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName} {
-		mustRegisterHTTPCompletion(cmd, name, func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
-			var values []string
-			for _, value := range []string{"true", "false"} {
-				if httpTrustCompletionCompatible(cmd, name, value == "true") {
-					values = append(values, value)
-				}
-			}
-			return prefixMatches(values, prefix), cobra.ShellCompDirectiveNoFileComp
+		mustRegisterHTTPCompletion(cmd, name, func(_ *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+			return prefixMatches([]string{"true", "false"}, prefix), cobra.ShellCompDirectiveNoFileComp
 		})
 	}
-	mustRegisterHTTPCompletion(cmd, tlsconfig.CAFlagName, func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		if !httpTrustCompletionCompatible(cmd, tlsconfig.CAFlagName, true) {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return nil, cobra.ShellCompDirectiveDefault
-	})
 	mustRegisterHTTPCompletion(cmd, "stdin", func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		values := []string{httpStdinAuto, httpStdinNever, httpStdinAlways}
 		if httpCompletionUsesStdin(cmd, options) {
@@ -338,28 +326,7 @@ func prepareHTTPCompletion(completionCmd *cobra.Command, args []string) {
 	}
 	prepareHTTPBodyCompletion(probeCommand, hide)
 	tlsconfig.SetArtifactEncodingVisibility(actualCommand, probeCommand, true)
-	prepareHTTPTrustCompletion(probeCommand, hide)
 	hide(auth.HiddenForCompletion(probeCommand.Flags(), httpCompletionStringArray(probeCommand, "header"))...)
-}
-
-func httpTrustCompletionCompatible(cmd *cobra.Command, name string, enabled bool) bool {
-	if !enabled {
-		return true
-	}
-	if name == httpInsecureFlagName || name == tlsconfig.InsecureNoVerifyFlagName {
-		systemCA, err := cmd.Flags().GetBool(tlsconfig.SystemCAFlagName)
-		return err == nil && !systemCA && httpCompletionString(cmd, tlsconfig.CAFlagName) == ""
-	}
-	return tlsconfig.SkipVerifyFlag(cmd.Flags()) == ""
-}
-
-func prepareHTTPTrustCompletion(cmd *cobra.Command, hide func(...string)) {
-	if !httpTrustCompletionCompatible(cmd, tlsconfig.CAFlagName, true) {
-		hide(tlsconfig.CAFlagName, tlsconfig.SystemCAFlagName)
-	}
-	if !httpTrustCompletionCompatible(cmd, httpInsecureFlagName, true) {
-		hide(httpInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName)
-	}
 }
 
 func prepareHTTPBodyCompletion(cmd *cobra.Command, hide func(...string)) {

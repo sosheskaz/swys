@@ -110,7 +110,7 @@ func loadSchema(
 	ctx, call := callContext(ctx, headers)
 	schema, err := connectrpc.Reflect(ctx, target.base, connection, symbol)
 	if settings.verbose {
-		err = errors.Join(err, writeDiagnostics(ctx, cmd.ErrOrStderr(), call, err))
+		err = errors.Join(err, writeDiagnostics(ctx, cmd.ErrOrStderr(), call, err, settings.tlsConfig))
 	}
 	if errors.Is(err, connectrpc.ErrReflectionProtocol) {
 		return nil, fmt.Errorf("discover Connect schema: %w (use swys grpc for gRPC-only servers)", safeError(err))

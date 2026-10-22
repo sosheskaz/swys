@@ -368,12 +368,7 @@ func TestNetTLSArtifactEncodingCompletion(t *testing.T) {
 		for _, source := range []string{"ca", "cert", "key"} {
 			names := completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", insecure, "--"+source+"-")
 			values := completionLines(completeCommand(t, "net", "connect", "--tls", "--"+source, "missing", insecure, "--"+source+"-encoding", "ba"))
-			if source == "ca" {
-				assert.Equal(t, []string{":4"}, completionLines(names), "%s suppresses the CA companion name", insecure)
-				assert.Equal(t, []string{":4"}, values, "%s suppresses CA codecs without filename fallback", insecure)
-				continue
-			}
-			assert.Contains(t, names, "--"+source+"-encoding\t", "%s retains client identity companion names", insecure)
+			assert.Contains(t, names, "--"+source+"-encoding\t", "%s retains artifact companion names", insecure)
 			assert.Contains(t, strings.Join(values, "\n"), "base64")
 			assert.Contains(t, strings.Join(values, "\n"), "base32")
 			assert.Equal(t, ":4", values[len(values)-1])

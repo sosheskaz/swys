@@ -39,7 +39,7 @@ swys dns @tls://resolver.example example.com AAAA
 swys dns @https://resolver.example/dns-query example.com A --select values
 ```
 
-TLS certificates and hostnames are verified by default. **--ca roots.pem** selects a custom PEM trust bundle; **--system-ca** adds system roots to that bundle. **--cert client.pem --key client-key.pem** supplies a client identity when the resolver requires one. These files must already exist. Shared TLS options apply to all endpoints and require every endpoint to be encrypted; explicitly selecting the system resolver excludes direct DNS options. DNS-over-HTTPS rejects redirects.
+TLS certificates and hostnames are verified by default. **--ca roots.pem** selects a custom PEM trust bundle; **--system-ca** adds system roots to that bundle. **--cert client.pem --key client-key.pem** supplies a client identity when the resolver requires one. These files must already exist. **--insecure-no-verify** allows a resolver certificate or hostname that fails verification, even alongside **--ca**; **--insecure** enables every insecure allowance. Shared TLS options apply to all endpoints and require every endpoint to be encrypted; the insecure allowances are the exception and have no effect on plaintext endpoints or the system resolver. Explicitly selecting the system resolver excludes other direct DNS options. DNS-over-HTTPS rejects redirects.
 
 ## Choose output
 

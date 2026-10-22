@@ -244,12 +244,15 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 		{"--connect-timeout", "1s", ""},
 		{"--timeout", "2s", ""},
 		{"--max-redirects", "3", ""},
-		{"--insecure", "--ca", ""},
 	} {
 		_, directive := completeHTTPCommand(t, args...)
 		if directive&cobra.ShellCompDirectiveNoFileComp == 0 {
 			t.Fatalf("completion for %q directive = %v, want no-file", args, directive)
 		}
+	}
+
+	if _, directive := completeHTTPCommand(t, "--insecure", "--ca", ""); directive&cobra.ShellCompDirectiveNoFileComp != 0 {
+		t.Fatalf("--ca after --insecure directive = %v, want file completion", directive)
 	}
 
 	values, _ := completeHTTPCommand(t, "--json", `{}`, "-")
@@ -310,38 +313,38 @@ func TestHTTPCompletionSuppressesFilesAndInvalidOptions(t *testing.T) {
 		want, unwanted []string
 	}{
 		{
-			name: "insecure hides trust flags", args: []string{"--insecure", "--"},
-			want: []string{"--servername"}, unwanted: []string{"--ca", "--system-ca"},
+			name: "insecure keeps trust flags", args: []string{"--insecure", "--"},
+			want: []string{"--servername", "--ca", "--system-ca"},
 		},
 		{
 			name: "last false keeps trust flags", args: []string{"--insecure", "--insecure=false", "--"},
 			want: []string{"--ca", "--system-ca"},
 		},
 		{
-			name: "CA excludes prospective insecure true",
+			name: "CA keeps prospective insecure true",
 			args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--insecure", "--insecure="},
-			want: []string{"false"}, unwanted: []string{"true"},
+			want: []string{"true", "false"},
 		},
 		{
-			name: "insecure excludes system CA true", args: []string{"--insecure", "--system-ca="},
-			want: []string{"false"}, unwanted: []string{"true"},
+			name: "insecure keeps system CA true", args: []string{"--insecure", "--system-ca="},
+			want: []string{"true", "false"},
 		},
 		{
 			name: "system CA before partner remains selectable", args: []string{"--insecure=false", "--system-ca="},
 			want: []string{"true", "false"},
 		},
 		{
-			name: "no-verify hides trust flags", args: []string{"--insecure-no-verify", "--"},
-			want: []string{"--servername"}, unwanted: []string{"--ca", "--system-ca"},
+			name: "no-verify keeps trust flags", args: []string{"--insecure-no-verify", "--"},
+			want: []string{"--servername", "--ca", "--system-ca"},
 		},
 		{
-			name: "CA hides both verification carve-outs", args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--"},
-			want: []string{"--servername"}, unwanted: []string{"--insecure", "--insecure-no-verify"},
+			name: "CA keeps both verification carve-outs", args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--"},
+			want: []string{"--servername", "--insecure", "--insecure-no-verify"},
 		},
 		{
-			name: "CA excludes prospective no-verify true",
+			name: "CA keeps prospective no-verify true",
 			args: []string{"--ca", filepath.Join(t.TempDir(), "missing-ca"), "--insecure-no-verify="},
-			want: []string{"false"}, unwanted: []string{"true"},
+			want: []string{"true", "false"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

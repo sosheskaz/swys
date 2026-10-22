@@ -100,11 +100,12 @@ func httpRequestWithTimeout(request *http.Request, timeout time.Duration) (*http
 	return request.WithContext(requestContext), cancel
 }
 
-func httpTracingTransport(transport http.RoundTripper, enabled bool) (http.RoundTripper, *httpTrace) {
+func httpTracingTransport(transport *http.Transport, enabled bool) (http.RoundTripper, *httpTrace) {
 	if !enabled {
 		return transport, nil
 	}
 	trace := newHTTPTrace()
+	trace.tlsConfig = transport.TLSClientConfig
 	return httpRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
 		return trace.roundTrip(request, transport)
 	}), trace

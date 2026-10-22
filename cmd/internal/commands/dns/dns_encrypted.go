@@ -47,12 +47,8 @@ func validateEncryptedDNSOptions(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("read system-ca flag: %w", err)
 	}
-	skipVerify := tlsconfig.SkipVerifyFlag(cmd.Flags())
 	if systemCA && caPath == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidDNSOptions)
-	}
-	if skipVerify != "" && (caPath != "" || systemCA) {
-		return fmt.Errorf("%w: --%s cannot be combined with --ca or --system-ca", ErrInvalidDNSOptions, skipVerify)
 	}
 	return certinput.ValidatePaths(cmd, tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName)
 }

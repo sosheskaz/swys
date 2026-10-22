@@ -93,13 +93,10 @@ func Validate(flags *pflag.FlagSet, cleartext, payloadStdin bool, invalid error)
 		return fmt.Errorf("%w: choose one of --%s", invalid, strings.Join(sourceFlagNames, ", --"))
 	}
 	source, ok := Selected(flags)
-	allowCleartext := boolFlag(flags, CleartextFlagName)
-	if allowCleartext && !ok {
-		return fmt.Errorf("%w: --%s requires an --auth-* credential", invalid, CleartextFlagName)
-	}
 	if !ok {
 		return nil
 	}
+	allowCleartext := boolFlag(flags, CleartextFlagName)
 	if cleartext && !allowCleartext && !boolFlag(flags, tlsconfig.InsecureFlagName) {
 		return fmt.Errorf("%w: --%s without TLS requires --%s", invalid, source, CleartextFlagName)
 	}

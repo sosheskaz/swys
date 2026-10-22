@@ -29,7 +29,7 @@ swys http https://api.example.test/items -X PUT -d 'literal body'
 
 The --connect-timeout (-c) option bounds connection setup and TLS handshaking, with a ten-second default. The --timeout (-t) option bounds the whole request, including upload and response transfer; zero, the default, disables it.
 
-Tracing writes connection and timing diagnostics to stderr, leaving ordinary body output on stdout. TLS verification is enabled by default; use custom trust settings for private services instead of disabling verification when possible. --insecure-no-verify disables only verification, while --insecure enables every insecure carve-out, including cleartext credentials.
+Tracing writes connection and timing diagnostics to stderr, leaving ordinary body output on stdout. TLS verification is enabled by default; use custom trust settings for private services instead of disabling verification when possible. --insecure-no-verify lets a request proceed when the certificate or hostname fails verification, and --trace still reports the result, including against --ca. --insecure enables every insecure carve-out, including cleartext credentials.
 
 ## Authenticate
 

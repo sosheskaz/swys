@@ -138,7 +138,8 @@ and shell history. These flags own the Authorization header, apply to
 reflection and completion, and conflict with an Authorization --header.
 Credentials over http:// also need --insecure-cleartext-auth or --insecure.
 
---insecure-no-verify disables TLS verification; --insecure enables every
+--insecure-no-verify lets a call proceed when the certificate or hostname
+fails verification; -v still reports the result. --insecure enables every
 insecure carve-out. Custom CAs replace system roots unless --system-ca is supplied. TLS artifacts
 have independent --ca-encoding, --cert-encoding, and --key-encoding flags;
 only one payload or artifact can own stdin. --resolve changes the connection

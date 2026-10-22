@@ -40,7 +40,6 @@ func TestHTTPAuthValidationPrecedesIO(t *testing.T) {
 		},
 		{name: "URL credentials", url: userinfoURL, flags: []string{"--auth-bearer", "a", "--insecure-cleartext-auth"}, want: "URL credentials"},
 		{name: "cleartext without opt-in", flags: []string{"--auth-bearer", secret}, want: "without TLS requires --insecure-cleartext-auth"},
-		{name: "cleartext opt-in without credential", flags: []string{"--insecure-cleartext-auth"}, want: "requires an --auth-* credential"},
 		{name: "payload owns stdin", flags: []string{"--auth-bearer-file", "-", "--insecure", "--input", "-"}, want: "--auth-bearer-file and payload"},
 		{
 			name: "TLS owns stdin", want: "--auth-bearer-file and --ca",
@@ -105,12 +104,26 @@ func TestHTTPAuthUmbrellaPermitsCleartext(t *testing.T) {
 	assert.Equal(t, []string{"Basic dXNlcjpwYXNz"}, <-received)
 }
 
-func TestHTTPAuthCleartextOptInIsInertOverTLS(t *testing.T) {
+func TestHTTPAuthCleartextOptInIsInert(t *testing.T) {
 	t.Parallel()
-	server, caPath, received := startHTTPAuthServer(t)
-	_, _, err := executeRootStreams(t, "http", server.URL, "--ca", caPath, "--auth-bearer", "t", "--insecure-cleartext-auth")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"Bearer t"}, <-received)
+	t.Run("over TLS", func(t *testing.T) {
+		t.Parallel()
+		server, caPath, received := startHTTPAuthServer(t)
+		_, _, err := executeRootStreams(t, "http", server.URL, "--ca", caPath, "--auth-bearer", "t", "--insecure-cleartext-auth")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Bearer t"}, <-received)
+	})
+	t.Run("without a credential", func(t *testing.T) {
+		t.Parallel()
+		received := make(chan []string, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+			received <- request.Header.Values("Authorization")
+		}))
+		t.Cleanup(server.Close)
+		_, _, err := executeRootStreams(t, "http", server.URL, "--insecure-cleartext-auth")
+		require.NoError(t, err)
+		assert.Empty(t, <-received)
+	})
 }
 
 func TestHTTPAuthRedirectsDropCredentialsAfterLeavingTLS(t *testing.T) {
@@ -189,21 +202,22 @@ func TestHTTPAuthStaysOutOfOutputAndDiagnostics(t *testing.T) {
 
 func TestHTTPInsecureNoVerify(t *testing.T) {
 	t.Parallel()
-	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writeHTTPTestString(t, writer, "unverified")
+	server, caPath := startTrustedHTTPServer(t, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writeHTTPTestString(t, writer, "reached")
 	}))
-	t.Cleanup(server.Close)
-	caPath := filepath.Join(t.TempDir(), "unused-ca.pem")
+	_, _, err := executeRootStreams(t, "http", server.URL)
+	require.Error(t, err, "an untrusted certificate fails without an insecure flag")
 	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
 		t.Run(flag, func(t *testing.T) {
 			t.Parallel()
-			stdout, _, err := executeRootStreams(t, "http", server.URL, flag)
+			stdout, stderr, err := executeRootStreams(t, "http", server.URL, flag, "--trace")
 			require.NoError(t, err)
-			assert.Equal(t, "unverified", stdout)
+			assert.Equal(t, "reached", stdout)
+			assert.Regexp(t, `verified\s+false \(verify TLS peer: `, stderr, "diagnostics explain the tolerated failure")
 
-			_, _, err = executeRootStreams(t, "http", server.URL, flag, "--ca", caPath)
-			require.ErrorIs(t, err, errInvalidHTTPFlags)
-			assert.Contains(t, err.Error(), flag, "the conflict names the flag the user passed")
+			_, stderr, err = executeRootStreams(t, "http", server.URL, flag, "--ca", caPath, "--trace")
+			require.NoError(t, err, "trust flags combine with %s", flag)
+			assert.Regexp(t, `verified\s+true`, stderr, "diagnostics verify against --ca")
 		})
 	}
 }

@@ -55,7 +55,7 @@ These flags own authorization metadata and conflict with an authorization --head
 
 ## Use TLS or an offline protoset
 
-TLS certificate and hostname verification are enabled by default. Use **--ca**, **--servername**, or **--cert** with **--key** for private services; those credential files must already exist. Use **--plaintext** only for an explicitly cleartext HTTP/2 endpoint; it conflicts with effective TLS options. **--insecure-no-verify** disables verification for controlled diagnostics. **--insecure** enables every insecure carve-out: it disables verification over TLS and, with a credential flag, permits **--plaintext**.
+TLS certificate and hostname verification are enabled by default. Use **--ca**, **--servername**, or **--cert** with **--key** for private services; those credential files must already exist. Use **--plaintext** only for an explicitly cleartext HTTP/2 endpoint; it conflicts with effective TLS options. **--insecure-no-verify** lets the call proceed when the certificate or hostname fails verification, and **--verbose** still reports the result, including against **--ca**. **--insecure** enables every insecure carve-out, including credentials over **--plaintext**. An insecure flag with no effect, such as **--insecure-no-verify** with **--plaintext**, is accepted.
 
 The protoset flag replaces reflection. Service listing and description then use the supplied FileDescriptorSet without connecting to the endpoint. Invoking a method still connects after SwYS resolves the schema and validates the request.
 
