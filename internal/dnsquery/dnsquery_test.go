@@ -589,7 +589,9 @@ func TestResolveDoTConnectionRefusedDoesNotRetry(t *testing.T) {
 	address := reservation.Addr().String()
 	require.NoError(t, reservation.Close())
 	endpoint := mustEndpoint(t, "tls://"+address)
-	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	// A retrying implementation exhausts any budget; a short one only fails
+	// loaded runners that are slow to observe the refusal.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	_, err = dnsquery.Resolve(ctx, dnsquery.Request{
