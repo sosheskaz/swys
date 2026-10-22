@@ -125,11 +125,7 @@ func TestAcceptTCPCancellationClosesListener(t *testing.T) {
 	if !strings.Contains(err.Error(), "accept TCP connection on "+`"`+address+`"`) {
 		t.Fatalf("error = %v, want named accept endpoint", err)
 	}
-	connection, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", address)
-	if err == nil {
-		closeTestTCPConnection(t, connection)
-		t.Fatal("listener remained reachable after cancellation")
-	}
+	requireListenerClosed(t, listener, "listener remained open after cancellation")
 }
 
 func TestAcceptTCPAlreadyCanceledClosesListener(t *testing.T) {
@@ -251,11 +247,7 @@ func TestAcceptTLSHandshakeDeadlineClosesConnection(t *testing.T) {
 		t.Fatalf("client read = (%d, %v), want closed connection", n, err)
 	}
 	closeTestTCPConnection(t, client)
-	second, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", address)
-	if err == nil {
-		closeTestTCPConnection(t, second)
-		t.Fatal("TLS listener remained reachable after failed handshake")
-	}
+	requireListenerClosed(t, listener, "TLS listener remained open after failed handshake")
 }
 
 func TestAcceptTLSHandshakeCancellationClosesConnection(t *testing.T) {
@@ -287,7 +279,6 @@ func TestAcceptTLSRejectsCanceledContextBeforeAccept(t *testing.T) {
 
 	listener, err := ListenTCP(t.Context(), "127.0.0.1:0")
 	require.NoError(t, err)
-	address := listener.Addr().String()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	connection, err := AcceptTLS(ctx, listener, &tls.Config{})
@@ -295,11 +286,17 @@ func TestAcceptTLSRejectsCanceledContextBeforeAccept(t *testing.T) {
 	if connection != nil {
 		t.Fatal("AcceptTLS returned a connection for a canceled context")
 	}
-	client, dialErr := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(t.Context(), "tcp", address)
-	if dialErr == nil {
-		closeTestTCPConnection(t, client)
-		t.Fatal("TLS listener remained reachable after canceled accept")
-	}
+	requireListenerClosed(t, listener, "TLS listener remained open after canceled accept")
+}
+
+// requireListenerClosed inspects the listener rather than dialing its old
+// address, which a parallel test may have rebound since it closed.
+func requireListenerClosed(t *testing.T, listener *net.TCPListener, message string) {
+	t.Helper()
+	// A past deadline makes an unexpectedly open listener fail instead of blocking.
+	_ = listener.SetDeadline(time.Now()) //nolint:errcheck // a closed listener rejects deadlines
+	_, err := listener.Accept()
+	require.ErrorIs(t, err, net.ErrClosed, message)
 }
 
 func TestCloseTCPConnectionReportsInvalidConnection(t *testing.T) {

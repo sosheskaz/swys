@@ -61,60 +61,39 @@ func TestDialTCPConnectsToLoopback(t *testing.T) {
 func TestDialTCPRetryRefusedRetriesUntilContextExpires(t *testing.T) {
 	t.Parallel()
 
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
+	dialer, address := refusingDialer(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
-	connection, err := DialTCPRetryRefused(ctx, address)
-	if connection != nil {
-		if closeErr := connection.Close(); closeErr != nil {
-			t.Errorf("close unexpected connection: %v", closeErr)
-		}
-		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
-	}
+	connection, err := dialer.DialTCPRetryRefused(ctx, address)
+	require.Nil(t, connection)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestDialTCPRetryRefusedConnectsWhenListenerStarts(t *testing.T) {
 	t.Parallel()
 
-	reservation, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	// The first attempt is refused as if the listener had not started yet. The
+	// listener holds its port throughout, so no parallel test can rebind it.
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	address := reservation.Addr().String()
-	require.NoError(t, reservation.Close())
-	type listenResult struct {
-		listener net.Listener
-		err      error
-	}
-	listenerStarted := make(chan listenResult, 1)
-	timer := time.AfterFunc(2*tcpRefusedRetryInterval, func() {
-		listener, listenErr := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
-		listenerStarted <- listenResult{listener: listener, err: listenErr}
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close listener: %v", closeErr)
+		}
 	})
-	t.Cleanup(func() { timer.Stop() })
+	address := listener.Addr().String()
+	attempts := &dialAttempts{failFirst: map[string]error{address: refusedDialError(t)}}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
-	connection, dialErr := DialTCPRetryRefused(ctx, address)
-	result := <-listenerStarted
-	if result.err != nil {
-		t.Fatalf("start delayed listener: %v", result.err)
-	}
-	t.Cleanup(func() {
-		if closeErr := result.listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
-			t.Errorf("close delayed listener: %v", closeErr)
-		}
-	})
-	if dialErr != nil {
-		t.Fatalf("dial before delayed listener startup: %v", dialErr)
-	}
+	connection, err := Dialer{control: attempts.control}.DialTCPRetryRefused(ctx, address)
+	require.NoError(t, err, "dial after the first refusal")
 	require.NoError(t, connection.Close())
-	serverConnection, err := result.listener.Accept()
+	serverConnection, err := listener.Accept()
 	require.NoError(t, err)
 	require.NoError(t, serverConnection.Close())
+	assert.Equal(t, []string{address, address}, attempts.addresses(), "one refused attempt, then the retry")
 }
 
 func TestDialTCPRetryRefusedDoesNotRetryOtherErrors(t *testing.T) {
@@ -193,20 +172,12 @@ func TestDialTCPResolverDeadlineProcess(_ *testing.T) { //nolint:paralleltest //
 func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 	t.Parallel()
 
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
+	dialer, address := refusingDialer(t)
 	ctx, cancel := context.WithTimeoutCause(t.Context(), 2*tcpRefusedRetryInterval, errDialRetryCanceled)
 	defer cancel()
 
-	connection, err := DialTCPRetryRefused(ctx, address)
-	if connection != nil {
-		if closeErr := connection.Close(); closeErr != nil {
-			t.Errorf("close unexpected connection: %v", closeErr)
-		}
-		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
-	}
+	connection, err := dialer.DialTCPRetryRefused(ctx, address)
+	require.Nil(t, connection)
 	require.ErrorIs(t, err, errDialRetryCanceled)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.True(t, isConnectionRefused(err), "retry error must preserve connection-refused identity: %v", err)
@@ -215,10 +186,7 @@ func TestDialTCPRetryRefusedPreservesCancellationCause(t *testing.T) {
 func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
 	t.Parallel()
 
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
+	dialer, address := refusingDialer(t)
 	ctx, cancel := context.WithTimeoutCause(
 		t.Context(),
 		2*tcpRefusedRetryInterval,
@@ -226,22 +194,15 @@ func TestDialTCPRetryRefusedPreservesWrappedCancellationCause(t *testing.T) {
 	)
 	defer cancel()
 
-	connection, err := DialTCPRetryRefused(ctx, address)
-	if connection != nil {
-		if closeErr := connection.Close(); closeErr != nil {
-			t.Errorf("close unexpected connection: %v", closeErr)
-		}
-		t.Fatal("DialTCPRetryRefused connected to a closed loopback address")
-	}
+	connection, err := dialer.DialTCPRetryRefused(ctx, address)
+	require.Nil(t, connection)
 	require.ErrorIs(t, err, errDialWrappedCancellation)
 }
 
 func TestDialTCPRetryRefusedPreservesRefusalWhenNextDialIsCanceled(t *testing.T) {
 	t.Parallel()
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
+	// Observe the real refusal outside the bubble: its socket I/O is not durably blocking.
+	dialer, address := refusingDialer(t)
 	synctest.Test(t, func(t *testing.T) {
 		parent, cancel := context.WithCancelCause(t.Context())
 		ctx := &gatedDialContext{Context: parent, entered: make(chan struct{}), release: make(chan struct{})}
@@ -249,7 +210,7 @@ func TestDialTCPRetryRefusedPreservesRefusalWhenNextDialIsCanceled(t *testing.T)
 		t.Cleanup(func() { cancel(nil); release() })
 		result := make(chan error, 1)
 		go func() {
-			connection, err := DialTCPRetryRefused(ctx, address)
+			connection, err := dialer.DialTCPRetryRefused(ctx, address)
 			if connection != nil {
 				err = errors.Join(err, connection.Close())
 			}

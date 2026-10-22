@@ -15,7 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var errDialAttemptBlocked = errors.New("dial attempt blocked")
+var (
+	errDialAttemptBlocked     = errors.New("dial attempt blocked")
+	errReboundLoopbackConnect = errors.New("connected to a rebound loopback port")
+)
 
 func TestDialerResolverOverridesTCPAddress(t *testing.T) {
 	t.Parallel()
@@ -138,17 +141,48 @@ func (attempts *dialAttempts) addresses() []string {
 }
 
 // refusedDialError returns the platform's genuine refusal from a closed port.
+// connectionRefusal observes one refusal from this platform's TCP stack, once per
+// test binary. A parallel test can rebind a just-closed loopback port before the
+// dial, so an attempt that connects or fails differently is discarded and retried.
+var connectionRefusal = sync.OnceValues(func() (error, error) {
+	var last error
+	for range 5 {
+		listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, fmt.Errorf("reserve loopback port: %w", err)
+		}
+		address := listener.Addr().String()
+		if err := listener.Close(); err != nil {
+			return nil, fmt.Errorf("release loopback port: %w", err)
+		}
+		connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(context.Background(), "tcp", address)
+		if connection != nil {
+			err = errors.Join(fmt.Errorf("%w %s", errReboundLoopbackConnect, address), connection.Close())
+		}
+		if isConnectionRefused(err) {
+			return fmt.Errorf("dial closed loopback port: %w", err), nil
+		}
+		last = err
+	}
+	return nil, fmt.Errorf("no closed loopback port refused a connection; last result: %w", last)
+})
+
+// refusedDialError returns a real connection refusal for injecting through Dialer.control.
 func refusedDialError(t *testing.T) error {
 	t.Helper()
-	listener := listenDialerTest(t)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
-	connection, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", address)
-	if connection != nil {
-		require.NoError(t, connection.Close())
-	}
-	require.True(t, isConnectionRefused(err), "closed loopback port error = %v", err)
-	return fmt.Errorf("dial closed loopback port: %w", err)
+	refusal, err := connectionRefusal()
+	require.NoError(t, err)
+	return refusal
+}
+
+// refusingDialer refuses every attempt before it connects, so retry tests need
+// no closed loopback port that a parallel test could rebind. The TEST-NET-1
+// address (RFC 5737) is never contacted.
+func refusingDialer(t *testing.T) (Dialer, string) {
+	t.Helper()
+	const address = "192.0.2.1:9"
+	attempts := &dialAttempts{fail: map[string]error{address: refusedDialError(t)}}
+	return Dialer{control: attempts.control}, address
 }
 
 func listenDialerTest(t *testing.T) net.Listener {
