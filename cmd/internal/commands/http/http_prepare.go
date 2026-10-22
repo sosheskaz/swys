@@ -220,8 +220,12 @@ func parseHTTPHeaders(values []string) (http.Header, error) {
 	headers := make(http.Header)
 	for _, value := range values {
 		name, content, exists := strings.Cut(value, ":")
-		if !exists || !httpToken(name) || !httpHeaderValue(content) {
-			return nil, fmt.Errorf("%w: invalid header %q", ErrInvalidFlags, value)
+		// Omit header text: a malformed header is often an Authorization credential.
+		if !exists || !httpToken(name) {
+			return nil, fmt.Errorf("%w: header must be Name: value", ErrInvalidFlags)
+		}
+		if !httpHeaderValue(content) {
+			return nil, fmt.Errorf("%w: invalid value for header %q", ErrInvalidFlags, name)
 		}
 		if strings.EqualFold(name, "Content-Length") || strings.EqualFold(name, "Transfer-Encoding") {
 			return nil, fmt.Errorf("%w: %s is determined by the request body", ErrInvalidFlags, name)
