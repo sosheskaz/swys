@@ -18,7 +18,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/internal/connectrpc"
 	"github.com/sosheskaz/swys/internal/contextio"
-	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/netconn"
 	"github.com/sosheskaz/swys/internal/protoschema"
 )
 
@@ -42,7 +42,7 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 	if err != nil {
 		return nil, err
 	}
-	resolver, err := httptransport.ParseResolves(settings.resolves)
+	resolver, err := netconn.ParseResolves(settings.resolves)
 	if err != nil {
 		return nil, err
 	}

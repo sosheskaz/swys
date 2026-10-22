@@ -17,13 +17,13 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 
-	"github.com/sosheskaz/swys/internal/httptransport"
+	"github.com/sosheskaz/swys/internal/netconn"
 )
 
 // Options bounds individual messages and connection establishment independently.
 type Options struct {
 	TLS            *tls.Config
-	Resolves       httptransport.Resolver
+	Resolves       netconn.Resolver
 	ConnectTimeout time.Duration
 	Wait           time.Duration
 	MaxMessageSize int
