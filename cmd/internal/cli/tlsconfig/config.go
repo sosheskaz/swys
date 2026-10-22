@@ -32,9 +32,10 @@ const (
 )
 
 // InsecureNoVerifyUsage describes the verification carve-out identically in every family.
-const InsecureNoVerifyUsage = "disable TLS certificate and hostname verification"
+const InsecureNoVerifyUsage = "allow a server certificate or hostname that fails verification"
 
-// SkipVerifyFlag names the flag that disables TLS verification, or returns "" when verification applies.
+// SkipVerifyFlag names the flag that tolerates failed TLS verification, or returns "" when verification is enforced.
+// Diagnostics still report the outcome through VerifyPeer.
 func SkipVerifyFlag(flags *pflag.FlagSet) string {
 	for _, name := range []string{InsecureNoVerifyFlagName, InsecureFlagName} {
 		if flag := flags.Lookup(name); flag != nil && flag.Value.String() == "true" {

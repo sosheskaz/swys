@@ -165,7 +165,9 @@ func netUDPCompletionAllowed(command *cobra.Command) bool {
 	}
 	allowed := true
 	command.Flags().VisitAll(func(flag *pflag.Flag) {
-		if flag.Changed && !netProtocolFlagApplicable(command, netProtocolUDP, flag.Name) {
+		// Insecure permissions are accepted no-ops over UDP, so they do not rule it out.
+		insecure := flag.Name == netInsecureFlagName || flag.Name == tlsconfig.InsecureNoVerifyFlagName
+		if flag.Changed && !insecure && !netProtocolFlagApplicable(command, netProtocolUDP, flag.Name) {
 			allowed = false
 		}
 	})

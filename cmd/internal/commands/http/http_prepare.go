@@ -169,9 +169,6 @@ func validateHTTPTLSOptions(cmd *cobra.Command, options *httpOptions) error {
 	if options.systemCA && options.ca == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidFlags)
 	}
-	if skip := tlsconfig.SkipVerifyFlag(cmd.Flags()); skip != "" && (options.ca != "" || options.systemCA) {
-		return fmt.Errorf("%w: --%s cannot be combined with trust flags", ErrInvalidFlags, skip)
-	}
 	return certinput.ValidatePaths(cmd, append([]string{tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName}, auth.FileFlagNames...)...)
 }
 

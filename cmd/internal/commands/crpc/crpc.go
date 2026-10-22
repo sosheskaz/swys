@@ -62,6 +62,8 @@ const (
 )
 
 type options struct {
+	// tlsConfig is the dialed configuration, kept so diagnostics can report tolerated verification failures.
+	tlsConfig                                        *tls.Config
 	stream, protoset, list, describe, template       string
 	data, stdin, format                              string
 	ca, cert, key, serverName                        string
@@ -139,7 +141,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.StringVar(&settings.cert, flagCert, "", "client certificate chain path; - reads stdin")
 	flags.StringVarP(&settings.key, flagKey, "k", "", "client private key path; - reads stdin")
 	flags.StringVar(&settings.serverName, flagServerName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&settings.insecure, flagInsecure, false, "enable every --insecure-* behavior: unverified TLS and cleartext --auth-*")
+	flags.BoolVar(&settings.insecure, flagInsecure, false, "permit every --insecure-* behavior: unverified TLS certificates and cleartext --auth-*")
 	flags.BoolVar(&settings.insecureNoVerify, flagInsecureNoVerify, false, tlsconfig.InsecureNoVerifyUsage)
 	auth.AddFlags(command, flags)
 	flags.BoolVarP(&settings.verbose, "verbose", "v", false, "write status, response headers, and TLS details to stderr")
@@ -231,10 +233,9 @@ func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidFlags)
 	}
 	if !secure {
-		_, credential := auth.Selected(cmd.Flags())
-		for _, name := range []string{flagCA, flagSystemCA, flagCert, flagKey, flagServerName, flagInsecureNoVerify, flagInsecure} {
-			// The --insecure umbrella also permits cleartext credentials.
-			if cmd.Flags().Changed(name) && (name != flagInsecure || !credential) {
+		// --insecure* flags only permit failures, so they are harmless without HTTPS.
+		for _, name := range []string{flagCA, flagSystemCA, flagCert, flagKey, flagServerName} {
+			if cmd.Flags().Changed(name) {
 				return fmt.Errorf("%w: --%s requires HTTPS", ErrInvalidFlags, name)
 			}
 		}

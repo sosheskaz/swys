@@ -230,10 +230,6 @@ func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
 			name:  "system roots without custom CA",
 			flags: []string{"--system-ca"},
 		},
-		{
-			name:  "insecure with custom CA",
-			flags: []string{"--insecure", "--ca", caPath},
-		},
 	}
 
 	for _, test := range tests {
@@ -396,6 +392,7 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 	}{
 		{name: "plaintext allows false replacement", args: []string{"--plaintext", "--insecure="}, want: []string{"false"}},
 		{name: "CA excludes insecure true", args: []string{"--ca", "unread-ca.pem", "--insecure="}, want: []string{"false"}},
+		{name: "CA excludes no-verify true", args: []string{"--ca", "unread-ca.pem", "--insecure-no-verify="}, want: []string{"false"}},
 		{
 			name: "empty CA allows plaintext values",
 			args: []string{"--ca", "", "--plaintext="}, want: []string{"true", "false"},
@@ -405,6 +402,7 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 			args: []string{"--insecure", "--insecure=false", "--system-ca="}, want: []string{"true", "false"},
 		},
 		{name: "insecure blocks typed CA", args: []string{"--insecure", "--ca", ""}},
+		{name: "no-verify blocks typed CA", args: []string{"--insecure-no-verify", "--ca", ""}},
 		{name: "plaintext blocks typed key", args: []string{"--plaintext", "--key", ""}},
 		{name: "empty list blocks typed input", args: []string{"--list", "", "--input", ""}},
 		{name: "empty data blocks typed input", args: []string{"--data", "", "--input", ""}},

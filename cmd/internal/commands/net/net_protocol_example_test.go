@@ -87,17 +87,9 @@ func TestNetProtocolValidationPrecedesOutputIO(t *testing.T) {
 			name: "TCP rejects explicit false TLS flag",
 			args: []string{
 				"net", "connect", "--tls=false", "127.0.0.1:1",
-				"--insecure=false", "--input", missingInput,
+				"--system-ca=false", "--insecure", "--input", missingInput,
 			},
-			want: []string{"--insecure", "--tls"},
-		},
-		{
-			name: "TCP rejects no-verify TLS flag",
-			args: []string{
-				"net", "connect", "127.0.0.1:1",
-				"--insecure-no-verify", "--input", missingInput,
-			},
-			want: []string{"--insecure-no-verify", "--tls"},
+			want: []string{"--system-ca", "--tls"},
 		},
 		{
 			name: "UDP rejects explicit false TLS flag",

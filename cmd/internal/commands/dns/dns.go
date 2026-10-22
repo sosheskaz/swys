@@ -189,7 +189,7 @@ certificates by default.`,
 	flags.StringVar(&options.ca, tlsconfig.CAFlagName, "", "custom CA certificate bundle PEM path")
 	flags.BoolVar(&options.systemCA, "system-ca", false, "include system roots with --ca")
 	flags.StringVar(&options.serverName, tlsconfig.ServerNameFlagName, "", "override TLS SNI and verification name")
-	flags.BoolVar(&options.insecure, dnsInsecureFlagName, false, "disable TLS verification; enables every --insecure-* behavior")
+	flags.BoolVar(&options.insecure, dnsInsecureFlagName, false, "permit unverified TLS certificates; enables every --insecure-* behavior")
 	flags.BoolVar(&options.noVerify, tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage)
 	if err := command.RegisterFlagCompletionFunc("resolver", func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		values := []string{dnsResolverSystem, dnsResolverDirect}
@@ -583,7 +583,7 @@ func validateDirectDNSOptions(cmd *cobra.Command, query *dnsQuery, tlsSelected b
 func dnsTLSOptionsSelected(cmd *cobra.Command) bool {
 	for _, name := range []string{
 		tlsconfig.CAFlagName, "system-ca", tlsconfig.ServerNameFlagName,
-		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, dnsInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
+		tlsconfig.CertFlagName, tlsconfig.KeyFlagName,
 		tlsconfig.CAEncodingFlagName, tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName,
 	} {
 		if cmd.Flags().Changed(name) {

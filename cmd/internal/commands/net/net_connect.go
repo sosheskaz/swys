@@ -72,7 +72,7 @@ protocols explicitly; it does not transform the application payload.`,
 	command.Flags().Bool(tlsconfig.SystemCAFlagName, false, "include system roots with --ca (TLS only)")
 	command.Flags().String(tlsconfig.ServerNameFlagName, "", "TLS SNI and verification name (default endpoint host; TLS only)")
 	command.Flags().String(netALPNFlagName, "", "comma-separated TLS ALPN protocols (empty disables; TLS only)")
-	command.Flags().Bool(netInsecureFlagName, false, "disable TLS verification; enables every --insecure-* behavior (TLS only)")
+	command.Flags().Bool(netInsecureFlagName, false, "permit unverified TLS certificates; enables every --insecure-* behavior (TLS only)")
 	command.Flags().Bool(tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage+" (TLS only)")
 	command.Flags().StringArray(netResolveFlagName, nil, "override HOST:PORT with ADDRESS[,ADDRESS]; repeatable")
 	registerNoFileFlagCompletion(command, tlsconfig.ServerNameFlagName)
@@ -465,9 +465,6 @@ func validateTLSFlagsBeforeIO(cmd *cobra.Command) error {
 	systemCA, err := cmd.Flags().GetBool(tlsconfig.SystemCAFlagName)
 	if err != nil {
 		return fmt.Errorf("read system-ca flag: %w", err)
-	}
-	if skipVerify := tlsconfig.SkipVerifyFlag(cmd.Flags()); skipVerify != "" && (caPath != "" || systemCA) {
-		return fmt.Errorf("%w: --%s cannot be combined with --ca or --system-ca", ErrInvalidFlags, skipVerify)
 	}
 	if systemCA && caPath == "" {
 		return fmt.Errorf("%w: --system-ca requires --ca", ErrInvalidFlags)

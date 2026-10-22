@@ -34,9 +34,6 @@ func TestCRPCAuthValidationPrecedesNetwork(t *testing.T) {
 		{name: "two sources", args: []string{"--auth-bearer", "a", "--auth-basic", "u:p", "--insecure"}, want: "choose one of"},
 		{name: "Authorization header", args: []string{"--auth-bearer", "a", "--insecure", "-H", "authorization:"}, want: "Authorization --header"},
 		{name: "cleartext without opt-in", args: []string{"--auth-bearer", secret}, want: "without TLS requires"},
-		{name: "opt-in without credential", args: []string{"--insecure-cleartext-auth"}, want: "requires an --auth-* credential"},
-		{name: "no-verify over cleartext", args: []string{"--auth-bearer", "a", "--insecure-no-verify"}, want: "--insecure-no-verify requires HTTPS"},
-		{name: "umbrella over cleartext without credential", args: []string{"--insecure"}, want: "--insecure requires HTTPS"},
 		{name: "payload owns stdin", args: []string{"--auth-basic-file", "-", "--insecure", "--stdin", "always"}, stdin: true, want: "--auth-basic-file and payload"},
 		{name: "malformed credential", args: []string{"--auth-basic", secret, "--insecure"}, want: "requires USER:PASSWORD"},
 	} {
@@ -88,6 +85,21 @@ func TestCRPCAuthUmbrellaPermitsCleartextCredential(t *testing.T) {
 	assert.Equal(t, [][]string{{"Basic dXNlcjpwYXNz"}}, call)
 }
 
+func TestCRPCInsecureFlagsAreInertOverCleartext(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--insecure-cleartext-auth", "--insecure-no-verify", "--insecure"} {
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			recorder := &authorizationRecorder{}
+			server, _ := schemaServer(t, schemaSet(false), "", recorder.intercept)
+			_, _, err := run(t, nil, "crpc", server.URL+echoMethod, "--reflect", flag, "-d", `{}`)
+			require.NoError(t, err)
+			_, call := recorder.split()
+			assert.Equal(t, [][]string{nil}, call, "no credential is sent")
+		})
+	}
+}
+
 func TestCRPCAuthCleartextOptInIsInertOverTLS(t *testing.T) {
 	t.Parallel()
 	recorder := &authorizationRecorder{}
@@ -114,13 +126,21 @@ func TestCRPCAuthStaysOutOfVerboseDiagnostics(t *testing.T) {
 
 func TestCRPCInsecureNoVerify(t *testing.T) {
 	t.Parallel()
-	server := echoServer(t, true, false)
+	server, caPath := startTLSSchemaServer(t, &authorizationRecorder{})
+	_, _, err := run(t, nil, "crpc", server.URL+echoMethod, "--reflect", "-d", `{}`)
+	require.Error(t, err, "an untrusted certificate fails without an insecure flag")
 	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
 		t.Run(flag, func(t *testing.T) {
 			t.Parallel()
-			output, _, err := run(t, nil, "crpc", server.URL+echoMethod, flag, "-d", `{"text":"hi"}`)
+			output, diagnostics, err := run(t, nil, "crpc", server.URL+echoMethod, "--reflect", flag, "-d", `{"text":"hi"}`, "-v")
 			require.NoError(t, err)
 			assert.JSONEq(t, `{"text":"hi"}`, output)
+			assert.Contains(t, diagnostics, "verified=false (verify TLS peer: ", "diagnostics explain the tolerated failure")
+
+			_, diagnostics, err = run(t, nil, "crpc", server.URL+echoMethod, "--reflect", flag, "--ca", caPath, "-d", `{}`, "-v")
+			require.NoError(t, err, "trust flags combine with %s", flag)
+			assert.Contains(t, diagnostics, "verified=true")
+			assert.NotContains(t, diagnostics, "verified=false")
 		})
 	}
 }
@@ -178,6 +198,14 @@ func TestCRPCCompletionCredentialVisibility(t *testing.T) {
 		{
 			name: "Authorization header hides credentials", args: []string{"https://example.test", "-H", "Authorization: x", "--"},
 			unwanted: []string{"--auth-bearer", "--auth-basic-env"},
+		},
+		{
+			name: "no-verify hides trust roots", args: []string{"https://example.test", "--insecure-no-verify", "--"},
+			want: []string{"--cert", "--servername"}, unwanted: []string{"--ca", "--system-ca"},
+		},
+		{
+			name: "CA hides verification carve-outs", args: []string{"https://example.test", "--ca", "unread-ca.pem", "--"},
+			want: []string{"--system-ca", "--cert"}, unwanted: []string{"--insecure", "--insecure-no-verify"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -59,11 +59,11 @@ func validateNetProtocolFlagsBeforeIO(cmd *cobra.Command) error {
 	if err := tlsconfig.ValidateArtifactSources(cmd, protocol == netProtocolTLS, netPayloadUsesStdin(cmd), ErrInvalidFlags); err != nil {
 		return err
 	}
+	// The insecure flags are permissions, so they are harmless no-ops without TLS.
 	for _, name := range []string{
 		tlsconfig.CertFlagName, tlsconfig.KeyFlagName, tlsconfig.CAFlagName,
 		tlsconfig.CertEncodingFlagName, tlsconfig.KeyEncodingFlagName, tlsconfig.CAEncodingFlagName,
 		tlsconfig.SystemCAFlagName, netALPNFlagName, tlsconfig.ServerNameFlagName,
-		netInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName,
 		netCloseWriteFlagName, netDuplexFlagName, netRecvOnlyFlagName, netWaitFlagName,
 	} {
 		if !cmd.Flags().Changed(name) || netProtocolFlagApplicable(cmd, protocol, name) {

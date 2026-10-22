@@ -57,6 +57,7 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 	if err != nil {
 		return nil, err
 	}
+	settings.tlsConfig = tlsOptions
 	connection := connectrpc.Options{
 		TLS: tlsOptions, Resolves: resolver, ConnectTimeout: settings.connectTimeout,
 		Wait: settings.wait, MaxMessageSize: settings.maxMessageSize,
@@ -121,7 +122,7 @@ func prepareInvocation(
 				return nil
 			})
 			if settings.verbose {
-				return errors.Join(safeError(callErr), writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr))
+				return errors.Join(safeError(callErr), writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr, settings.tlsConfig))
 			}
 			return safeError(callErr)
 		},
@@ -162,7 +163,7 @@ func prepareUnary(
 	ctx, call := callContext(ctx, headers)
 	response, callErr := client.Unary(ctx, value)
 	if settings.verbose {
-		if err := writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr); err != nil {
+		if err := writeDiagnostics(ctx, cmd.ErrOrStderr(), call, callErr, settings.tlsConfig); err != nil {
 			return nil, errors.Join(safeError(callErr), err)
 		}
 	}

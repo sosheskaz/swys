@@ -408,14 +408,25 @@ func hideInapplicableFlags(command, probe *cobra.Command) {
 	if probe.Flags().Changed(flagReflect) {
 		hide(flagProtoset)
 	}
+	headers, _ := probe.Flags().GetStringArray(flagHeader) //nolint:errcheck // a missing value hides nothing
+	hide(auth.HiddenForCompletion(probe.Flags(), headers)...)
+	hideInapplicableTLSFlags(probe, hide)
+}
+
+func hideInapplicableTLSFlags(probe *cobra.Command, hide func(...string)) {
 	if !tlsApplicable(probe, probe.Flags().Args()) {
 		hide(flagCA, flagSystemCA, flagCert, flagKey, flagServerName, flagInsecureNoVerify)
 		if _, credential := auth.Selected(probe.Flags()); !credential {
 			hide(flagInsecure)
 		}
 	}
-	headers, _ := probe.Flags().GetStringArray(flagHeader) //nolint:errcheck // a missing value hides nothing
-	hide(auth.HiddenForCompletion(probe.Flags(), headers)...)
+	// Both are accepted together, but trust roots and verification carve-outs are never suggested together.
+	if tlsconfig.SkipVerifyFlag(probe.Flags()) != "" {
+		hide(flagCA, flagSystemCA)
+	}
+	if probe.Flag(flagCA).Value.String() != "" || probe.Flag(flagSystemCA).Value.String() == "true" {
+		hide(flagInsecure, flagInsecureNoVerify)
+	}
 	if probe.Flag(flagCA).Value.String() == "" {
 		hide(flagSystemCA)
 	}

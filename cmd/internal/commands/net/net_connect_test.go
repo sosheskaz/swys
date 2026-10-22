@@ -168,7 +168,7 @@ func TestNetConnectTLSDefaultsToHalfCloseAndDrain(t *testing.T) {
 	}
 }
 
-func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
+func TestNetConnectTLSCustomALPNAndToleratedVerification(t *testing.T) {
 	t.Parallel()
 	const hostileALPN = "h2\n  server name: attacker.example"
 	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
@@ -191,12 +191,110 @@ func TestNetConnectTLSCustomALPNAndInsecureWarning(t *testing.T) {
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "response", stdout)
-			assert.Contains(t, stderr, "warning: TLS certificate verification is disabled")
+			assert.NotContains(t, stderr, "warning:", "tolerated verification is reported only as a diagnostic field")
+			assert.Contains(t, stderr, "verified     no (verify TLS peer: ")
 			assert.NotContains(t, stderr, "\n  server name: attacker.example")
 			if want := `alpn         h2\n  server name: attacker.example`; !strings.Contains(stderr, want) {
 				t.Fatalf("stderr = %q, want escaped ALPN %q", stderr, want)
 			}
 			if result := <-serverResult; result.err != nil || result.alpn != hostileALPN {
+				t.Fatalf("server result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestNetConnectTLSDiagnosticsReportVerificationOutcome(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		args     func(trusted, untrusted networkTestIdentity) []string
+		verified string
+	}{
+		{
+			name:     "enforced with trusted CA",
+			args:     func(trusted, _ networkTestIdentity) []string { return []string{"--ca", trusted.caCert} },
+			verified: "yes",
+		},
+		{
+			name: "no-verify with trusted CA",
+			args: func(trusted, _ networkTestIdentity) []string {
+				return []string{"--ca", trusted.caCert, "--insecure-no-verify"}
+			},
+			verified: "yes",
+		},
+		{
+			name: "insecure with trusted CA plus system roots",
+			args: func(trusted, _ networkTestIdentity) []string {
+				return []string{"--ca", trusted.caCert, "--system-ca", "--insecure"}
+			},
+			verified: "yes",
+		},
+		{
+			name: "no-verify with unrelated CA",
+			args: func(_, untrusted networkTestIdentity) []string {
+				return []string{"--ca", untrusted.caCert, "--insecure-no-verify"}
+			},
+			verified: "no (verify TLS peer: x509: certificate signed by unknown authority",
+		},
+		{
+			name: "no-verify with trusted CA and mismatched name",
+			args: func(trusted, _ networkTestIdentity) []string {
+				return []string{"--ca", trusted.caCert, "--insecure-no-verify", "--servername", "other.example"}
+			},
+			verified: "no (verify TLS peer: x509: certificate is valid for",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			trusted := createNetworkTestIdentity(t)
+			untrusted := createNetworkTestIdentity(t)
+			address, serverResult := startTLSExchangeServer(t, &trusted, false, nil)
+			inputPath := filepath.Join(t.TempDir(), "request")
+			require.NoError(t, os.WriteFile(inputPath, []byte("request"), 0o600))
+
+			args := append([]string{
+				"net", "connect", "--tls", address, "--input", inputPath,
+				"--servername", "localhost", "--verbose", "--wait", "1s",
+			}, test.args(trusted, untrusted)...)
+			stdout, stderr, err := executeRootStreams(t, args...)
+			require.NoError(t, err)
+			assert.Equal(t, "response", stdout)
+			assert.Contains(t, stderr, "verified     "+test.verified)
+			assert.NotContains(t, stderr, "warning:")
+			if result := <-serverResult; result.err != nil || result.request != "request" {
+				t.Fatalf("server result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestNetConnectInsecurePermissionsAreNoOpsWithoutTLS(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--insecure", "--insecure-no-verify", "--insecure=false"} {
+		t.Run("tcp "+flag, func(t *testing.T) {
+			t.Parallel()
+			address, serverResult := startTCPExchangeServer(t, "request", "response", 0)
+			stdout, stderr, err := executeRootStreamsWithInput(
+				t, strings.NewReader("request"), "net", "connect", "--tls=false", address, flag, "--wait", "1s",
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "response", stdout)
+			assert.Empty(t, stderr)
+			if result := <-serverResult; result.err != nil || result.request != "request" {
+				t.Fatalf("server result = %+v", result)
+			}
+		})
+		t.Run("udp "+flag, func(t *testing.T) {
+			t.Parallel()
+			address, serverResult := startExampleUDPServer(t, []byte("response"))
+			stdout, stderr, err := executeRootStreamsWithInput(
+				t, strings.NewReader("request"), "net", "connect", "--udp", address, flag, "--wait", "1s",
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "response", stdout)
+			assert.Empty(t, stderr)
+			if result := <-serverResult; result.err != nil || result.request != "request" {
 				t.Fatalf("server result = %+v", result)
 			}
 		})
@@ -287,16 +385,8 @@ func TestNetConnectTLSFlagValidation(t *testing.T) {
 		{name: "cert without key", args: []string{"--cert", "client.crt"}},
 		{name: "key without cert", args: []string{"--key", "client.key"}},
 		{name: "system CA without custom CA", args: []string{"--system-ca"}},
-		{name: "insecure with CA", message: "--insecure cannot be combined", args: []string{"--insecure", "--ca", "ca.crt"}},
-		{name: "insecure with system CA", message: "--insecure cannot be combined", args: []string{"--insecure", "--system-ca"}},
-		{
-			name: "no-verify with CA", message: "--insecure-no-verify cannot be combined",
-			args: []string{"--insecure-no-verify", "--ca", "ca.crt"},
-		},
-		{
-			name: "no-verify with system CA", message: "--insecure-no-verify cannot be combined",
-			args: []string{"--insecure-no-verify", "--system-ca"},
-		},
+		{name: "insecure with system CA alone", message: "--system-ca requires --ca", args: []string{"--insecure", "--system-ca"}},
+		{name: "no-verify with system CA alone", message: "--system-ca requires --ca", args: []string{"--insecure-no-verify", "--system-ca"}},
 		{name: "ALPN with whitespace", args: []string{"--alpn", "h2, http/1.1"}},
 		{name: "negative wait", args: []string{"--wait", "-1s"}},
 		{name: "negative timeout", args: []string{"--connect-timeout", "-1s"}},

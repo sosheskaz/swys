@@ -13,13 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/asym"
 	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 type httpTrace struct {
-	hops []*httpTraceHop
-	mu   sync.Mutex
+	// tlsConfig lets diagnostics repeat verification that --insecure* tolerated.
+	tlsConfig *tls.Config
+	hops      []*httpTraceHop
+	mu        sync.Mutex
 }
 
 type httpTraceHop struct { //nolint:govet // Grouping timestamps makes callback updates and timing derivation auditable.
@@ -38,9 +41,9 @@ type httpTraceConnectAttempt struct {
 }
 
 type httpTraceTLS struct { //nolint:govet // Grouping TLS labels keeps snapshot construction readable.
-	certificates          []*asym.CertInfo
-	version, cipher, alpn string
-	verified              bool
+	certificates                       []*asym.CertInfo
+	version, cipher, alpn, verifyError string
+	verified                           bool
 }
 
 type httpTraceView struct { //nolint:govet // Field order keeps timing JSON in its documented reading order.
@@ -71,6 +74,7 @@ type httpTraceTLSView struct { //nolint:govet // Field order keeps the human-ori
 	Cipher       string            `json:"cipher"`
 	ALPN         string            `json:"alpn,omitempty"`
 	Verified     bool              `json:"verified"`
+	VerifyError  string            `json:"verification_error,omitempty"`
 	Handshake    string            `json:"handshake,omitempty"`
 	Certificates []json.RawMessage `json:"certificates,omitempty"`
 }
@@ -108,17 +112,21 @@ func (trace *httpTrace) roundTrip(request *http.Request, transport http.RoundTri
 		TLSHandshakeStart: func() { setTime(&hop.tlsStart) },
 		TLSHandshakeDone: func(state tls.ConnectionState, _ error) {
 			certificates := make([]*asym.CertInfo, len(state.PeerCertificates))
-			verified := len(state.VerifiedChains) > 0
+			chains, verifyErr := tlsconfig.VerifiedChains(&state, trace.tlsConfig, request.URL.Hostname())
 			for i, certificate := range state.PeerCertificates {
 				certificates[i] = asym.NewCertInfo(certificate)
-				certificates[i].Verified = certificateInVerifiedChains(certificate, state.VerifiedChains)
+				certificates[i].Verified = certificateInVerifiedChains(certificate, chains)
+			}
+			detail := &httpTraceTLS{
+				version: tls.VersionName(state.Version), cipher: tls.CipherSuiteName(state.CipherSuite),
+				alpn: state.NegotiatedProtocol, verified: len(chains) > 0, certificates: certificates,
+			}
+			if verifyErr != nil {
+				detail.verifyError = verifyErr.Error()
 			}
 			trace.mu.Lock()
 			hop.tlsDone = time.Now()
-			hop.tls = &httpTraceTLS{
-				version: tls.VersionName(state.Version), cipher: tls.CipherSuiteName(state.CipherSuite),
-				alpn: state.NegotiatedProtocol, verified: verified, certificates: certificates,
-			}
+			hop.tls = detail
 			trace.mu.Unlock()
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
@@ -168,6 +176,14 @@ func connectAttemptForAddress(attempts []*httpTraceConnectAttempt, address strin
 		}
 	}
 	return nil
+}
+
+// httpTraceVerified explains a verification failure that an --insecure* flag tolerated.
+func httpTraceVerified(detail *httpTraceTLSView) string {
+	if detail.VerifyError == "" {
+		return strconv.FormatBool(detail.Verified)
+	}
+	return "false (" + detail.VerifyError + ")"
 }
 
 func certificateInVerifiedChains(certificate *x509.Certificate, chains [][]*x509.Certificate) bool {
@@ -227,7 +243,8 @@ func (trace *httpTrace) views() []httpTraceView {
 			}
 			view.TLS = &httpTraceTLSView{
 				Version: hop.tls.version, Cipher: hop.tls.cipher, ALPN: hop.tls.alpn,
-				Verified: hop.tls.verified, Handshake: elapsed(hop.tlsStart, firstNonZero(hop.tlsDone, hop.firstByte, hop.end)),
+				Verified: hop.tls.verified, VerifyError: hop.tls.verifyError,
+				Handshake:    elapsed(hop.tlsStart, firstNonZero(hop.tlsDone, hop.firstByte, hop.end)),
 				Certificates: certificates,
 			}
 		}
@@ -326,7 +343,7 @@ func (trace *httpTrace) writeText(output io.Writer, options textdisplay.Options)
 				{Label: "version", Value: detail.Version},
 				{Label: "cipher", Value: detail.Cipher},
 				{Label: "alpn", Value: detail.ALPN},
-				{Label: "verified", Value: strconv.FormatBool(detail.Verified)},
+				{Label: "verified", Value: httpTraceVerified(detail)},
 				{Label: "handshake", Value: detail.Handshake},
 			}
 			for _, certificate := range detail.Certificates {

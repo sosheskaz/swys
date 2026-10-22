@@ -321,3 +321,10 @@ func completeCommand(t *testing.T, args ...string) string {
 func completionLines(stdout string) []string {
 	return strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
 }
+
+func TestNetConnectCompletionOffersUDPBesideInsecurePermissions(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
+		assert.Contains(t, completeCommand(t, "net", "connect", flag, "--u"), "--udp\t", flag)
+	}
+}

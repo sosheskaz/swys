@@ -188,31 +188,25 @@ func grpcCompletionString(command *cobra.Command, name string) string {
 	return value
 }
 
+// grpcTLSCompletionAllowed suggests only flags that can matter given those already typed.
+// Every combination is accepted; trust roots and verification carve-outs are just never
+// suggested together.
 func grpcTLSCompletionAllowed(command *cobra.Command, name string) bool {
 	plaintext := grpcCompletionBool(command, grpcPlaintextFlagName)
+	trusted := grpcCompletionString(command, tlsconfig.CAFlagName) != "" || grpcCompletionBool(command, tlsconfig.SystemCAFlagName)
 	switch name {
-	case grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName:
-		return grpcTransportCompletionAllowed(command, name, plaintext)
+	case grpcPlaintextFlagName:
+		return !trusted && !grpcCompletionHasTLSIdentity(command)
+	case grpcInsecureFlagName:
+		// Over --plaintext the umbrella matters only by permitting a credential.
+		_, credential := auth.Selected(command.Flags())
+		return !trusted && (!plaintext || credential)
+	case tlsconfig.InsecureNoVerifyFlagName:
+		return !trusted && !plaintext
 	case tlsconfig.SystemCAFlagName, tlsconfig.CAFlagName:
 		return !plaintext && tlsconfig.SkipVerifyFlag(command.Flags()) == ""
 	default:
 		return !plaintext
-	}
-}
-
-// grpcTransportCompletionAllowed keeps transport and verification choices compatible with trust flags.
-func grpcTransportCompletionAllowed(command *cobra.Command, name string, plaintext bool) bool {
-	trusted := grpcCompletionString(command, tlsconfig.CAFlagName) != "" || grpcCompletionBool(command, tlsconfig.SystemCAFlagName)
-	_, credential := auth.Selected(command.Flags())
-	switch name {
-	case grpcPlaintextFlagName:
-		umbrella := grpcCompletionBool(command, grpcInsecureFlagName)
-		return !trusted && !grpcCompletionBool(command, tlsconfig.InsecureNoVerifyFlagName) && (!umbrella || credential) &&
-			!grpcCompletionHasTLSIdentity(command)
-	case grpcInsecureFlagName:
-		return !trusted && (!plaintext || credential)
-	default:
-		return !trusted && !plaintext
 	}
 }
 
@@ -263,7 +257,7 @@ func grpcCompletionSchema(
 	endpoint string,
 	options *grpcOptions,
 ) (*grpcSchema, *grpc.ClientConn, context.Context) {
-	if validateGRPCTLSOptionCombinations(command, options) != nil ||
+	if validateGRPCTLSOptionCombinations(options) != nil ||
 		tlsconfig.ValidateArtifactSources(command, !options.plaintext, false, ErrInvalidOptions) != nil ||
 		auth.Validate(command.Flags(), options.plaintext, false, ErrInvalidOptions) != nil {
 

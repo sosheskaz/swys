@@ -24,9 +24,6 @@ func TestGRPCAuthValidationPrecedesNetwork(t *testing.T) {
 		{name: "two sources", flags: []string{"--auth-bearer", "a", "--auth-bearer-env", "TOKEN"}, want: "choose one of"},
 		{name: "Authorization metadata", flags: []string{"--auth-bearer", "a", "-H", "Authorization: x"}, want: "Authorization --header"},
 		{name: "plaintext without opt-in", flags: []string{"--plaintext", "--auth-bearer", secret}, want: "without TLS requires"},
-		{name: "opt-in without credential", flags: []string{"--plaintext", "--insecure-cleartext-auth"}, want: "requires an --auth-* credential"},
-		{name: "plaintext with no-verify", flags: []string{"--plaintext", "--insecure-no-verify", "--auth-bearer", "a"}, want: "--plaintext conflicts"},
-		{name: "plaintext umbrella without credential", flags: []string{"--plaintext", "--insecure"}, want: "--plaintext conflicts"},
 		{name: "payload owns stdin", flags: []string{"--auth-bearer-file", "-"}, stdin: true, want: "--auth-bearer-file and payload"},
 		{name: "malformed token", flags: []string{"--auth-bearer", secret + " extra"}, want: "printable ASCII without whitespace"},
 	} {
@@ -72,6 +69,21 @@ func TestGRPCAuthUmbrellaPermitsPlaintextCredential(t *testing.T) {
 	assert.Equal(t, []string{"Bearer local-token"}, callMD.Get("authorization"))
 }
 
+func TestGRPCInsecureFlagsAreInertOverPlaintext(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--insecure-cleartext-auth", "--insecure-no-verify", "--insecure"} {
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+			stdout, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "-d", `{}`, "--plaintext", flag)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{}`, stdout)
+			_, callMD, _ := record.snapshot()
+			assert.Empty(t, callMD.Get("authorization"))
+		})
+	}
+}
+
 func TestGRPCAuthCleartextOptInIsInertOverTLS(t *testing.T) {
 	t.Parallel()
 	address, caPath, record := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
@@ -97,6 +109,8 @@ func TestGRPCAuthStaysOutOfVerboseDiagnostics(t *testing.T) {
 func TestGRPCInsecureNoVerify(t *testing.T) {
 	t.Parallel()
 	address, caPath, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
+	_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "-d", `{}`)
+	require.Error(t, err, "an untrusted certificate fails without an insecure flag")
 	for _, flag := range []string{"--insecure", "--insecure-no-verify"} {
 		t.Run(flag, func(t *testing.T) {
 			t.Parallel()
@@ -104,10 +118,15 @@ func TestGRPCInsecureNoVerify(t *testing.T) {
 			require.NoError(t, err)
 			assert.JSONEq(t, `{}`, stdout)
 			requireGRPCTLSFacts(t, stderr, false)
+			assert.Contains(t, stderr, "(verify TLS peer: ", "diagnostics explain the tolerated failure")
 
-			_, _, err = executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "-d", `{}`, flag, "--ca", caPath)
-			require.ErrorIs(t, err, errInvalidGRPCOptions)
-			assert.Contains(t, err.Error(), flag, "the conflict names the flag the user passed")
+			_, stderr, err = executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "-d", `{}`, flag, "--ca", caPath, "--verbose")
+			require.NoError(t, err, "trust flags combine with %s", flag)
+			requireGRPCTLSFacts(t, stderr, true)
+
+			services, directive := completeGRPCCommand(t, address, flag, "--ca", caPath, "fixture.v1.E")
+			assertGRPCCompletion(t, services, grpcFixtureServiceName+"/")
+			assertGRPCCompletionDirective(t, directive)
 		})
 	}
 }
@@ -150,7 +169,11 @@ func TestGRPCCompletionCredentialVisibility(t *testing.T) {
 		{name: "Authorization metadata hides credentials", args: []string{"-H", "authorization: x", "--"}, unwanted: []string{"--auth-bearer", "--auth-basic-file"}},
 		{name: "plaintext hides no-verify", args: []string{"--plaintext", "--"}, unwanted: []string{"--insecure-no-verify", "--insecure"}},
 		{name: "plaintext credential keeps umbrella", args: []string{"--plaintext", "--auth-bearer", "t", "--"}, want: []string{"--insecure"}},
-		{name: "no-verify hides trust", args: []string{"--insecure-no-verify", "--"}, unwanted: []string{"--ca", "--system-ca", "--plaintext"}},
+		{
+			name: "no-verify hides trust, keeps plaintext", args: []string{"--insecure-no-verify", "--"},
+			want: []string{"--plaintext"}, unwanted: []string{"--ca", "--system-ca"},
+		},
+		{name: "CA hides verification carve-outs", args: []string{"--ca", "unread-ca.pem", "--"}, unwanted: []string{"--insecure", "--insecure-no-verify"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
