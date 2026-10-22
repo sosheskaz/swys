@@ -285,6 +285,21 @@ func newChainTLSServerWithClientHello(
 	return server
 }
 
+// newIdentityTLSServer serves the CLI-created server identity, whose leaf names
+// only localhost, and returns that endpoint.
+func newIdentityTLSServer(t *testing.T, identity *testcmd.NetworkIdentity) string {
+	t.Helper()
+	certificate, err := tls.LoadX509KeyPair(identity.ServerCert, identity.ServerKey)
+	require.NoError(t, err)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{certificate}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	return net.JoinHostPort("localhost", port)
+}
+
 func TestCertificateValidationFailurePreservesOutput(t *testing.T) {
 	t.Parallel()
 	server := newChainTLSServer(t)

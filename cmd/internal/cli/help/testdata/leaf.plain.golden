@@ -43,6 +43,15 @@ JSON always contains a certificates array, with complete pem strings, certificat
 
 Inspection retrieves certificates even when verification fails. Successful export is not proof that the endpoint or exported CA is trusted; read the separate verification result. SwYS does not install trust anchors. PEM export succeeds with a diagnostic when extraction succeeds but verification fails. Retrieval, selection, and formatting failures leave an existing output file untouched.
 
+Verify against a private CA
+
+Verification uses the system trust store by default. --ca reads trust anchors from a PEM or DER file, or - for stdin; --ca-data accepts literal certificate content instead. Custom anchors replace the system roots unless --system-ca is also set, and --ca-encoding decodes their outer bytes. Prepare the CA file before connecting:
+
+  swys cert connect localhost:8443 --ca ca.pem -f json
+  swys cert connect localhost:8443 --ca ca.pem --select root -f pem -o root.pem
+
+Trust anchors change only the verification report and the root and numeric selections that build on verified chains. Retrieval still succeeds when verification fails.
+
 Reference
 
   swys help cert inspect

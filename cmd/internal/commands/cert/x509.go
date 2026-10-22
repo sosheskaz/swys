@@ -94,7 +94,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			if err := commandio.ValidateNetworkTimeout(cmd); err != nil {
 				return fmt.Errorf("validate network flags: %w", err)
 			}
-			return validateInspectionFlags(cmd)
+			return validateCertConnectFlags(cmd)
 		},
 		Prepare: prepareConnectedCertificates,
 	})
