@@ -410,8 +410,8 @@ jobs:
   freebsd:
     name: Go native (freebsd/amd64)
     runs-on: ubuntu-24.04
-    # FreeBSD has no hosted runner; the job boots it under QEMU.
-    timeout-minutes: 45
+    # FreeBSD has no hosted runner; the job boots it under QEMU (KVM-accelerated).
+    timeout-minutes: 30
     permissions:
       contents: read
     defaults:
