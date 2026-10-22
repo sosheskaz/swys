@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/pprof"
 	"syscall"
 	"testing"
 	"time"
@@ -66,7 +67,8 @@ func TestAESValidKeyfileFIFOIsReadOnce(t *testing.T) {
 		}
 		require.NotEmpty(t, result.stdout, "single-read FIFO encryption")
 	case <-time.After(5 * time.Second):
-		t.Fatal("AES command did not finish after one FIFO key write; keyfile may have been read more than once")
+		t.Fatalf("AES command did not finish after one FIFO key write; keyfile may have been read more than once\n%s",
+			fifoHangReport(t.Context(), path))
 	}
 	select {
 	case err := <-writerDone:
@@ -160,4 +162,18 @@ func TestAESKeyfileValidationOrderProcess(_ *testing.T) { //nolint:paralleltest 
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+// fifoHangReport describes who holds a FIFO and where this process is blocked, for a
+// hang seen only on loaded CI runners.
+func fifoHangReport(ctx context.Context, path string) string {
+	holders, err := exec.CommandContext(ctx, "lsof", "--", path).CombinedOutput()
+	if err != nil {
+		holders = append(holders, []byte("lsof: "+err.Error())...)
+	}
+	var stacks bytes.Buffer
+	if err := pprof.Lookup("goroutine").WriteTo(&stacks, 2); err != nil {
+		stacks.WriteString("goroutine profile: " + err.Error())
+	}
+	return "FIFO holders:\n" + string(holders) + "\ngoroutines:\n" + stacks.String()
 }
