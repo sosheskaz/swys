@@ -66,3 +66,9 @@ func ExportReflectV1Alpha(ctx context.Context, connection *grpcapi.ClientConn) (
 	_, _, details, err := reflectGRPCV1Alpha(ctx, connection, "")
 	return details.status, err
 }
+
+func ExportInvokeFailure(ctx context.Context, err error) (*status.Status, error) {
+	details := grpcCallDetails{status: status.Convert(err)}
+	failure := grpcInvokeFailure(ctx, err, &details)
+	return details.status, failure
+}
