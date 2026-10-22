@@ -44,7 +44,8 @@ mise run scan:vuln
 
 `mise run check` runs Go lint, platform-specific vet checks, coverage-reporter
 tests, task-runner tests, and unit tests. Race tests, fuzz mutation, benchmarks,
-vulnerability scanning, and changed-file configuration checks are separate CI checks.
+vulnerability scanning, changed-file configuration checks, and native vet and
+tests on macOS, Windows, and Linux arm64 runners are separate CI checks.
 Lefthook configures formatting and configuration checks in `.config/lefthook.yml`.
 
 Follow [TESTING.md](TESTING.md), the existing testing policy, with the segmented
