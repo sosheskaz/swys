@@ -373,8 +373,7 @@ jobs:
   native:
     name: Go native (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
-    # Cold race builds without a cache; tighten once timings are known.
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     defaults:
@@ -382,12 +381,14 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
+      # Race runs once per OS: platform code is selected by GOOS, and race
+      # findings do not depend on GOARCH. linux/amd64 races in race-fuzz, and
+      # Go's race detector does not support windows/arm64.
       matrix:
         include:
           - platform: windows/amd64
             runner: windows-2025
             race: true
-          # Go's race detector does not support windows/arm64.
           - platform: windows/arm64
             runner: windows-11-arm
             race: false
@@ -396,10 +397,10 @@ jobs:
             race: true
           - platform: darwin/amd64
             runner: macos-26-intel
-            race: true
+            race: false
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
-            race: true
+            race: false
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
