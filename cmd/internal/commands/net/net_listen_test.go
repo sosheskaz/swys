@@ -302,7 +302,7 @@ func TestNetListenTLSVerifiedServerWithoutClientAuthentication(t *testing.T) {
 	if _, err := io.ReadFull(connection, received); err != nil {
 		t.Fatal(err)
 	}
-	closeListenTestTCP(t, connection)
+	closeListenTestTLS(t, connection)
 	require.NoError(t, <-run.done)
 	if got := run.stdout.String(); got != "client payload" {
 		t.Fatalf("listener output = %q, want client payload", got)
@@ -345,7 +345,7 @@ func TestNetListenTLSVerboseEscapesMetadata(t *testing.T) {
 	// The hostile SNI intentionally cannot match the test server certificate.
 	config.InsecureSkipVerify = true
 	connection := dialListenTestTLS(t, address, config)
-	closeListenTestTCP(t, connection)
+	closeListenTestTLS(t, connection)
 	require.NoError(t, <-run.done)
 	stderrText := <-stderr
 	if strings.Contains(stderrText, "\nFORGED-DIAGNOSTIC") || strings.Contains(stderrText, "\x1b") {
@@ -625,6 +625,20 @@ func closeListenTestTCP(t *testing.T, connection net.Conn) {
 	if err := connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		t.Fatal(err)
 	}
+}
+
+// closeListenTestTLS ends a client session the way the listener expects. Closing
+// with the listener's close notice still unread makes the socket reset the
+// connection, and Windows then discards the client's own close notice before the
+// listener reads it, failing the listener's receive.
+func closeListenTestTLS(t *testing.T, connection *tls.Conn) {
+	t.Helper()
+	defer func() { _ = connection.Close() }() //nolint:errcheck // a failed drain still releases the socket
+	require.NoError(t, connection.SetDeadline(time.Now().Add(10*time.Second)))
+	require.NoError(t, connection.CloseWrite())
+	_, err := io.Copy(io.Discard, connection)
+	require.NoError(t, err)
+	closeListenTestTCP(t, connection)
 }
 
 func writeListenTestSelfSignedIdentity(
