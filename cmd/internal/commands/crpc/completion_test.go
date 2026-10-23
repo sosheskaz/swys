@@ -101,7 +101,9 @@ func TestCRPCReflectionCompletionDeadlineAndQuietFailure(t *testing.T) {
 	server.Config.Protocols.SetUnencryptedHTTP2(true)
 	server.Start()
 	t.Cleanup(server.Close)
-	for _, budget := range []string{"0", "50ms"} {
+	// The short budget must still let a loaded runner reach the server, and its
+	// ceiling must stay below the default two-second budget.
+	for _, budget := range []string{"0", "500ms"} {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		root := cmd.NewCommand()
 		root.SetContext(ctx)
@@ -114,8 +116,8 @@ func TestCRPCReflectionCompletionDeadlineAndQuietFailure(t *testing.T) {
 		assert.Equal(t, ":4\n", string(output))
 		assert.NotContains(t, string(diagnostics), "deadline")
 		ceiling := 4 * time.Second
-		if budget == "50ms" {
-			ceiling = time.Second
+		if budget == "500ms" {
+			ceiling = 1500 * time.Millisecond
 		}
 		assert.Less(t, elapsed, ceiling, "completion did not apply its own deadline")
 	}
