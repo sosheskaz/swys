@@ -1,8 +1,10 @@
 package protoschema
 
 import (
+	"encoding/json/jsontext"
 	"fmt"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
@@ -25,6 +27,30 @@ func Template(descriptor protoreflect.MessageDescriptor) (proto.Message, error) 
 		return nil, err
 	}
 	return message, nil
+}
+
+// TemplateJSON renders Template as protobuf JSON with canonical whitespace.
+// Protobuf JSON deliberately varies its whitespace between builds, which would
+// make shell completion candidates and documented output unstable.
+func TemplateJSON(descriptor protoreflect.MessageDescriptor, multiline bool) ([]byte, error) {
+	message, err := Template(descriptor)
+	if err != nil {
+		return nil, err
+	}
+	data, err := (protojson.MarshalOptions{EmitUnpopulated: true, AllowPartial: true}).Marshal(message)
+	if err != nil {
+		return nil, fmt.Errorf("format request template: %w", err)
+	}
+	value := jsontext.Value(data)
+	if multiline {
+		err = value.Indent(jsontext.WithIndent("  "))
+	} else {
+		err = value.Compact()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("format request template: %w", err)
+	}
+	return value, nil
 }
 
 func populateTemplate(message protoreflect.Message, visiting map[protoreflect.FullName]bool, depth int, budget, remaining *int) error {
