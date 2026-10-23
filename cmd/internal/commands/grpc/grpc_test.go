@@ -568,7 +568,9 @@ func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 		t.Fatalf("delayed request failed: %v", command.err)
 	}
 	// The server adds the received grpc-timeout to its receipt time, so a timeout
-	// that started with the command, before the input hold, arrives that much short.
+	// that starts after input arrives at least the full timeout after release. One
+	// that started with the command arrives short by the input hold, less the time
+	// the call's headers spend in transit on the established connection.
 	assert.GreaterOrEqual(t, record.lastCallDeadline().Sub(released), timeout, "overall timeout must start after request input")
 	assert.Contains(t, command.stdout, "delayed input")
 	calls, _, _ := record.snapshot()
