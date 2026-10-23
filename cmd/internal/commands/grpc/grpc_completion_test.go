@@ -452,6 +452,9 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		{name: "missing method", args: []string{"--protoset", protoset, grpcFixtureServiceName + "/Missing", "--data", ""}},
 		{name: "streaming method", args: []string{"--protoset", protoset, grpcFixtureServiceName + "/Watch", "--data", ""}},
 		{name: "input owns the request", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--input", "unread.json", "--data", ""}},
+		{name: "list conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--list", grpcFixtureServiceName, "--data", ""}},
+		{name: "describe conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--describe", grpcFixtureServiceName, "--data", ""}},
+		{name: "template conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--template", grpcFixtureMethodName, "--data", ""}},
 		{name: "unrelated prefix", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--data", `{"other`}},
 		{name: "template larger than 2 KiB", args: []string{"--protoset", largeProtoset, grpcFixtureMethodName, "--data", ""}},
 	} {

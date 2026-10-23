@@ -105,7 +105,7 @@ func streamCompletion(settings *options) cobra.CompletionFunc {
 // dataCompletion offers the selected method's compact request template.
 func dataCompletion(settings *options) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		if cmd.Flags().Changed(flagInput) {
+		if cmd.Flags().Changed(flagInput) || hasDiscoveryFlag(cmd) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		method, err := completionMethod(cmd, args, settings)
