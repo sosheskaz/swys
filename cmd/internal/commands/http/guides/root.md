@@ -50,7 +50,7 @@ Hash the response body without saving it first:
 swys http https://example.com/download | swys hash sha256
 ```
 
-The default selection is body, and its default format is raw bytes. Select response to include status and headers; its default text format places a blank line before the body. The --format json option works with either selection and stores body bytes as base64 without interpreting application JSON. The --encoding option transforms the complete stdout stream in every supported format. A HEAD request has an empty body by default; select response to see its headers. The --trace option always writes diagnostics to stderr.
+The default selection is body, and its default format is raw bytes. Select response to include status and headers; its default text format places a blank line before the body. The --format json option works with either selection and stores body bytes as base64 without interpreting application JSON. Its strings write raw C1 and bidirectional formatting controls from the status or headers as \u escapes; decoding the JSON yields the original values. The --encoding option transforms the complete stdout stream in every supported format. A HEAD request has an empty body by default; select response to see its headers. The --trace option always writes diagnostics to stderr.
 
 ## Use encoded TLS credentials
 

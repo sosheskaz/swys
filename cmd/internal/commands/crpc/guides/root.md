@@ -146,8 +146,10 @@ only one payload or artifact can own stdin. --resolve changes the connection
 address while preserving the URL's host and TLS identity. Standard HTTP proxy
 environment variables apply.
 
-The response JSON goes to stdout. -v/--verbose writes RPC status, response
-metadata, and transport details to stderr. RPC and protocol failures exit
+The response JSON goes to stdout. Raw C1 and bidirectional formatting
+controls in its strings are written as \u escapes, so the decoded JSON is
+unchanged. -v/--verbose writes RPC status, response metadata, and transport
+details to stderr. RPC and protocol failures exit
 nonzero. Request validation and unary failures preserve existing output files. Streaming outputs are written incrementally.
 
 ## Limits and timeouts
