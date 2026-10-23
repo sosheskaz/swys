@@ -166,6 +166,26 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) { //nolint:tparallel // su
 	}
 }
 
+func TestGRPCDataCompletionInsertsRequestTemplate(t *testing.T) {
+	t.Parallel()
+
+	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	const template = `{"text":"","payload":"","count":"0","mode":"MODE_UNSPECIFIED","tags":[],"labels":{},"extra":{},"replyBytes":0,"delayMillis":0}`
+	for _, source := range [][]string{{address, "--plaintext"}, {address, "--protoset", protoset}} {
+		args := slices.Concat(source, []string{grpcFixtureMethodName, "--data", ""})
+		values, directive := completeGRPCCommand(t, args...)
+		assert.Equal(t, []string{template + "\tfixture.v1.EchoRequest"}, values, "completion of %v", source)
+		assertGRPCCompletionDirective(t, directive)
+	}
+	calls, _, _ := record.snapshot()
+	assert.Zero(t, calls, "completion must never invoke the method")
+
+	_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--data", template)
+	require.NoError(t, err, "the completed template is a valid request: %v", err)
+}
+
 func completeGRPCCommand(t *testing.T, args ...string) ([]string, cobra.ShellCompDirective) {
 	t.Helper()
 	values, directive, _ := completeGRPCCommandWithRoot(t, newRootCmd(), args...)

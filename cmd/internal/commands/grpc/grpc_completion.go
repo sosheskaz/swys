@@ -19,17 +19,20 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
+	"github.com/sosheskaz/swys/internal/protoschema"
 )
 
 const (
 	grpcCompletionTimeout = 2 * time.Second
-	grpcPlaintextFlagName = "plaintext"
-	grpcInsecureFlagName  = tlsconfig.InsecureFlagName
-	grpcListFlagName      = "list"
-	grpcDescribeFlagName  = "describe"
-	grpcTemplateFlagName  = "template"
-	grpcDataFlagName      = "data"
-	grpcInputFlagName     = "input"
+	// grpcDataCompletionLimit keeps an inserted template editable on a command line.
+	grpcDataCompletionLimit = 2 << 10
+	grpcPlaintextFlagName   = "plaintext"
+	grpcInsecureFlagName    = tlsconfig.InsecureFlagName
+	grpcListFlagName        = "list"
+	grpcDescribeFlagName    = "describe"
+	grpcTemplateFlagName    = "template"
+	grpcDataFlagName        = "data"
+	grpcInputFlagName       = "input"
 )
 
 type grpcCompletionKind uint8
@@ -47,7 +50,10 @@ func grpcTLSCompletionApplicable(cmd *cobra.Command, _ []string) bool {
 
 func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
 	registerGRPCSelectionCompletion(command, options)
-	for _, name := range []string{grpcDataFlagName, "header", "max-message-size", tlsconfig.ServerNameFlagName, "timeout"} {
+	mustRegisterGRPCCompletion(command, grpcDataFlagName, func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		return completeGRPCData(cmd, args, prefix, options), cobra.ShellCompDirectiveNoFileComp
+	})
+	for _, name := range []string{"header", "max-message-size", tlsconfig.ServerNameFlagName, "timeout"} {
 		mustRegisterGRPCCompletion(command, name, cobra.NoFileCompletions)
 	}
 	for _, name := range []string{tlsconfig.CAFlagName, tlsconfig.CertFlagName, tlsconfig.KeyFlagName} {
@@ -268,6 +274,40 @@ func completeGRPC(
 		}
 	}
 	return grpcCompletionCandidates(schema, prefix, kind), directive
+}
+
+// completeGRPCData offers the selected method's compact request template.
+func completeGRPCData(command *cobra.Command, args []string, prefix string, options *grpcOptions) []string {
+	if len(args) != 2 || !validGRPCMethodSelector(args[1]) || command.Flags().Changed(grpcInputFlagName) ||
+		tlsconfig.UsesStdin(command) || !validGRPCCompletionEndpoint(args[0]) {
+
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(command.Context(), grpcCompletionTimeout)
+	defer cancel()
+	schema, connection, reflectionCtx := grpcCompletionSchema(ctx, command, args[0], options)
+	if connection != nil {
+		defer connection.Close() //nolint:errcheck // completion result is already collected
+	}
+	if schema == nil {
+		return nil
+	}
+	if connection != nil {
+		var err error
+		if schema, _, err = reflectGRPCSchema(reflectionCtx, connection, args[1], "", ""); err != nil {
+			return nil
+		}
+	}
+	method, err := schema.findMethod(args[1])
+	if err != nil || requireUnaryGRPCMethod(method, args[1]) != nil {
+		return nil
+	}
+	data, err := protoschema.TemplateJSON(method.Input(), false)
+	// Shells match the candidate against the typed word, which may start with a quote.
+	if err != nil || len(data) > grpcDataCompletionLimit || !strings.HasPrefix(string(data), strings.TrimLeft(prefix, `'"`)) {
+		return nil
+	}
+	return []string{cobra.CompletionWithDesc(string(data), string(method.Input().FullName()))}
 }
 
 func grpcCompletionSchema(
