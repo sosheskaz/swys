@@ -35,6 +35,28 @@ func TestParsePagerQuotedArguments(t *testing.T) {
 			configuration: `pager "say \"hello\""`,
 			want:          []string{"pager", `say "hello"`},
 		},
+		{
+			name:          "non-utf8-bytes",
+			configuration: "/opt/pager-\xa7 '\xa7 single' \"\xa7 double\" escaped\\\xa7 \"kept\\\xa7\"",
+			want:          []string{"/opt/pager-\xa7", "\xa7 single", "\xa7 double", "escaped\xa7", "kept\\\xa7"},
+		},
+		{
+			name:          "non-utf8-bytes-joined-across-quotes",
+			configuration: "pager-\xdb\"\"\xad",
+			want:          []string{"pager-\xdb\xad"},
+		},
+		{
+			// Go decodes a Windows environment value holding an unpaired
+			// surrogate as WTF-8, and exec encodes it back only if argv keeps it.
+			name:          "wtf8-unpaired-surrogate",
+			configuration: "'C:\\pager-\xed\xa0\x80.exe'",
+			want:          []string{"C:\\pager-\xed\xa0\x80.exe"},
+		},
+		{
+			name:          "replacement-character",
+			configuration: "pager-�",
+			want:          []string{"pager-�"},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
