@@ -27,6 +27,7 @@ const (
 	grpcInsecureFlagName  = tlsconfig.InsecureFlagName
 	grpcListFlagName      = "list"
 	grpcDescribeFlagName  = "describe"
+	grpcTemplateFlagName  = "template"
 	grpcDataFlagName      = "data"
 	grpcInputFlagName     = "input"
 )
@@ -37,6 +38,7 @@ const (
 	grpcCompleteSelector grpcCompletionKind = iota
 	grpcCompleteService
 	grpcCompleteSymbol
+	grpcCompleteTemplate
 )
 
 func grpcTLSCompletionApplicable(cmd *cobra.Command, _ []string) bool {
@@ -44,30 +46,7 @@ func grpcTLSCompletionApplicable(cmd *cobra.Command, _ []string) bool {
 }
 
 func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
-	command.ValidArgsFunction = func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		if len(args) != 1 || !grpcSelectionCompletionAllowed(cmd, args, grpcCompleteSelector) {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return completeGRPC(cmd, args, prefix, options, grpcCompleteSelector)
-	}
-	for name, kind := range map[string]grpcCompletionKind{
-		grpcListFlagName:     grpcCompleteService,
-		grpcDescribeFlagName: grpcCompleteSymbol,
-	} {
-		completionKind := kind
-		if err := command.RegisterFlagCompletionFunc(name, func(
-			cmd *cobra.Command,
-			args []string,
-			prefix string,
-		) ([]string, cobra.ShellCompDirective) {
-			if len(args) != 1 || !grpcSelectionCompletionAllowed(cmd, args, completionKind) {
-				return nil, cobra.ShellCompDirectiveNoFileComp
-			}
-			return completeGRPC(cmd, args, prefix, options, completionKind)
-		}); err != nil {
-			panic(err)
-		}
-	}
+	registerGRPCSelectionCompletion(command, options)
 	for _, name := range []string{grpcDataFlagName, "header", "max-message-size", tlsconfig.ServerNameFlagName, "timeout"} {
 		mustRegisterGRPCCompletion(command, name, cobra.NoFileCompletions)
 	}
@@ -91,6 +70,33 @@ func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
 				}
 			}
 			return values, cobra.ShellCompDirectiveNoFileComp
+		})
+	}
+}
+
+func registerGRPCSelectionCompletion(command *cobra.Command, options *grpcOptions) {
+	command.ValidArgsFunction = func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 1 || !grpcSelectionCompletionAllowed(cmd, args, grpcCompleteSelector) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return completeGRPC(cmd, args, prefix, options, grpcCompleteSelector)
+	}
+	for name, kind := range map[string]grpcCompletionKind{
+		grpcListFlagName:     grpcCompleteService,
+		grpcDescribeFlagName: grpcCompleteSymbol,
+		grpcTemplateFlagName: grpcCompleteTemplate,
+	} {
+		completionKind := kind
+		mustRegisterGRPCCompletion(command, name, func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 1 || !grpcSelectionCompletionAllowed(cmd, args, completionKind) {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			candidates := completionKind
+			if candidates == grpcCompleteTemplate {
+				// A template names the same unary SERVICE/METHOD as an invocation selector.
+				candidates = grpcCompleteSelector
+			}
+			return completeGRPC(cmd, args, prefix, options, candidates)
 		})
 	}
 }
@@ -126,12 +132,21 @@ func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command 
 	for _, name := range auth.HiddenForCompletion(probe.Flags(), headers) {
 		command.Flag(name).Hidden = true
 	}
-	for name, kind := range map[string]grpcCompletionKind{grpcListFlagName: grpcCompleteService, grpcDescribeFlagName: grpcCompleteSymbol} {
+	hideGRPCSelectionFlags(command, probe)
+}
+
+func hideGRPCSelectionFlags(command, probe *cobra.Command) {
+	for name, kind := range map[string]grpcCompletionKind{
+		grpcListFlagName:     grpcCompleteService,
+		grpcDescribeFlagName: grpcCompleteSymbol,
+		grpcTemplateFlagName: grpcCompleteTemplate,
+	} {
 		if !grpcSelectionCompletionAllowed(probe, probe.Flags().Args(), kind) {
 			command.Flag(name).Hidden = true
 		}
 	}
-	discovery := probe.Flags().Changed(grpcListFlagName) || probe.Flags().Changed(grpcDescribeFlagName)
+	discovery := probe.Flags().Changed(grpcListFlagName) || probe.Flags().Changed(grpcDescribeFlagName) ||
+		probe.Flags().Changed(grpcTemplateFlagName)
 	command.Flag(grpcDataFlagName).Hidden = discovery || probe.Flags().Changed(grpcInputFlagName)
 	command.Flag(grpcInputFlagName).Hidden = discovery || probe.Flags().Changed(grpcDataFlagName)
 }
@@ -161,15 +176,19 @@ func grpcCompletionProbe(completedArgs []string) *cobra.Command {
 }
 
 func grpcSelectionCompletionAllowed(command *cobra.Command, args []string, kind grpcCompletionKind) bool {
+	list := command.Flags().Changed(grpcListFlagName)
+	describe := command.Flags().Changed(grpcDescribeFlagName)
+	template := command.Flags().Changed(grpcTemplateFlagName)
+	discovery := len(args) < 2 && !command.Flags().Changed(grpcDataFlagName) && !command.Flags().Changed(grpcInputFlagName)
 	switch kind {
 	case grpcCompleteSelector:
-		return !command.Flags().Changed(grpcListFlagName) && !command.Flags().Changed(grpcDescribeFlagName)
+		return !list && !describe && !template
 	case grpcCompleteService:
-		return len(args) < 2 && !command.Flags().Changed(grpcDescribeFlagName) &&
-			!command.Flags().Changed(grpcDataFlagName) && !command.Flags().Changed(grpcInputFlagName)
+		return discovery && !describe && !template
 	case grpcCompleteSymbol:
-		return len(args) < 2 && !command.Flags().Changed(grpcListFlagName) &&
-			!command.Flags().Changed(grpcDataFlagName) && !command.Flags().Changed(grpcInputFlagName)
+		return discovery && !list && !template
+	case grpcCompleteTemplate:
+		return discovery && !list && !describe
 	default:
 		return false
 	}
@@ -334,7 +353,7 @@ func grpcCompletionService(services []string, prefix string, kind grpcCompletion
 		separator = "/"
 	case grpcCompleteSymbol:
 		separator = "."
-	case grpcCompleteService:
+	case grpcCompleteService, grpcCompleteTemplate:
 		return ""
 	}
 	for _, service := range services {

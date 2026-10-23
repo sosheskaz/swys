@@ -76,6 +76,19 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) { //nolint:tparallel // su
 			want: grpcFixtureServiceName,
 		},
 		{
+			name:        "template service continues with slash",
+			args:        []string{address, "--protoset", protoset, "--template", "fixture.v1.E"},
+			want:        grpcFixtureServiceName + "/",
+			wantNoSpace: true,
+		},
+		{
+			name:     "template method contains unary methods only",
+			args:     []string{address, "--protoset", protoset, "--template", grpcFixtureServiceName + "/"},
+			want:     grpcFixtureMethodName,
+			unwanted: grpcFixtureServiceName + "/Watch",
+			kind:     "unary",
+		},
+		{
 			name: "describe service",
 			args: []string{address, "--protoset", protoset, "--describe", "fixture.v1.E"},
 			want: grpcFixtureServiceName,

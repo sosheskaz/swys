@@ -353,11 +353,15 @@ func TestGRPCCompletionFiltersContextualFlags(t *testing.T) {
 		},
 		{
 			name: "empty list still selects discovery", args: []string{"--list", ""},
-			unwanted: []string{"--describe", "--data", "--input"},
+			unwanted: []string{"--describe", "--template", "--data", "--input"},
+		},
+		{
+			name: "template selects discovery", args: []string{"--template", grpcFixtureMethodName},
+			unwanted: []string{"--list", "--describe", "--data", "--input"},
 		},
 		{
 			name: "method selects invocation", args: []string{grpcFixtureMethodName},
-			want: []string{"--data", "--input"}, unwanted: []string{"--list", "--describe"},
+			want: []string{"--data", "--input"}, unwanted: []string{"--list", "--describe", "--template"},
 		},
 		{
 			name: "empty data still selects body", args: []string{"--data", ""},
@@ -406,6 +410,8 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 		{name: "plaintext blocks typed key", args: []string{"--plaintext", "--key", ""}},
 		{name: "empty list blocks typed input", args: []string{"--list", "", "--input", ""}},
 		{name: "empty data blocks typed input", args: []string{"--data", "", "--input", ""}},
+		{name: "template blocks typed input", args: []string{"--template", grpcFixtureMethodName, "--input", ""}},
+		{name: "template formats only JSON", args: []string{"--template", grpcFixtureMethodName, "--format", ""}, want: []string{"json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

@@ -112,6 +112,30 @@ func TestExampleGRPCDiscoversOfflineFromProtoset(t *testing.T) {
 	assert.Empty(t, stderr)
 }
 
+func TestExampleGRPCBootstrapsRequestFromTemplate(t *testing.T) {
+	t.Parallel()
+
+	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	for _, source := range [][]string{{address, "--plaintext"}, {"127.0.0.1:1", "--protoset", protoset}} {
+		args := append([]string{"grpc"}, source...)
+		template, stderr, err := executeRootStreams(t, append(args, "--template", grpcFixtureMethodName)...)
+		require.NoError(t, err, "swys grpc %v --template SERVICE/METHOD: %v", source, err)
+		assert.JSONEq(t, `{"text":"","payload":"","count":"0","mode":"MODE_UNSPECIFIED","tags":[],"labels":{},"extra":{},"replyBytes":0,"delayMillis":0}`, template)
+		assert.Empty(t, stderr)
+	}
+	calls, _, _ := record.snapshot()
+	assert.Zero(t, calls, "templates use reflection without invoking the method")
+
+	template, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--template", grpcFixtureMethodName)
+	require.NoError(t, err)
+	response, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--data", template)
+	require.NoError(t, err, "a template is a valid request: %v", err)
+	// Template message fields are present, so the echo retains the empty Any.
+	assert.JSONEq(t, `{"extra":{}}`, response)
+}
+
 func TestExampleGRPCPlainAndStyledText(t *testing.T) {
 	t.Parallel()
 	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
