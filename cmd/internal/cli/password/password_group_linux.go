@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
+// procfsRoot is a variable so tests can simulate a host without procfs mounted.
+var procfsRoot = "/proc"
+
 // passwordGroupStopped reports whether any process in process group pgid is stopped.
 func passwordGroupStopped(pgid int) (bool, error) {
-	entries, err := os.ReadDir("/proc")
+	entries, err := os.ReadDir(procfsRoot)
 	if err != nil {
 		return false, fmt.Errorf("list processes: %w", err)
 	}
@@ -18,7 +22,7 @@ func passwordGroupStopped(pgid int) (bool, error) {
 		if _, err := strconv.Atoi(entry.Name()); err != nil {
 			continue
 		}
-		stat, err := os.ReadFile("/proc/" + entry.Name() + "/stat")
+		stat, err := os.ReadFile(filepath.Join(procfsRoot, entry.Name(), "stat"))
 		if err != nil {
 			continue // the process exited
 		}

@@ -1,10 +1,32 @@
 package password
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+//nolint:paralleltest // replaces the package procfs root
+func TestSupplierWatchWithoutProcfsLetsSupplierFinish(t *testing.T) {
+	original := procfsRoot
+	procfsRoot = filepath.Join(t.TempDir(), "proc")
+	t.Cleanup(func() { procfsRoot = original })
+	// The watcher polls the supplier group several times while it runs.
+	process := exec.CommandContext(t.Context(), "/bin/sh", "-c", "sleep 0.2")
+	process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	require.NoError(t, process.Start())
+	stop := watchForegroundProcess(t.Context(), process, make(chan os.Signal))
+	waitErr := process.Wait()
+	result := stop()
+	require.NoError(t, result.err)
+	assert.False(t, result.suspended)
+	assert.NoError(t, waitErr, "the supplier runs to completion")
+}
 
 func TestParseProcessStatHandlesCommandNames(t *testing.T) {
 	t.Parallel()
