@@ -128,13 +128,15 @@ func TestGuideRendererPreservesNestedEmphasis(t *testing.T) {
 	assert.Contains(t, string(output), "\x1b[1mbold ")
 }
 
-func TestGuideRendererUsesV2AmbiguousEmphasis(t *testing.T) {
+// Goldmark v2.1.1 through v2.1.6 rendered this as "0**0* 0*", contrary to
+// CommonMark; v2.1.7 fixed it and added it to Goldmark's own fixtures.
+func TestGuideRendererFollowsCommonMarkAmbiguousEmphasis(t *testing.T) {
 	t.Parallel()
 
 	for _, rich := range []bool{false, true} {
 		output, err := renderGuide([]byte("# Styles\n\n0**0* *0**\n"), guideRenderOptions{width: 80, rich: rich})
 		require.NoError(t, err)
-		assert.Equal(t, "Styles\n\n0**0* 0*\n", stripGuideANSI(string(output)), "rich: %t", rich)
+		assert.Equal(t, "Styles\n\n0*0* 0\n", stripGuideANSI(string(output)), "rich: %t", rich)
 	}
 }
 
