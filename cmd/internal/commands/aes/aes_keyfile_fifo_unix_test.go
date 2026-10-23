@@ -167,7 +167,13 @@ func TestAESKeyfileValidationOrderProcess(_ *testing.T) { //nolint:paralleltest 
 // fifoHangReport describes who holds a FIFO and where this process is blocked, for a
 // hang seen only on loaded CI runners.
 func fifoHangReport(ctx context.Context, path string) string {
-	holders, err := exec.CommandContext(ctx, "lsof", "--", path).CombinedOutput()
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	lsof := exec.CommandContext(ctx, "lsof", "--", path)
+	// lsof forks helpers around blocking kernel calls; they can hold the output
+	// pipe open after lsof itself is killed.
+	lsof.WaitDelay = time.Second
+	holders, err := lsof.CombinedOutput()
 	if err != nil {
 		holders = append(holders, []byte("lsof: "+err.Error())...)
 	}
