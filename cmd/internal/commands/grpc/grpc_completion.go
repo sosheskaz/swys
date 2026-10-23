@@ -276,11 +276,15 @@ func completeGRPC(
 	return grpcCompletionCandidates(schema, prefix, kind), directive
 }
 
+func grpcDataCompletionApplicable(command *cobra.Command, args []string) bool {
+	return len(args) == 2 && validGRPCMethodSelector(args[1]) && !command.Flags().Changed(grpcInputFlagName) &&
+		grpcSelectionCompletionAllowed(command, args, grpcCompleteSelector) &&
+		!tlsconfig.UsesStdin(command) && validGRPCCompletionEndpoint(args[0])
+}
+
 // completeGRPCData offers the selected method's compact request template.
 func completeGRPCData(command *cobra.Command, args []string, prefix string, options *grpcOptions) []string {
-	if len(args) != 2 || !validGRPCMethodSelector(args[1]) || command.Flags().Changed(grpcInputFlagName) ||
-		tlsconfig.UsesStdin(command) || !validGRPCCompletionEndpoint(args[0]) {
-
+	if !grpcDataCompletionApplicable(command, args) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(command.Context(), grpcCompletionTimeout)

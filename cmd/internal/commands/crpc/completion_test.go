@@ -74,6 +74,9 @@ func TestCRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 	for name, args := range map[string][]string{
 		"discovery":                  {"http://127.0.0.1:1", "--protoset", path, "--data", ""},
 		"input owns the request":     {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--input", "unread.json", "--data", ""},
+		"empty list conflicts":       {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--list=", "--data", ""},
+		"empty describe conflicts":   {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--describe=", "--data", ""},
+		"empty template conflicts":   {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--template=", "--data", ""},
 		"missing method":             {"http://127.0.0.1:1/example.v1.EchoService/Missing", "--protoset", path, "--data", ""},
 		"unrelated prefix":           {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", `{"other`},
 		"template larger than 2 KiB": {"http://127.0.0.1:1" + echoMethod, "--protoset", largePath, "--data", ""},
