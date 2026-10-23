@@ -33,6 +33,7 @@ var (
 	errUnexpectedConfiguredServerLookup = errors.New("unexpected configured server lookup")
 	errTestDNSExchangeFailed            = errors.New("test DNS exchange failed")
 	errTestDNSLookupFailed              = errors.New("test DNS lookup failed")
+	errTestUDPBindRefused               = errors.New("test UDP bind refused")
 )
 
 func TestDNSAliasesUseTheSameSyntax(t *testing.T) {
@@ -464,25 +465,87 @@ func TestDNSDirectLocalUDPTruncationFallback(t *testing.T) {
 	require.NoError(t, errors.Join(udpConn.Close(), tcpListener.Close()), "close DNS fixtures")
 }
 
-// listenLocalTCPAndUDP binds TCP and UDP to one loopback port. A port free for
-// TCP can still be refused for UDP, as inside a Windows excluded port range, so
-// it retries with fresh ports.
+// The refusals model a Windows runner where the UDP twin of every TCP-picked
+// port failed to bind.
+func TestListenLocalTCPAndUDPWhenEveryUDPTwinIsRefused(t *testing.T) {
+	t.Parallel()
+	listenConfig := net.ListenConfig{}
+	refuseUDPTwins := func(ctx context.Context, network, address string) (net.PacketConn, error) {
+		if !strings.HasSuffix(address, ":0") {
+			return nil, fmt.Errorf("listen %s %s: %w", network, address, errTestUDPBindRefused)
+		}
+		return listenConfig.ListenPacket(ctx, network, address)
+	}
+	tcpListener, udpConn, err := listenLocalTCPAndUDPWith(t.Context(), refuseUDPTwins)
+	require.NoError(t, err)
+	assert.Equal(t, tcpListener.Addr().String(), udpConn.LocalAddr().String())
+	require.NoError(t, errors.Join(udpConn.Close(), tcpListener.Close()), "close port pair")
+}
+
+// listenLocalTCPAndUDP binds TCP and UDP to one loopback port.
 func listenLocalTCPAndUDP(t *testing.T) (net.Listener, net.PacketConn) {
 	t.Helper()
 	listenConfig := net.ListenConfig{}
-	var lastErr error
-	for range 10 {
-		tcpListener, err := listenConfig.Listen(t.Context(), "tcp4", "127.0.0.1:0")
-		require.NoError(t, err)
-		udpConn, err := listenConfig.ListenPacket(t.Context(), "udp4", tcpListener.Addr().String())
+	tcpListener, udpConn, err := listenLocalTCPAndUDPWith(t.Context(), listenConfig.ListenPacket)
+	require.NoError(t, err, "bind UDP beside TCP on one loopback port")
+	return tcpListener, udpConn
+}
+
+// localPortPairAttempts bounds listenLocalTCPAndUDPWith. Each protocol picks
+// half the candidates, more than the 200-port excluded blocks seen on Windows
+// runners.
+const localPortPairAttempts = 512
+
+// listenLocalTCPAndUDPWith binds TCP and, through listenPacket, UDP to one
+// loopback port. Windows excludes port blocks per protocol and assigns port-0
+// binds sequentially, so once one protocol's picks enter a block excluded for
+// the other, every twin is refused until the picks leave it. Attempts
+// alternate which protocol picks the port.
+func listenLocalTCPAndUDPWith(
+	ctx context.Context,
+	listenPacket func(context.Context, string, string) (net.PacketConn, error),
+) (net.Listener, net.PacketConn, error) {
+	listenConfig := net.ListenConfig{}
+	var lastErrs [2]error
+	for attempt := range localPortPairAttempts {
+		udpPicks := attempt%2 == 1
+		tcpListener, udpConn, err := listenLocalPortPair(ctx, &listenConfig, listenPacket, udpPicks)
 		if err == nil {
-			return tcpListener, udpConn
+			return tcpListener, udpConn, nil
 		}
-		lastErr = err
-		require.NoError(t, tcpListener.Close(), "close TCP listener")
+		lastErrs[attempt%2] = err
 	}
-	t.Fatalf("bind UDP beside TCP on one loopback port: %v", lastErr)
-	return nil, nil
+	return nil, nil, fmt.Errorf("%d attempts: %w", localPortPairAttempts, errors.Join(lastErrs[:]...))
+}
+
+// listenLocalPortPair binds the picking protocol to loopback port 0 and the
+// other protocol to the port it got.
+func listenLocalPortPair(
+	ctx context.Context,
+	listenConfig *net.ListenConfig,
+	listenPacket func(context.Context, string, string) (net.PacketConn, error),
+	udpPicks bool,
+) (net.Listener, net.PacketConn, error) {
+	if udpPicks {
+		udpConn, err := listenPacket(ctx, "udp4", "127.0.0.1:0")
+		if err != nil {
+			return nil, nil, fmt.Errorf("UDP picks: %w", err)
+		}
+		tcpListener, err := listenConfig.Listen(ctx, "tcp4", udpConn.LocalAddr().String())
+		if err != nil {
+			return nil, nil, errors.Join(fmt.Errorf("UDP picks: %w", err), udpConn.Close())
+		}
+		return tcpListener, udpConn, nil
+	}
+	tcpListener, err := listenConfig.Listen(ctx, "tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, fmt.Errorf("TCP picks: %w", err)
+	}
+	udpConn, err := listenPacket(ctx, "udp4", tcpListener.Addr().String())
+	if err != nil {
+		return nil, nil, errors.Join(fmt.Errorf("TCP picks: %w", err), tcpListener.Close())
+	}
+	return tcpListener, udpConn, nil
 }
 
 func TestDNSDirectLocalWireRendersEmptyRDATA(t *testing.T) {
