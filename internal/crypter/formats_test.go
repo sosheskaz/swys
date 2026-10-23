@@ -349,12 +349,30 @@ func definiteOpenPGPPacket(t *testing.T, wire []byte, extra uint32) []byte {
 // returns the offset and octet count of its final definite length.
 func openPGPPacketBody(t *testing.T, wire []byte) ([]byte, int, int) {
 	t.Helper()
-	require.Equal(t, byte(0xd2), wire[0], "fixture expects a new-format SEIPD packet")
-	var body []byte
+	offsets, final, header := openPGPBodyOffsets(t, wire)
+	body := make([]byte, len(offsets))
+	for i, offset := range offsets {
+		body[i] = wire[offset]
+	}
+	return body, final, header
+}
+
+// openPGPBodyOffsets maps each body octet of a single new-format packet,
+// across its partial segments, to its wire offset. It also returns the offset
+// and octet count of the final definite length.
+func openPGPBodyOffsets(tb testing.TB, wire []byte) ([]int, int, int) {
+	tb.Helper()
+	require.Equal(tb, byte(0xd2), wire[0], "fixture expects a new-format SEIPD packet")
+	var body []int
+	appendBody := func(start, size int) {
+		for i := range size {
+			body = append(body, start+i)
+		}
+	}
 	offset := 1
 	for wire[offset] >= 224 && wire[offset] < 255 {
 		size := 1 << (wire[offset] & 0x1f)
-		body = append(body, wire[offset+1:offset+1+size]...)
+		appendBody(offset+1, size)
 		offset += 1 + size
 	}
 	var size, header int
@@ -366,8 +384,9 @@ func openPGPPacketBody(t *testing.T, wire []byte) ([]byte, int, int) {
 	default:
 		size, header = int(binary.BigEndian.Uint32(wire[offset+1:])), 5
 	}
-	require.Len(t, wire, offset+header+size, "fixture expects one outer packet")
-	return append(body, wire[offset+header:]...), offset, header
+	require.Len(tb, wire, offset+header+size, "fixture expects one outer packet")
+	appendBody(offset+header, size)
+	return body, offset, header
 }
 
 func TestOpenPGPRejectsMalformedHeaderWithoutReadingBody(t *testing.T) {

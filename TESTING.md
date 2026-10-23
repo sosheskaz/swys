@@ -284,9 +284,18 @@ returning buffered artifact bytes.
 
 These targets bound generated input sizes and check key identity, certificate
 order and DER preservation, and base64url acceptance against the standard library
-(including one-byte reads). The bounded AES wire target exercises OpenPGP and
-Tink parsing and decryption with input and output limits. Unit tests separately
-check authentication failures and retained plaintext prefixes. Parser round trips
+(including one-byte reads). The bounded AES wire target encrypts a generated
+plaintext as OpenPGP or Tink with a generated chunk or segment size, applies at
+most one truncation, extension, byte flip, swap of two whole segments, or
+replacement, and decrypts through the command's preparation and copy steps. A
+success must return exactly the plaintext, and a failure may leave only a
+plaintext prefix. The untampered stream must decrypt; truncation, trailing
+bytes, and any change to authenticated bytes, including the OpenPGP final tag,
+must fail. A replacement, or a flip in an OpenPGP packet's tag or length
+octets, need not fail, since reframing can change those bytes without changing
+the authenticated body. Decryption errors must not contain the key. A fixed
+random seed makes each input's ciphertext reproducible. Unit tests separately
+pin the chunk at which a failure stops releasing plaintext. Parser round trips
 cover successfully parsed artifacts; they do not prove rejection of every invalid
 input. The ALPN target
 uses an independently structured delimiter oracle to check ordered opaque
