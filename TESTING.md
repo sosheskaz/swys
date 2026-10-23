@@ -324,7 +324,10 @@ certificate target checks certificate JSON formatting.
 The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
 and free of non-printing runes. Printable diagnostic values are preserved,
-while escaping is idempotent.
+while escaping is idempotent. Quotes and backslashes pass through unescaped, so
+only values without them must recover their exact original bytes through Go
+string unquoting; bytes outside a valid encoding thereby keep their own value
+and stay distinct from a literal U+FFFD.
 
 The byte-encoding targets compare every distinct registered encoder and decoder
 with the standard library, including arbitrary binary input, independently

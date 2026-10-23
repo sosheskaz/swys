@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -678,6 +679,17 @@ func TestHTTPStatusFailurePreservesResponseBody(t *testing.T) {
 	assert.Equal(t, "short and stout", stdout)
 }
 
+func TestHTTPStatusFailureKeepsInvalidReasonBytes(t *testing.T) {
+	t.Parallel()
+
+	server := newRawHTTPServer(t, "HTTP/1.1 418 tea\xffpot\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+
+	_, _, err := executeRootStreams(t, "http", server.URL)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `418 tea\xffpot`, "escaped status")
+	assert.True(t, utf8.ValidString(err.Error()), "status diagnostic is not valid UTF-8: %q", err.Error())
+}
+
 func TestHTTPRedirectBehavior(t *testing.T) {
 	t.Parallel()
 
@@ -1182,7 +1194,7 @@ func TestHTTPMutualTLS(t *testing.T) {
 func TestHTTPTruncatedResponseReportsPartialOutput(t *testing.T) {
 	t.Parallel()
 
-	server := newTruncatedHTTPServer(t)
+	server := newRawHTTPServer(t, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
 
 	stdout, _, err := executeRootStreams(t, "http", server.URL)
 	require.Error(t, err)
@@ -1330,7 +1342,9 @@ func writeHTTPTestBytes(t *testing.T, writer io.Writer, value []byte) {
 	}
 }
 
-func newTruncatedHTTPServer(t *testing.T) *httptest.Server {
+// newRawHTTPServer answers every request with response bytes the standard
+// server would not produce, then closes the connection.
+func newRawHTTPServer(t *testing.T, response string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		hijacker, ok := writer.(http.Hijacker)
@@ -1343,10 +1357,10 @@ func newTruncatedHTTPServer(t *testing.T) *httptest.Server {
 			t.Errorf("hijack response: %v", err)
 			return
 		}
-		_, writeErr := fmt.Fprint(buffer, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
+		_, writeErr := buffer.WriteString(response)
 		flushErr := buffer.Flush()
 		if err := errors.Join(writeErr, flushErr, connection.Close()); err != nil {
-			t.Errorf("write truncated response: %v", err)
+			t.Errorf("write raw response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
