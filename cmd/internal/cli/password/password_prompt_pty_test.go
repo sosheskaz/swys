@@ -185,6 +185,22 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	helper.Stderr = os.Stderr
 	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	require.NoError(t, helper.Start())
+	waited := make(chan error, 1)
+	go func() { waited <- helper.Wait() }()
+	reaped := false
+	defer func() {
+		if reaped {
+			return
+		}
+		// Canceling the fixture context kills the helper, but only Wait reaps it
+		// and releases the exec context watcher.
+		_ = helper.Process.Kill() //nolint:errcheck // helper may already have exited
+		select {
+		case <-waited:
+		case <-time.After(2 * time.Second):
+			t.Error("password prompt helper survived SIGKILL")
+		}
+	}()
 	require.NoError(t, readyWrite.Close())
 	require.NoError(t, releaseRead.Close())
 	prompt := make([]byte, 128)
@@ -247,19 +263,13 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	}
 	_, err = releaseWrite.Write([]byte{1})
 	require.NoError(t, err)
-	waited := make(chan error, 1)
-	go func() { waited <- helper.Wait() }()
 	select {
 	case err := <-waited:
+		reaped = true
 		require.NoError(t, err)
 	case <-time.After(3 * time.Second):
-		_ = master.Close()        //nolint:errcheck // release a blocked PTY reader on test failure
-		_ = slave.Close()         //nolint:errcheck // release a blocked PTY reader on test failure
-		_ = helper.Process.Kill() //nolint:errcheck // helper may already have exited
-		select {
-		case <-waited:
-		case <-time.After(2 * time.Second):
-		}
+		_ = master.Close() //nolint:errcheck // release a blocked PTY reader on test failure
+		_ = slave.Close()  //nolint:errcheck // release a blocked PTY reader on test failure
 		t.Fatal("password prompt helper did not finish")
 	}
 	require.NoError(t, master.Close())
