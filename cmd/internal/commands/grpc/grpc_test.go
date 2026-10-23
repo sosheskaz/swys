@@ -517,6 +517,8 @@ func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 	t.Parallel()
 
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	// Connection setup on a loaded runner can outlast a short overall timeout.
+	record.delayNextAccept(time.Second)
 	input := newGRPCBlockingReader(`{"text":"delayed input"}`)
 	t.Cleanup(input.releaseRead)
 	root := newRootCmd()

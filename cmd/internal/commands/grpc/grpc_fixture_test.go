@@ -155,6 +155,7 @@ type grpcFixtureRecorder struct {
 	callMetadata           metadata.MD
 	reflectionMetadata     metadata.MD
 	mu                     sync.Mutex
+	acceptDelay            time.Duration
 	connections            int
 	calls                  int
 	v1ReflectionCalls      int
@@ -171,6 +172,22 @@ func (recorder *grpcFixtureRecorder) connectionCount() int {
 	recorder.mu.Lock()
 	defer recorder.mu.Unlock()
 	return recorder.connections
+}
+
+// delayNextAccept holds the next accepted connection back from the server, as a
+// loaded runner can, so connection setup outlasts a short command budget.
+func (recorder *grpcFixtureRecorder) delayNextAccept(delay time.Duration) {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	recorder.acceptDelay = delay
+}
+
+func (recorder *grpcFixtureRecorder) takeAcceptDelay() time.Duration {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	delay := recorder.acceptDelay
+	recorder.acceptDelay = 0
+	return delay
 }
 
 func (recorder *grpcFixtureRecorder) recordCall(md metadata.MD) {
@@ -471,6 +488,9 @@ func (listener *grpcFixtureCountingListener) Accept() (net.Conn, error) {
 		return nil, fmt.Errorf("accept gRPC fixture connection: %w", err)
 	}
 	listener.record.recordConnection()
+	if delay := listener.record.takeAcceptDelay(); delay > 0 {
+		time.Sleep(delay)
+	}
 	return connection, nil
 }
 
