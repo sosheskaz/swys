@@ -18,6 +18,5 @@ func passwordProcessStopped(pid int) (bool, error) {
 		}
 		return false, fmt.Errorf("inspect supplier process: %w", err)
 	}
-	// SSTOP is 4 in Darwin's sys/proc.h.
-	return info.Proc.P_stat == 4, nil
+	return info.Proc.P_stat == darwinProcessStopped, nil
 }

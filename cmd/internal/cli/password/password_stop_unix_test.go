@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,4 +69,25 @@ func defaultTSTPForChildren(t *testing.T) {
 	caught := make(chan os.Signal, 1)
 	signal.Notify(caught, syscall.SIGTSTP)
 	t.Cleanup(func() { signal.Stop(caught) })
+}
+
+func TestStoppedGrandchildIsObservedInGroup(t *testing.T) {
+	t.Parallel()
+	// The subshell stops while the shell only waits for it, so only the group shows the stop.
+	process := exec.CommandContext(t.Context(), "/bin/sh", "-c", `sh -c 'kill -STOP $$'; sleep 30`)
+	process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	require.NoError(t, process.Start())
+	pid := process.Process.Pid
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL) //nolint:errcheck // the group may already be gone
+		_ = process.Wait()                      //nolint:errcheck // the shell was killed
+	})
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		stopped, err := passwordGroupStopped(pid)
+		assert.NoError(c, err)
+		assert.True(c, stopped, "stopped grandchild in the supplier group")
+	}, 3*time.Second, 10*time.Millisecond)
+	stopped, err := passwordProcessStopped(pid)
+	require.NoError(t, err)
+	assert.False(t, stopped, "the supplier shell itself only waits")
 }
