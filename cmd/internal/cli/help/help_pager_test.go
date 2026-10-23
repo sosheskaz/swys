@@ -5,7 +5,7 @@ import (
 	"os"
 	"syscall"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,32 +82,39 @@ func TestParsePagerRejectsMalformedConfiguration(t *testing.T) {
 
 func TestTerminateOnReceiveEndsThePagerOnASignal(t *testing.T) {
 	t.Parallel()
-	received := make(chan os.Signal, 1)
-	terminated := make(chan struct{})
-	stop := terminateOnReceive(received, func() { close(terminated) })
-	defer stop()
+	synctest.Test(t, func(t *testing.T) {
+		received := make(chan os.Signal, 1)
+		terminated := make(chan struct{})
+		stop := terminateOnReceive(received, func() { close(terminated) })
 
-	received <- syscall.SIGTERM
-
-	select {
-	case <-terminated:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the pager was not terminated")
-	}
+		received <- syscall.SIGTERM
+		synctest.Wait()
+		handled := stop()
+		select {
+		case <-terminated:
+		default:
+			t.Fatal("the pager was not terminated")
+		}
+		assert.Equal(t, syscall.SIGTERM, handled)
+	})
 }
 
 func TestTerminateOnReceiveStaysQuietOnceStopped(t *testing.T) {
 	t.Parallel()
-	received := make(chan os.Signal, 1)
-	terminated := make(chan struct{})
-	stop := terminateOnReceive(received, func() { close(terminated) })
+	synctest.Test(t, func(t *testing.T) {
+		received := make(chan os.Signal, 1)
+		terminated := make(chan struct{})
+		stop := terminateOnReceive(received, func() { close(terminated) })
 
-	stop()
-	received <- syscall.SIGTERM
-
-	select {
-	case <-terminated:
-		t.Fatal("a stopped subscription still terminated the pager")
-	case <-time.After(50 * time.Millisecond):
-	}
+		assert.Nil(t, stop())
+		received <- syscall.SIGTERM
+		// stop joins the worker, so nothing is left to receive the signal; Wait
+		// still gives a worker that outlived stop the chance to misfire.
+		synctest.Wait()
+		select {
+		case <-terminated:
+			t.Fatal("a stopped subscription still terminated the pager")
+		default:
+		}
+	})
 }

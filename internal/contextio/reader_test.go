@@ -13,7 +13,6 @@ import (
 	"testing"
 	"testing/iotest"
 	"testing/synctest"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -194,29 +193,46 @@ func TestReaderCancelsWhileWaitingToDispatchRead(t *testing.T) {
 
 func TestReaderReleasesBlockedRead(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancelCause(t.Context())
-	source := newGatedReader("late bytes")
-	reader := NewReader(ctx, source)
-	buffer := make([]byte, 16)
-	result := make(chan error, 1)
-	go func() {
-		_, err := reader.Read(buffer)
-		result <- err
-	}()
-	waitForSignal(t, source.entered, "source read did not start")
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		source := newGatedReader("late bytes")
+		// Releasing the source on every exit lets a failed assertion end the
+		// bubble cleanly instead of deadlocking on the stuck source read.
+		release := sync.OnceFunc(func() { close(source.release) })
+		defer release()
+		reader := NewReader(ctx, source)
+		buffer := make([]byte, 16)
+		result := make(chan error, 1)
+		go func() {
+			_, err := reader.Read(buffer)
+			result <- err
+		}()
+		synctest.Wait()
+		select {
+		case <-source.entered:
+		default:
+			t.Fatal("source read did not start")
+		}
 
-	cancel(errCause)
+		cancel(errCause)
 
-	select {
-	case err := <-result:
-		require.ErrorIs(t, err, errCause)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Read stayed blocked after cancellation")
-	}
-	// The abandoned source read completes later; it must not reach the caller.
-	close(source.release)
-	waitForSignal(t, source.finished, "source read did not finish")
-	assert.Equal(t, make([]byte, len(buffer)), buffer, "abandoned read must not change caller buffer")
+		synctest.Wait()
+		select {
+		case err := <-result:
+			require.ErrorIs(t, err, errCause)
+		default:
+			t.Fatal("Read stayed blocked after cancellation")
+		}
+		// The abandoned source read completes later; it must not reach the caller.
+		release()
+		synctest.Wait()
+		select {
+		case <-source.finished:
+		default:
+			t.Fatal("source read did not finish")
+		}
+		assert.Equal(t, make([]byte, len(buffer)), buffer, "abandoned read must not change caller buffer")
+	})
 }
 
 func TestReaderReadsOnlyWhatTheCallerRequests(t *testing.T) {
