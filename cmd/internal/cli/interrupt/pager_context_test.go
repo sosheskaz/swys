@@ -5,35 +5,32 @@ import (
 	"os"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGuidePagerIsTerminatedByPlainCancellation(t *testing.T) {
 	t.Parallel()
-	parent, cancel := context.WithCancel(t.Context())
-	ctx, release := PagerContext(parent)
-	defer release()
+	synctest.Test(t, func(t *testing.T) {
+		parent, cancel := context.WithCancel(t.Context())
+		ctx, release := PagerContext(parent)
+		defer release()
 
-	cancel()
-	select {
-	case <-ctx.Done():
-	case <-time.After(10 * time.Second):
-		t.Fatal("context was not canceled")
-	}
+		cancel()
+		synctest.Wait()
+		assert.ErrorIs(t, ctx.Err(), context.Canceled, "context was not canceled")
+	})
 }
 
 func TestGuidePagerContextReleaseCancelsPager(t *testing.T) {
 	t.Parallel()
-	ctx, release := PagerContext(t.Context())
-	release()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, release := PagerContext(t.Context())
+		release()
 
-	select {
-	case <-ctx.Done():
-	case <-time.After(10 * time.Second):
-		t.Fatal("context was not canceled")
-	}
+		synctest.Wait()
+		assert.ErrorIs(t, ctx.Err(), context.Canceled, "context was not canceled")
+	})
 }
 
 func TestPagerContextLetsGoOfTheBackstopOnRelease(t *testing.T) {
