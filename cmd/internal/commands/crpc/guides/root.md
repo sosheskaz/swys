@@ -3,11 +3,14 @@
 Call a Connect RPC service with JSON. connectrpc is an alias for crpc.
 Ordinary requests do not require reflection or a protobuf schema.
 
+Most examples call Connect's public Eliza demo at demo.connectrpc.com, which
+needs network access. Replace it with your own service's URL and methods.
+
 ## Basic usage
 
 ```sh
-swys crpc https://api.example.com/example.v1.EchoService/Echo -d '{"text":"hello"}'
-swys crpc https://api.example.com example.v1.EchoService/Echo -d '{"text":"hello"}'
+swys crpc https://demo.connectrpc.com/connectrpc.eliza.v1.ElizaService/Say -d '{"sentence":"hello"}'
+swys crpc https://demo.connectrpc.com connectrpc.eliza.v1.ElizaService/Say -d '{"sentence":"hello"}'
 ```
 
 Schemeless addresses use HTTPS. Use http:// explicitly for cleartext local
@@ -16,10 +19,13 @@ HTTP/1.1 servers. Server and client streaming also support HTTP/1.1. Redirects a
 
 ## Work with files and pipelines
 
+The last example requires jq.
+
 ```sh
-swys crpc localhost:8443/example.v1.EchoService/Echo --ca local-ca.pem -i request.json -o response.json
-printf '%s' '{"text":"hello"}' | swys crpc http://localhost:8080/example.v1.EchoService/Echo
-swys crpc api.example.com/example.v1.EchoService/Echo -d '{"text":"hello"}' | jq -r .text
+printf '%s' '{"sentence":"hello"}' > request.json
+swys crpc demo.connectrpc.com/connectrpc.eliza.v1.ElizaService/Say -i request.json -o response.json
+printf '%s' '{"sentence":"hello"}' | swys crpc demo.connectrpc.com/connectrpc.eliza.v1.ElizaService/Say
+swys crpc demo.connectrpc.com/connectrpc.eliza.v1.ElizaService/Say -d '{"sentence":"hello"}' | jq -r .sentence
 ```
 
 -d/--data takes one JSON value. Otherwise the command reads piped stdin, or
@@ -32,13 +38,20 @@ bytes; -e/--encoding independently encodes the JSON response.
 
 Use --stream server for one request and many responses, --stream client for
 many requests and one response, or --stream bidi for both. Without --stream,
-the command makes a unary call. These examples require services offering the
-named streaming methods:
+the command makes a unary call. Eliza's Introduce method streams several
+responses, and Converse answers each message of a bidirectional stream:
 
 ```sh
-swys crpc api.example.com/example.v1.Events/Watch --stream server -d '{"topic":"deployments"}'
+swys crpc demo.connectrpc.com/connectrpc.eliza.v1.ElizaService/Introduce --stream server -d '{"name":"Ada"}'
+printf '%s\n' '{"sentence":"hello"}' '{"sentence":"I feel fine"}' > requests.jsonl
+swys crpc demo.connectrpc.com/connectrpc.eliza.v1.ElizaService/Converse --stream bidi -i requests.jsonl | jq --unbuffered -r .sentence
+```
+
+The demo has no client-streaming method. With a local service offering one
+and an events.jsonl file:
+
+```sh
 swys crpc http://localhost:8080/example.v1.Events/Upload --stream client -i events.jsonl -o summary.json
-swys crpc api.example.com/example.v1.Chat/Exchange --stream bidi -i requests.jsonl | jq --unbuffered -r .text
 ```
 
 Multiple-message input and output use JSON Lines: one complete JSON value per
@@ -61,9 +74,15 @@ A bare origin lists services. Add --list SERVICE to list its methods, or
 marks a routed base URL. Explicit discovery flags always treat the URL as a base.
 
 ```sh
-swys crpc api.example.com
+swys crpc demo.connectrpc.com
+swys crpc demo.connectrpc.com --list connectrpc.eliza.v1.ElizaService
+swys crpc demo.connectrpc.com --describe connectrpc.eliza.v1.SayRequest --format json -o request-type.json
+```
+
+For a service routed under a path, or with your own descriptor set:
+
+```sh
 swys crpc https://api.example.com/rpc/ --list example.v1.EchoService
-swys crpc api.example.com --describe example.v1.Request --format json -o request-type.json
 swys crpc --protoset api.protoset --list example.v1.EchoService
 ```
 
@@ -82,7 +101,7 @@ shape and infer unary/server/client/bidi cardinality. An explicitly conflicting
 invocation. Ordinary calls without these flags still need no schema.
 
 ```sh
-swys crpc api.example.com example.v1.EchoService/Echo --reflect -d '{"text":"hello"}'
+swys crpc demo.connectrpc.com connectrpc.eliza.v1.ElizaService/Say --reflect -d '{"sentence":"hello"}'
 swys crpc http://localhost:8080/example.v1.Events/Watch --protoset api.protoset -d '{"topic":"deployments"}'
 ```
 
@@ -99,29 +118,37 @@ levels. --max-message-size controls RPC payloads only.
 ## Build a request from the schema
 
 --template SERVICE/METHOD prints editable protobuf JSON without calling the
-method. Use reflection, or provide a local protoset for offline work:
+method. Reflection supplies the schema:
 
 ```sh
-swys crpc api.example.com --template example.v1.EchoService/Echo -o request.json
-swys crpc --protoset api.protoset --template example.v1.EchoService/Echo -o request.json
-swys crpc api.example.com example.v1.EchoService/Echo --reflect -i request.json -o response.json
+swys crpc demo.connectrpc.com --template connectrpc.eliza.v1.ElizaService/Say -o request.json
+swys crpc demo.connectrpc.com connectrpc.eliza.v1.ElizaService/Say --reflect -i request.json -o response.json
 ```
 
-Edit request.json before sending it. Templates show field defaults, empty
-lists/maps, and nested objects. They leave oneof choices unselected and do not
-invent IDs or other business values. Recursive references and messages beyond
-four object levels remain null. Expansion is bounded to 4,096 fields; a template
-is a starting point, not a promise that the service accepts those values.
---format jsonl puts the template on one line for a streaming request file.
+Edit request.json before sending it. With your own descriptor set, build the
+template offline:
+
+```sh
+swys crpc --protoset api.protoset --template example.v1.EchoService/Echo -o request.json
+```
+
+Templates show field defaults, empty lists/maps, and nested objects. They
+leave oneof choices unselected and do not invent IDs or other business values.
+Recursive references and messages beyond four object levels remain null.
+Expansion is bounded to 4,096 fields; a template is a starting point, not a
+promise that the service accepts those values. --format jsonl puts the template
+on one line for a streaming request file.
 
 With shell completion installed, use the base-URL-plus-method form and press
 Tab after the service prefix, then after SERVICE/ to see methods with request,
-response, and streaming descriptions. --list, --describe, and --template also
-complete schema symbols. Once the method is named, press Tab after -d to insert
-its compact template, escaped for your shell; this reflects on demand without
---reflect. Press Tab before typing a quote: fish also completes after an opening
-quote, but bash and zsh do not. Templates over 2 KiB are not offered; use
---template instead. See swys help completion for shell setup.
+response, and streaming descriptions. For example, Tab after
+swys crpc demo.connectrpc.com connectrpc.eliza.v1.ElizaService/ lists Say,
+Introduce, and Converse. Once the method is named, press Tab after -d to insert
+its compact template, such as {"sentence":""}, escaped for your shell; this
+reflects on demand without --reflect. Press Tab before typing a quote: fish also
+completes after an opening quote, but bash and zsh do not. Templates over 2 KiB
+are not offered; use --template instead. --list, --describe, and --template
+also complete schema symbols. See swys help completion for shell setup.
 
 Completion uses --protoset when supplied; otherwise it queries reflection with
 a hard two-second cap and honors shorter connection/reflection timeouts. It
