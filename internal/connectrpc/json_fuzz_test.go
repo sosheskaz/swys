@@ -3,6 +3,7 @@ package connectrpc_test
 import (
 	"bytes"
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"testing"
@@ -77,8 +78,11 @@ func FuzzJSONCodecUnmarshalReadLimits(f *testing.F) {
 // limited decode may only succeed when the whole body fits strictly inside
 // the limit; otherwise the failure must surface as either the size error, the
 // source's own error, or the same decode failure an unlimited decode sees.
+// Whenever decoding has to read past the body, the source's error must keep
+// its identity.
 func FuzzJSONCodecUnmarshalReadSourceFailures(f *testing.F) {
 	f.Add([]byte{}, uint16(0), uint8(1))
+	f.Add([]byte(`{"count":2}`), uint16(10), uint8(4))
 	f.Add([]byte(`{"count":2}`), uint16(11), uint8(3))
 	f.Add([]byte(`{"count":2}`), uint16(12), uint8(255))
 	f.Add([]byte(`{"count":2}`), uint16(13), uint8(1))
@@ -103,6 +107,18 @@ func FuzzJSONCodecUnmarshalReadSourceFailures(f *testing.F) {
 			fuzzConnectJSONFailingSource(body, sourceChunk),
 			&unlimited,
 		)
+
+		// The decoder reads past a complete value to rule out trailing data,
+		// and past a valid value cut short to finish it. At or under the
+		// limit, the codec's own probe reads the next byte too.
+		if fuzzConnectJSONReadsPastBody(body) {
+			if !errors.Is(unlimitedErr, errFuzzConnectJSONSource) {
+				t.Fatalf("unlimited decode error = %v, want the source error", unlimitedErr)
+			}
+			if len(body) <= limit && !errors.Is(limitedErr, errFuzzConnectJSONSource) {
+				t.Fatalf("limited decode error = %v for %d bytes at limit %d, want the source error", limitedErr, len(body), limit)
+			}
+		}
 
 		wantSuccess := unlimitedErr == nil && len(body) < limit
 		if (limitedErr == nil) != wantSuccess {
@@ -144,6 +160,15 @@ func fuzzCheckSameConnectJSONDecode(t *testing.T, limitedErr, unlimitedErr error
 	if string(limited) != string(unlimited) {
 		t.Fatalf("decoded value = %q, want %q", string(limited), string(unlimited))
 	}
+}
+
+// fuzzConnectJSONReadsPastBody reports, without the codec, whether decoding
+// body must read beyond it: the body holds a complete JSON value or a valid
+// one cut short.
+func fuzzConnectJSONReadsPastBody(body []byte) bool {
+	var value jsontext.Value
+	err := json.Unmarshal(body, &value)
+	return err == nil || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func fuzzConnectJSONFailingSource(body []byte, chunk uint8) io.Reader {
