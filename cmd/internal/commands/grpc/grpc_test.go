@@ -516,7 +516,12 @@ func TestGRPCImplicitTerminalInputMeansEmptyObject(t *testing.T) {
 func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 	t.Parallel()
 
+	const timeout = 5 * time.Second
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	// Connection setup on a loaded runner can take longer than the input hold, so
+	// the contract is checked in the deadline the server receives, not in how
+	// quickly the command finishes.
+	record.delayNextAccept(time.Second)
 	input := newGRPCBlockingReader(`{"text":"delayed input"}`)
 	t.Cleanup(input.releaseRead)
 	root := newRootCmd()
@@ -531,7 +536,7 @@ func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 		stdout, _, err := executeRootCommandStreams(
 			t,
 			root,
-			"grpc", address, grpcFixtureMethodName, "--plaintext", "--timeout", "500ms",
+			"grpc", address, grpcFixtureMethodName, "--plaintext", "--timeout", timeout.String(),
 		)
 		result <- commandResult{stdout: stdout, err: err}
 	}()
@@ -547,20 +552,26 @@ func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 	case <-time.After(750 * time.Millisecond):
 	}
 	v1BeforeInput, alphaBeforeInput := record.reflectionCounts()
+	released := time.Now()
 	input.releaseRead()
 
 	var command commandResult
 	select {
 	case command = <-result:
-	case <-time.After(2 * time.Second):
-		t.Fatal("gRPC command did not finish within a fresh overall timeout after request input")
+	case <-time.After(2 * timeout):
+		t.Fatal("gRPC command did not finish after request input")
 	}
 	if v1BeforeInput != 0 || alphaBeforeInput != 0 {
 		t.Fatalf("reflection started before request input completed: v1=%d v1alpha=%d", v1BeforeInput, alphaBeforeInput)
 	}
 	if command.err != nil {
-		t.Fatalf("delayed request did not receive a fresh overall timeout: %v", command.err)
+		t.Fatalf("delayed request failed: %v", command.err)
 	}
+	// The server adds the received grpc-timeout to its receipt time, so a timeout
+	// that starts after input arrives at least the full timeout after release. One
+	// that started with the command arrives short by the input hold, less the time
+	// the call's headers spend in transit on the established connection.
+	assert.GreaterOrEqual(t, record.lastCallDeadline().Sub(released), timeout, "overall timeout must start after request input")
 	assert.Contains(t, command.stdout, "delayed input")
 	calls, _, _ := record.snapshot()
 	v1Calls, alphaCalls := record.reflectionCounts()

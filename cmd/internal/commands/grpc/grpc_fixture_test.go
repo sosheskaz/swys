@@ -154,7 +154,9 @@ type grpcFixtureRecorder struct {
 	callFinished           chan struct{}
 	callMetadata           metadata.MD
 	reflectionMetadata     metadata.MD
+	callDeadline           time.Time
 	mu                     sync.Mutex
+	acceptDelay            time.Duration
 	connections            int
 	calls                  int
 	v1ReflectionCalls      int
@@ -173,10 +175,29 @@ func (recorder *grpcFixtureRecorder) connectionCount() int {
 	return recorder.connections
 }
 
-func (recorder *grpcFixtureRecorder) recordCall(md metadata.MD) {
+// delayNextAccept holds the next accepted connection back from the server, as a
+// loaded runner can, so connection setup outlasts a short command budget.
+func (recorder *grpcFixtureRecorder) delayNextAccept(delay time.Duration) {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	recorder.acceptDelay = delay
+}
+
+func (recorder *grpcFixtureRecorder) takeAcceptDelay() time.Duration {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	delay := recorder.acceptDelay
+	recorder.acceptDelay = 0
+	return delay
+}
+
+func (recorder *grpcFixtureRecorder) recordCall(ctx context.Context) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	deadline, _ := ctx.Deadline()
 	recorder.mu.Lock()
 	recorder.calls++
 	recorder.callMetadata = copyGRPCFixtureMetadata(md)
+	recorder.callDeadline = deadline
 	recorder.mu.Unlock()
 	select {
 	case recorder.callStarted <- struct{}{}:
@@ -227,6 +248,14 @@ func (recorder *grpcFixtureRecorder) reflectionCounts() (int, int) {
 	recorder.mu.Lock()
 	defer recorder.mu.Unlock()
 	return recorder.v1ReflectionCalls, recorder.alphaReflectionCalls
+}
+
+// lastCallDeadline returns the deadline the server derived from the last
+// application call's grpc-timeout on receipt.
+func (recorder *grpcFixtureRecorder) lastCallDeadline() time.Time {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	return recorder.callDeadline
 }
 
 func (recorder *grpcFixtureRecorder) snapshot() (int, metadata.MD, metadata.MD) {
@@ -471,6 +500,9 @@ func (listener *grpcFixtureCountingListener) Accept() (net.Conn, error) {
 		return nil, fmt.Errorf("accept gRPC fixture connection: %w", err)
 	}
 	listener.record.recordConnection()
+	if delay := listener.record.takeAcceptDelay(); delay > 0 {
+		time.Sleep(delay)
+	}
 	return connection, nil
 }
 
@@ -672,8 +704,7 @@ func grpcFixtureServiceDesc(file *descriptorpb.FileDescriptorProto, request prot
 }
 
 func (service *grpcFixtureImplementation) echo(ctx context.Context, request *dynamicpb.Message) (any, error) {
-	md, _ := metadata.FromIncomingContext(ctx)
-	service.record.recordCall(md)
+	service.record.recordCall(ctx)
 	defer service.record.recordCallFinished()
 	if service.plainEcho {
 		return request, nil
