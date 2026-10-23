@@ -117,7 +117,11 @@ is a starting point, not a promise that the service accepts those values.
 With shell completion installed, use the base-URL-plus-method form and press
 Tab after the service prefix, then after SERVICE/ to see methods with request,
 response, and streaming descriptions. --list, --describe, and --template also
-complete schema symbols. See swys help completion for shell setup.
+complete schema symbols. Once the method is named, press Tab after -d to insert
+its compact template, escaped for your shell; this reflects on demand without
+--reflect. Press Tab before typing a quote: fish also completes after an opening
+quote, but bash and zsh do not. Templates over 2 KiB are not offered; use
+--template instead. See swys help completion for shell setup.
 
 Completion uses --protoset when supplied; otherwise it queries reflection with
 a hard two-second cap and honors shorter connection/reflection timeouts. It

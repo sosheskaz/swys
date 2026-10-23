@@ -53,6 +53,8 @@ swys grpc api.example.test:443 example.v1.EchoService/Echo -i request.json
 
 Templates show field defaults, empty lists and maps, and nested messages. They leave oneof choices unselected and do not invent IDs or other business values; a template is a starting point, not a promise that the service accepts those values. Templates are always protobuf JSON, so the format flag accepts only json. With **--protoset**, templates work offline.
 
+With shell completion installed, press Tab after **-d** once the method is named to insert its compact template, escaped for your shell. Press Tab before typing a quote: fish also completes after an opening quote, but bash and zsh do not. Completion offers templates up to 2 KiB and never invokes the method.
+
 ## Authenticate
 
 --auth-bearer-file, --auth-bearer-env, and --auth-bearer send a bearer token as authorization metadata on reflection and the call. The matching --auth-basic forms take USER:PASSWORD. Prefer the file and environment forms; literal values are visible to other local users in process listings and shell history. One trailing line ending is removed from a credential file.

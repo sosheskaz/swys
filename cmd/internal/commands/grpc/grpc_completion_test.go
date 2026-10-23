@@ -2,6 +2,7 @@ package grpc_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 func TestGRPCCompletionUsesSeparateTwoSecondDeadline(t *testing.T) {
@@ -424,6 +427,43 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 			assertGRPCCompletionDirective(t, directive)
 		})
 	}
+}
+
+func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
+	t.Parallel()
+
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	_, large, _ := grpcFixtureSchema(t)
+	request := large.File[0].MessageType[0]
+	for i := range 96 {
+		request.Field = append(request.Field, &descriptorpb.FieldDescriptorProto{
+			Name:   proto.String(fmt.Sprintf("long_template_field_name_%02d", i)),
+			Number: proto.Int32(int32(100 + i)),
+			Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+		})
+	}
+	largeProtoset := writeGRPCFixtureProtoset(t, large)
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "no method", args: []string{"--protoset", protoset, "--data", ""}},
+		{name: "missing method", args: []string{"--protoset", protoset, grpcFixtureServiceName + "/Missing", "--data", ""}},
+		{name: "streaming method", args: []string{"--protoset", protoset, grpcFixtureServiceName + "/Watch", "--data", ""}},
+		{name: "input owns the request", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--input", "unread.json", "--data", ""}},
+		{name: "unrelated prefix", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--data", `{"other`}},
+		{name: "template larger than 2 KiB", args: []string{"--protoset", largeProtoset, grpcFixtureMethodName, "--data", ""}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			values, directive := completeGRPCCommand(t, append([]string{"127.0.0.1:1"}, test.args...)...)
+			assert.Empty(t, values)
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+	values, _ := completeGRPCCommand(t, "127.0.0.1:1", "--protoset", protoset, grpcFixtureMethodName, "--data", `'{"te`)
+	assert.Len(t, values, 1, "an opening shell quote still matches the template")
 }
 
 func TestGRPCCompletionLiteralValuesDoNotOfferFiles(t *testing.T) {
