@@ -28,6 +28,7 @@ import (
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 	"github.com/sosheskaz/swys/internal/version"
 )
 
@@ -565,6 +566,25 @@ func TestHTTPJSONResponseEnvelopeAndTrace(t *testing.T) {
 	assert.True(t, envelope.Complete, "response completion")
 	assert.Empty(t, envelope.Error, "response error")
 	assert.Empty(t, envelope.Trace, "trace must not enter JSON output")
+}
+
+func TestHTTPJSONResponseEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+
+	const (
+		status = "200 OK\u009b31m\u202e"
+		c1     = "\u0080\u0085\u009b31m\u009f"
+		bidi   = "\u061c\u200e\u200f\u202a\u202e\u2066\u2069"
+	)
+	server := newRawHTTPServer(t, "HTTP/1.1 "+status+"\r\nX-C1: "+c1+"\r\nX-Bidi: "+bidi+"\r\nContent-Length: 0\r\n\r\n")
+
+	stdout, _, err := executeRootStreams(t, "http", server.URL, "--select", "response", "--format", "json")
+	require.NoError(t, err)
+	testcmd.AssertNoRawTerminalControls(t, stdout)
+	envelope := decodeHTTPEnvelope(t, stdout)
+	assert.Equal(t, status, envelope.Status)
+	assert.Equal(t, []string{c1}, envelope.Headers["X-C1"])
+	assert.Equal(t, []string{bidi}, envelope.Headers["X-Bidi"])
 }
 
 func TestHTTPTextTraceIsWrittenToStderr(t *testing.T) {
@@ -1332,6 +1352,13 @@ func writeHTTPTestBytes(t *testing.T, writer io.Writer, value []byte) {
 
 func newTruncatedHTTPServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return newRawHTTPServer(t, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
+}
+
+// newRawHTTPServer answers every request with response bytes the standard
+// server would not write, then closes the connection.
+func newRawHTTPServer(t *testing.T, response string) *httptest.Server {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		hijacker, ok := writer.(http.Hijacker)
 		if !ok {
@@ -1343,10 +1370,10 @@ func newTruncatedHTTPServer(t *testing.T) *httptest.Server {
 			t.Errorf("hijack response: %v", err)
 			return
 		}
-		_, writeErr := fmt.Fprint(buffer, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
+		_, writeErr := buffer.WriteString(response)
 		flushErr := buffer.Flush()
 		if err := errors.Join(writeErr, flushErr, connection.Close()); err != nil {
-			t.Errorf("write truncated response: %v", err)
+			t.Errorf("write raw response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)

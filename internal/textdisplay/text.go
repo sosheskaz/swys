@@ -1,4 +1,5 @@
-// Package textdisplay renders human-readable reports without owning their content.
+// Package textdisplay renders human-readable reports without owning their
+// content and keeps untrusted text from controlling a terminal.
 package textdisplay
 
 import (

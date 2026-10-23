@@ -49,5 +49,12 @@ gRPC text retains protobuf syntax and list framing. Output encoding still covers
 the entire formatted stdout, including delimiters and newlines. Diagnostics remain
 outside that encoder.
 
+JSON output writes raw C1 controls (U+0080 through U+009F) and Unicode
+bidirectional formatting controls (U+061C, U+200E, U+200F, U+202A through
+U+202E, and U+2066 through U+2069) inside strings as lowercase `\u` escapes,
+regardless of destination, so a terminal cannot act on them. This is not
+decoration: the decoded JSON value is unchanged, and valid JSON already escapes
+C0 controls. Other characters and escapes keep their serialized form.
+
 `swys skill` emits a fixed Agent Skills Markdown document without selection,
 format, or encoding options. Presentation never decorates, wraps, or pages it.
