@@ -21,6 +21,43 @@ import (
 
 func TestTemplateShowsEditableDefaultsAndLeavesOneofsUnselected(t *testing.T) {
 	t.Parallel()
+	request := templateRequest(t)
+	message, err := protoschema.Template(request)
+	require.NoError(t, err)
+	data, err := (protojson.MarshalOptions{EmitUnpopulated: true}).Marshal(message)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"name":"","count":"0","enabled":false,"modes":[],"labels":{},"nested":{"text":""},"recursive":null}`, string(data))
+	require.NoError(t, protojson.Unmarshal(data, message), "template must be valid protobuf JSON")
+}
+
+func TestTemplateJSONIsByteStable(t *testing.T) {
+	t.Parallel()
+	request := templateRequest(t)
+	compact, err := protoschema.TemplateJSON(request, false)
+	require.NoError(t, err)
+	//nolint:testifylint // whitespace is the contract under test; JSONEq would ignore it
+	assert.Equal(t, `{"name":"","count":"0","enabled":false,"modes":[],"labels":{},"nested":{"text":""},"recursive":null}`, string(compact))
+	multiline, err := protoschema.TemplateJSON(request, true)
+	require.NoError(t, err)
+	//nolint:testifylint // whitespace is the contract under test; JSONEq would ignore it
+	assert.Equal(t, `{
+  "name": "",
+  "count": "0",
+  "enabled": false,
+  "modes": [],
+  "labels": {},
+  "nested": {
+    "text": ""
+  },
+  "recursive": null
+}`, string(multiline))
+	timestamp, err := protoschema.TemplateJSON((&timestamppb.Timestamp{}).ProtoReflect().Descriptor(), false)
+	require.NoError(t, err)
+	assert.Equal(t, `"1970-01-01T00:00:00Z"`, string(timestamp))
+}
+
+func templateRequest(t *testing.T) protoreflect.MessageDescriptor {
+	t.Helper()
 	file := &descriptorpb.FileDescriptorProto{
 		Name: new("template.proto"), Package: new("example"), Syntax: new("proto3"),
 		EnumType: []*descriptorpb.EnumDescriptorProto{{
@@ -58,12 +95,7 @@ func TestTemplateShowsEditableDefaultsAndLeavesOneofsUnselected(t *testing.T) {
 	}
 	descriptor, err := protodesc.NewFile(file, nil)
 	require.NoError(t, err)
-	message, err := protoschema.Template(descriptor.Messages().ByName("Request"))
-	require.NoError(t, err)
-	data, err := (protojson.MarshalOptions{EmitUnpopulated: true}).Marshal(message)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"name":"","count":"0","enabled":false,"modes":[],"labels":{},"nested":{"text":""},"recursive":null}`, string(data))
-	require.NoError(t, protojson.Unmarshal(data, message), "template must be valid protobuf JSON")
+	return descriptor.Messages().ByName("Request")
 }
 
 func TestTemplateUsesProtobufDefaultsAndWellKnownJSON(t *testing.T) {
