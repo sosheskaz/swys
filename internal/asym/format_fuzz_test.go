@@ -65,6 +65,7 @@ func FuzzEscapeDiagnosticValue(f *testing.F) {
 		"line\r\nfeed\tand\x00nul",
 		"\x1b[2J\u009b\u202e",
 		string([]byte{0xff, 0xfe, 'x'}),
+		"\uFFFD\xe4\xb8 \x9b",
 	} {
 		f.Add(seed)
 	}
@@ -85,6 +86,17 @@ func FuzzEscapeDiagnosticValue(f *testing.F) {
 		}
 		if again := EscapeDiagnosticValue(escaped); again != escaped {
 			t.Fatalf("escaping is not idempotent: first %q, second %q", escaped, again)
+		}
+		// Quotes and backslashes are printable and pass through unescaped, so only
+		// values without them form a Go string body that must recover every byte.
+		if !strings.ContainsAny(value, `"\`) {
+			decoded, err := strconv.Unquote(`"` + escaped + `"`)
+			if err != nil {
+				t.Fatalf("escaped diagnostic %q is not a valid quoted body: %v", escaped, err)
+			}
+			if decoded != value {
+				t.Fatalf("escaped diagnostic %q decodes to %q, want %q", escaped, decoded, value)
+			}
 		}
 		if utf8.ValidString(value) && allFuzzDiagnosticRunesPrintable(value) && escaped != value {
 			t.Fatalf("printable value changed: got %q, want %q", escaped, value)

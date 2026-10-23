@@ -40,6 +40,22 @@ func TestCertificateTextEscapesControlCharacters(t *testing.T) {
 	}
 }
 
+func TestEscapeDiagnosticValueKeepsInvalidBytes(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ name, value, want string }{
+		{name: "invalid byte", value: "bad\xffname", want: `bad\xffname`},
+		{name: "truncated sequence before valid rune", value: "\xe4\xb8世", want: `\xe4\xb8` + "世"},
+		{name: "replacement character beside invalid byte", value: "\uFFFD\xff", want: "\uFFFD" + `\xff`},
+		{name: "encoded C1 control beside lone C1 byte", value: "\u009b\x9b", want: `\u009b\x9b`},
+		{name: "zero-width joiner stays escaped", value: "a\u200db", want: `a\u200db`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, EscapeDiagnosticValue(test.value))
+		})
+	}
+}
+
 func TestCertificateTextPreservesPrintableValues(t *testing.T) {
 	t.Parallel()
 	const value = `CN=José\, O="example"`
