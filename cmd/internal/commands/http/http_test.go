@@ -1363,13 +1363,6 @@ func writeHTTPTestBytes(t *testing.T, writer io.Writer, value []byte) {
 }
 
 // newRawHTTPServer answers every request with response bytes the standard
-// server would not produce, then closes the connection.
-func newRawHTTPServer(t *testing.T, response string) *httptest.Server {
-	t.Helper()
-	return newRawHTTPServer(t, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
-}
-
-// newRawHTTPServer answers every request with response bytes the standard
 // server would not write, then closes the connection.
 func newRawHTTPServer(t *testing.T, response string) *httptest.Server {
 	t.Helper()
