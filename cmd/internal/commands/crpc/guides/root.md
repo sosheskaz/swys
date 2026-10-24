@@ -71,6 +71,9 @@ swys crpc --protoset api.protoset --list example.v1.EchoService
 reflection. Offline discovery needs no URL. Discovery defaults to text;
 --format plain uses the same undecorated list/protobuf layout, and --format
 json emits a JSON list or protobuf descriptor.
+Descriptor and template strings write raw C1 and bidirectional formatting
+controls as \u escapes in both JSON and protobuf text; decoding yields the
+original values.
 
 Use --reflect to obtain the selected method's schema before calling it, or
 --protoset to use a local schema. Both validate the request's protobuf JSON

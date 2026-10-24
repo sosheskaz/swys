@@ -40,6 +40,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/artifact"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	byteencoding "github.com/sosheskaz/swys/cmd/internal/cli/encoding"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 const (
@@ -1092,6 +1093,54 @@ func newCertVerifyMatchFixture(tb testing.TB, options certFixtureOptions) *certV
 		leafCSRDER:      csrDER,
 		leafCSRPEM:      pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}),
 	}
+}
+
+func TestCertificateJSONReportsEscapeTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Raw C1 and bidi controls, one directly after a backslash that the
+	// serializer escapes.
+	const controls = "\xc2\x80\xc2\x85\xc2\x9b31m\xc2\x9f\\\xd8\x9c" +
+		"\xe2\x80\x8e\xe2\x80\x8f\xe2\x80\xaa\xe2\x80\xae\xe2\x81\xa6\xe2\x81\xa9"
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: controls, Organization: []string{controls}},
+		NotBefore:    certTestCurrentTime.Add(-time.Hour),
+		NotAfter:     certTestCurrentTime.Add(time.Hour),
+	}
+	untrusted := certTestParseCertificate(t, certTestCreateCertificate(t, template, template, publicKey, privateKey))
+	fixture := newCertVerifyMatchFixture(t, certFixtureOptions{})
+	dir := t.TempDir()
+	chainPath := writeCertTestFile(t, dir, "chain.pem", fixture.leafPEM, fixture.intermediatePEM)
+	rootPath := writeCertTestFile(t, dir, "root.pem", fixture.rootPEM)
+	hostname := "service" + controls + ".example"
+
+	t.Run("inspect", func(t *testing.T) {
+		t.Parallel()
+		input := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: untrusted.Raw})
+		stdout, _, err := executeCertTestWithInput(t, input, "cert", "inspect", "--format", "json")
+		require.NoError(t, err)
+		testcmd.AssertNoRawTerminalControls(t, stdout)
+		var report struct {
+			Certificates []struct {
+				Subject string `json:"subject"`
+				Issuer  string `json:"issuer"`
+			} `json:"certificates"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(stdout), &report), "decode %q", stdout)
+		require.Len(t, report.Certificates, 1)
+		require.Equal(t, untrusted.Subject.String(), report.Certificates[0].Subject)
+		require.Equal(t, untrusted.Issuer.String(), report.Certificates[0].Issuer)
+	})
+	t.Run("verify", func(t *testing.T) {
+		t.Parallel()
+		stdout, _, err := executeRootStreams(t, "cert", "verify", "--input", chainPath, "--ca", rootPath,
+			"--hostname", hostname, "--at", certTestCurrentTime.Format(certTestRFC3339), "--format", "json")
+		require.ErrorIs(t, err, errCertificateReportNegative)
+		testcmd.AssertNoRawTerminalControls(t, stdout)
+		require.Contains(t, certTestReportDetails(t, stdout), hostname)
+	})
 }
 
 func certTestCreateCertificate(tb testing.TB, template, parent *x509.Certificate, publicKey any, signer crypto.Signer) []byte {

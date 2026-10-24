@@ -72,7 +72,8 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 		if err != nil {
 			return nil, err
 		}
-		return preparedBytes(output), nil
+		// Protobuf text, like JSON, reads a \u escape in a string as the rune it replaces.
+		return preparedBytes(textdisplay.EscapeJSONControls(output)), nil
 	}
 	return prepareInvocation(cmd, settings, target.endpoint, schema, connection, headers)
 }

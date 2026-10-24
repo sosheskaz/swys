@@ -54,7 +54,10 @@ bidirectional formatting controls (U+061C, U+200E, U+200F, U+202A through
 U+202E, and U+2066 through U+2069) inside strings as lowercase `\u` escapes,
 regardless of destination, so a terminal cannot act on them. This is not
 decoration: the decoded JSON value is unchanged, and valid JSON already escapes
-C0 controls. Other characters and escapes keep their serialized form.
+C0 controls. Other characters and escapes keep their serialized form. Protobuf
+text output from gRPC and crpc applies the same escapes inside its quoted
+strings, which protobuf text decodes to the same values; it already escapes C0
+and C1 controls itself.
 
 `swys skill` emits a fixed Agent Skills Markdown document without selection,
 format, or encoding options. Presentation never decorates, wraps, or pages it.

@@ -786,27 +786,68 @@ func TestDNSDirectRejectsWrongOpcodeFromWire(t *testing.T) {
 	finishUDPFixture(t, connection, done)
 }
 
-func TestDNSDirectEscapesWireNamesInText(t *testing.T) {
+func TestDNSDirectEscapesWireNames(t *testing.T) {
 	t.Parallel()
-	host, port, connection, done := startUDPFixture(t, func(request *dns.Msg) *dns.Msg {
-		response := replyFor(request)
-		response.Answer = []dns.RR{&dns.CNAME{
-			Hdr:   dns.Header{Name: "bad\x1b[32m.fixture.example.", Class: dns.ClassINET, TTL: 30},
-			CNAME: rdata.CNAME{Target: "bad\x1b[31m.target.example."},
-		}}
-		return response
-	})
-	root := newRootCmd()
-	stdout, _, err := executeRootCommandStreams(
-		t,
-		root,
-		"dns", "@"+host, "fixture.example", "CNAME", "--port", port,
+	// Wire names keep raw bytes, including C0, C1, and bidi controls.
+	const (
+		controls = "\xc2\x9b31m\xd8\x9c\xe2\x80\xae\xe2\x81\xa6"
+		owner    = "bad\x1b[32m" + controls + ".fixture.example."
+		target   = "bad\x1b[31m" + controls + ".target.example."
 	)
-	require.NoError(t, err)
-	require.NotContains(t, stdout, "\x1b", "unsafe DNS names")
-	require.Contains(t, stdout, `bad\x1b[32m.fixture.example.`)
-	require.Contains(t, stdout, `bad\x1b[31m.target.example.`)
-	finishUDPFixture(t, connection, done)
+	for _, test := range []struct {
+		check func(*testing.T, string)
+		name  string
+		args  []string
+	}{
+		{name: "text", check: func(t *testing.T, stdout string) {
+			t.Helper()
+			escaped := `\u009b31m\u061c\u202e\u2066`
+			assert.Contains(t, stdout, `bad\x1b[32m`+escaped+`.fixture.example.`)
+			assert.Contains(t, stdout, `bad\x1b[31m`+escaped+`.target.example.`)
+		}},
+		{name: "json", args: []string{"--format", "json"}, check: func(t *testing.T, stdout string) {
+			t.Helper()
+			var report struct {
+				Results []struct {
+					Answers []struct {
+						Name  string `json:"name"`
+						Value string `json:"value"`
+					} `json:"answers"`
+				} `json:"results"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(stdout), &report), "decode %q", stdout)
+			require.Len(t, report.Results, 1)
+			require.Len(t, report.Results[0].Answers, 1)
+			assert.Equal(t, owner, report.Results[0].Answers[0].Name)
+			assert.Equal(t, target, report.Results[0].Answers[0].Value)
+		}},
+		{name: "json values", args: []string{"--select", "values", "--format", "json"}, check: func(t *testing.T, stdout string) {
+			t.Helper()
+			var report struct {
+				Values []string `json:"values"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(stdout), &report), "decode %q", stdout)
+			assert.Equal(t, []string{target}, report.Values)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			host, port, connection, done := startUDPFixture(t, func(request *dns.Msg) *dns.Msg {
+				response := replyFor(request)
+				response.Answer = []dns.RR{&dns.CNAME{
+					Hdr:   dns.Header{Name: owner, Class: dns.ClassINET, TTL: 30},
+					CNAME: rdata.CNAME{Target: target},
+				}}
+				return response
+			})
+			stdout, _, err := executeRootCommandStreams(t, newRootCmd(),
+				append([]string{"dns", "@" + host, "fixture.example", "CNAME", "--port", port}, test.args...)...)
+			require.NoError(t, err)
+			finishUDPFixture(t, connection, done)
+			testcmd.AssertNoRawTerminalControls(t, stdout)
+			test.check(t, stdout)
+		})
+	}
 }
 
 func startUDPFixture(

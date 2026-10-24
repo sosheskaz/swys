@@ -2,7 +2,7 @@
 
 Put the endpoint first. With no selector, SwYS lists services using server reflection.
 
-**--format plain** keeps the text representation without generated ANSI controls. Text discovery lists stay one name per line, and descriptor and invocation output retain protobuf text syntax. **--style auto|rich|plain** controls human text and verbose diagnostics; plain format takes precedence. Invocation still defaults to protobuf JSON. Styling never changes JSON or encoded payload framing.
+**--format plain** keeps the text representation without generated ANSI controls. Text discovery lists stay one name per line, and descriptor and invocation output retain protobuf text syntax. **--style auto|rich|plain** controls human text and verbose diagnostics; plain format takes precedence. Invocation still defaults to protobuf JSON. Styling never changes JSON or encoded payload framing. JSON and protobuf text output write raw C1 and bidirectional formatting controls in strings as \u escapes; decoding yields the original values.
 
 ## Discover the service
 
