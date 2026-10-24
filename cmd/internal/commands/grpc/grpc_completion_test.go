@@ -2,6 +2,7 @@ package grpc_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
+
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestGRPCCompletionUsesSeparateTwoSecondDeadline(t *testing.T) {
@@ -469,6 +472,36 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 	}
 	values, _ := completeGRPCCommand(t, "127.0.0.1:1", "--protoset", protoset, grpcFixtureMethodName, "--data", `'{"te`)
 	assert.Len(t, values, 1, "an opening shell quote still matches the template")
+}
+
+func TestGRPCDataCompletionEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Raw C1 and bidi controls, one directly after a backslash that the
+	// serializer escapes.
+	const controls = "\xc2\x80\xc2\x85\xc2\x9b31m\xc2\x9f\\\xd8\x9c" +
+		"\xe2\x80\x8e\xe2\x80\x8f\xe2\x80\xaa\xe2\x80\xae\xe2\x81\xa6\xe2\x81\xa9"
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	_, set, _ := grpcFixtureSchema(t)
+	field := set.File[0].MessageType[0].Field[0]
+	require.Equal(t, "text", field.GetName())
+	field.JsonName = proto.String(controls)
+	protoset := writeGRPCFixtureProtoset(t, set)
+
+	stdout, _, err := executeRootStreams(t, "__complete", "grpc", address, "--protoset", protoset, grpcFixtureMethodName, "--data", "")
+	require.NoError(t, err)
+	testcmd.AssertNoRawTerminalControls(t, stdout)
+	candidate, rest, _ := strings.Cut(stdout, "\t")
+	require.Equal(t, "fixture.v1.EchoRequest\n:4\n", rest, "completion = %q, want one template candidate", stdout)
+	var got, want map[string]any
+	require.NoError(t, json.Unmarshal([]byte(candidate), &got), "decode %q", candidate)
+	require.NoError(t, json.Unmarshal([]byte(`{"text":"","payload":"","count":"0","mode":"MODE_UNSPECIFIED",`+
+		`"tags":[],"labels":{},"extra":{},"replyBytes":0,"delayMillis":0}`), &want))
+	want[controls] = want["text"]
+	delete(want, "text")
+	assert.Equal(t, want, got)
+
+	_, _, err = executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--protoset", protoset, "--data", candidate)
+	require.NoError(t, err, "the completed template is a valid request: %v", err)
 }
 
 func TestGRPCCompletionLiteralValuesDoNotOfferFiles(t *testing.T) {
