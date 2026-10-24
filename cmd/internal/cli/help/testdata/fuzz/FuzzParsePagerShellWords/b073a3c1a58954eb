@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Є\\\xee0\xdb\"\"\xad000")
