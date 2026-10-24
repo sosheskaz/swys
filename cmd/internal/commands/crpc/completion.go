@@ -156,9 +156,30 @@ func invocationValues(
 	}
 	return slices.DeleteFunc(candidates, func(value string) bool {
 		*option = value
-		_, _, err := invocationMethod(cmd, settings, schema, line.target.endpoint.Procedure)
-		return err != nil
+		return invocationAccepted(cmd, settings, schema, line.target.endpoint.Procedure) != nil
 	}), nil
+}
+
+// invocationAccepted applies execution's checks of the method and of a literal
+// -d request once schema, which may be nil, is known.
+func invocationAccepted(cmd *cobra.Command, settings *options, schema *protoschema.Schema, procedure string) error {
+	method, _, err := invocationMethod(cmd, settings, schema, procedure)
+	if err != nil {
+		return err
+	}
+	return requestAccepted(cmd, settings, method, schema)
+}
+
+func requestAccepted(cmd *cobra.Command, settings *options, method protoreflect.MethodDescriptor, schema *protoschema.Schema) error {
+	if !cmd.Flags().Changed(flagData) {
+		return nil
+	}
+	data, err := readRequest(cmd, settings)
+	if err != nil {
+		return err
+	}
+	_, err = validateMessage(data, method, schema)
+	return err
 }
 
 // dataCompletion offers the selected method's compact request template.
@@ -171,17 +192,26 @@ func dataCompletion(settings *options, lifecycle *commandio.Lifecycle) cobra.Com
 		if err != nil || line.target.discovery {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
+		procedure := line.target.endpoint.Procedure
+		// Execution checks these without a schema before reflecting on demand.
+		if _, _, err := invocationMethod(cmd, settings, nil, procedure); err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
 		schema, err := invocationSchema(cmd, settings, line, true)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		method, _, err := invocationMethod(cmd, settings, schema, line.target.endpoint.Procedure)
+		method, _, err := invocationMethod(cmd, settings, schema, procedure)
 		if err != nil || method == nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		data, err := protoschema.TemplateJSON(method.Input(), false)
 		// Shells match the candidate against the typed word, which may start with a quote.
 		if err != nil || len(data) > dataCompletionLimit || !strings.HasPrefix(string(data), strings.TrimLeft(prefix, `'"`)) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		settings.data = string(data)
+		if requestAccepted(cmd, settings, method, schema) != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		return []string{cobra.CompletionWithDesc(string(data), string(method.Input().FullName()))}, cobra.ShellCompDirectiveNoFileComp
@@ -205,6 +235,12 @@ func completeSchema(
 	if err != nil {
 		return nil, directive
 	}
+	if slot == "" {
+		// Execution checks these without a schema before reflecting on demand.
+		if invocationAccepted(cmd, settings, nil, line.target.endpoint.Procedure) != nil {
+			return nil, directive
+		}
+	}
 	schema, err := boundedCompletionSchema(cmd, settings, line, prefix, kind)
 	if err != nil {
 		return nil, directive
@@ -212,8 +248,7 @@ func completeSchema(
 	accept := func(string) bool { return true }
 	if slot == "" {
 		accept = func(method string) bool {
-			_, _, err := invocationMethod(cmd, settings, schema, method)
-			return err == nil
+			return invocationAccepted(cmd, settings, schema, method) == nil
 		}
 	}
 	return schemaCandidates(schema, prefix, kind, accept), directive

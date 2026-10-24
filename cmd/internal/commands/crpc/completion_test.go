@@ -85,6 +85,7 @@ func TestCRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		"template larger than 2 KiB": {"http://127.0.0.1:1" + echoMethod, "--protoset", largePath, "--data", ""},
 		"cert without key":           {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--cert", "client.pem", "--data", ""},
 		"missing CA file":            {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--ca", "missing.pem", "--data", ""},
+		"template is not base64":     {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--input-encoding", "base64", "--data", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -146,6 +147,8 @@ func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 		{"URL already names a method", []string{"{server}" + echoMethod, "example.v1.EchoService/"}},
 		{"stdin beside data", []string{"{server}" + echoMethod, "--stdin", "always", "--data", ""}},
 		{"jsonl discovery", []string{"{server}", "--format", "jsonl", "--list", ""}},
+		{"json for a server stream", []string{"{server}" + echoMethod, "--stream", "server", "--format", "json", "--data", ""}},
+		{"malformed data", []string{"{server}", "-d", "not-json", "example.v1.EchoService/"}},
 		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
 		{"protoset with system CA alone", []string{"https://127.0.0.1:1", "--protoset", path, "--system-ca", "example.v1.EchoService/"}},
 	} {
