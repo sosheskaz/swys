@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -154,18 +155,23 @@ type pagerParser struct {
 
 func parsePager(configuration string) ([]string, error) {
 	parser := pagerParser{}
-	for _, character := range configuration {
+	for configuration != "" {
+		// Copy each character's source bytes rather than its decoded rune so
+		// argv keeps PAGER bytes that are not valid UTF-8.
+		character, size := utf8.DecodeRuneInString(configuration)
+		text := configuration[:size]
+		configuration = configuration[size:]
 		if parser.escaped {
-			parser.consumeEscaped(character)
+			parser.consumeEscaped(character, text)
 			continue
 		}
 		switch parser.mode {
 		case pagerUnquoted:
-			parser.consumeUnquoted(character)
+			parser.consumeUnquoted(character, text)
 		case pagerSingleQuoted:
-			parser.consumeSingleQuoted(character)
+			parser.consumeSingleQuoted(character, text)
 		case pagerDoubleQuoted:
-			parser.consumeDoubleQuoted(character)
+			parser.consumeDoubleQuoted(character, text)
 		}
 	}
 	if parser.escaped {
@@ -183,17 +189,17 @@ func parsePager(configuration string) ([]string, error) {
 	return parser.arguments, nil
 }
 
-func (parser *pagerParser) consumeEscaped(character rune) {
+func (parser *pagerParser) consumeEscaped(character rune, text string) {
 	if parser.escapedInDoubleQuotes && character != '"' && character != '\\' {
 		parser.current.WriteByte('\\')
 	}
-	parser.current.WriteRune(character)
+	parser.current.WriteString(text)
 	parser.escaped = false
 	parser.escapedInDoubleQuotes = false
 	parser.started = true
 }
 
-func (parser *pagerParser) consumeUnquoted(character rune) {
+func (parser *pagerParser) consumeUnquoted(character rune, text string) {
 	switch {
 	case character == '\\':
 		parser.escaped = true
@@ -209,21 +215,21 @@ func (parser *pagerParser) consumeUnquoted(character rune) {
 			parser.flush()
 		}
 	default:
-		parser.current.WriteRune(character)
+		parser.current.WriteString(text)
 		parser.started = true
 	}
 }
 
-func (parser *pagerParser) consumeSingleQuoted(character rune) {
+func (parser *pagerParser) consumeSingleQuoted(character rune, text string) {
 	if character == '\'' {
 		parser.mode = pagerUnquoted
 		return
 	}
-	parser.current.WriteRune(character)
+	parser.current.WriteString(text)
 	parser.started = true
 }
 
-func (parser *pagerParser) consumeDoubleQuoted(character rune) {
+func (parser *pagerParser) consumeDoubleQuoted(character rune, text string) {
 	switch character {
 	case '"':
 		parser.mode = pagerUnquoted
@@ -231,7 +237,7 @@ func (parser *pagerParser) consumeDoubleQuoted(character rune) {
 		parser.escaped = true
 		parser.escapedInDoubleQuotes = true
 	default:
-		parser.current.WriteRune(character)
+		parser.current.WriteString(text)
 		parser.started = true
 	}
 }

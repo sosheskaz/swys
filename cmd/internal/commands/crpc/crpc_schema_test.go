@@ -3,13 +3,16 @@ package crpc_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,12 +25,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 	"github.com/sosheskaz/swys/internal/connectrpc"
 )
 
@@ -42,6 +48,56 @@ func TestCRPCSchemaInfersStreamingAndRejectsInvalidRequests(t *testing.T) {
 		args := append([]string{"crpc", server.URL + echoMethod, "--protoset", path}, extra...)
 		_, _, err := run(t, nil, args...)
 		require.Error(t, err)
+	}
+}
+
+func TestCRPCDiscoveryOutputEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Raw C1 and bidi controls, one directly after a backslash that the
+	// serializer escapes.
+	const controls = "\xc2\x80\xc2\x85\xc2\x9b31m\xc2\x9f\\\xd8\x9c" +
+		"\xe2\x80\x8e\xe2\x80\x8f\xe2\x80\xaa\xe2\x80\xae\xe2\x81\xa6\xe2\x81\xa9"
+	set := schemaSet(false)
+	set.File[0].MessageType[0].Field[0].JsonName = new(controls)
+	path := writeProtoset(t, set)
+	describe := []string{"crpc", "--protoset", path, "--describe", "example.v1.Request.text"}
+	template := []string{"crpc", "--protoset", path, "--template", "example.v1.EchoService/Echo"}
+	complete := []string{"__complete", "crpc", "http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", ""}
+	jsonName := func(unmarshal func([]byte, proto.Message) error) func([]byte) (string, error) {
+		return func(output []byte) (string, error) {
+			var field descriptorpb.FieldDescriptorProto
+			err := unmarshal(output, &field)
+			return field.GetJsonName(), err
+		}
+	}
+	templateKeys := func(output []byte) (string, error) {
+		var request map[string]string
+		err := json.Unmarshal(output, &request)
+		return strings.Join(slices.Collect(maps.Keys(request)), ","), err
+	}
+	for _, test := range []struct {
+		decode func([]byte) (string, error)
+		name   string
+		args   []string
+	}{
+		{name: "describe text", args: describe, decode: jsonName(prototext.Unmarshal)},
+		{name: "describe json", args: slices.Concat(describe, []string{"--format", "json"}), decode: jsonName(protojson.Unmarshal)},
+		{name: "template json", args: template, decode: templateKeys},
+		{name: "template jsonl", args: slices.Concat(template, []string{"--format", "jsonl"}), decode: templateKeys},
+		{name: "data completion", args: complete, decode: func(output []byte) (string, error) {
+			// Any other completion output leaves trailing text that fails decoding.
+			return templateKeys(bytes.TrimSuffix(output, []byte("\texample.v1.Request\n:4\n")))
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output, _, err := run(t, nil, test.args...)
+			require.NoError(t, err)
+			testcmd.AssertNoRawTerminalControls(t, output)
+			got, err := test.decode([]byte(output))
+			require.NoError(t, err, "decode %q", output)
+			assert.Equal(t, controls, got)
+		})
 	}
 }
 

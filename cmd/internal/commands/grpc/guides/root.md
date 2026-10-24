@@ -1,8 +1,8 @@
 # Discover and call a gRPC service
 
-Put the endpoint first. With no selector, SwYS lists services using server reflection.
+Put the endpoint first. With no selector, SwYS lists services using server reflection. A reflected service name that is not a valid protobuf full name fails the listing.
 
-**--format plain** keeps the text representation without generated ANSI controls. Text discovery lists stay one name per line, and descriptor and invocation output retain protobuf text syntax. **--style auto|rich|plain** controls human text and verbose diagnostics; plain format takes precedence. Invocation still defaults to protobuf JSON. Styling never changes JSON or encoded payload framing.
+**--format plain** keeps the text representation without generated ANSI controls. Text discovery lists stay one name per line, and descriptor and invocation output retain protobuf text syntax. **--style auto|rich|plain** controls human text and verbose diagnostics; plain format takes precedence. Invocation still defaults to protobuf JSON. Styling never changes JSON or encoded payload framing. JSON and protobuf text output write raw C1 and bidirectional formatting controls in strings as \u escapes; decoding yields the original values.
 
 ## Discover the service
 
@@ -53,7 +53,7 @@ swys grpc api.example.test:443 example.v1.EchoService/Echo -i request.json
 
 Templates show field defaults, empty lists and maps, and nested messages. They leave oneof choices unselected and do not invent IDs or other business values; a template is a starting point, not a promise that the service accepts those values. Templates are always protobuf JSON, so the format flag accepts only json. With **--protoset**, templates work offline.
 
-With shell completion installed, press Tab after **-d** once the method is named to insert its compact template, escaped for your shell. Press Tab before typing a quote: fish also completes after an opening quote, but bash and zsh do not. Completion offers templates up to 2 KiB, none while a TLS or credential file comes from stdin, and never invokes the method.
+With shell completion installed, press Tab after **-d** once the method is named to insert its compact template, escaped for your shell, with raw C1 and bidirectional formatting controls written as \u escapes like JSON output. Press Tab before typing a quote: fish also completes after an opening quote, but bash and zsh do not. Completion offers templates up to 2 KiB, none while a TLS or credential file comes from stdin, and never invokes the method.
 
 ## Authenticate
 

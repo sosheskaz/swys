@@ -74,7 +74,7 @@ func testPagerTerminationWithDelayedRootHandler(t *testing.T, firstSignal, later
 		if !finished {
 			_ = helper.Process.Kill() //nolint:errcheck // helper may already be gone
 			select {
-			case <-done:
+			case <-done: //nolint:errcheck // SIGKILL exit status is expected during cleanup
 			case <-time.After(10 * time.Second):
 				t.Error("helper did not exit after cleanup")
 			}

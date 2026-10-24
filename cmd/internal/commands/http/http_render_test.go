@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
@@ -93,7 +94,8 @@ func TestWriteHTTPJSONResponseClosesEnvelopeAfterBodyReadFailure(t *testing.T) {
 
 func TestWriteHTTPJSONResponseReportsConnectionFailure(t *testing.T) {
 	t.Parallel()
-	requestErr := fmt.Errorf("request failed: %w", errHTTPRenderTest)
+	// Error text is not assumed free of terminal controls.
+	requestErr := fmt.Errorf("request failed \u009b31m\u202e: %w", errHTTPRenderTest)
 	request := &http.Request{Method: http.MethodGet, URL: &url.URL{Scheme: "http", Host: "example.test"}}
 	command := &cobra.Command{}
 	var output bytes.Buffer
@@ -107,6 +109,7 @@ func TestWriteHTTPJSONResponseReportsConnectionFailure(t *testing.T) {
 		Error    string `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(output.Bytes(), &envelope), "decode response envelope %q", output.String())
+	testcmd.AssertNoRawTerminalControls(t, output.String())
 	assert.Empty(t, envelope.Body)
 	assert.False(t, envelope.Complete)
 	assert.Contains(t, envelope.Error, requestErr.Error())

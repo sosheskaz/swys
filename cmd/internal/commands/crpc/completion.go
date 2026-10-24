@@ -18,6 +18,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/connectrpc"
 	"github.com/sosheskaz/swys/internal/protoschema"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 const (
@@ -294,7 +295,10 @@ func dataCompletion(words *[]string) cobra.CompletionFunc {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		data, err := protoschema.TemplateJSON(method.Input(), false)
-		// Shells match the candidate against the typed word, which may start with a quote.
+		// Shells display the candidate and insert it verbatim, so escape it like
+		// --template output before applying the limit. Shells match the candidate
+		// against the typed word, which may start with a quote.
+		data = textdisplay.EscapeJSONControls(data)
 		if err != nil || len(data) > dataCompletionLimit || !strings.HasPrefix(string(data), strings.TrimLeft(prefix, `'"`)) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}

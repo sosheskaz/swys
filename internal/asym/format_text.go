@@ -5,6 +5,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sosheskaz/swys/internal/textdisplay"
 )
@@ -175,15 +176,21 @@ func joinOrNone(values []string) string {
 }
 
 // EscapeDiagnosticValue keeps untrusted values on one terminal-safe display line.
+// A byte outside a valid UTF-8 encoding keeps its value as a \xNN escape.
 func EscapeDiagnosticValue(value string) string {
 	var escaped strings.Builder
-	for _, char := range value {
-		if strconv.IsPrint(char) {
+	for value != "" {
+		char, size := utf8.DecodeRuneInString(value)
+		switch {
+		case char == utf8.RuneError && size == 1:
+			fmt.Fprintf(&escaped, `\x%02x`, value[0])
+		case strconv.IsPrint(char):
 			escaped.WriteRune(char)
-		} else {
+		default:
 			quoted := strconv.QuoteRune(char)
 			escaped.WriteString(quoted[1 : len(quoted)-1])
 		}
+		value = value[size:]
 	}
 	return escaped.String()
 }

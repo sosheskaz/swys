@@ -29,7 +29,6 @@ func (reader *countingReader) Read(buffer []byte) (int, error) {
 var (
 	errInvalidGRPCOptions  = grpccommand.ErrInvalidOptions
 	errInvalidGRPCMetadata = grpccommand.ErrInvalidMetadata
-	errGRPCMessageLimit    = grpccommand.ErrMessageLimit
 	errSameInputOutput     = commandio.ErrSameInputOutput
 )
 

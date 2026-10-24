@@ -7,3 +7,7 @@ import "errors"
 func passwordProcessStopped(int) (bool, error) {
 	return false, errors.New("interactive password commands are unsupported on this operating system")
 }
+
+func passwordGroupStopped(int) (bool, error) {
+	return false, errors.New("interactive password commands are unsupported on this operating system")
+}

@@ -29,6 +29,23 @@ except the expected missing-token warning during anonymous extraction.
 Recommended policy leaves indirect Go modules disabled; they must still be
 extracted, while lookup proof uses enabled dependencies.
 
+## Linter update review
+
+golangci-lint patch updates retain automatic PR squash merging. Minor updates
+require manual review because analyzer and formatter changes can require policy
+decisions; major updates remain manual. Existing release-age waits and the
+policies for other tools are unchanged.
+
+Mise updates retain `separateMinorPatch: false`. Patches remain eligible for
+auto-merge, but when both a patch and minor update are available, Renovate normally
+proposes only the minor update. A waiting minor PR can therefore hold back a
+parallel patch proposal.
+
+Repository policy does not prove that an already-enabled GitHub auto-merge
+request was cancelled. Inspect affected open PRs and explicitly disable any
+request that conflicts with manual review; do not rely on a human commit to
+clear it.
+
 ## Image release age
 
 Docker Hub supplies the native Docker datasource's release timestamps. The

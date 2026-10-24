@@ -152,7 +152,10 @@ func TestOwnedFileReaderCloseReleasesEnteredDarwinFIFORead(t *testing.T) {
 				}
 				if closeDone != nil && !closeFinished {
 					select {
-					case <-closeDone:
+					case closeErr := <-closeDone:
+						if closeErr != nil {
+							t.Errorf("Close runtime-poll reader after writer cleanup: %v", closeErr)
+						}
 					case <-time.After(5 * time.Second):
 						t.Fatal("Close remained blocked after writer cleanup")
 					}

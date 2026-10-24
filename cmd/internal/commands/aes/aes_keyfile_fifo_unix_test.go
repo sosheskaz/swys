@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/pprof"
 	"syscall"
 	"testing"
 	"time"
@@ -54,10 +55,20 @@ func TestAESValidKeyfileFIFOIsReadOnce(t *testing.T) {
 
 	select {
 	case result := <-commandDone:
-		require.NoError(t, result.err, "single-read FIFO encryption")
+		if result.err != nil {
+			// A writer error such as EPIPE would mean the key reached another reader;
+			// a blocked writer would mean the keyfile was never opened.
+			select {
+			case writerErr := <-writerDone:
+				t.Fatalf("single-read FIFO encryption: %v (key writer: %v)", result.err, writerErr)
+			case <-time.After(time.Second):
+				t.Fatalf("single-read FIFO encryption: %v (key writer still blocked)", result.err)
+			}
+		}
 		require.NotEmpty(t, result.stdout, "single-read FIFO encryption")
 	case <-time.After(5 * time.Second):
-		t.Fatal("AES command did not finish after one FIFO key write; keyfile may have been read more than once")
+		t.Fatalf("AES command did not finish after one FIFO key write; keyfile may have been read more than once\n%s",
+			fifoHangReport(t.Context(), path))
 	}
 	select {
 	case err := <-writerDone:
@@ -151,4 +162,24 @@ func TestAESKeyfileValidationOrderProcess(_ *testing.T) { //nolint:paralleltest 
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+// fifoHangReport describes who holds a FIFO and where this process is blocked, for a
+// hang seen only on loaded CI runners.
+func fifoHangReport(ctx context.Context, path string) string {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	lsof := exec.CommandContext(ctx, "lsof", "--", path)
+	// lsof forks helpers around blocking kernel calls; they can hold the output
+	// pipe open after lsof itself is killed.
+	lsof.WaitDelay = time.Second
+	holders, err := lsof.CombinedOutput()
+	if err != nil {
+		holders = append(holders, []byte("lsof: "+err.Error())...)
+	}
+	var stacks bytes.Buffer
+	if err := pprof.Lookup("goroutine").WriteTo(&stacks, 2); err != nil {
+		stacks.WriteString("goroutine profile: " + err.Error())
+	}
+	return "FIFO holders:\n" + string(holders) + "\ngoroutines:\n" + stacks.String()
 }

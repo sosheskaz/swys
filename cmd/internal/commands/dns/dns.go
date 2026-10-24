@@ -137,6 +137,9 @@ certificates by default.`,
 			if !ok {
 				return commandio.ErrPreparedOutputUnavailable
 			}
+			if options.format == dnsFormatJSON {
+				prepared = textdisplay.EscapeJSONControls(prepared)
+			}
 			if _, err := output.Write(prepared); err != nil {
 				return errors.Join(pending.lookupErr, fmt.Errorf("write DNS result: %w", err))
 			}

@@ -47,7 +47,7 @@ func TestOwnedFileReaderFIFOStreamsToEOF(t *testing.T) {
 				_ = reader.Close() //nolint:errcheck // best effort after a test timeout
 				_ = writer.Close() //nolint:errcheck // best effort after a test timeout
 				select {
-				case <-writeDone:
+				case <-writeDone: //nolint:errcheck // closing the FIFO during timeout cleanup may fail the write
 				case <-time.After(5 * time.Second):
 					t.Fatal("FIFO writer remained blocked after cleanup")
 				}

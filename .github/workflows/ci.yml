@@ -47,7 +47,7 @@ jobs:
         run: echo "::add-matcher::.github/problem-matchers/go.json"
 
       - name: Set up mise
-        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
           version: 2026.9.6
           install_args: 'go jq gh node golangci-lint go:golang.org/x/vuln/cmd/govulncheck'
@@ -111,6 +111,18 @@ jobs:
 
       - name: Lint
         run: mise run lint:go -- --output.text.path=stdout --output.text.print-issued-lines=false --output.text.colors=false
+
+      - name: Lint Windows implementations
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=windows GOARCH="$arch" mise run lint:go -- --output.text.path=stdout --output.text.print-issued-lines=false --output.text.colors=false
+          done
+
+      - name: Lint macOS implementations
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=darwin GOARCH="$arch" mise run lint:go -- --output.text.path=stdout --output.text.print-issued-lines=false --output.text.colors=false
+          done
 
       - name: Publish coverage baseline
         if: github.ref == 'refs/heads/main'
@@ -275,7 +287,7 @@ jobs:
         run: echo "::add-matcher::.github/problem-matchers/go.json"
 
       - name: Set up mise
-        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
           version: 2026.9.6
           install_args: 'go jq'
@@ -359,7 +371,7 @@ jobs:
       # The repository cache is at its 10 GB limit; saving five more toolchain
       # and build caches would evict the Linux caches the other jobs rely on.
       - name: Set up mise
-        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
           version: 2026.9.6
           install_args: 'go'
