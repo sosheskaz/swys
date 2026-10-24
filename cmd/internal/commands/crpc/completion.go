@@ -18,9 +18,14 @@ import (
 	"github.com/sosheskaz/swys/internal/connectrpc"
 	"github.com/sosheskaz/swys/internal/netconn"
 	"github.com/sosheskaz/swys/internal/protoschema"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
-const completionTimeout = 2 * time.Second
+const (
+	completionTimeout = 2 * time.Second
+	// dataCompletionLimit keeps an inserted template editable on a command line.
+	dataCompletionLimit = 2 << 10
+)
 
 type completionKind uint8
 
@@ -48,7 +53,8 @@ func registerCompletion(command *cobra.Command, settings *options, lifecycle *co
 	}
 	mustComplete(command, "format", formatCompletion(settings))
 	mustComplete(command, flagStream, streamCompletion(settings))
-	for _, name := range []string{flagData, flagHeader, "resolve", flagServerName, flagMaxMessageSize} {
+	mustComplete(command, flagData, dataCompletion(settings))
+	for _, name := range []string{flagHeader, "resolve", flagServerName, flagMaxMessageSize} {
 		mustComplete(command, name, cobra.NoFileCompletions)
 	}
 	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) { prepareCompletion(completionCmd, args, command) })
@@ -97,6 +103,28 @@ func streamCompletion(settings *options) cobra.CompletionFunc {
 	}
 }
 
+// dataCompletion offers the selected method's compact request template.
+func dataCompletion(settings *options) cobra.CompletionFunc {
+	return func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if cmd.Flags().Changed(flagInput) || hasDiscoveryFlag(cmd) || tlsconfig.UsesStdin(cmd) || auth.UsesStdin(cmd.Flags()) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		method, err := completionMethod(cmd, args, settings)
+		if err != nil || method == nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		data, err := protoschema.TemplateJSON(method.Input(), false)
+		// Shells display the candidate and insert it verbatim, so escape it like
+		// --template output before applying the limit. Shells match the candidate
+		// against the typed word, which may start with a quote.
+		data = textdisplay.EscapeJSONControls(data)
+		if err != nil || len(data) > dataCompletionLimit || !strings.HasPrefix(string(data), strings.TrimLeft(prefix, `'"`)) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return []string{cobra.CompletionWithDesc(string(data), string(method.Input().FullName()))}, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
 func mustComplete(command *cobra.Command, name string, fn cobra.CompletionFunc) {
 	if err := command.RegisterFlagCompletionFunc(name, fn); err != nil {
 		panic(err)
@@ -132,20 +160,26 @@ func completionInvocationMode(cmd *cobra.Command, args []string, settings *optio
 	if settings.protoset == "" && !settings.reflectSchema {
 		return "", nil
 	}
+	method, err := completionMethod(cmd, args, settings)
+	if err != nil || method == nil {
+		return "", err
+	}
+	return methodMode(method), nil
+}
+
+// completionMethod resolves an invocation target's method, reflecting on demand
+// when no protoset is supplied. Discovery targets have no method.
+func completionMethod(cmd *cobra.Command, args []string, settings *options) (protoreflect.MethodDescriptor, error) {
 	target, err := selectTarget(args, settings)
 	if err != nil || target.discovery {
-		return "", err
+		return nil, err
 	}
 	selector := strings.TrimPrefix(target.endpoint.Procedure, "/")
 	schema, err := boundedCompletionSchema(cmd, []string{target.base.String()}, selector, settings, completeMethod)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	method, err := schema.Method(selector)
-	if err != nil {
-		return "", err
-	}
-	return methodMode(method), nil
+	return schema.Method(selector)
 }
 
 func completionSchema(cmd *cobra.Command, args []string, prefix string, settings *options, kind completionKind) (*protoschema.Schema, error) {

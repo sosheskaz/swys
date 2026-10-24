@@ -164,6 +164,7 @@ func TestStdinAndHeaderOwnership(t *testing.T) {
 	assert.True(t, auth.UsesStdin(parseFlags(t, "--auth-bearer-file", "-")))
 	assert.False(t, auth.UsesStdin(parseFlags(t, "--auth-bearer", "-")), "a literal dash is a token, not stdin")
 	assert.False(t, auth.UsesStdin(parseFlags(t, "--auth-basic-file", "./-")))
+	assert.True(t, auth.UsesStdin(parseFlags(t, "--auth-bearer", "token", "--auth-basic-file", "-")), "a conflicting source must not hide stdin")
 
 	require.NoError(t, auth.RejectHeader(parseFlags(t), true, errInvalid), "raw headers stay available without a credential flag")
 	require.NoError(t, auth.RejectHeader(parseFlags(t, "--auth-bearer", "x"), false, errInvalid))

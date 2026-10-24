@@ -14,7 +14,7 @@ swys grpc api.example.test:443 --list example.v1.EchoService
 swys grpc api.example.test:443 --describe example.v1.EchoRequest
 ```
 
-The list, describe, and positional method selectors are mutually exclusive. Use the discovered service and method names for invocation.
+The list, describe, template, and positional method selectors are mutually exclusive. Use the discovered service and method names for invocation.
 
 ## Invoke one unary method
 
@@ -42,6 +42,19 @@ Responses are protobuf JSON followed by a newline by default. Use the format fla
 
 Discovery defaults to text. Use the format flag with json for JSON lists or descriptors. The encoding flag transforms the complete stdout result, including its trailing newline. For example, base64 encoding applies to the whole protobuf JSON or text response. Verbose diagnostics remain on stderr outside the encoder.
 
+## Build a request from the schema
+
+**--template** SERVICE/METHOD prints an editable protobuf JSON request for a unary method without invoking it. Edit the file, then send it:
+
+```sh
+swys grpc api.example.test:443 --template example.v1.EchoService/Echo -o request.json
+swys grpc api.example.test:443 example.v1.EchoService/Echo -i request.json
+```
+
+Templates show field defaults, empty lists and maps, and nested messages. They leave oneof choices unselected and do not invent IDs or other business values; a template is a starting point, not a promise that the service accepts those values. Templates are always protobuf JSON, so the format flag accepts only json. With **--protoset**, templates work offline.
+
+With shell completion installed, press Tab after **-d** once the method is named to insert its compact template, escaped for your shell, with raw C1 and bidirectional formatting controls written as \u escapes like JSON output. Press Tab before typing a quote: fish also completes after an opening quote, but bash and zsh do not. Completion offers templates up to 2 KiB, none while a TLS or credential file comes from stdin, and never invokes the method.
+
 ## Authenticate
 
 --auth-bearer-file, --auth-bearer-env, and --auth-bearer send a bearer token as authorization metadata on reflection and the call. The matching --auth-basic forms take USER:PASSWORD. Prefer the file and environment forms; literal values are visible to other local users in process listings and shell history. One trailing line ending is removed from a credential file.
@@ -57,7 +70,7 @@ These flags own authorization metadata and conflict with an authorization --head
 
 TLS certificate and hostname verification are enabled by default. Use **--ca**, **--servername**, or **--cert** with **--key** for private services; those credential files must already exist. Use **--plaintext** only for an explicitly cleartext HTTP/2 endpoint; it conflicts with effective TLS options. **--insecure-no-verify** lets the call proceed when the certificate or hostname fails verification, and **--verbose** still reports the result, including against **--ca**. **--insecure** enables every insecure carve-out, including credentials over **--plaintext**. An insecure flag with no effect, such as **--insecure-no-verify** with **--plaintext**, is accepted.
 
-The protoset flag replaces reflection. Service listing and description then use the supplied FileDescriptorSet without connecting to the endpoint. Invoking a method still connects after SwYS resolves the schema and validates the request.
+The protoset flag replaces reflection. Service listing, description, and templates then use the supplied FileDescriptorSet without connecting to the endpoint. Invoking a method still connects after SwYS resolves the schema and validates the request.
 
 With protoc installed and your service schema available as service.proto, build a descriptor set including imported schemas:
 
