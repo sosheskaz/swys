@@ -245,7 +245,10 @@ func requestValidator(line completion) (func(protoreflect.MethodDescriptor, *pro
 		}
 		return accepted, nil
 	}
-	if !cmd.Flags().Changed(flagData) {
+	// Without -d, --stdin never leaves execution sending its default request,
+	// which a client stream does not send.
+	synthesized := !cmd.Flags().Changed(flagData)
+	if synthesized && line.settings.stdin != stdinNever {
 		return accepted, nil
 	}
 	data, err := readRequest(cmd, line.settings)
@@ -253,6 +256,9 @@ func requestValidator(line completion) (func(protoreflect.MethodDescriptor, *pro
 		return nil, err
 	}
 	return func(method protoreflect.MethodDescriptor, schema *protoschema.Schema) error {
+		if synthesized && method != nil && method.IsStreamingClient() {
+			return nil
+		}
 		_, err := validateMessage(data, method, schema)
 		return err
 	}, nil
