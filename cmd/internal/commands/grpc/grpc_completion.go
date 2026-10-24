@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -194,8 +195,9 @@ type grpcCompletionLine struct {
 // word being completed, flag's value or the method selector when flag is empty,
 // set to a valid placeholder. It decides request ownership from the line alone:
 // completion never inspects stdin, so only --input - gives stdin the request.
-func (line *grpcCompletionLine) validate(ctx context.Context, flag string) error {
-	probe, options, args, err := line.probe(flag) //nolint:contextcheck // the probe is parsed, never executed
+// definitions supplies the shorthands and flag types of the completing command.
+func (line *grpcCompletionLine) validate(ctx context.Context, definitions *pflag.FlagSet, flag string) error {
+	probe, options, args, err := line.probe(flag, definitions) //nolint:contextcheck // the probe is parsed, never executed
 	if err != nil {
 		return err
 	}
@@ -225,11 +227,11 @@ func (line *grpcCompletionLine) validate(ctx context.Context, flag string) error
 }
 
 // probe parses the completed line on a fresh command and fills the completed word.
-func (line *grpcCompletionLine) probe(flag string) (*cobra.Command, *grpcOptions, []string, error) {
+func (line *grpcCompletionLine) probe(flag string, definitions *pflag.FlagSet) (*cobra.Command, *grpcOptions, []string, error) {
 	if len(line.args) == 0 {
 		return nil, nil, nil, fmt.Errorf("%w: no completed command line", ErrInvalidOptions)
 	}
-	completed, err := grpcCompletionWordsBeforeValue(line.args, flag)
+	completed, err := grpcCompletionWordsBeforeValue(line.args, flag, definitions)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -251,24 +253,49 @@ func (line *grpcCompletionLine) probe(flag string) (*cobra.Command, *grpcOptions
 
 // grpcCompletionWordsBeforeValue returns the words before the completed one,
 // without the completed flag's name when it is a separate word.
-func grpcCompletionWordsBeforeValue(args []string, flag string) ([]string, error) {
+func grpcCompletionWordsBeforeValue(args []string, flag string, definitions *pflag.FlagSet) ([]string, error) {
 	completed, word := args[:len(args)-1], args[len(args)-1]
-	if flag == "" {
+	if flag == "" || strings.HasPrefix(word, "--"+flag+"=") {
 		return completed, nil
 	}
-	if strings.HasPrefix(word, "--"+flag+"=") || len(word) >= 3 && word[0] == '-' && word[1] != '-' && word[2] == '=' {
-		return completed, nil
+	if head, _, inline := strings.Cut(word, "="); inline && len(head) > 1 && head[0] == '-' && head[1] != '-' {
+		return grpcCompletionShorthandWords(completed, head[1:], flag, definitions)
 	}
-	last := ""
 	if len(completed) != 0 {
-		last = completed[len(completed)-1]
+		last := completed[len(completed)-1]
+		if last == "--"+flag {
+			return completed[:len(completed)-1], nil
+		}
+		if len(last) > 1 && last[0] == '-' && last[1] != '-' && !strings.Contains(last, "=") {
+			return grpcCompletionShorthandWords(completed[:len(completed)-1], last[1:], flag, definitions)
+		}
 	}
-	// Cobra picks a shorthand cluster's final letter, but pflag gives -td's
-	// "d" to the first flag, so only a lone flag word names the completed flag.
-	if last == "--"+flag || len(last) == 2 && last[0] == '-' && last[1] != '-' {
-		return completed[:len(completed)-1], nil
+	return nil, fmt.Errorf("%w: completed --%s is not a flag word", ErrInvalidOptions, flag)
+}
+
+// grpcCompletionShorthandWords follows pflag's cluster rule: boolean shorthands
+// are consumed until the first that takes a value, which must be the completed
+// flag at the cluster's end. Cobra instead picks the cluster's final letter, so
+// -td completes --data although pflag gives "d" to --timeout. The cluster's
+// boolean prefix replaces the cluster in the returned words.
+func grpcCompletionShorthandWords(words []string, cluster, flag string, definitions *pflag.FlagSet) ([]string, error) {
+	for index := range len(cluster) {
+		definition := definitions.ShorthandLookup(cluster[index : index+1])
+		if definition == nil {
+			break
+		}
+		if definition.NoOptDefVal != "" {
+			continue
+		}
+		if definition.Name != flag || index != len(cluster)-1 {
+			break
+		}
+		if index == 0 {
+			return words, nil
+		}
+		return slices.Concat(words, []string{"-" + cluster[:index]}), nil
 	}
-	return nil, fmt.Errorf("%w: completed --%s is not a lone flag word", ErrInvalidOptions, flag)
+	return nil, fmt.Errorf("%w: -%s does not give its value to --%s", ErrInvalidOptions, cluster, flag)
 }
 
 // parseGRPCCompletionLine parses args on a fresh command and applies the shared
@@ -525,7 +552,7 @@ func grpcCompletionSchema(
 	line *grpcCompletionLine,
 	flag string,
 ) (*grpcSchema, *grpc.ClientConn, context.Context) {
-	if line.validate(ctx, flag) != nil {
+	if line.validate(ctx, command.Flags(), flag) != nil {
 		return nil, nil, ctx
 	}
 	if command.Flags().Changed("protoset") {

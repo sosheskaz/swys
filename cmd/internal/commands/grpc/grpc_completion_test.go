@@ -538,6 +538,23 @@ func TestGRPCProtosetCompletionFollowsExecutionValidation(t *testing.T) {
 	}
 }
 
+func TestGRPCDataCompletionFollowsShorthandClusters(t *testing.T) {
+	t.Parallel()
+
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	// pflag consumes boolean shorthands, so -vd means --verbose --data.
+	for _, words := range [][]string{{"-d", ""}, {"-d="}, {"-vd", ""}, {"-vd="}} {
+		t.Run(strings.Join(words, " "), func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"127.0.0.1:1", "--protoset", protoset, grpcFixtureMethodName}, words...)
+			values, directive := completeGRPCCommand(t, args...)
+			assert.Len(t, values, 1, "completion of %q", words)
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+}
+
 func TestGRPCCompletionLiteralValuesDoNotOfferFiles(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--data", "--header", "--max-message-size", "--servername", "--timeout"} {
