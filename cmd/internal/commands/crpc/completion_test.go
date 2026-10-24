@@ -83,6 +83,8 @@ func TestCRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		"missing method":             {"http://127.0.0.1:1/example.v1.EchoService/Missing", "--protoset", path, "--data", ""},
 		"unrelated prefix":           {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", `{"other`},
 		"template larger than 2 KiB": {"http://127.0.0.1:1" + echoMethod, "--protoset", largePath, "--data", ""},
+		"cert without key":           {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--cert", "client.pem", "--data", ""},
+		"missing CA file":            {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--ca", "missing.pem", "--data", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -131,6 +133,41 @@ func TestCRPCReflectionCompletionReusesHeadersAndDoesNotInvoke(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, output, "example.v1.EchoService/Echo")
 	assert.Zero(t, calls.Load())
+}
+
+func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
+	t.Parallel()
+	path := writeProtoset(t, schemaSet(false))
+	// Each line is completed against its own server; "{server}" names its URL.
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"URL already names a method", []string{"{server}" + echoMethod, "example.v1.EchoService/"}},
+		{"stdin beside data", []string{"{server}" + echoMethod, "--stdin", "always", "--data", ""}},
+		{"jsonl discovery", []string{"{server}", "--format", "jsonl", "--list", ""}},
+		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
+		{"protoset with system CA alone", []string{"https://127.0.0.1:1", "--protoset", path, "--system-ca", "example.v1.EchoService/"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			handler, calls := schemaHandler(t, schemaSet(false), "")
+			var requests atomic.Int32
+			server := startSchemaServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requests.Add(1)
+				handler.ServeHTTP(writer, request)
+			}))
+			args := []string{"__complete", "crpc"}
+			for _, arg := range test.args {
+				args = append(args, strings.ReplaceAll(arg, "{server}", server.URL))
+			}
+			stdout, _, err := run(t, &unexpectedInput{t: t}, args...)
+			require.NoError(t, err)
+			assert.Equal(t, ":4\n", stdout)
+			assert.Zero(t, requests.Load(), "completion reflected for a line execution rejects before using the network")
+			assert.Zero(t, calls.Load())
+		})
+	}
 }
 
 func TestCRPCReflectionCompletionDeadlineAndQuietFailure(t *testing.T) {
