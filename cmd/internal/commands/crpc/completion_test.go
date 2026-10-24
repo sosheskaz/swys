@@ -210,6 +210,34 @@ func TestCRPCMethodCompletionFiltersByPrefixBeforeValidatingRequests(t *testing.
 	assert.Equal(t, "example.v1.WideService/M0007\tunary: example.v1.Request -> example.v1.Request\n:4\n", stdout)
 }
 
+func TestCRPCMethodCompletionChecksTheDefaultRequestPerCardinality(t *testing.T) {
+	t.Parallel()
+	echo := &descriptorpb.MethodDescriptorProto{
+		Name: new("Echo"), InputType: new(".example.v1.Request"), OutputType: new(".example.v1.Request"),
+	}
+	upload := &descriptorpb.MethodDescriptorProto{
+		Name: new("Upload"), InputType: new(".example.v1.Request"), OutputType: new(".example.v1.Request"),
+		ClientStreaming: new(true),
+	}
+	// Execution sends no default request on a client stream, so only Upload
+	// accepts --stdin never when the shared input requires a field.
+	for name, methods := range map[string][]*descriptorpb.MethodDescriptorProto{
+		"client stream first": {upload, echo}, "unary first": {echo, upload},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			set := schemaSet(false)
+			set.File[0].Syntax = new("proto2")
+			set.File[0].MessageType[0].Field[0].Label = descriptorpb.FieldDescriptorProto_LABEL_REQUIRED.Enum()
+			set.File[0].Service[0].Method = methods
+			stdout, _, err := run(t, &unexpectedInput{t: t}, "__complete", "crpc", "http://127.0.0.1:1", "--protoset", writeProtoset(t, set),
+				"--stdin", "never", "example.v1.EchoService/")
+			require.NoError(t, err)
+			assert.Equal(t, "example.v1.EchoService/\tservice\nexample.v1.EchoService/Upload\tclient: example.v1.Request -> example.v1.Request\n:4\n", stdout)
+		})
+	}
+}
+
 func TestCRPCOptionCompletionOffersNoValuesAfterItsCap(t *testing.T) {
 	t.Parallel()
 	// A parent deadline that has already passed leaves no completion budget.

@@ -346,8 +346,13 @@ func completeSchema(cmd *cobra.Command, words []string, prefix, slot string, kin
 		if err != nil {
 			return nil, directive
 		}
-		// Methods often share an input type, which decides the request check.
-		inputs := make(map[protoreflect.FullName]error)
+		// Methods often share an input type, which with client streaming, for the
+		// default request, decides the request check.
+		type requestShape struct {
+			input        protoreflect.FullName
+			clientStream bool
+		}
+		inputs := make(map[requestShape]error)
 		accept = func(name string) bool {
 			if ctx.Err() != nil {
 				return false
@@ -356,7 +361,7 @@ func completeSchema(cmd *cobra.Command, words []string, prefix, slot string, kin
 			if err != nil {
 				return false
 			}
-			input := method.Input().FullName()
+			input := requestShape{input: method.Input().FullName(), clientStream: method.IsStreamingClient()}
 			result, checked := inputs[input]
 			if !checked {
 				result = validate(method, schema)
