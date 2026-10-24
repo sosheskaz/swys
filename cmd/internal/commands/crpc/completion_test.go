@@ -77,6 +77,8 @@ func TestCRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		"empty list conflicts":       {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--list=", "--data", ""},
 		"empty describe conflicts":   {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--describe=", "--data", ""},
 		"empty template conflicts":   {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--template=", "--data", ""},
+		"auth file from stdin":       {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--auth-bearer-file", "-", "--data", ""},
+		"CA from stdin":              {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--ca", "-", "--data", ""},
 		"missing method":             {"http://127.0.0.1:1/example.v1.EchoService/Missing", "--protoset", path, "--data", ""},
 		"unrelated prefix":           {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", `{"other`},
 		"template larger than 2 KiB": {"http://127.0.0.1:1" + echoMethod, "--protoset", largePath, "--data", ""},

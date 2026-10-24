@@ -279,7 +279,7 @@ func completeGRPC(
 func grpcDataCompletionApplicable(command *cobra.Command, args []string) bool {
 	return len(args) == 2 && validGRPCMethodSelector(args[1]) && !command.Flags().Changed(grpcInputFlagName) &&
 		grpcSelectionCompletionAllowed(command, args, grpcCompleteSelector) &&
-		!tlsconfig.UsesStdin(command) && validGRPCCompletionEndpoint(args[0])
+		!tlsconfig.UsesStdin(command) && !auth.UsesStdin(command.Flags()) && validGRPCCompletionEndpoint(args[0])
 }
 
 // completeGRPCData offers the selected method's compact request template.

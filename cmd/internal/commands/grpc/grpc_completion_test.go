@@ -455,6 +455,8 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		{name: "list conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--list", grpcFixtureServiceName, "--data", ""}},
 		{name: "describe conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--describe", grpcFixtureServiceName, "--data", ""}},
 		{name: "template conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--template", grpcFixtureMethodName, "--data", ""}},
+		{name: "auth file from stdin", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--auth-bearer-file", "-", "--data", ""}},
+		{name: "CA from stdin", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--ca", "-", "--data", ""}},
 		{name: "unrelated prefix", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--data", `{"other`}},
 		{name: "template larger than 2 KiB", args: []string{"--protoset", largeProtoset, grpcFixtureMethodName, "--data", ""}},
 	} {

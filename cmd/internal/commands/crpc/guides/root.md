@@ -144,7 +144,8 @@ Introduce, and Converse. Once the method is named, press Tab after -d to insert
 its compact template, such as {"sentence":""}, escaped for your shell; this
 reflects on demand without --reflect. Press Tab before typing a quote: fish also
 completes after an opening quote, but bash and zsh do not. Templates over 2 KiB
-are not offered; use --template instead. --list, --describe, and --template
+are not offered; use --template instead. No template is offered while a TLS or
+credential file comes from stdin. --list, --describe, and --template
 also complete schema symbols. See swys help completion for shell setup.
 
 Completion uses --protoset when supplied; otherwise it queries reflection with
