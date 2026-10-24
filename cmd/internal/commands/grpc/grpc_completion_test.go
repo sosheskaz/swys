@@ -246,6 +246,10 @@ func TestGRPCCompletionRejectsInvalidOptionsLocally(t *testing.T) {
 			flags: []string{"--plaintext", "--format", "yaml"},
 		},
 		{
+			name:  "invalid output mode",
+			flags: []string{"--plaintext", "--mode=rwx"},
+		},
+		{
 			name:  "literal request over its size limit",
 			flags: []string{"--plaintext", "--max-message-size", "1", "--data", `{"x":1}`},
 		},
@@ -510,6 +514,7 @@ func TestGRPCProtosetCompletionFollowsExecutionValidation(t *testing.T) {
 		{name: "invocation loads a missing CA", args: []string{"--ca", missing, grpcFixtureServiceName + "/"}},
 		{name: "output replaces the protoset", args: []string{"--output", protoset, "--list", ""}},
 		{name: "invalid output encoding", args: []string{"--encoding", "bogus", "--describe", ""}},
+		{name: "output mode without an output file", args: []string{"--mode", "0600", "--list", ""}},
 		{name: "credential file over its size limit", args: []string{"--auth-bearer-file", oversizedToken, "--list", ""}},
 		{
 			name: "inline value after a dash-led literal",

@@ -205,9 +205,6 @@ func (line *grpcCompletionLine) validate(ctx context.Context, flag string) error
 	}
 	payloadStdin := selectorPresent && !probe.Flags().Changed(grpcDataFlagName) &&
 		probe.Flags().Changed(grpcInputFlagName) && grpcCompletionString(probe, grpcInputFlagName) == "-"
-	if _, err := presentation.Policy(probe); err != nil {
-		return fmt.Errorf("validate completed presentation: %w", err)
-	}
 	if err := validateGRPCOptions(probe, args[0], selector, selectorPresent, payloadStdin, options); err != nil {
 		return err
 	}
@@ -274,10 +271,14 @@ func grpcCompletionWordsBeforeValue(args []string, flag string) ([]string, error
 	return nil, fmt.Errorf("%w: completed --%s is not a lone flag word", ErrInvalidOptions, flag)
 }
 
+// parseGRPCCompletionLine parses args on a fresh command and applies the shared
+// pre-run checks execution makes before its own validation; neither reads the
+// word being completed.
 func parseGRPCCompletionLine(args []string) (*cobra.Command, *grpcOptions, error) {
 	probeRoot := commandio.NewProbeRoot()
 	presentation.AddFlags(probeRoot)
-	command, options := newGRPCCommand(commandio.NewLifecycle())
+	lifecycle := commandio.NewLifecycle()
+	command, options := newGRPCCommand(lifecycle)
 	probeRoot.AddCommand(command)
 	probe, probeArgs, err := probeRoot.Find(args)
 	if err != nil {
@@ -288,6 +289,12 @@ func parseGRPCCompletionLine(args []string) (*cobra.Command, *grpcOptions, error
 	}
 	if err := probe.ParseFlags(probeArgs); err != nil {
 		return nil, nil, fmt.Errorf("parse completed flags: %w", err)
+	}
+	if _, err := presentation.Policy(probe); err != nil {
+		return nil, nil, fmt.Errorf("validate completed presentation: %w", err)
+	}
+	if err := lifecycle.ValidateIO(probe); err != nil {
+		return nil, nil, fmt.Errorf("validate completed I/O options: %w", err)
 	}
 	return probe, options, nil
 }
