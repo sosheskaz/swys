@@ -93,7 +93,7 @@ swys grpc localhost:9443 example.v1.EchoService/Echo -d '{"text":"hello"}' \
 
 An exact - selects original stdin for one credential; ./- names a file. Invocation owns non-terminal stdin implicitly, and --input - owns it explicitly. Use a literal --data request or an input file to release stdin for credentials. Implicit terminal input defaults to an empty object; discovery has no request stdin. Multiple stdin owners fail before reads or connections. Reflection completion stays quiet when any credential selects stdin.
 
-The endpoint is still required syntactically for offline discovery; these protoset-only commands do not contact it. Completion can suggest message, enum, and declared nested types from the local set. Live reflection completion lists services and resolves descriptors only for a selected service prefix; it does not crawl every service to discover unrelated type names.
+The endpoint is still required syntactically for offline discovery; these protoset-only commands do not contact it. Completion can suggest message, enum, and declared nested types from the local set. Live reflection completion lists services and resolves descriptors only for a selected service prefix; it does not crawl every service to discover unrelated type names. Completion suggests schema names, and contacts the endpoint, only when the completed command would pass the checks SwYS runs before connecting.
 
 ## Understand input, limits, and remote effects
 
