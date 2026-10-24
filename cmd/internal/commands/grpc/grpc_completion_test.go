@@ -286,7 +286,7 @@ func assertQuietGRPCCompletionFailure(t *testing.T, stderr string) {
 	}
 }
 
-func TestGRPCCompletionCredentialStdinIsQuietAndLiteralDashFileRemainsUsable(t *testing.T) { //nolint:paralleltest // isolates the literal dash file with Chdir
+func TestGRPCCompletionCredentialStdinIsQuietAndLiteralDashFileRemainsUsable(t *testing.T) {
 	address, caPath, record := startGRPCFixture(t, grpcFixtureReflectionBoth, true)
 	ca, err := os.ReadFile(caPath)
 	require.NoError(t, err)

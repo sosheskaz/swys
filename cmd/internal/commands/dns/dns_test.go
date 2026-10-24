@@ -323,7 +323,7 @@ func TestDNSInvalidEncodingRejectsBeforeQuery(t *testing.T) {
 	})
 	t.Cleanup(func() {
 		_ = connection.Close() //nolint:errcheck // release a fixture that received no query
-		<-done
+		assert.ErrorIs(t, <-done, net.ErrClosed, "unused DNS fixture shutdown")
 	})
 	path := filepath.Join(t.TempDir(), "output")
 	require.NoError(t, os.WriteFile(path, []byte("preserve"), 0o600))
