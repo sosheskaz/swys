@@ -227,7 +227,7 @@ never fixture data; generate ephemeral private fixtures during test setup.
 | Suite passes, raced + shuffled        | `ci.yml` test steps on every PR: shuffled on every native platform and FreeBSD VM, raced once per OS                |
 | Coverage changes investigated         | CI summary and artifact; sticky comment for same-repository PRs; explain meaningful losses                          |
 | Benchmarks don't rot                  | CI benchmark smoke run (`-benchtime=1x`)                                                                            |
-| Runnable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target)                                                    |
+| Runnable fuzz targets mutate          | CI discovery-driven smoke campaign (`-fuzztime=100x` per target); weekly and on-demand `explore` in `fuzz.yml`      |
 | Vulnerable dependencies               | `govulncheck` per PR + weekly scheduled run                                                                         |
 | Config/workflow validity              | lefthook (local + changed-files CI)                                                                                 |
 | No secret/deployment keys in fixtures | `.gitignore` patterns and review; provenance-backed published public vector and compatibility keys may be committed |
