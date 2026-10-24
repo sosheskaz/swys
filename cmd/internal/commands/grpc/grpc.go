@@ -192,7 +192,8 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := writer.Write(output); err != nil {
+			// Protobuf text, like JSON, reads a \u escape in a string as the rune it replaces.
+			if _, err := writer.Write(textdisplay.EscapeJSONControls(output)); err != nil {
 				return fmt.Errorf("write gRPC output: %w", err)
 			}
 			return nil

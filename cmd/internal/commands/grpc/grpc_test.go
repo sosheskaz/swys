@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,13 +30,16 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestGRPCDiscoverySelectors(t *testing.T) {
@@ -409,6 +413,64 @@ func TestGRPCProtobufJSONSemantics(t *testing.T) {
 	extra, ok := response["extra"].(map[string]any)
 	if !ok || extra["@type"] != "type.googleapis.com/google.protobuf.StringValue" || extra["value"] != "inside" {
 		t.Fatalf("Any response = %#v", response["extra"])
+	}
+}
+
+func TestGRPCOutputEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Raw C1 and bidi controls, one directly after a backslash that the
+	// serializer escapes.
+	const controls = "\xc2\x80\xc2\x85\xc2\x9b31m\xc2\x9f\\\xd8\x9c" +
+		"\xe2\x80\x8e\xe2\x80\x8f\xe2\x80\xaa\xe2\x80\xae\xe2\x81\xa6\xe2\x81\xa9"
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	files, _, descriptor := grpcFixtureSchema(t)
+	resolver := dynamicpb.NewTypes(files)
+	textField := descriptor.Fields().ByName("text")
+	_, schema, _ := grpcFixtureSchema(t)
+	field := schema.File[0].MessageType[0].Field[0]
+	require.Equal(t, "text", field.GetName())
+	field.JsonName = proto.String(controls)
+	protoset := writeGRPCFixtureProtoset(t, schema)
+	request, err := json.Marshal(map[string]string{"text": controls})
+	require.NoError(t, err)
+	invoke := []string{address, grpcFixtureMethodName, "--plaintext", "--data", string(request)}
+	describe := []string{"127.0.0.1:1", "--protoset", protoset, "--describe", "fixture.v1.EchoRequest.text"}
+	for _, test := range []struct {
+		decode func([]byte) (string, error)
+		name   string
+		args   []string
+	}{
+		{name: "response json", args: invoke, decode: func(output []byte) (string, error) {
+			response := dynamicpb.NewMessage(descriptor)
+			err := protojson.UnmarshalOptions{Resolver: resolver}.Unmarshal(output, response)
+			return response.Get(textField).String(), err
+		}},
+		{name: "response text", args: slices.Concat(invoke, []string{"--format", "text"}), decode: func(output []byte) (string, error) {
+			response := dynamicpb.NewMessage(descriptor)
+			err := prototext.UnmarshalOptions{Resolver: resolver}.Unmarshal(output, response)
+			return response.Get(textField).String(), err
+		}},
+		{name: "descriptor json", args: slices.Concat(describe, []string{"--format", "json"}), decode: func(output []byte) (string, error) {
+			var described descriptorpb.FieldDescriptorProto
+			err := protojson.Unmarshal(output, &described)
+			return described.GetJsonName(), err
+		}},
+		{name: "descriptor text", args: describe, decode: func(output []byte) (string, error) {
+			var described descriptorpb.FieldDescriptorProto
+			err := prototext.Unmarshal(output, &described)
+			return described.GetJsonName(), err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr, err := executeRootStreams(t, append([]string{"grpc"}, test.args...)...)
+			require.NoError(t, err)
+			assert.Empty(t, stderr)
+			testcmd.AssertNoRawTerminalControls(t, stdout)
+			got, err := test.decode([]byte(stdout))
+			require.NoError(t, err, "decode %q", stdout)
+			assert.Equal(t, controls, got)
+		})
 	}
 }
 
