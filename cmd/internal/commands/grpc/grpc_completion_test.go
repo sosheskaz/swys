@@ -245,6 +245,10 @@ func TestGRPCCompletionRejectsInvalidOptionsLocally(t *testing.T) {
 			name:  "invalid output format",
 			flags: []string{"--plaintext", "--format", "yaml"},
 		},
+		{
+			name:  "literal request over its size limit",
+			flags: []string{"--plaintext", "--max-message-size", "1", "--data", `{"x":1}`},
+		},
 	}
 
 	for _, test := range tests {
@@ -474,6 +478,9 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		{name: "template larger than 2 KiB", args: []string{"--protoset", largeProtoset, grpcFixtureMethodName, "--data", ""}},
 		{name: "invalid header", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--header", "bad header", "--data", ""}},
 		{name: "missing CA", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--ca", missing, "--data", ""}},
+		// pflag reads -td as --timeout=d, which execution rejects.
+		{name: "shorthand cluster value", args: []string{"--protoset", protoset, grpcFixtureMethodName, "-td", ""}},
+		{name: "shorthand cluster inline value", args: []string{"--protoset", protoset, grpcFixtureMethodName, "-td="}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

@@ -113,8 +113,8 @@ func mustRegisterGRPCCompletion(command *cobra.Command, name string, completion 
 	}
 }
 
-// prepareGRPCCompletion hides inapplicable flags and returns the words before
-// the one being completed when they address command.
+// prepareGRPCCompletion hides inapplicable flags and returns the request's
+// words when they address command.
 func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command *cobra.Command) []string {
 	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
 		return nil
@@ -126,7 +126,7 @@ func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command 
 	}
 	probe := grpcCompletionProbe(completedArgs)
 	if probe == nil {
-		return completedArgs
+		return args
 	}
 	for _, name := range []string{
 		grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName,
@@ -141,7 +141,7 @@ func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command 
 		command.Flag(name).Hidden = true
 	}
 	hideGRPCSelectionFlags(command, probe)
-	return completedArgs
+	return args
 }
 
 func hideGRPCSelectionFlags(command, probe *cobra.Command) {
@@ -184,8 +184,8 @@ func grpcCompletionProbe(completedArgs []string) *cobra.Command {
 	return probe
 }
 
-// grpcCompletionLine holds the words before the one being completed. The
-// completion hook records them before Cobra runs value callbacks.
+// grpcCompletionLine holds the completion request's words, ending with the one
+// being completed. The completion hook records them before Cobra runs value callbacks.
 type grpcCompletionLine struct {
 	args []string
 }
@@ -224,19 +224,19 @@ func (line *grpcCompletionLine) validate(ctx context.Context, flag string) error
 			return fmt.Errorf("validate completed credential: %w", err)
 		}
 	}
-	return grpcCompletionFilesUsable(probe, options, selectorPresent)
+	return grpcCompletionInputsUsable(probe, options, selectorPresent)
 }
 
 // probe parses the completed line on a fresh command and fills the completed word.
 func (line *grpcCompletionLine) probe(flag string) (*cobra.Command, *grpcOptions, []string, error) {
-	if line.args == nil {
+	if len(line.args) == 0 {
 		return nil, nil, nil, fmt.Errorf("%w: no completed command line", ErrInvalidOptions)
 	}
-	probe, options, err := parseGRPCCompletionLine(line.args)
-	if last := len(line.args) - 1; err != nil && flag != "" && strings.HasPrefix(line.args[last], "-") {
-		// A separate flag value leaves the completed flag's name as the last word.
-		probe, options, err = parseGRPCCompletionLine(line.args[:last])
+	completed, err := grpcCompletionWordsBeforeValue(line.args, flag)
+	if err != nil {
+		return nil, nil, nil, err
 	}
+	probe, options, err := parseGRPCCompletionLine(completed)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -250,6 +250,28 @@ func (line *grpcCompletionLine) probe(flag string) (*cobra.Command, *grpcOptions
 		return nil, nil, nil, fmt.Errorf("%w: %w", ErrInvalidOptions, err)
 	}
 	return probe, options, args, nil
+}
+
+// grpcCompletionWordsBeforeValue returns the words before the completed one,
+// without the completed flag's name when it is a separate word.
+func grpcCompletionWordsBeforeValue(args []string, flag string) ([]string, error) {
+	completed, word := args[:len(args)-1], args[len(args)-1]
+	if flag == "" {
+		return completed, nil
+	}
+	last := ""
+	if len(completed) != 0 {
+		last = completed[len(completed)-1]
+	}
+	// Cobra picks a shorthand cluster's final letter, but pflag gives -td's
+	// "d" to the first flag, so only a lone flag word names the completed flag.
+	if last == "--"+flag || len(last) == 2 && last[0] == '-' && last[1] != '-' {
+		return completed[:len(completed)-1], nil
+	}
+	if strings.HasPrefix(word, "--"+flag+"=") || len(word) >= 3 && word[0] == '-' && word[1] != '-' && word[2] == '=' {
+		return completed, nil
+	}
+	return nil, fmt.Errorf("%w: completed --%s is not a lone flag word", ErrInvalidOptions, flag)
 }
 
 func parseGRPCCompletionLine(args []string) (*cobra.Command, *grpcOptions, error) {
@@ -281,10 +303,11 @@ func grpcCompletionPlaceholder(flag string) string {
 	}
 }
 
-// grpcCompletionFilesUsable stats, without opening, files execution reads before
-// connecting: credential files, an invocation's request file, and TLS files
-// whenever execution dials. Stdin selections are left to the callers' quiet rules.
-func grpcCompletionFilesUsable(probe *cobra.Command, options *grpcOptions, selectorPresent bool) error {
+// grpcCompletionInputsUsable checks inputs execution reads before connecting
+// without opening them: the stats of credential files and of TLS files whenever
+// execution dials, then the invocation's request. Stdin selections are left to
+// the callers' quiet rules.
+func grpcCompletionInputsUsable(probe *cobra.Command, options *grpcOptions, selectorPresent bool) error {
 	paths := make([]string, 0, 3+len(auth.FileFlagNames))
 	for _, name := range auth.FileFlagNames {
 		paths = append(paths, grpcCompletionString(probe, name))
@@ -300,15 +323,29 @@ func grpcCompletionFilesUsable(probe *cobra.Command, options *grpcOptions, selec
 			return err
 		}
 	}
+	if !selectorPresent {
+		return nil
+	}
+	return grpcCompletionRequestUsable(probe, options)
+}
+
+// grpcCompletionRequestUsable applies readGRPCRequest's size limit to a literal
+// request or a request file's stat.
+func grpcCompletionRequestUsable(probe *cobra.Command, options *grpcOptions) error {
+	limit := int64(options.maxMessageSize) * 4
+	if probe.Flags().Changed(grpcDataFlagName) {
+		_, err := validateGRPCRequestSize([]byte(options.data), limit)
+		return err
+	}
 	input := grpcCompletionString(probe, grpcInputFlagName)
-	if !selectorPresent || probe.Flags().Changed(grpcDataFlagName) || !probe.Flags().Changed(grpcInputFlagName) || input == "-" {
+	if !probe.Flags().Changed(grpcInputFlagName) || input == "-" {
 		return nil
 	}
 	info, err := regularGRPCCompletionFile(input)
 	if err != nil {
 		return err
 	}
-	if limit := int64(options.maxMessageSize) * 4; info.Size() > limit {
+	if info.Size() > limit {
 		return fmt.Errorf("%w: request JSON exceeds %d bytes", ErrMessageLimit, limit)
 	}
 	return nil
