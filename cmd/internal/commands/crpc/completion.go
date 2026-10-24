@@ -87,7 +87,7 @@ type completion struct {
 // precedes prefix, such as a --flag= assignment, because the shell inserts a
 // candidate only in place of prefix. It assumes the user will supply the
 // request with -d unless the line already selects stdin explicitly, so it never
-// consults stdin's state.
+// consults stdin's state. Callers bound later work with the probe's context.
 func completionLine(cmd *cobra.Command, words []string, slot, prefix string) (completion, error) {
 	if len(words) == 0 || !strings.HasSuffix(words[len(words)-1], prefix) {
 		return completion{}, ErrInvalidFlags
@@ -124,7 +124,12 @@ func completionLine(cmd *cobra.Command, words []string, slot, prefix string) (co
 
 func formatCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		ctx, cancel := context.WithTimeout(cmd.Context(), completionTimeout)
+		defer cancel()
 		line, err := completionLine(cmd, *words, "format", prefix)
+		if err == nil {
+			line.cmd.SetContext(ctx)
+		}
 		formats := []string{formatJSON, formatJSONL}
 		switch {
 		case err == nil && line.target.discovery:
@@ -141,7 +146,7 @@ func formatCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 				formats = []string{formatJSONL}
 			}
 		}
-		if err != nil {
+		if err != nil || ctx.Err() != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		return matching(formats, prefix), cobra.ShellCompDirectiveNoFileComp
@@ -150,7 +155,12 @@ func formatCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 
 func streamCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		ctx, cancel := context.WithTimeout(cmd.Context(), completionTimeout)
+		defer cancel()
 		line, err := completionLine(cmd, *words, flagStream, prefix)
+		if err == nil {
+			line.cmd.SetContext(ctx)
+		}
 		modes := []string{streamUnary, streamServer, streamClient, streamBidi}
 		switch {
 		case err == nil:
@@ -159,7 +169,7 @@ func streamCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 			// Static values need no valid line, as when flags precede the URL.
 			err = nil
 		}
-		if err != nil {
+		if err != nil || ctx.Err() != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		descriptions := map[string]string{
@@ -185,9 +195,23 @@ func invocationValues(line completion, option *string, candidates []string) ([]s
 	if err != nil {
 		return nil, err
 	}
+	validate, err := requestValidator(line)
+	if err != nil {
+		return nil, err
+	}
+	// Every candidate selects the same method, so the request is checked once.
+	var request error
+	checked := false
 	return slices.DeleteFunc(candidates, func(value string) bool {
 		*option = value
-		return invocationAccepted(line, schema, line.target.endpoint.Procedure) != nil
+		method, _, err := invocationMethod(line.cmd, line.settings, schema, line.target.endpoint.Procedure)
+		if err != nil {
+			return true
+		}
+		if !checked {
+			request, checked = validate(method, schema), true
+		}
+		return request != nil
 	}), nil
 }
 
@@ -237,12 +261,17 @@ func requestValidator(line completion) (func(protoreflect.MethodDescriptor, *pro
 // dataCompletion offers the selected method's compact request template.
 func dataCompletion(words *[]string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		ctx, cancel := context.WithTimeout(cmd.Context(), completionTimeout)
+		defer cancel()
 		line, err := completionLine(cmd, *words, flagData, prefix)
+		if err == nil {
+			line.cmd.SetContext(ctx)
+		}
 		if err != nil || line.target.discovery {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		probe := line.cmd
-		if probe.Flags().Changed(flagInput) || hasDiscoveryFlag(probe) || tlsconfig.UsesStdin(probe) || auth.UsesStdin(probe.Flags()) {
+		if dataQuiet(probe) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		procedure := line.target.endpoint.Procedure
@@ -264,11 +293,17 @@ func dataCompletion(words *[]string) cobra.CompletionFunc {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		line.settings.data = string(data)
-		if requestAccepted(line, method, schema) != nil {
+		if requestAccepted(line, method, schema) != nil || ctx.Err() != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		return []string{cobra.CompletionWithDesc(string(data), string(method.Input().FullName()))}, cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+// dataQuiet reports a line beside which -d offers no template: --input owns
+// the request, discovery takes none, or a TLS or credential file is stdin.
+func dataQuiet(probe *cobra.Command) bool {
+	return probe.Flags().Changed(flagInput) || hasDiscoveryFlag(probe) || tlsconfig.UsesStdin(probe) || auth.UsesStdin(probe.Flags())
 }
 
 func mustComplete(command *cobra.Command, name string, fn cobra.CompletionFunc) {
@@ -282,13 +317,12 @@ func completeSchema(cmd *cobra.Command, words []string, prefix, slot string, kin
 	if kind == completeMethod && !strings.Contains(prefix, "/") {
 		directive |= cobra.ShellCompDirectiveNoSpace
 	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), completionTimeout)
+	defer cancel()
 	line, err := completionLine(cmd, words, slot, prefix)
 	if err != nil {
 		return nil, directive
 	}
-	// The cap covers candidate filtering as well as the schema lookup.
-	ctx, cancel := context.WithTimeout(line.cmd.Context(), completionTimeout)
-	defer cancel()
 	line.cmd.SetContext(ctx)
 	if slot == "" {
 		// Execution checks these without a schema before reflecting on demand.
