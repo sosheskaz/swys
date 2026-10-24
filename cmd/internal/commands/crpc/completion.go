@@ -202,23 +202,36 @@ func invocationAccepted(line completion, schema *protoschema.Schema, procedure s
 }
 
 func requestAccepted(line completion, method protoreflect.MethodDescriptor, schema *protoschema.Schema) error {
-	cmd := line.cmd
-	if input := cmd.Flag(flagInput).Value.String(); cmd.Flags().Changed(flagInput) && input != "-" {
-		// Execution opens the input before it uses the network; stat it without reading.
-		if input == "" || !regularFiles(input) {
-			return ErrInvalidFlags
-		}
-		return nil
-	}
-	if !cmd.Flags().Changed(flagData) {
-		return nil
-	}
-	data, err := readRequest(cmd, line.settings)
+	validate, err := requestValidator(line)
 	if err != nil {
 		return err
 	}
-	_, err = validateMessage(data, method, schema)
-	return err
+	return validate(method, schema)
+}
+
+// requestValidator applies execution's checks of the line's request source
+// once and returns the check of a literal -d request against a method.
+func requestValidator(line completion) (func(protoreflect.MethodDescriptor, *protoschema.Schema) error, error) {
+	cmd := line.cmd
+	accepted := func(protoreflect.MethodDescriptor, *protoschema.Schema) error { return nil }
+	if input := cmd.Flag(flagInput).Value.String(); cmd.Flags().Changed(flagInput) && input != "-" {
+		// Execution opens the input before it uses the network; stat it without reading.
+		if input == "" || !regularFiles(input) {
+			return nil, ErrInvalidFlags
+		}
+		return accepted, nil
+	}
+	if !cmd.Flags().Changed(flagData) {
+		return accepted, nil
+	}
+	data, err := readRequest(cmd, line.settings)
+	if err != nil {
+		return nil, err
+	}
+	return func(method protoreflect.MethodDescriptor, schema *protoschema.Schema) error {
+		_, err := validateMessage(data, method, schema)
+		return err
+	}, nil
 }
 
 // dataCompletion offers the selected method's compact request template.
@@ -273,6 +286,10 @@ func completeSchema(cmd *cobra.Command, words []string, prefix, slot string, kin
 	if err != nil {
 		return nil, directive
 	}
+	// The cap covers candidate filtering as well as the schema lookup.
+	ctx, cancel := context.WithTimeout(line.cmd.Context(), completionTimeout)
+	defer cancel()
+	line.cmd.SetContext(ctx)
 	if slot == "" {
 		// Execution checks these without a schema before reflecting on demand.
 		if invocationAccepted(line, nil, line.target.endpoint.Procedure) != nil {
@@ -285,11 +302,34 @@ func completeSchema(cmd *cobra.Command, words []string, prefix, slot string, kin
 	}
 	accept := func(string) bool { return true }
 	if slot == "" {
-		accept = func(method string) bool {
-			return invocationAccepted(line, schema, method) == nil
+		validate, err := requestValidator(line)
+		if err != nil {
+			return nil, directive
+		}
+		// Methods often share an input type, which decides the request check.
+		inputs := make(map[protoreflect.FullName]error)
+		accept = func(name string) bool {
+			if ctx.Err() != nil {
+				return false
+			}
+			method, _, err := invocationMethod(line.cmd, line.settings, schema, name)
+			if err != nil {
+				return false
+			}
+			input := method.Input().FullName()
+			result, checked := inputs[input]
+			if !checked {
+				result = validate(method, schema)
+				inputs[input] = result
+			}
+			return result == nil
 		}
 	}
-	return schemaCandidates(schema, prefix, kind, accept), directive
+	values := schemaCandidates(schema, prefix, kind, accept)
+	if ctx.Err() != nil {
+		return nil, directive
+	}
+	return values, directive
 }
 
 func boundedCompletionSchema(line completion, prefix string, kind completionKind) (*protoschema.Schema, error) {
@@ -417,10 +457,12 @@ func schemaCandidates(schema *protoschema.Schema, prefix string, kind completion
 			values = append(values, cobra.CompletionWithDesc(name, description))
 		}
 	}
+	// Acceptance may validate a request, so it runs only for words add would keep.
+	wanted := func(name string) bool { return len(values) < 256 && strings.HasPrefix(name, prefix) }
 	for _, service := range schema.Services {
 		name := service
 		if kind == completeMethod {
-			if !acceptsAnyMethod(schema, service, accept) {
+			if !wanted(name+"/") || !acceptsAnyMethod(schema, service, accept) {
 				continue
 			}
 			name += "/"
@@ -434,7 +476,7 @@ func schemaCandidates(schema *protoschema.Schema, prefix string, kind completion
 	schema.Files.RangeFiles(func(file protoreflect.FileDescriptor) bool { files = append(files, file); return true })
 	slices.SortFunc(files, func(a, b protoreflect.FileDescriptor) int { return strings.Compare(a.Path(), b.Path()) })
 	for _, file := range files {
-		addMethods(file.Services(), kind, accept, add)
+		addMethods(file.Services(), kind, func(name string) bool { return wanted(name) && accept(name) }, add)
 		if kind == completeSymbol {
 			addMessageSymbols(file.Messages(), add)
 			addEnums(file.Enums(), add)

@@ -181,6 +181,30 @@ func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 	}
 }
 
+func TestCRPCMethodCompletionFiltersByPrefixBeforeValidatingRequests(t *testing.T) {
+	t.Parallel()
+	set := schemaSet(false)
+	wide := &descriptorpb.ServiceDescriptorProto{Name: new("WideService")}
+	for i := range 2000 {
+		wide.Method = append(wide.Method, &descriptorpb.MethodDescriptorProto{
+			Name: new(fmt.Sprintf("M%04d", i)), InputType: new(".example.v1.Request"), OutputType: new(".example.v1.Request"),
+		})
+	}
+	set.File[0].Service = append(set.File[0].Service, wide)
+	path := writeProtoset(t, set)
+	// Validating this request once per method, rather than only for the typed
+	// prefix, takes far longer than the completion cap.
+	request := `{"text":"` + strings.Repeat("x", 4<<20) + `"}`
+	started := time.Now()
+	stdout, _, err := run(t, &unexpectedInput{t: t}, "__complete", "crpc", "http://127.0.0.1:1", "--protoset", path,
+		"-d", request, "example.v1.WideService/M0007")
+	elapsed := time.Since(started)
+	require.NoError(t, err)
+	// Wall-clock margin as in the reflection deadline test: the 2-second cap plus slack.
+	assert.Less(t, elapsed, 4*time.Second, "completion outlived its cap")
+	assert.Equal(t, "example.v1.WideService/M0007\tunary: example.v1.Request -> example.v1.Request\n:4\n", stdout)
+}
+
 func TestCRPCReflectionCompletionDeadlineAndQuietFailure(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
