@@ -21,6 +21,7 @@ import (
 	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/protoschema"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 const (
@@ -533,11 +534,15 @@ func completeGRPCData(command *cobra.Command, args []string, prefix string, opti
 		return nil
 	}
 	data, err := protoschema.TemplateJSON(method.Input(), false)
+	// Shells display the candidate and insert it verbatim, so escape it like
+	// --template output before applying the limits, which then measure what
+	// execution receives. Shells match the candidate against the typed word,
+	// which may start with a quote.
+	data = textdisplay.EscapeJSONControls(data)
 	if err == nil {
 		// Execution rejects an oversized --data before connecting.
 		_, err = validateGRPCRequestSize(data, int64(options.maxMessageSize)*4)
 	}
-	// Shells match the candidate against the typed word, which may start with a quote.
 	if err != nil || len(data) > grpcDataCompletionLimit || !strings.HasPrefix(string(data), strings.TrimLeft(prefix, `'"`)) {
 		return nil
 	}

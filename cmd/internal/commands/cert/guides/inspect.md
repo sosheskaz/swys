@@ -41,7 +41,7 @@ swys cert inspect -i chain.pem --select 0 -f pem -e base64
 
 **--encoding/-e** encodes the complete formatted output. Base64 of PEM includes the PEM delimiters and newlines. Diagnostics stay separate from exported bytes.
 
-JSON always has a **certificates** array containing metadata, complete **pem** strings, and **source** values of **input**. It has no verification result. PEM output contains only the selected certificate bytes, without verification diagnostics.
+JSON always has a **certificates** array containing metadata, complete **pem** strings, and **source** values of **input**. It has no verification result. Raw C1 and bidirectional formatting controls in its strings, such as certificate names, are written as \u escapes; decoding the JSON yields the original values. PEM output contains only the selected certificate bytes, without verification diagnostics.
 
 Inspection never prints private keys. Successful extraction does not establish trust and does not install the exported CA. Expired certificates and certificates with restricted purposes remain inspectable.
 

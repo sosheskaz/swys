@@ -22,7 +22,7 @@ func TestExampleHashSHA256FromStdin(t *testing.T) {
 	assert.Equal(t, want, string(output), "swys hash sha256 output")
 }
 
-func TestExampleHashExplicitStreams(t *testing.T) { //nolint:paralleltest // isolates the literal dash fixture with t.Chdir
+func TestExampleHashExplicitStreams(t *testing.T) {
 	t.Chdir(t.TempDir())
 	const sentinel = "literal dash file"
 	require.NoError(t, os.WriteFile("-", []byte(sentinel), 0o600))

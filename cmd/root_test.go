@@ -164,9 +164,9 @@ func TestOutputOnlyCommandDoesNotReadOmittedInput(t *testing.T) {
 	assert.Zero(t, input.reads.Load(), "key generation read omitted payload input")
 }
 
-func TestMainStreamDashAndLiteralPaths(t *testing.T) { //nolint:paralleltest // literal paths require t.Chdir
+func TestMainStreamDashAndLiteralPaths(t *testing.T) {
 	const digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n"
-	for _, test := range []struct { //nolint:paralleltest // each subtest changes the working directory
+	for _, test := range []struct {
 		name, stdin, file, wantStdout, wantFile string
 		args                                    []string
 	}{
@@ -417,8 +417,8 @@ func TestInvalidOutputModeRejectedBeforeIO(t *testing.T) {
 	}
 }
 
-func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) { //nolint:paralleltest // isolates a dash output if validation regresses
-	for _, destination := range []string{"omitted", "dash"} { //nolint:paralleltest // each subtest changes the working directory
+func TestOutputModeWithoutOutputFlagIsRejected(t *testing.T) {
+	for _, destination := range []string{"omitted", "dash"} {
 		t.Run(destination, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			input := &modeInputReader{}

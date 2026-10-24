@@ -90,6 +90,9 @@ swys crpc --protoset api.protoset --list example.v1.EchoService
 reflection. Offline discovery needs no URL. Discovery defaults to text;
 --format plain uses the same undecorated list/protobuf layout, and --format
 json emits a JSON list or protobuf descriptor.
+Descriptor and template strings, including templates completed after -d, write
+raw C1 and bidirectional formatting controls as \u escapes in both JSON and
+protobuf text; decoding yields the original values.
 
 Use --reflect to obtain the selected method's schema before calling it, or
 --protoset to use a local schema. Both validate the request's protobuf JSON
@@ -178,8 +181,10 @@ only one payload or artifact can own stdin. --resolve changes the connection
 address while preserving the URL's host and TLS identity. Standard HTTP proxy
 environment variables apply.
 
-The response JSON goes to stdout. -v/--verbose writes RPC status, response
-metadata, and transport details to stderr. RPC and protocol failures exit
+The response JSON goes to stdout. Raw C1 and bidirectional formatting
+controls in its strings are written as \u escapes, so the decoded JSON is
+unchanged. -v/--verbose writes RPC status, response metadata, and transport
+details to stderr. RPC and protocol failures exit
 nonzero. Request validation and unary failures preserve existing output files. Streaming outputs are written incrementally.
 
 ## Limits and timeouts

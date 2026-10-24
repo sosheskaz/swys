@@ -2,6 +2,7 @@ package textdisplay_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -47,6 +48,36 @@ func TestFieldsPreserveLongTokensAndEscapeControls(t *testing.T) {
 		assert.Contains(t, output.String(), token)
 		assert.Contains(t, output.String(), `hello\x1b[2J\nworld\xff`)
 		assert.NotContains(t, output.String(), "\x1b[2J")
+	}
+}
+
+func TestEscapeJSONControls(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ name, input, want string }{
+		{
+			name:  "range boundaries",
+			input: "\"\u007f\u0080\u009f\u00a0\u061b\u061c\u200d\u200e\u200f\u2010\u2029\u202a\u202e\u202f\u2066\u2069\u206a\"",
+			want:  "\"\u007f\\u0080\\u009f\u00a0\u061b\\u061c\u200d\\u200e\\u200f\u2010\u2029\\u202a\\u202e\u202f\\u2066\\u2069\u206a\"",
+		},
+		{
+			name:  "names and escaped backslashes",
+			input: "{\"\u202ename\": [\"\\\\\u009b31m\", \"\\u009b\"]}",
+			want:  "{\"\\u202ename\": [\"\\\\\\u009b31m\", \"\\u009b\"]}",
+		},
+		{name: "invalid UTF-8 is copied", input: "\"\x9b\xc2\"", want: "\"\x9b\xc2\""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := textdisplay.EscapeJSONControls([]byte(test.input))
+			assert.Equal(t, test.want, string(got))
+			if !json.Valid([]byte(test.input)) {
+				return
+			}
+			var want, decoded any
+			require.NoError(t, json.Unmarshal([]byte(test.input), &want))
+			require.NoError(t, json.Unmarshal(got, &decoded))
+			assert.Equal(t, want, decoded)
+		})
 	}
 }
 

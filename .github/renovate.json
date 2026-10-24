@@ -85,7 +85,6 @@
     {
       "matchManagers": ["mise"],
       "matchDepNames": [
-        "golangci-lint",
         "lefthook",
         "zizmor",
         "aqua:rhysd/actionlint",
@@ -97,6 +96,22 @@
       "automergeType": "pr",
       "automergeStrategy": "squash",
       "addLabels": ["automerge", "toolchain"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "matchDepNames": ["golangci-lint"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "addLabels": ["automerge", "toolchain"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "matchDepNames": ["golangci-lint"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "addLabels": ["toolchain"]
     },
     {
       "matchManagers": ["mise"],

@@ -275,7 +275,7 @@ func TestExampleNetListenTLSMutualAuthentication(t *testing.T) {
 	if got := tlsConnection.ConnectionState().NegotiatedProtocol; got != "swys-example" {
 		t.Fatalf("negotiated ALPN = %q, want swys-example", got)
 	}
-	require.NoError(t, connection.Close())
+	closeListenTestTLS(t, tlsConnection)
 	if got := string(received); got != "hello from TLS listener" {
 		t.Fatalf("client received %q, want TLS listener input", got)
 	}

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,13 +30,16 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
 	"github.com/sosheskaz/swys/cmd/internal/cli/encoding"
 	grpccommand "github.com/sosheskaz/swys/cmd/internal/commands/grpc"
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestGRPCDiscoverySelectors(t *testing.T) {
@@ -111,6 +115,21 @@ func TestGRPCDiscoverySelectors(t *testing.T) {
 			if test.wantJSON && !json.Valid([]byte(stdout)) {
 				t.Fatalf("output is not valid JSON: %q", stdout)
 			}
+		})
+	}
+}
+
+func TestGRPCServiceListRejectsUntrustedServiceNames(t *testing.T) {
+	t.Parallel()
+
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionUntrustedNamesV1, false)
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+			stdout, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--format", format)
+			require.ErrorContains(t, err, `invalid gRPC reflection response: invalid service name "\x1b[2Jforged.v1.Service"`)
+			assert.NotContains(t, err.Error(), "\x1b")
+			assert.Empty(t, stdout)
 		})
 	}
 }
@@ -285,7 +304,9 @@ func TestGRPCReflectionHalfClosesRequestBeforeWaitingForResponse(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			address, _, record := startGRPCFixture(t, test.reflectionMode, false)
-			args := []string{"grpc", address, "--plaintext", "--timeout", "500ms"}
+			// A client that never half-closes waits out any budget; a short one only
+			// fails loaded runners that are slow to connect.
+			args := []string{"grpc", address, "--plaintext", "--timeout", "5s"}
 			args = append(args, test.selector...)
 			stdout, _, err := executeRootStreams(t, args...)
 
@@ -425,6 +446,64 @@ func TestGRPCProtobufJSONSemantics(t *testing.T) {
 	}
 }
 
+func TestGRPCOutputEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Raw C1 and bidi controls, one directly after a backslash that the
+	// serializer escapes.
+	const controls = "\xc2\x80\xc2\x85\xc2\x9b31m\xc2\x9f\\\xd8\x9c" +
+		"\xe2\x80\x8e\xe2\x80\x8f\xe2\x80\xaa\xe2\x80\xae\xe2\x81\xa6\xe2\x81\xa9"
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	files, _, descriptor := grpcFixtureSchema(t)
+	resolver := dynamicpb.NewTypes(files)
+	textField := descriptor.Fields().ByName("text")
+	_, schema, _ := grpcFixtureSchema(t)
+	field := schema.File[0].MessageType[0].Field[0]
+	require.Equal(t, "text", field.GetName())
+	field.JsonName = proto.String(controls)
+	protoset := writeGRPCFixtureProtoset(t, schema)
+	request, err := json.Marshal(map[string]string{"text": controls})
+	require.NoError(t, err)
+	invoke := []string{address, grpcFixtureMethodName, "--plaintext", "--data", string(request)}
+	describe := []string{"127.0.0.1:1", "--protoset", protoset, "--describe", "fixture.v1.EchoRequest.text"}
+	for _, test := range []struct {
+		decode func([]byte) (string, error)
+		name   string
+		args   []string
+	}{
+		{name: "response json", args: invoke, decode: func(output []byte) (string, error) {
+			response := dynamicpb.NewMessage(descriptor)
+			err := protojson.UnmarshalOptions{Resolver: resolver}.Unmarshal(output, response)
+			return response.Get(textField).String(), err
+		}},
+		{name: "response text", args: slices.Concat(invoke, []string{"--format", "text"}), decode: func(output []byte) (string, error) {
+			response := dynamicpb.NewMessage(descriptor)
+			err := prototext.UnmarshalOptions{Resolver: resolver}.Unmarshal(output, response)
+			return response.Get(textField).String(), err
+		}},
+		{name: "descriptor json", args: slices.Concat(describe, []string{"--format", "json"}), decode: func(output []byte) (string, error) {
+			var described descriptorpb.FieldDescriptorProto
+			err := protojson.Unmarshal(output, &described)
+			return described.GetJsonName(), err
+		}},
+		{name: "descriptor text", args: describe, decode: func(output []byte) (string, error) {
+			var described descriptorpb.FieldDescriptorProto
+			err := prototext.Unmarshal(output, &described)
+			return described.GetJsonName(), err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr, err := executeRootStreams(t, append([]string{"grpc"}, test.args...)...)
+			require.NoError(t, err)
+			assert.Empty(t, stderr)
+			testcmd.AssertNoRawTerminalControls(t, stdout)
+			got, err := test.decode([]byte(stdout))
+			require.NoError(t, err, "decode %q", stdout)
+			assert.Equal(t, controls, got)
+		})
+	}
+}
+
 func TestGRPCRequestJSONIsStrictAndNeverInvokesOnInvalidInput(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -529,7 +608,12 @@ func TestGRPCImplicitTerminalInputMeansEmptyObject(t *testing.T) {
 func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 	t.Parallel()
 
+	const timeout = 5 * time.Second
 	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	// Connection setup on a loaded runner can take longer than the input hold, so
+	// the contract is checked in the deadline the server receives, not in how
+	// quickly the command finishes.
+	record.delayNextAccept(time.Second)
 	input := newGRPCBlockingReader(`{"text":"delayed input"}`)
 	t.Cleanup(input.releaseRead)
 	root := newRootCmd()
@@ -544,7 +628,7 @@ func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 		stdout, _, err := executeRootCommandStreams(
 			t,
 			root,
-			"grpc", address, grpcFixtureMethodName, "--plaintext", "--timeout", "500ms",
+			"grpc", address, grpcFixtureMethodName, "--plaintext", "--timeout", timeout.String(),
 		)
 		result <- commandResult{stdout: stdout, err: err}
 	}()
@@ -560,20 +644,26 @@ func TestGRPCRequestInputPrecedesOverallTimeoutAndReflection(t *testing.T) {
 	case <-time.After(750 * time.Millisecond):
 	}
 	v1BeforeInput, alphaBeforeInput := record.reflectionCounts()
+	released := time.Now()
 	input.releaseRead()
 
 	var command commandResult
 	select {
 	case command = <-result:
-	case <-time.After(2 * time.Second):
-		t.Fatal("gRPC command did not finish within a fresh overall timeout after request input")
+	case <-time.After(2 * timeout):
+		t.Fatal("gRPC command did not finish after request input")
 	}
 	if v1BeforeInput != 0 || alphaBeforeInput != 0 {
 		t.Fatalf("reflection started before request input completed: v1=%d v1alpha=%d", v1BeforeInput, alphaBeforeInput)
 	}
 	if command.err != nil {
-		t.Fatalf("delayed request did not receive a fresh overall timeout: %v", command.err)
+		t.Fatalf("delayed request failed: %v", command.err)
 	}
+	// The server adds the received grpc-timeout to its receipt time, so a timeout
+	// that starts after input arrives at least the full timeout after release. One
+	// that started with the command arrives short by the input hold, less the time
+	// the call's headers spend in transit on the established connection.
+	assert.GreaterOrEqual(t, record.lastCallDeadline().Sub(released), timeout, "overall timeout must start after request input")
 	assert.Contains(t, command.stdout, "delayed input")
 	calls, _, _ := record.snapshot()
 	v1Calls, alphaCalls := record.reflectionCounts()
@@ -678,11 +768,11 @@ func TestGRPCRequestInputHonorsParentCancellationCauseWithoutClosingBorrowedRead
 		v1Calls, alphaCalls := record.reflectionCounts()
 		content, readErr := os.ReadFile(output)
 		input.releaseRead()
-		<-result
+		commandErr = <-result
 		require.NoError(t, readErr, "read preserved output after blocked cancellation: %v", readErr)
 		t.Fatalf(
-			"command remained blocked on borrowed request input after parent cancellation; calls=%d reflection v1=%d v1alpha=%d output=%q closes=%d",
-			calls, v1Calls, alphaCalls, content, input.closes.Load(),
+			"command remained blocked on borrowed request input after parent cancellation; calls=%d reflection v1=%d v1alpha=%d output=%q closes=%d error=%v",
+			calls, v1Calls, alphaCalls, content, input.closes.Load(), commandErr,
 		)
 	}
 	require.ErrorIs(t, commandErr, context.Canceled)
@@ -967,7 +1057,7 @@ func TestGRPCExplicitStdinWithOutputAndFileAliasValidation(t *testing.T) {
 	})
 }
 
-func TestGRPCExplicitStreamsPreserveLiteralProtoset(t *testing.T) { //nolint:paralleltest // isolates a literal dash descriptor file
+func TestGRPCExplicitStreamsPreserveLiteralProtoset(t *testing.T) {
 	t.Chdir(t.TempDir())
 	_, set, _ := grpcFixtureSchema(t)
 	protoset, err := proto.Marshal(set)

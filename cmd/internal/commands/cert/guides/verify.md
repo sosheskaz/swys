@@ -85,6 +85,8 @@ With a client certificate in client.pem and its untrusted issuer in issuer.pem:
 swys cert verify --input client.pem --intermediates issuer.pem --ca root.pem --purpose client --at 2026-01-01T00:00:00Z --format json
 ```
 
+JSON reports write raw C1 and bidirectional formatting controls in their strings, such as a **--hostname** value repeated in **details**, as \u escapes; decoding the JSON yields the original values.
+
 Use **--encoding base64** (or **-e base64**) to encode the entire report, including its final newline, for transport. The default **raw** encoding leaves the selected text or JSON format unchanged.
 
 ```sh

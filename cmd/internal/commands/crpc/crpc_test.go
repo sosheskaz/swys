@@ -2,6 +2,8 @@ package crpc_test
 
 import (
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net"
@@ -16,6 +18,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestCRPCNegotiatesHTTPSWithHTTP1Fallback(t *testing.T) {
@@ -167,6 +171,52 @@ func TestCRPCMessageSizeBoundaries(t *testing.T) {
 					assert.Equal(t, message+"\n", output)
 				}
 			}
+		})
+	}
+}
+
+func TestCRPCJSONOutputEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Valid JSON may carry raw C1 and bidi controls in member names, string
+	// values, and directly after an escaped backslash.
+	const message = "{\"text\": \"\u0080\u0085\u009b31m\u009f\", " +
+		"\"\u202ename\": [\"\\\\\u061c\", \"\u200e\u200f\u202a\u202e\u2066\u2069\"]}"
+	server := httptest.NewServer(http.HandlerFunc(func(output http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Content-Type") != "application/connect+json" {
+			output.Header().Set("Content-Type", "application/json")
+			_, err := io.WriteString(output, message)
+			assert.NoError(t, err)
+			return
+		}
+		output.Header().Set("Content-Type", "application/connect+json")
+		for _, frame := range []struct {
+			data  string
+			flags byte
+		}{{message, 0}, {"{}", 2}} {
+			envelope := binary.BigEndian.AppendUint32([]byte{frame.flags}, uint32(len(frame.data)))
+			_, err := output.Write(append(envelope, frame.data...))
+			assert.NoError(t, err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	var want any
+	require.NoError(t, json.Unmarshal([]byte(message), &want))
+	for _, test := range []struct {
+		name  string
+		flags []string
+	}{
+		{"unary json", nil},
+		{"unary jsonl", []string{"--format", "jsonl"}},
+		{"server stream", []string{"--stream", "server"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output, _, err := run(t, nil, append([]string{"crpc", server.URL + echoMethod, "-d", "{}"}, test.flags...)...)
+			require.NoError(t, err)
+			testcmd.AssertNoRawTerminalControls(t, output)
+			var got any
+			require.NoError(t, json.Unmarshal([]byte(output), &got), "decode %q", output)
+			assert.Equal(t, want, got)
 		})
 	}
 }

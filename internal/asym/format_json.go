@@ -1,11 +1,14 @@
 package asym
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 // JSONFormatter formats certificate info as JSON.
@@ -132,12 +135,16 @@ func (f *JSONFormatter) FormatReport(report *CertificateReport, w io.Writer) err
 		Certificates []reportCertificateJSON  `json:"certificates"`
 		Verification *CertificateVerification `json:"verification,omitempty"`
 	}{report.Selection, certificates, report.Verification}
-	encoder := json.NewEncoder(w)
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
 	if f.Indent {
 		encoder.SetIndent("", "  ")
 	}
 	if err := encoder.Encode(value); err != nil {
 		return fmt.Errorf("encode certificate report JSON: %w", err)
+	}
+	if _, err := w.Write(textdisplay.EscapeJSONControls(output.Bytes())); err != nil {
+		return fmt.Errorf("write certificate report JSON: %w", err)
 	}
 	return nil
 }

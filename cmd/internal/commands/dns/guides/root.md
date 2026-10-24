@@ -43,7 +43,7 @@ TLS certificates and hostnames are verified by default. **--ca roots.pem** selec
 
 ## Choose output
 
-The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines. **--format json** always prints an object: **result** uses a results array containing one entry per successful resolver, even for a single resolver; **values** uses a values array. **--select values** concatenates answer values in resolver argument order without server labels. An empty values selection prints no text bytes or a JSON object with an empty values array. TXT values retain DNS zone-file quoting and escaping.
+The default selection, **result**, includes the resolver, response details when available, and answers. Choose **--select values** for answer values alone. The default **--format text** prints readable lines. **--format json** always prints an object: **result** uses a results array containing one entry per successful resolver, even for a single resolver; **values** uses a values array. **--select values** concatenates answer values in resolver argument order without server labels. An empty values selection prints no text bytes or a JSON object with an empty values array. TXT values retain DNS zone-file quoting and escaping. JSON strings write raw C1 and bidirectional formatting controls, such as those in DNS names, as \u escapes; decoding the JSON yields the original values.
 
 ```text
 {"results": [{"resolver": "dns", "server": "1.1.1.1:53", ...}]}

@@ -104,8 +104,10 @@ func watchForegroundProcess(ctx context.Context, process *exec.Cmd, sigchld <-ch
 	var result processWatchResult
 	go func() {
 		defer close(done)
+		poll := time.NewTicker(supplierStopPollInterval)
+		defer poll.Stop()
 		for {
-			suspended, err := passwordProcessStopped(process.Process.Pid)
+			suspended, err := passwordSupplierStopped(process.Process.Pid)
 			if err != nil {
 				result.err = err
 				killProcessGroup(process)
@@ -123,6 +125,7 @@ func watchForegroundProcess(ctx context.Context, process *exec.Cmd, sigchld <-ch
 				killProcessGroup(process)
 				return
 			case <-sigchld:
+			case <-poll.C:
 			}
 		}
 	}()
@@ -132,6 +135,24 @@ func watchForegroundProcess(ctx context.Context, process *exec.Cmd, sigchld <-ch
 		return result
 	}
 }
+
+// supplierStopPollInterval bounds how long a stop outside the supplier shell goes
+// unnoticed: a grandchild's stop signals the shell rather than this process.
+const supplierStopPollInterval = 50 * time.Millisecond
+
+// passwordSupplierStopped reports a stop of the supplier shell or of any process
+// in its group. A shell waiting in vfork for a child that Ctrl-Z stopped before it
+// executed cannot stop itself. The group probe only covers that window, so where
+// the group cannot be listed, such as on Linux without procfs, the shell probe
+// alone decides.
+func passwordSupplierStopped(pid int) (bool, error) {
+	if stopped, err := passwordProcessStopped(pid); err != nil || stopped {
+		return stopped, err
+	}
+	stopped, err := passwordGroupStopped(pid) // the supplier leads its own process group
+	return stopped && err == nil, nil
+}
+
 func killProcessGroup(process *exec.Cmd) { _ = syscall.Kill(-process.Process.Pid, syscall.SIGKILL) } //nolint:errcheck // process group may already be gone
 
 // Prompt reads a password from the controlling terminal with echo disabled.
