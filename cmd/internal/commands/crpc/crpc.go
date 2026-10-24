@@ -76,6 +76,12 @@ type options struct {
 
 // NewCommand constructs Connect RPC invocation and registers its I/O lifecycle.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
+	command, _ := newCommand(lifecycle)
+	return command
+}
+
+// newCommand also returns the settings its flags are bound to.
+func newCommand(lifecycle *commandio.Lifecycle) (*cobra.Command, *options) {
 	settings := &options{}
 	var pending *preparation
 	command := &cobra.Command{
@@ -160,7 +166,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	if err := help.RegisterGuides(command, guides); err != nil {
 		panic(err)
 	}
-	return command
+	return command, settings
 }
 
 func tlsApplicable(_ *cobra.Command, args []string) bool {
