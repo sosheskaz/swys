@@ -196,7 +196,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 		// and releases the exec context watcher.
 		_ = helper.Process.Kill() //nolint:errcheck // helper may already have exited
 		select {
-		case <-waited:
+		case <-waited: //nolint:errcheck // SIGKILL exit status is expected during cleanup
 		case <-time.After(2 * time.Second):
 			t.Error("password prompt helper survived SIGKILL")
 		}

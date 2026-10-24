@@ -1021,7 +1021,7 @@ func TestHTTPSetupTimeoutStopsBlockedTLSHandshake(t *testing.T) {
 		t.Fatal("--connect-timeout did not stop the blocked TLS handshake")
 	}
 	select {
-	case <-serverDone:
+	case <-serverDone: //nolint:errcheck // only join the server; the timed-out TLS client may reset the connection
 	case <-time.After(2 * time.Second):
 		t.Fatal("blocking TLS server did not observe connection shutdown")
 	}

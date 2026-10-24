@@ -1593,7 +1593,7 @@ func TestCertVerifyCanceledSupplementalStdinRemainsBorrowed(t *testing.T) {
 			close(input.release)
 			synctest.Wait()
 			if !observed {
-				<-done
+				<-done //nolint:errcheck // cancellation during failure cleanup may return an error
 			}
 		}()
 		go func() { done <- executeCommand(root) }()

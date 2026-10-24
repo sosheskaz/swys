@@ -753,11 +753,11 @@ func TestGRPCRequestInputHonorsParentCancellationCauseWithoutClosingBorrowedRead
 		v1Calls, alphaCalls := record.reflectionCounts()
 		content, readErr := os.ReadFile(output)
 		input.releaseRead()
-		<-result
+		commandErr = <-result
 		require.NoError(t, readErr, "read preserved output after blocked cancellation: %v", readErr)
 		t.Fatalf(
-			"command remained blocked on borrowed request input after parent cancellation; calls=%d reflection v1=%d v1alpha=%d output=%q closes=%d",
-			calls, v1Calls, alphaCalls, content, input.closes.Load(),
+			"command remained blocked on borrowed request input after parent cancellation; calls=%d reflection v1=%d v1alpha=%d output=%q closes=%d error=%v",
+			calls, v1Calls, alphaCalls, content, input.closes.Load(), commandErr,
 		)
 	}
 	require.ErrorIs(t, commandErr, context.Canceled)
@@ -1042,7 +1042,7 @@ func TestGRPCExplicitStdinWithOutputAndFileAliasValidation(t *testing.T) {
 	})
 }
 
-func TestGRPCExplicitStreamsPreserveLiteralProtoset(t *testing.T) { //nolint:paralleltest // isolates a literal dash descriptor file
+func TestGRPCExplicitStreamsPreserveLiteralProtoset(t *testing.T) {
 	t.Chdir(t.TempDir())
 	_, set, _ := grpcFixtureSchema(t)
 	protoset, err := proto.Marshal(set)

@@ -355,7 +355,7 @@ func TestCertCreateProtectsInputPaths(t *testing.T) {
 	}
 }
 
-func TestCertCreateDashOutputPreservesLiteralInput(t *testing.T) { //nolint:paralleltest // isolates a literal dash key file
+func TestCertCreateDashOutputPreservesLiteralInput(t *testing.T) {
 	t.Chdir(t.TempDir())
 	generateTestKey(t, "ed25519", "./-")
 	key, err := os.ReadFile("-")

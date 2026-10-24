@@ -804,7 +804,7 @@ func TestNetListenTLSReceiveOnlyAllowsCredentialStdin(t *testing.T) {
 		}
 		if !finished {
 			select {
-			case <-run.done:
+			case <-run.done: //nolint:errcheck // cancellation during failure cleanup may return an error
 			case <-time.After(3 * time.Second):
 				t.Error("listener command did not exit")
 			}
