@@ -120,11 +120,15 @@ func validateOwnerOnlyWindowsSecurityDescriptor(descriptor *windows.SECURITY_DES
 	if err != nil {
 		return fmt.Errorf("read Windows DACL: %w", err)
 	}
+	return validateOwnerOnlyWindowsDACL(dacl, user.User.Sid)
+}
+
+func validateOwnerOnlyWindowsDACL(dacl *windows.ACL, currentUser *windows.SID) error {
 	if dacl == nil {
 		return fmt.Errorf("%w: DACL is missing", ErrNotOwnerOnly)
 	}
 	foundCurrentUser := false
-	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
+	for index := range uint32(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, index, &ace); err != nil {
 			return fmt.Errorf("read Windows DACL ACE %d: %w", index, err)
@@ -132,7 +136,7 @@ func validateOwnerOnlyWindowsSecurityDescriptor(descriptor *windows.SECURITY_DES
 		switch ace.Header.AceType {
 		case windows.ACCESS_ALLOWED_ACE_TYPE:
 			aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-			if !aceSID.Equals(user.User.Sid) {
+			if !aceSID.Equals(currentUser) {
 				return fmt.Errorf("%w: DACL grants access to another principal", ErrNotOwnerOnly)
 			}
 			foundCurrentUser = true

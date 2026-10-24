@@ -4,6 +4,7 @@
 package dnsquery
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -14,6 +15,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var errAdapterDataGrowth = errors.New("adapter data kept growing")
+
 func configuredDNSServers() ([]string, error) {
 	size := uint32(15000)
 	for range 3 {
@@ -21,18 +24,18 @@ func configuredDNSServers() ([]string, error) {
 		a := (*windows.IpAdapterAddresses)(unsafe.Pointer(&b[0]))
 		requested := size
 		err := windows.GetAdaptersAddresses(windows.AF_UNSPEC, windows.GAA_FLAG_INCLUDE_PREFIX, 0, a, &requested)
-		if err == windows.ERROR_BUFFER_OVERFLOW && requested > size {
+		if errors.Is(err, windows.ERROR_BUFFER_OVERFLOW) && requested > size {
 			size = requested
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read Windows DNS adapters: %w", err)
 		}
 		servers := dnsServersFromAdapters(a)
 		runtime.KeepAlive(b)
 		return servers, nil
 	}
-	return nil, fmt.Errorf("adapter data kept growing beyond %d bytes", size)
+	return nil, fmt.Errorf("%w beyond %d bytes", errAdapterDataGrowth, size)
 }
 
 func dnsServersFromAdapters(a *windows.IpAdapterAddresses) []string {

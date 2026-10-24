@@ -391,8 +391,8 @@ func TestGRPCRequestFileReadsFIFOToEOFAndEnforcesLimit(t *testing.T) { //nolint:
 			payload := bytes.Repeat([]byte{'x'}, test.size)
 			data, err := readGRPCFIFOToEOF(ctx, t, payload, test.limit)
 			if test.wantErr {
-				if !errors.Is(err, errGRPCMessageLimit) || data != nil {
-					t.Fatalf("read %d bytes with limit %d = %d bytes, %v; want nil and errGRPCMessageLimit", test.size, test.limit, len(data), err)
+				if !errors.Is(err, grpccommand.ErrMessageLimit) || data != nil {
+					t.Fatalf("read %d bytes with limit %d = %d bytes, %v; want nil and grpccommand.ErrMessageLimit", test.size, test.limit, len(data), err)
 				}
 				return
 			}

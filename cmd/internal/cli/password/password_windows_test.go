@@ -5,6 +5,7 @@ package password
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,8 +105,7 @@ func TestWindowsSuspendedProcessCanBeAssignedBeforeResume(t *testing.T) {
 	watch, onStartFailure, err := configureProcess(cmd)
 	require.NoError(t, err)
 	if err := cmd.Start(); err != nil {
-		onStartFailure()
-		t.Fatal(err)
+		t.Fatal(errors.Join(err, onStartFailure()))
 	}
 	stop, err := watch(t.Context(), cmd)
 	if err != nil {
