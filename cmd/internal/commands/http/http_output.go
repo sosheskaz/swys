@@ -109,7 +109,7 @@ func writeHTTPJSONSelection(output io.Writer, selected httpSelectedOutput, reque
 	if marshalErr != nil {
 		return errors.Join(allErr, marshalErr)
 	}
-	encodedSuffix = encodedSuffix[1:]
+	encodedSuffix = textdisplay.EscapeJSONControls(encodedSuffix)[1:]
 	if _, err := io.WriteString(output, `",`); err != nil {
 		return errors.Join(allErr, err)
 	}
@@ -142,5 +142,5 @@ func httpJSONPrefix(selected httpSelectedOutput) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal HTTP response metadata: %w", err)
 	}
-	return prefix, nil
+	return textdisplay.EscapeJSONControls(prefix), nil
 }

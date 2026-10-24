@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || freebsd || linux
 
 package password_test
 
@@ -11,13 +11,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -30,6 +30,10 @@ import (
 //nolint:paralleltest,nestif // the helper process re-enters this test using its own controlling PTY
 func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 	if source := os.Getenv("SWYS_PROMPT_HELPER"); source != "" {
+		// Shells without job control, such as the FreeBSD CI session, start the
+		// tests with TSTP ignored, and an ignored signal survives exec; catching it
+		// gives the supplier the default action that ^Z relies on.
+		signal.Notify(make(chan os.Signal, 1), syscall.SIGTSTP)
 		var value []byte
 		var err error
 		if strings.HasPrefix(source, "command") {
@@ -42,6 +46,10 @@ func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 				script = `printf 'Supplier: %d\n' "$$" >/dev/tty; IFS= read -r p </dev/tty; printf '%s\n' "$p"`
 			case "command_suspend_external", "command_suspend_root":
 				script = `printf 'Supplier: %d\n' "$$" >/dev/tty; cat </dev/tty >/dev/null`
+			case "command_suspend_grandchild":
+				// The subshell stops while the supplier shell only waits for it, as
+				// when Ctrl-Z reaches a vfork child before it executes.
+				script = `printf 'Supplier: %d\n' "$$" >/dev/tty; sh -c 'kill -STOP $$'; IFS= read -r p </dev/tty`
 			}
 			if source == "command_suspend_root" {
 				root := cmd.NewCommand()
@@ -84,8 +92,8 @@ func TestPromptRestoresTerminalAfterInput(t *testing.T) {
 		if _, err := ready.Write(group[:]); err != nil {
 			os.Exit(3)
 		}
-		var signal [1]byte
-		if _, err := release.Read(signal[:]); err != nil {
+		var released [1]byte
+		if _, err := release.Read(released[:]); err != nil {
 			os.Exit(4)
 		}
 		os.Exit(0)
@@ -124,6 +132,11 @@ func TestCommandExternalReaderSuspensionCancels(t *testing.T) {
 }
 
 //nolint:paralleltest // the helper process re-enters the fixture using a controlling PTY
+func TestCommandStoppedGrandchildCancels(t *testing.T) {
+	runPromptFixture(t, "", "", "command_suspend_grandchild")
+}
+
+//nolint:paralleltest // the helper process re-enters the fixture using a controlling PTY
 func TestCommandSuspensionKeepsAESOutput(t *testing.T) {
 	runPromptFixture(t, "\x1a", "", "command_suspend_root")
 }
@@ -132,8 +145,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	t.Helper()
 	fixtureCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_CLOEXEC, 0)
-	require.NoError(t, err)
+	master, slave := openPromptPTY(t)
 	stopClose := context.AfterFunc(fixtureCtx, func() { _ = master.Close() }) //nolint:errcheck // timed-out fixture closes its blocked PTY read
 	defer stopClose()
 	defer func() {
@@ -142,26 +154,13 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 			require.NoError(t, err)
 		}
 	}()
-	name := make([]byte, 128)
-	for _, request := range []uintptr{syscall.TIOCPTYGNAME, syscall.TIOCPTYGRANT, syscall.TIOCPTYUNLK} {
-		argument := uintptr(0)
-		if request == syscall.TIOCPTYGNAME {
-			argument = uintptr(unsafe.Pointer(&name[0]))
-		}
-		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), request, argument)
-		require.Zero(t, errno)
-	}
-	end := bytes.IndexByte(name, 0)
-	require.Positive(t, end)
-	slave, err := os.OpenFile(string(name[:end]), os.O_RDWR|syscall.O_NOCTTY, 0)
-	require.NoError(t, err)
 	defer func() {
 		err := slave.Close()
 		if !errors.Is(err, os.ErrClosed) {
 			require.NoError(t, err)
 		}
 	}()
-	before, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TIOCGETA)
+	before, err := unix.IoctlGetTermios(int(slave.Fd()), promptTermiosRequest)
 	require.NoError(t, err)
 	output := filepath.Join(t.TempDir(), "cipher")
 	if source == "command_suspend_root" {
@@ -186,6 +185,22 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	helper.Stderr = os.Stderr
 	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	require.NoError(t, helper.Start())
+	waited := make(chan error, 1)
+	go func() { waited <- helper.Wait() }()
+	reaped := false
+	defer func() {
+		if reaped {
+			return
+		}
+		// Canceling the fixture context kills the helper, but only Wait reaps it
+		// and releases the exec context watcher.
+		_ = helper.Process.Kill() //nolint:errcheck // helper may already have exited
+		select {
+		case <-waited: //nolint:errcheck // SIGKILL exit status is expected during cleanup
+		case <-time.After(2 * time.Second):
+			t.Error("password prompt helper survived SIGKILL")
+		}
+	}()
 	require.NoError(t, readyWrite.Close())
 	require.NoError(t, releaseRead.Close())
 	prompt := make([]byte, 128)
@@ -217,7 +232,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 		require.NoError(t, err)
 	}
 	if source == "command_noecho_interrupt" {
-		during, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TIOCGETA)
+		during, err := unix.IoctlGetTermios(int(slave.Fd()), promptTermiosRequest)
 		require.NoError(t, err)
 		require.Zero(t, during.Lflag&unix.ECHO)
 	}
@@ -228,7 +243,7 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	var ready [4]byte
 	_, err = io.ReadFull(readyRead, ready[:])
 	require.NoError(t, err)
-	after, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TIOCGETA)
+	after, err := unix.IoctlGetTermios(int(slave.Fd()), promptTermiosRequest)
 	require.NoError(t, err)
 	require.Equal(t, helper.Process.Pid, int(binary.LittleEndian.Uint32(ready[:])))
 	require.Equal(t, before.Lflag&^unix.PENDIN, after.Lflag&^unix.PENDIN)
@@ -236,7 +251,10 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	require.Equal(t, before.Oflag, after.Oflag)
 	require.Equal(t, before.Cflag, after.Cflag)
 	if strings.HasPrefix(source, "command_suspend") {
-		require.ErrorIs(t, unix.Kill(-supplierPID, 0), unix.ESRCH)
+		// The whole group is killed, but a process the shell started is reaped by
+		// init after the shell exits, so its group can outlive the command briefly.
+		require.Eventually(t, func() bool { return errors.Is(unix.Kill(-supplierPID, 0), unix.ESRCH) },
+			2*time.Second, 10*time.Millisecond, "suspended supplier process group survived")
 	}
 	if source == "command_suspend_root" {
 		contents, err := os.ReadFile(output)
@@ -245,19 +263,13 @@ func runPromptFixture(t *testing.T, input, expected, source string) {
 	}
 	_, err = releaseWrite.Write([]byte{1})
 	require.NoError(t, err)
-	waited := make(chan error, 1)
-	go func() { waited <- helper.Wait() }()
 	select {
 	case err := <-waited:
+		reaped = true
 		require.NoError(t, err)
 	case <-time.After(3 * time.Second):
-		_ = master.Close()        //nolint:errcheck // release a blocked PTY reader on test failure
-		_ = slave.Close()         //nolint:errcheck // release a blocked PTY reader on test failure
-		_ = helper.Process.Kill() //nolint:errcheck // helper may already have exited
-		select {
-		case <-waited:
-		case <-time.After(2 * time.Second):
-		}
+		_ = master.Close() //nolint:errcheck // release a blocked PTY reader on test failure
+		_ = slave.Close()  //nolint:errcheck // release a blocked PTY reader on test failure
 		t.Fatal("password prompt helper did not finish")
 	}
 	require.NoError(t, master.Close())

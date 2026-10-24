@@ -40,18 +40,15 @@ func TestExampleAESPasswordEnvironmentFileRoundTrip(t *testing.T) {
 
 func TestExampleAESPasswordCommandWithPositionalEncoding(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX shell example")
-	}
 	stdout, _, err := executeRootStreams(t, append([]string{
 		"aes", "encrypt", "secret message",
-		"--password-command", "printf 'line password\\nignored\\n'", "--encoding", "base64",
+		"--password-command", printLinesCommand("line password", "ignored"), "--encoding", "base64",
 	}, cheapKDF...)...)
 	require.NoError(t, err)
 	_, err = base64.StdEncoding.DecodeString(strings.TrimSpace(stdout))
 	require.NoError(t, err)
 	opened, _, err := executeRootStreams(t, "aes", "decrypt", strings.TrimSpace(stdout),
-		"--password-command", "printf 'line password\\n'", "--input-encoding", "base64")
+		"--password-command", printLinesCommand("line password"), "--input-encoding", "base64")
 	require.NoError(t, err)
 	require.Equal(t, "secret message", opened)
 }
@@ -101,13 +98,10 @@ func TestAESPasswordPreflightKeepsOutput(t *testing.T) {
 
 func TestAESPasswordDecryptRejectsCostlyWrappersBeforePassword(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX shell supplier records invocation")
-	}
 	directory := t.TempDir()
 	wire, _, err := executeRootStreams(t, append([]string{
 		"aes", "encrypt", "payload",
-		"--password-command", "printf 'synthetic\\n'",
+		"--password-command", printLinesCommand("synthetic"),
 	}, cheapKDF...)...)
 	require.NoError(t, err)
 	wrapper := passwordWrapper(t, []byte(wire))
@@ -139,7 +133,7 @@ func TestAESPasswordDecryptRejectsCostlyWrappersBeforePassword(t *testing.T) {
 			require.NoError(t, os.WriteFile(input, test.wire, 0o600))
 			require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
 			_, err := executeRoot(t, "aes", "decrypt", "--input", input, "--output", output,
-				"--password-command", "touch '"+marker+"'; printf 'synthetic\\n'")
+				"--password-command", touchThenPrintCommand(marker, "synthetic"))
 			require.ErrorContains(t, err, test.want)
 			require.NoFileExists(t, marker, "password was requested before KDF preflight")
 			got, err := os.ReadFile(output)
@@ -184,4 +178,21 @@ func passwordWrapperBody(t *testing.T, wire []byte) []byte {
 	body := passwordWrapper(t, wire)[2:]
 	require.GreaterOrEqual(t, len(body), 25)
 	return body
+}
+
+// printLinesCommand returns a --password-command that prints lines in the
+// platform's command shell: sh, or cmd.exe on Windows.
+func printLinesCommand(lines ...string) string {
+	if runtime.GOOS == "windows" {
+		return "echo " + strings.Join(lines, "&echo ")
+	}
+	return "printf '" + strings.Join(lines, `\n`) + `\n'`
+}
+
+// touchThenPrintCommand creates marker, recording that the command ran, then prints line.
+func touchThenPrintCommand(marker, line string) string {
+	if runtime.GOOS == "windows" {
+		return `type nul >"` + marker + `"&` + printLinesCommand(line)
+	}
+	return "touch '" + marker + "'; " + printLinesCommand(line)
 }

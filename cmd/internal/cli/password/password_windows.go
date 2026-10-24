@@ -29,6 +29,10 @@ var (
 	errPasswordPIDRange       = errors.New("password command PID out of range")
 )
 
+// openPasswordThread is a variable so tests can fail the thread open, as Windows
+// can once cancellation has terminated the suspended command.
+var openPasswordThread = windows.OpenThread
+
 // closeWindowsHandle makes a best-effort release when no error return channel remains.
 func closeWindowsHandle(handle windows.Handle) {
 	if err := windows.CloseHandle(handle); err != nil {
@@ -116,7 +120,7 @@ func resumePrimaryThread(pid uint32) error {
 	}
 	for {
 		if entry.OwnerProcessID == pid {
-			thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+			thread, err := openPasswordThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
 			if err != nil {
 				return fmt.Errorf("open password command thread: %w", err)
 			}

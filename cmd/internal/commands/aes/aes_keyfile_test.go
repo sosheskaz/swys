@@ -15,8 +15,8 @@ import (
 	aescommand "github.com/sosheskaz/swys/cmd/internal/commands/aes"
 )
 
-func TestAESRejectsKeyfileOutputCollisions(t *testing.T) { //nolint:paralleltest // literal-dash cases change the process working directory
-	for _, leaf := range []string{"encrypt", "decrypt"} { //nolint:paralleltest // literal-dash subtests call t.Chdir
+func TestAESRejectsKeyfileOutputCollisions(t *testing.T) {
+	for _, leaf := range []string{"encrypt", "decrypt"} {
 		for _, alias := range []string{"same path", "symlink", "hard link", "literal dash"} {
 			t.Run(leaf+"/"+alias, func(t *testing.T) {
 				dir := t.TempDir()
@@ -72,7 +72,7 @@ func TestAESKeyfileRoundTrip(t *testing.T) {
 	assert.Equal(t, "hello", got)
 }
 
-func TestAESLiteralDashKeyfileWritesStdout(t *testing.T) { //nolint:paralleltest // the auxiliary keyfile dash is a literal path
+func TestAESLiteralDashKeyfileWritesStdout(t *testing.T) {
 	t.Chdir(t.TempDir())
 	key := bytes.Repeat([]byte{0x42}, 32)
 	require.NoError(t, os.WriteFile("-", key, 0o600))

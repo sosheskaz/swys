@@ -110,7 +110,7 @@ func parseGuide(source []byte) ([]guideBlock, error) {
 	if !utf8.Valid(source) {
 		return nil, errorsNewGuideMarkdown("source is not valid UTF-8")
 	}
-	// Goldmark v2.1.6 fails to recognize an empty list marker before CRLF.
+	// Goldmark v2.1.8 fails to recognize an empty list marker before CRLF.
 	source = bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
 	if err := validateGuideSourceSyntax(source); err != nil {
 		return nil, err
@@ -174,7 +174,7 @@ func validateGuideSourceSyntax(source []byte) error {
 	return nil
 }
 
-// Goldmark v2.1.6 misses type-6 HTML blocks whose tag is followed by a tab
+// Goldmark v2.1.8 misses type-6 HTML blocks whose tag is followed by a tab
 // or line ending. Run after its HTML parser and before paragraphs, preserving
 // its block context and tag list so these blocks still reach our rejection.
 type guideHTMLBlockParser struct {

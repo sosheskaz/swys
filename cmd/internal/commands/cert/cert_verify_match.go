@@ -592,7 +592,7 @@ func encodeCertificateReport(cmd *cobra.Command, report certificateReport) ([]by
 		if err != nil {
 			return nil, fmt.Errorf("encode certificate report: %w", err)
 		}
-		return append(encoded, '\n'), nil
+		return append(textdisplay.EscapeJSONControls(encoded), '\n'), nil
 	}
 	var output strings.Builder
 	printer := textdisplay.New(&output, presentation.Output(cmd))

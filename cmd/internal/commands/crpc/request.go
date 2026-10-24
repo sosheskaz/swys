@@ -21,6 +21,7 @@ import (
 	"github.com/sosheskaz/swys/internal/contextio"
 	"github.com/sosheskaz/swys/internal/netconn"
 	"github.com/sosheskaz/swys/internal/protoschema"
+	"github.com/sosheskaz/swys/internal/textdisplay"
 )
 
 type preparation struct {
@@ -71,7 +72,8 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 		if err != nil {
 			return nil, err
 		}
-		return preparedBytes(output), nil
+		// Protobuf text, like JSON, reads a \u escape in a string as the rune it replaces.
+		return preparedBytes(textdisplay.EscapeJSONControls(output)), nil
 	}
 	return prepareInvocation(cmd, settings, target.endpoint, schema, connection, headers)
 }
@@ -116,7 +118,7 @@ func prepareInvocation(
 				if err := message.Compact(); err != nil {
 					return fmt.Errorf("format response JSON: %w", err)
 				}
-				if _, err := output.Write(append(message, '\n')); err != nil {
+				if _, err := output.Write(append(textdisplay.EscapeJSONControls(message), '\n')); err != nil {
 					return fmt.Errorf("write response: %w", err)
 				}
 				return nil
@@ -175,7 +177,7 @@ func prepareUnary(
 			return nil, fmt.Errorf("format response JSON: %w", err)
 		}
 	}
-	return append(response, '\n'), nil
+	return append(textdisplay.EscapeJSONControls(response), '\n'), nil
 }
 
 func prepareMessages(
