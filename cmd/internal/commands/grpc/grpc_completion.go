@@ -259,6 +259,9 @@ func grpcCompletionWordsBeforeValue(args []string, flag string) ([]string, error
 	if flag == "" {
 		return completed, nil
 	}
+	if strings.HasPrefix(word, "--"+flag+"=") || len(word) >= 3 && word[0] == '-' && word[1] != '-' && word[2] == '=' {
+		return completed, nil
+	}
 	last := ""
 	if len(completed) != 0 {
 		last = completed[len(completed)-1]
@@ -267,9 +270,6 @@ func grpcCompletionWordsBeforeValue(args []string, flag string) ([]string, error
 	// "d" to the first flag, so only a lone flag word names the completed flag.
 	if last == "--"+flag || len(last) == 2 && last[0] == '-' && last[1] != '-' {
 		return completed[:len(completed)-1], nil
-	}
-	if strings.HasPrefix(word, "--"+flag+"=") || len(word) >= 3 && word[0] == '-' && word[1] != '-' && word[2] == '=' {
-		return completed, nil
 	}
 	return nil, fmt.Errorf("%w: completed --%s is not a lone flag word", ErrInvalidOptions, flag)
 }
@@ -308,19 +308,28 @@ func grpcCompletionPlaceholder(flag string) string {
 // execution dials, then the invocation's request. Stdin selections are left to
 // the callers' quiet rules.
 func grpcCompletionInputsUsable(probe *cobra.Command, options *grpcOptions, selectorPresent bool) error {
-	paths := make([]string, 0, 3+len(auth.FileFlagNames))
 	for _, name := range auth.FileFlagNames {
-		paths = append(paths, grpcCompletionString(probe, name))
-	}
-	if selectorPresent || !probe.Flags().Changed("protoset") {
-		paths = append(paths, options.ca, options.cert, options.key)
-	}
-	for _, path := range paths {
+		path := grpcCompletionString(probe, name)
 		if path == "" || path == "-" {
 			continue
 		}
-		if _, err := regularGRPCCompletionFile(path); err != nil {
+		info, err := regularGRPCCompletionFile(path)
+		if err != nil {
 			return err
+		}
+		// Credential files are read raw, so their size is the read size.
+		if info.Size() > auth.MaxBytes {
+			return fmt.Errorf("%w: --%s exceeds %d bytes", ErrInvalidOptions, name, auth.MaxBytes)
+		}
+	}
+	if selectorPresent || !probe.Flags().Changed("protoset") {
+		for _, path := range []string{options.ca, options.cert, options.key} {
+			if path == "" || path == "-" {
+				continue
+			}
+			if _, err := regularGRPCCompletionFile(path); err != nil {
+				return err
+			}
 		}
 	}
 	if !selectorPresent {

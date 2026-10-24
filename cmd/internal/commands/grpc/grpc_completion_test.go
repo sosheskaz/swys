@@ -499,6 +499,8 @@ func TestGRPCProtosetCompletionFollowsExecutionValidation(t *testing.T) {
 	_, set, _ := grpcFixtureSchema(t)
 	protoset := writeGRPCFixtureProtoset(t, set)
 	missing := filepath.Join(t.TempDir(), "missing.pem")
+	oversizedToken := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(oversizedToken, []byte(strings.Repeat("t", 64<<10+1)), 0o600))
 	for _, test := range []struct {
 		name string
 		args []string
@@ -508,6 +510,12 @@ func TestGRPCProtosetCompletionFollowsExecutionValidation(t *testing.T) {
 		{name: "invocation loads a missing CA", args: []string{"--ca", missing, grpcFixtureServiceName + "/"}},
 		{name: "output replaces the protoset", args: []string{"--output", protoset, "--list", ""}},
 		{name: "invalid output encoding", args: []string{"--encoding", "bogus", "--describe", ""}},
+		{name: "credential file over its size limit", args: []string{"--auth-bearer-file", oversizedToken, "--list", ""}},
+		{
+			name: "inline value after a dash-led literal",
+			args: []string{"--auth-bearer", "-v", "--list="},
+			want: []string{grpcFixtureServiceName},
+		},
 		// Protoset discovery never dials, so execution does not read the CA.
 		{name: "discovery ignores a missing CA", args: []string{"--ca", missing, "--list", ""}, want: []string{grpcFixtureServiceName}},
 	} {
