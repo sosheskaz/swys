@@ -84,18 +84,17 @@ type completion struct {
 // completionLine parses and validates the completed line on a probe command.
 // Cobra drops the word being completed and its flag token before calling a
 // completion function, which changes how shorthand clusters such as -td parse,
-// so the probe reparses the original words. It assumes the user will supply
-// the request with -d unless the line already selects stdin explicitly, so it
-// never consults stdin's state.
-func completionLine(cmd *cobra.Command, words []string, slot string) (completion, error) {
-	if len(words) == 0 {
+// so the probe reparses the original words. The typed word keeps whatever
+// precedes prefix, such as a --flag= assignment, because the shell inserts a
+// candidate only in place of prefix. It assumes the user will supply the
+// request with -d unless the line already selects stdin explicitly, so it never
+// consults stdin's state.
+func completionLine(cmd *cobra.Command, words []string, slot, prefix string) (completion, error) {
+	if len(words) == 0 || !strings.HasSuffix(words[len(words)-1], prefix) {
 		return completion{}, ErrInvalidFlags
 	}
 	typed := words[len(words)-1]
-	fill := completionPlaceholders[slot]
-	if name, _, found := strings.Cut(typed, "="); slot != "" && found && strings.HasPrefix(typed, "-") {
-		fill = name + "=" + fill
-	}
+	fill := typed[:len(typed)-len(prefix)] + completionPlaceholders[slot]
 	root := commandio.NewProbeRoot()
 	presentation.AddFlags(root)
 	lifecycle := commandio.NewLifecycle()
@@ -126,7 +125,7 @@ func completionLine(cmd *cobra.Command, words []string, slot string) (completion
 
 func formatCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		line, err := completionLine(cmd, *words, "format")
+		line, err := completionLine(cmd, *words, "format", prefix)
 		formats := []string{formatJSON, formatJSONL}
 		switch {
 		case err == nil && line.target.discovery:
@@ -152,7 +151,7 @@ func formatCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 
 func streamCompletion(settings *options, words *[]string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		line, err := completionLine(cmd, *words, flagStream)
+		line, err := completionLine(cmd, *words, flagStream, prefix)
 		modes := []string{streamUnary, streamServer, streamClient, streamBidi}
 		switch {
 		case err == nil:
@@ -226,7 +225,7 @@ func requestAccepted(line completion, method protoreflect.MethodDescriptor, sche
 // dataCompletion offers the selected method's compact request template.
 func dataCompletion(words *[]string) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		line, err := completionLine(cmd, *words, flagData)
+		line, err := completionLine(cmd, *words, flagData, prefix)
 		if err != nil || line.target.discovery {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -274,7 +273,7 @@ func completeSchema(cmd *cobra.Command, words []string, prefix, slot string, kin
 	if kind == completeMethod && !strings.Contains(prefix, "/") {
 		directive |= cobra.ShellCompDirectiveNoSpace
 	}
-	line, err := completionLine(cmd, words, slot)
+	line, err := completionLine(cmd, words, slot, prefix)
 	if err != nil {
 		return nil, directive
 	}
