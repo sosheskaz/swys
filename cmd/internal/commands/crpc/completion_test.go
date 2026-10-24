@@ -149,6 +149,9 @@ func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 		{"jsonl discovery", []string{"{server}", "--format", "jsonl", "--list", ""}},
 		{"json for a server stream", []string{"{server}" + echoMethod, "--stream", "server", "--format", "json", "--data", ""}},
 		{"malformed data", []string{"{server}", "-d", "not-json", "example.v1.EchoService/"}},
+		{"missing input file", []string{"{server}", "-i", "missing.json", "example.v1.EchoService/"}},
+		{"protoset with empty bearer token", []string{"https://127.0.0.1:1", "--protoset", path, "--auth-bearer", "", "example.v1.EchoService/"}},
+		{"protoset without a matching method", []string{"http://127.0.0.1:1", "--protoset", path, "--stream", "bidi", "example.v1.EchoService/"}},
 		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
 		{"protoset with system CA alone", []string{"https://127.0.0.1:1", "--protoset", path, "--system-ca", "example.v1.EchoService/"}},
 	} {
