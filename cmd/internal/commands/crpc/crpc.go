@@ -76,6 +76,12 @@ type options struct {
 
 // NewCommand constructs Connect RPC invocation and registers its I/O lifecycle.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
+	command, _ := newCommand(lifecycle)
+	return command
+}
+
+// newCommand also returns the settings its flags are bound to.
+func newCommand(lifecycle *commandio.Lifecycle) (*cobra.Command, *options) {
 	settings := &options{}
 	var pending *preparation
 	command := &cobra.Command{
@@ -160,7 +166,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	if err := help.RegisterGuides(command, guides); err != nil {
 		panic(err)
 	}
-	return command
+	return command, settings
 }
 
 func tlsApplicable(_ *cobra.Command, args []string) bool {
@@ -182,7 +188,7 @@ func streamType(value string) (connect.StreamType, error) {
 	}
 }
 
-func validate(cmd *cobra.Command, settings *options, secure bool) error {
+func validate(cmd *cobra.Command, settings *options, secure, payloadStdin bool) error {
 	if settings.connectTimeout < 0 || settings.timeout < 0 || settings.wait < 0 || settings.reflectionTimeout < 0 || settings.maxMessageSize <= 0 {
 		return fmt.Errorf("%w: timeouts must be non-negative and --max-message-size must be positive", ErrInvalidFlags)
 	}
@@ -198,7 +204,7 @@ func validate(cmd *cobra.Command, settings *options, secure bool) error {
 	if err := validateRequestSources(cmd, settings); err != nil {
 		return err
 	}
-	return validateTLS(cmd, settings, secure)
+	return validateTLS(cmd, settings, secure, payloadStdin)
 }
 
 func validateFormat(settings *options) error {
@@ -225,7 +231,7 @@ func validateRequestSources(cmd *cobra.Command, settings *options) error {
 	return nil
 }
 
-func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
+func validateTLS(cmd *cobra.Command, settings *options, secure, payloadStdin bool) error {
 	if (settings.cert == "") != (settings.key == "") {
 		return fmt.Errorf("%w: --cert and --key require each other", ErrInvalidFlags)
 	}
@@ -240,7 +246,6 @@ func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
 			}
 		}
 	}
-	payloadStdin := usesStdin(cmd, settings)
 	if err := tlsconfig.ValidateArtifactSources(cmd, secure, payloadStdin, ErrInvalidFlags); err != nil {
 		return err
 	}
@@ -251,9 +256,6 @@ func validateTLS(cmd *cobra.Command, settings *options, secure bool) error {
 }
 
 func applyAuthorization(cmd *cobra.Command, headers *connect.Header) error {
-	if err := auth.RejectHeader(cmd.Flags(), len(headers.Values("Authorization")) != 0, ErrInvalidFlags); err != nil {
-		return err
-	}
 	value, ok, err := auth.Value(cmd.Context(), cmd.InOrStdin(), cmd.Flags(), os.LookupEnv, ErrInvalidFlags)
 	if ok {
 		headers.Set("Authorization", value)
@@ -262,6 +264,16 @@ func applyAuthorization(cmd *cobra.Command, headers *connect.Header) error {
 }
 
 func usesStdin(cmd *cobra.Command, settings *options) bool {
+	return selectsStdin(cmd, settings, pipedStdin(cmd))
+}
+
+func pipedStdin(cmd *cobra.Command) func() bool {
+	return func() bool { return !commandio.InputIsTerminal(cmd.InOrStdin()) }
+}
+
+// selectsStdin reports whether the request comes from stdin, consulting
+// piped only when --stdin auto leaves the choice to stdin's state.
+func selectsStdin(cmd *cobra.Command, settings *options, piped func() bool) bool {
 	if settings.discovery {
 		return false
 	}
@@ -271,7 +283,7 @@ func usesStdin(cmd *cobra.Command, settings *options) bool {
 	if cmd.Flags().Changed(flagData) {
 		return false
 	}
-	return settings.stdin == stdinAlways || settings.stdin == stdinAuto && !commandio.InputIsTerminal(cmd.InOrStdin())
+	return settings.stdin == stdinAlways || settings.stdin == stdinAuto && piped()
 }
 
 func prepareTLS(cmd *cobra.Command, settings *options) (*tls.Config, error) {

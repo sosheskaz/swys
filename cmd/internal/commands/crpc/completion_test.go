@@ -33,6 +33,8 @@ func TestCRPCCompletionUsesSchemasWithoutOperationalIO(t *testing.T) {
 		{"example.v1.EchoService\tservice", []string{"--protoset", path, "--list", "example.v1.E"}},
 		{"example.v1.Request\tmessage", []string{"--protoset", path, "--describe", "example.v1.R"}},
 		{"example.v1.EchoService/Echo\tserver:", []string{"--protoset", path, "--template", "example.v1.EchoService/E"}},
+		{"example.v1.EchoService/Echo\tserver:", []string{"--style", "plain", "--protoset", path, "--template", "example.v1.EchoService/E"}},
+		{`{"text":""}` + "\texample.v1.Request", []string{"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data="}},
 		{"example.v1.EchoService/Echo\tserver:", []string{"http://127.0.0.1:1", "--protoset", path, "-i", "-", "-o", output, "example.v1.EchoService/E"}},
 	} {
 		stdout, _, err := run(t, &unexpectedInput{t: t}, append([]string{"__complete", "crpc"}, test.args...)...)
@@ -83,6 +85,9 @@ func TestCRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		"missing method":             {"http://127.0.0.1:1/example.v1.EchoService/Missing", "--protoset", path, "--data", ""},
 		"unrelated prefix":           {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", `{"other`},
 		"template larger than 2 KiB": {"http://127.0.0.1:1" + echoMethod, "--protoset", largePath, "--data", ""},
+		"cert without key":           {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--cert", "client.pem", "--data", ""},
+		"missing CA file":            {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--ca", "missing.pem", "--data", ""},
+		"template is not base64":     {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--input-encoding", "base64", "--data", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -131,6 +136,120 @@ func TestCRPCReflectionCompletionReusesHeadersAndDoesNotInvoke(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, output, "example.v1.EchoService/Echo")
 	assert.Zero(t, calls.Load())
+}
+
+func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
+	t.Parallel()
+	path := writeProtoset(t, schemaSet(false))
+	required := schemaSet(false)
+	required.File[0].Syntax = new("proto2")
+	required.File[0].MessageType[0].Field[0].Label = descriptorpb.FieldDescriptorProto_LABEL_REQUIRED.Enum()
+	requiredPath := writeProtoset(t, required)
+	// Each line is completed against its own server; "{server}" names its URL.
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"URL already names a method", []string{"{server}" + echoMethod, "example.v1.EchoService/"}},
+		{"stdin beside data", []string{"{server}" + echoMethod, "--stdin", "always", "--data", ""}},
+		{"jsonl discovery", []string{"{server}", "--format", "jsonl", "--list", ""}},
+		{"json for a server stream", []string{"{server}" + echoMethod, "--stream", "server", "--format", "json", "--data", ""}},
+		{"malformed data", []string{"{server}", "-d", "not-json", "example.v1.EchoService/"}},
+		{"missing input file", []string{"{server}", "-i", "missing.json", "example.v1.EchoService/"}},
+		{"empty input path", []string{"{server}", "-i", "", "example.v1.EchoService/"}},
+		{"timeout shorthand absorbs -d", []string{"{server}" + echoMethod, "-td", ""}},
+		{"assignment after separator is positional", []string{"{server}", "--", "--data=example.v1.EchoService/"}},
+		{"protoset with empty bearer token", []string{"https://127.0.0.1:1", "--protoset", path, "--auth-bearer", "", "example.v1.EchoService/"}},
+		{"default request lacks a required field", []string{"http://127.0.0.1:1", "--protoset", requiredPath, "--stdin", "never", "example.v1.EchoService/"}},
+		{"protoset without a matching method", []string{"http://127.0.0.1:1", "--protoset", path, "--stream", "bidi", "example.v1.EchoService/"}},
+		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
+		{"protoset with system CA alone", []string{"https://127.0.0.1:1", "--protoset", path, "--system-ca", "example.v1.EchoService/"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			handler, calls := schemaHandler(t, schemaSet(false), "")
+			var requests atomic.Int32
+			server := startSchemaServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requests.Add(1)
+				handler.ServeHTTP(writer, request)
+			}))
+			args := []string{"__complete", "crpc"}
+			for _, arg := range test.args {
+				args = append(args, strings.ReplaceAll(arg, "{server}", server.URL))
+			}
+			stdout, _, err := run(t, &unexpectedInput{t: t}, args...)
+			require.NoError(t, err)
+			assert.Equal(t, ":4\n", stdout)
+			assert.Zero(t, requests.Load(), "completion reflected for a line execution rejects before using the network")
+			assert.Zero(t, calls.Load())
+		})
+	}
+}
+
+func TestCRPCMethodCompletionFiltersByPrefixBeforeValidatingRequests(t *testing.T) {
+	t.Parallel()
+	set := schemaSet(false)
+	wide := &descriptorpb.ServiceDescriptorProto{Name: new("WideService")}
+	for i := range 2000 {
+		wide.Method = append(wide.Method, &descriptorpb.MethodDescriptorProto{
+			Name: new(fmt.Sprintf("M%04d", i)), InputType: new(".example.v1.Request"), OutputType: new(".example.v1.Request"),
+		})
+	}
+	set.File[0].Service = append(set.File[0].Service, wide)
+	path := writeProtoset(t, set)
+	// Validating this request once per method, rather than only for the typed
+	// prefix, takes far longer than the completion cap.
+	request := `{"text":"` + strings.Repeat("x", 4<<20) + `"}`
+	started := time.Now()
+	stdout, _, err := run(t, &unexpectedInput{t: t}, "__complete", "crpc", "http://127.0.0.1:1", "--protoset", path,
+		"-d", request, "example.v1.WideService/M0007")
+	elapsed := time.Since(started)
+	require.NoError(t, err)
+	// Wall-clock margin as in the reflection deadline test: the 2-second cap plus slack.
+	assert.Less(t, elapsed, 4*time.Second, "completion outlived its cap")
+	assert.Equal(t, "example.v1.WideService/M0007\tunary: example.v1.Request -> example.v1.Request\n:4\n", stdout)
+}
+
+func TestCRPCMethodCompletionChecksTheDefaultRequestPerCardinality(t *testing.T) {
+	t.Parallel()
+	echo := &descriptorpb.MethodDescriptorProto{
+		Name: new("Echo"), InputType: new(".example.v1.Request"), OutputType: new(".example.v1.Request"),
+	}
+	upload := &descriptorpb.MethodDescriptorProto{
+		Name: new("Upload"), InputType: new(".example.v1.Request"), OutputType: new(".example.v1.Request"),
+		ClientStreaming: new(true),
+	}
+	// Execution sends no default request on a client stream, so only Upload
+	// accepts --stdin never when the shared input requires a field.
+	for name, methods := range map[string][]*descriptorpb.MethodDescriptorProto{
+		"client stream first": {upload, echo}, "unary first": {echo, upload},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			set := schemaSet(false)
+			set.File[0].Syntax = new("proto2")
+			set.File[0].MessageType[0].Field[0].Label = descriptorpb.FieldDescriptorProto_LABEL_REQUIRED.Enum()
+			set.File[0].Service[0].Method = methods
+			stdout, _, err := run(t, &unexpectedInput{t: t}, "__complete", "crpc", "http://127.0.0.1:1", "--protoset", writeProtoset(t, set),
+				"--stdin", "never", "example.v1.EchoService/")
+			require.NoError(t, err)
+			assert.Equal(t, "example.v1.EchoService/\tservice\nexample.v1.EchoService/Upload\tclient: example.v1.Request -> example.v1.Request\n:4\n", stdout)
+		})
+	}
+}
+
+func TestCRPCOptionCompletionOffersNoValuesAfterItsCap(t *testing.T) {
+	t.Parallel()
+	// A parent deadline that has already passed leaves no completion budget.
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	for _, flag := range []string{"--stream", "--format"} {
+		root := cmd.NewCommand()
+		root.SetContext(ctx)
+		stdout, _, err := testcmd.RunStreams(t, root, &unexpectedInput{t: t}, "__complete", "crpc", "http://127.0.0.1:1"+echoMethod, "-d", "{}", flag, "")
+		require.NoError(t, err)
+		assert.Equal(t, ":4\n", string(stdout), "%s offered values after its cap", flag)
+	}
 }
 
 func TestCRPCReflectionCompletionDeadlineAndQuietFailure(t *testing.T) {
