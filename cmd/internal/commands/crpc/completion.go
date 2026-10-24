@@ -171,6 +171,13 @@ func invocationAccepted(cmd *cobra.Command, settings *options, schema *protosche
 }
 
 func requestAccepted(cmd *cobra.Command, settings *options, method protoreflect.MethodDescriptor, schema *protoschema.Schema) error {
+	if input := cmd.Flag(flagInput).Value.String(); cmd.Flags().Changed(flagInput) && input != "-" {
+		// Execution opens the input before it uses the network; stat it without reading.
+		if !regularFiles(input) {
+			return ErrInvalidFlags
+		}
+		return nil
+	}
 	if !cmd.Flags().Changed(flagData) {
 		return nil
 	}
@@ -292,6 +299,13 @@ func completionSchema(
 		return nil, ErrInvalidFlags
 	}
 	if settings.protoset != "" {
+		// Inline credentials are part of the line, and execution checks them before
+		// loading a schema; file and environment sources stay unread offline.
+		if source, _ := auth.Selected(cmd.Flags()); source == auth.BearerFlagName || source == auth.BasicFlagName {
+			if err := applyAuthorization(cmd, line.headers); err != nil {
+				return nil, err
+			}
+		}
 		if !regularFiles(settings.protoset) {
 			return nil, ErrInvalidFlags
 		}
@@ -388,6 +402,9 @@ func schemaCandidates(schema *protoschema.Schema, prefix string, kind completion
 	for _, service := range schema.Services {
 		name := service
 		if kind == completeMethod {
+			if !acceptsAnyMethod(schema, service, accept) {
+				continue
+			}
 			name += "/"
 		}
 		add(name, "service")
@@ -407,6 +424,29 @@ func schemaCandidates(schema *protoschema.Schema, prefix string, kind completion
 	}
 	slices.Sort(values)
 	return slices.Compact(values)
+}
+
+// acceptsAnyMethod reports whether service has a method accept allows, so a
+// service prefix leads somewhere. Without descriptors, every service may.
+func acceptsAnyMethod(schema *protoschema.Schema, service string, accept func(string) bool) bool {
+	if schema.Files == nil {
+		return true
+	}
+	descriptor, err := schema.Files.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return false
+	}
+	serviceDescriptor, ok := descriptor.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return false
+	}
+	methods := serviceDescriptor.Methods()
+	for i := range methods.Len() {
+		if accept(service + "/" + string(methods.Get(i).Name())) {
+			return true
+		}
+	}
+	return false
 }
 
 func addMethods(services protoreflect.ServiceDescriptors, kind completionKind, accept func(string) bool, add func(string, string)) {
