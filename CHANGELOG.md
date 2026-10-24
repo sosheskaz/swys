@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.1](https://github.com/sosheskaz/swys/compare/v0.4.0...v0.4.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **asym:** show invalid bytes in diagnostic values as \xNN instead of U+FFFD ([#132](https://github.com/sosheskaz/swys/issues/132)) ([2524fae](https://github.com/sosheskaz/swys/commit/2524fae369d2f065172153b37e015189513e0dc5))
+* escape C1 and bidi controls in crpc and http JSON output ([#133](https://github.com/sosheskaz/swys/issues/133)) ([b56eaeb](https://github.com/sosheskaz/swys/commit/b56eaeb16c7a0387e0815e17afbcd76ac207388f))
+* escape C1 and bidi controls in remaining JSON and protobuf text output ([#142](https://github.com/sosheskaz/swys/issues/142)) ([41cf9f1](https://github.com/sosheskaz/swys/commit/41cf9f19207ae200ccd4d77cb08c55e9285c2e00))
+* **grpc:** reject invalid service names in reflection listings ([#143](https://github.com/sosheskaz/swys/issues/143)) ([7207858](https://github.com/sosheskaz/swys/commit/7207858c020ef2d015bcc443f5673f32093b3efa))
+* **help:** preserve non-UTF-8 PAGER bytes in pager argv ([#115](https://github.com/sosheskaz/swys/issues/115)) ([f5ccd50](https://github.com/sosheskaz/swys/commit/f5ccd500804cbb8edc650d8b8cbf2bd01acb2762))
+* **password:** report cancellation that interrupts Windows password command setup ([#141](https://github.com/sosheskaz/swys/issues/141)) ([bebf7fd](https://github.com/sosheskaz/swys/commit/bebf7fd97f5a15a18a6e425f7ea5a01d8aff1b24))
+* **password:** report SIGSTOP-stopped password commands on FreeBSD ([#112](https://github.com/sosheskaz/swys/issues/112)) ([22781c7](https://github.com/sosheskaz/swys/commit/22781c7c077ef69f0bf538da75a5a09bd5943449))
+* **password:** report suspension when any supplier process stops ([#116](https://github.com/sosheskaz/swys/issues/116)) ([e7caf2c](https://github.com/sosheskaz/swys/commit/e7caf2c932bab6e3928dd2cff200e5d4893e6d59))
+
+
+### Dependencies
+
+* **go:** update module github.com/yuin/goldmark/v2 to v2.1.8 ([#126](https://github.com/sosheskaz/swys/issues/126)) ([bf0d820](https://github.com/sosheskaz/swys/commit/bf0d820f99f08c509a08c979310e70369679e4fb))
+
 ## [0.4.0](https://github.com/sosheskaz/swys/compare/v0.3.2...v0.4.0) (2026-10-22)
 
 
