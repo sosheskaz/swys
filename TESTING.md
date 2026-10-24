@@ -321,6 +321,46 @@ time. The trace target renders the textual summary. Captured certificates also
 appear as JSON lines in text traces; unit tests check those lines, while the
 certificate target checks certificate JSON formatting.
 
+The gRPC and Connect completion targets assemble command lines from a fixed
+vocabulary of argument groups (discovery flags, request sources, TLS and
+credential flags including stdin dashes, protosets, headers, formats, encodings,
+timeouts, and output paths), a target, and the word being completed. Each input
+runs against fresh local plaintext and TLS fixtures that count a connection when
+they accept it, before reading it, so a client that observed any server reaction
+was already counted. Completion must never call an application method, read
+stdin, or create its output file, must stay off the network while a TLS or
+credential file is stdin, and must follow the documented `-d` quiet rules. The
+line is then executed with the completed word filled in: if completion contacted
+a fixture or offered a schema-derived word, including a partial `SERVICE/`
+prefix, execution must not fail before reaching one. A valid fill stands in for
+partial words, and up to three final words are executed as offered. Conversely,
+when the line executes successfully with a fill that extends the typed prefix
+and no documented quiet rule applies, completion must offer that fill, or for
+`-d` a template that itself executes successfully, so stricter completion cannot
+silently stop completing and a stray word cannot pass for a template. A
+completion that ran for at least half of its own two-second cap owes no word,
+because production deliberately offers nothing once the cap passes. Completion
+must also leave an existing file named by `-o` byte-for-byte unchanged. The `-d`
+word is also typed as `-d`, `--data=`, and the clusters `-vd` and `-vd=`, and
+the `--describe` fill is a service because completion reflects lazily, listing
+services before loading their files. The oracle is execution itself rather than
+a list of invalid combinations, so an execution check that completion does not
+share fails the target. Lines with a stdin TLS or credential file are checked
+against the rules only, because execution would read that file. Connect lines
+without a URL omit positional words, which would otherwise name a remote host.
+Request bodies the harness supplies (fills, stdin, and request files) follow the
+line's Connect `--input-encoding`, and the supplied CA file follows
+`--ca-encoding`, so their contents never cause a rejection; literal `-d` entries
+stay as typed, so an encoding mismatch there is an invalid line that completion
+must not complete. The vocabulary leaves out credentials whose rejection depends
+on their content, such as an unset `--auth-bearer-env` variable, because
+completion deliberately does not read credential values. Timeouts in the
+vocabulary are invalid or long: a valid timeout that expired before connecting
+would look like an early rejection. Each input byte selects through a fixed
+modulus larger than its list and inputs naming an unassigned code are skipped,
+so appending vocabulary entries never reinterprets a recorded input; reordering
+them would.
+
 The asymmetric formatting targets preserve exact fingerprint byte ordering.
 `FuzzEscapeDiagnosticValue` requires the escaper's output to remain valid UTF-8
 and free of non-printing runes. Printable diagnostic values are preserved,
