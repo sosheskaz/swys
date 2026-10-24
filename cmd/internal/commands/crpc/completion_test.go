@@ -205,6 +205,20 @@ func TestCRPCMethodCompletionFiltersByPrefixBeforeValidatingRequests(t *testing.
 	assert.Equal(t, "example.v1.WideService/M0007\tunary: example.v1.Request -> example.v1.Request\n:4\n", stdout)
 }
 
+func TestCRPCOptionCompletionOffersNoValuesAfterItsCap(t *testing.T) {
+	t.Parallel()
+	// A parent deadline that has already passed leaves no completion budget.
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	for _, flag := range []string{"--stream", "--format"} {
+		root := cmd.NewCommand()
+		root.SetContext(ctx)
+		stdout, _, err := testcmd.RunStreams(t, root, &unexpectedInput{t: t}, "__complete", "crpc", "http://127.0.0.1:1"+echoMethod, "-d", "{}", flag, "")
+		require.NoError(t, err)
+		assert.Equal(t, ":4\n", string(stdout), "%s offered values after its cap", flag)
+	}
+}
+
 func TestCRPCReflectionCompletionDeadlineAndQuietFailure(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
