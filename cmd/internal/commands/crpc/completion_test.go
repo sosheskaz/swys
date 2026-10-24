@@ -141,6 +141,10 @@ func TestCRPCReflectionCompletionReusesHeadersAndDoesNotInvoke(t *testing.T) {
 func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 	t.Parallel()
 	path := writeProtoset(t, schemaSet(false))
+	required := schemaSet(false)
+	required.File[0].Syntax = new("proto2")
+	required.File[0].MessageType[0].Field[0].Label = descriptorpb.FieldDescriptorProto_LABEL_REQUIRED.Enum()
+	requiredPath := writeProtoset(t, required)
 	// Each line is completed against its own server; "{server}" names its URL.
 	for _, test := range []struct {
 		name string
@@ -156,6 +160,7 @@ func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 		{"timeout shorthand absorbs -d", []string{"{server}" + echoMethod, "-td", ""}},
 		{"assignment after separator is positional", []string{"{server}", "--", "--data=example.v1.EchoService/"}},
 		{"protoset with empty bearer token", []string{"https://127.0.0.1:1", "--protoset", path, "--auth-bearer", "", "example.v1.EchoService/"}},
+		{"default request lacks a required field", []string{"http://127.0.0.1:1", "--protoset", requiredPath, "--stdin", "never", "example.v1.EchoService/"}},
 		{"protoset without a matching method", []string{"http://127.0.0.1:1", "--protoset", path, "--stream", "bidi", "example.v1.EchoService/"}},
 		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
 		{"protoset with system CA alone", []string{"https://127.0.0.1:1", "--protoset", path, "--system-ca", "example.v1.EchoService/"}},
