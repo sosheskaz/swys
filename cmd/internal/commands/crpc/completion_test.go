@@ -33,6 +33,8 @@ func TestCRPCCompletionUsesSchemasWithoutOperationalIO(t *testing.T) {
 		{"example.v1.EchoService\tservice", []string{"--protoset", path, "--list", "example.v1.E"}},
 		{"example.v1.Request\tmessage", []string{"--protoset", path, "--describe", "example.v1.R"}},
 		{"example.v1.EchoService/Echo\tserver:", []string{"--protoset", path, "--template", "example.v1.EchoService/E"}},
+		{"example.v1.EchoService/Echo\tserver:", []string{"--style", "plain", "--protoset", path, "--template", "example.v1.EchoService/E"}},
+		{`{"text":""}` + "\texample.v1.Request", []string{"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data="}},
 		{"example.v1.EchoService/Echo\tserver:", []string{"http://127.0.0.1:1", "--protoset", path, "-i", "-", "-o", output, "example.v1.EchoService/E"}},
 	} {
 		stdout, _, err := run(t, &unexpectedInput{t: t}, append([]string{"__complete", "crpc"}, test.args...)...)
@@ -150,6 +152,8 @@ func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 		{"json for a server stream", []string{"{server}" + echoMethod, "--stream", "server", "--format", "json", "--data", ""}},
 		{"malformed data", []string{"{server}", "-d", "not-json", "example.v1.EchoService/"}},
 		{"missing input file", []string{"{server}", "-i", "missing.json", "example.v1.EchoService/"}},
+		{"empty input path", []string{"{server}", "-i", "", "example.v1.EchoService/"}},
+		{"timeout shorthand absorbs -d", []string{"{server}" + echoMethod, "-td", ""}},
 		{"protoset with empty bearer token", []string{"https://127.0.0.1:1", "--protoset", path, "--auth-bearer", "", "example.v1.EchoService/"}},
 		{"protoset without a matching method", []string{"http://127.0.0.1:1", "--protoset", path, "--stream", "bidi", "example.v1.EchoService/"}},
 		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
