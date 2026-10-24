@@ -106,6 +106,10 @@ func Command(ctx context.Context, script string, diagnostics io.Writer) ([]byte,
 		_ = process.Process.Kill() //nolint:errcheck // process may already have exited
 		_ = process.Wait()         //nolint:errcheck // report the watcher setup failure
 		killProcessGroup(process)
+		if ctx.Err() != nil {
+			// Cancellation can terminate the command while setup is still inspecting it.
+			return nil, errors.Join(fmt.Errorf("password command interrupted: %w", ctx.Err()), cleanupProcess())
+		}
 		return nil, errors.Join(fmt.Errorf("manage password command: %w", watchErr), cleanupProcess())
 	}
 	err := process.Wait()
