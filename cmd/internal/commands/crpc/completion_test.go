@@ -154,6 +154,7 @@ func TestCRPCCompletionSkipsLinesExecutionRejects(t *testing.T) {
 		{"missing input file", []string{"{server}", "-i", "missing.json", "example.v1.EchoService/"}},
 		{"empty input path", []string{"{server}", "-i", "", "example.v1.EchoService/"}},
 		{"timeout shorthand absorbs -d", []string{"{server}" + echoMethod, "-td", ""}},
+		{"assignment after separator is positional", []string{"{server}", "--", "--data=example.v1.EchoService/"}},
 		{"protoset with empty bearer token", []string{"https://127.0.0.1:1", "--protoset", path, "--auth-bearer", "", "example.v1.EchoService/"}},
 		{"protoset without a matching method", []string{"http://127.0.0.1:1", "--protoset", path, "--stream", "bidi", "example.v1.EchoService/"}},
 		{"protoset with unparseable URL", []string{"not a URL", "--protoset", path, "--list", ""}},
