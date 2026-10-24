@@ -9,6 +9,16 @@ snapshot build does not establish that any artifact has been published.
 Release Please and Release are enabled; follow the later-release process below
 for subsequent versions.
 
+GoReleaser detects prerelease tags automatically. Stable releases publish the
+versioned OCI tag plus major, major/minor, and `latest` aliases; prereleases
+publish only the versioned tag and skip the Homebrew tap. OCI labels record the
+SwYS source repository, version, and full source commit. Snapshots disable Ko
+and all publishing.
+
+Release preflight errors abort before building, including an inaccessible
+release repository or an existing immutable release. Correct the reported
+condition before retrying; preflight does not make later publication atomic.
+
 ## Validate a candidate without publishing
 
 ```sh
@@ -24,6 +34,24 @@ Review hosted checks for the same commit. Inspect all platform archives,
 checksums, license notices, completion files, and the packaged command. Validate
 OCI images separately: snapshot mode disables image publication. Keep local
 validation and actual hosted publication evidence distinct.
+
+## Optional release settings
+
+The [GoReleaser 2.19 release](https://github.com/goreleaser/goreleaser/releases/tag/v2.19.0)
+adds the Homebrew hook migration used here. Other settings remain optional:
+
+| Setting | Benefit and prerequisite | Current decision |
+| --- | --- | --- |
+| Archive `sboms` | Publish a dependency inventory alongside each archive; requires a pinned SBOM generator such as Syft in local and CI tool sets. | Defer; Ko already generates OCI SPDX SBOMs. |
+| Checksum `signs` or GitHub artifact attestations | Let users verify a signing or build identity as well as checksums; requires an identity policy, verification instructions, and tooling or workflow permissions. | Separate follow-up. |
+| macOS signing and notarization | Replace the quarantine-removal workaround with an Apple-verified distribution path; requires privately provisioned Apple credentials and actual download/install validation. | Separate follow-up. |
+| `metadata.mod_timestamp` and archive file `info.mtime` | Normalize ancillary timestamps if byte-for-byte archive reproducibility becomes a requirement. | Defer; binary timestamps already use the source commit. |
+| Archive `zstd` options | Tune compression level and window size for `tar.zst` archives. | Keep existing tar.gz and Windows zip formats. |
+| Ko `linux_capabilities` | Grant a specific capability to the image binary; setting it disables Ko's layer cache. | Leave unset without a demonstrated requirement. |
+| `release.replace_existing_artifacts` | Retry a colliding asset upload by deleting and replacing the existing asset. | Leave disabled; recovery must inspect existing artifacts before changing bytes at published URLs. |
+
+Checksums already default to SHA-256. Native cask validation is documented in
+[Homebrew distribution](homebrew.md).
 
 ## First release
 

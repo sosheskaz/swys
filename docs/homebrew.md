@@ -10,13 +10,16 @@ Homebrew does not execute the downloaded binary to generate completions.
 
 The macOS install hook removes `com.apple.quarantine` from the staged binary.
 This matches the existing tap's behavior and bypasses that Gatekeeper check; it
-is not Developer ID signing or notarization. GoReleaser 2.18.2 renders this hook
-as Homebrew's deprecated `postflight` stanza, which Homebrew 7 flags with
-`Cask/InstallSteps`. Native style checks also flag completion stanza ordering and
-a missing frozen-string-literal header in the generated cask. Installation and
-completion linking passed on macOS arm64 despite these style findings. Recheck
-native validation when GoReleaser supports the declarative replacement. Its
-current `custom_block` appears before `version` and fails Homebrew stanza ordering.
+is not Developer ID signing or notarization. GoReleaser 2.19 renders the hook as
+declarative `postflight_steps`, using `on_macos`, `run`, and the Homebrew
+`{{staged_path}}` token. It also puts completion stanzas in Homebrew's required
+Bash, Zsh, Fish order. These changes address the legacy `Cask/InstallSteps` and
+completion-order findings.
+
+Homebrew's cask style policy exempts casks from the frozen-string-literal header
+rule. Validate inside a tap to apply that policy; the generated cask does not
+need a header workaround or edits to its generated output. Parsing and style
+checks do not establish a new installation or upgrade result.
 
 ## Validate without publishing
 
@@ -24,20 +27,29 @@ current `custom_block` appears before `version` and fails Homebrew stanza orderi
 mise exec -- goreleaser check
 mise exec -- goreleaser release --snapshot --clean --parallelism=2
 mise run test:release
-brew tap-new --no-git local/swys-validation
-mkdir -p "$(brew --repository local/swys-validation)/Casks"
-cp dist/homebrew/Casks/swys.rb "$(brew --repository local/swys-validation)/Casks/swys.rb"
-brew info --cask local/swys-validation/swys
-brew style "$(brew --repository local/swys-validation)/Casks/swys.rb"
-brew audit --cask local/swys-validation/swys
-brew untap local/swys-validation
+validation_config=$(mktemp -d)
+brew tap-new --no-git local/swys-validation-219
+mkdir -p "$(brew --repository local/swys-validation-219)/Casks"
+cp dist/homebrew/Casks/swys.rb "$(brew --repository local/swys-validation-219)/Casks/swys.rb"
+brew info --json=v2 --cask local/swys-validation-219/swys
+XDG_CONFIG_HOME="$validation_config" brew trust local/swys-validation-219
+XDG_CONFIG_HOME="$validation_config" brew readall --os=all --arch=all --debug --verbose local/swys-validation-219
+brew style --display-cop-names "$(brew --repository local/swys-validation-219)/Casks/swys.rb"
+XDG_CONFIG_HOME="$validation_config" brew untap local/swys-validation-219
+rm -r "$validation_config"
 ```
 
-Snapshot URLs describe unpublished artifacts. The checks above include the
-known generated-style findings; they do not replace an actual install check.
-Installing from the public URL requires a published release.
-Do not install a missing release or change the tap to test a snapshot. A local
-installation probe must use local archive URLs and an isolated Homebrew prefix.
+Use an unused local tap name and stop if `tap-new` fails; Homebrew requires a
+cask to be in a tap for CLI parsing. The temporary XDG configuration keeps
+fixture trust separate from normal Homebrew trust settings; `readall` otherwise
+skips an untrusted tap with a successful exit status. Confirm the loader output
+names `Casks/swys.rb`, then remove only the temporary validation tap and
+configuration. These checks do not replace an actual install check.
+
+Snapshot versions and checksums describe local builds, while their generated
+URLs can point at the last release tag. Do not install a snapshot cask from
+those URLs or change the published tap to test it. A local installation probe
+must use local archive URLs and an isolated Homebrew prefix.
 
 ## Release publishing configuration
 
