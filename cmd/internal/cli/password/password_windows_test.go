@@ -80,6 +80,22 @@ func TestWindowsPasswordCommandCancellation(t *testing.T) {
 	require.Less(t, time.Since(start), 3*time.Second)
 }
 
+//nolint:paralleltest // replaces the package thread opener
+func TestWindowsPasswordCommandCanceledBeforeResume(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	original := openPasswordThread
+	t.Cleanup(func() { openPasswordThread = original })
+	openPasswordThread = func(uint32, bool, uint32) (windows.Handle, error) {
+		// Windows CI returned this after cancellation terminated the suspended
+		// command, but not on every run, so it is injected.
+		cancel()
+		return 0, windows.ERROR_INVALID_PARAMETER
+	}
+	_, err := Command(ctx, "echo secret", &bytes.Buffer{})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestWindowsSuspendedProcessCanBeAssignedBeforeResume(t *testing.T) {
 	t.Parallel()
 	cmd := exec.CommandContext(t.Context(), "cmd.exe", "/D", "/S", "/C", "echo ready")
