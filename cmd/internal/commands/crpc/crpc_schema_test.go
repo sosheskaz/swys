@@ -62,6 +62,7 @@ func TestCRPCDiscoveryOutputEscapesTerminalControls(t *testing.T) {
 	path := writeProtoset(t, set)
 	describe := []string{"crpc", "--protoset", path, "--describe", "example.v1.Request.text"}
 	template := []string{"crpc", "--protoset", path, "--template", "example.v1.EchoService/Echo"}
+	complete := []string{"__complete", "crpc", "http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", ""}
 	jsonName := func(unmarshal func([]byte, proto.Message) error) func([]byte) (string, error) {
 		return func(output []byte) (string, error) {
 			var field descriptorpb.FieldDescriptorProto
@@ -83,6 +84,10 @@ func TestCRPCDiscoveryOutputEscapesTerminalControls(t *testing.T) {
 		{name: "describe json", args: slices.Concat(describe, []string{"--format", "json"}), decode: jsonName(protojson.Unmarshal)},
 		{name: "template json", args: template, decode: templateKeys},
 		{name: "template jsonl", args: slices.Concat(template, []string{"--format", "jsonl"}), decode: templateKeys},
+		{name: "data completion", args: complete, decode: func(output []byte) (string, error) {
+			// Any other completion output leaves trailing text that fails decoding.
+			return templateKeys(bytes.TrimSuffix(output, []byte("\texample.v1.Request\n:4\n")))
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
