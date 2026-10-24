@@ -33,7 +33,9 @@ func TestExampleDNSComparesResolversAnywhereInArguments(t *testing.T) {
 	})
 	t.Cleanup(func() {
 		assert.NoError(t, firstConn.Close())
-		<-firstDone
+		if err := <-firstDone; err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("first DNS fixture: %v", err)
+		}
 	})
 	first := net.JoinHostPort(firstHost, firstPort)
 	secondHost, secondPort, secondConn, secondDone := startUDPFixture(t, func(request *dns.Msg) *dns.Msg {
@@ -46,7 +48,9 @@ func TestExampleDNSComparesResolversAnywhereInArguments(t *testing.T) {
 	})
 	t.Cleanup(func() {
 		assert.NoError(t, secondConn.Close())
-		<-secondDone
+		if err := <-secondDone; err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("second DNS fixture: %v", err)
+		}
 	})
 	second := net.JoinHostPort(secondHost, secondPort)
 	stdout, stderr, err := executeRootStreams(t,

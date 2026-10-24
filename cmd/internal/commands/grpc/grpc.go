@@ -199,7 +199,8 @@ func newGRPCCommand(lifecycle *commandio.Lifecycle) (*cobra.Command, *grpcOption
 			if err != nil {
 				return err
 			}
-			if _, err := writer.Write(output); err != nil {
+			// Protobuf text, like JSON, reads a \u escape in a string as the rune it replaces.
+			if _, err := writer.Write(textdisplay.EscapeJSONControls(output)); err != nil {
 				return fmt.Errorf("write gRPC output: %w", err)
 			}
 			return nil
@@ -874,6 +875,12 @@ func (schema *grpcSchema) selectDiscovery(list, describe string) (grpcDiscoveryS
 			return grpcDiscoverySelection{}, err
 		}
 		return grpcDiscoverySelection{descriptor: protoDescriptor}, nil
+	}
+	// Reflected names are server-controlled and a text listing prints them bare.
+	for _, service := range schema.services {
+		if !protoreflect.FullName(service).IsValid() {
+			return grpcDiscoverySelection{}, fmt.Errorf("%w: invalid service name %q", errInvalidReflection, service)
+		}
 	}
 	return grpcDiscoverySelection{values: schema.services}, nil
 }

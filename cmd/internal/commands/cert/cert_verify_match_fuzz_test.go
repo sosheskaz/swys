@@ -3,7 +3,10 @@ package cert_test
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -601,6 +604,19 @@ func certFuzzParseDEROrSSHKey(data, trimmed []byte) (any, error) {
 func certFuzzMarshalPublicKey(material any) ([]byte, error) {
 	if signer, ok := material.(crypto.Signer); ok {
 		material = signer.Public()
+	}
+	// The standard library also parses X25519 and P-224 keys; swys rejects
+	// them as unsupported rather than reporting a mismatch.
+	switch key := material.(type) {
+	case *rsa.PublicKey, ed25519.PublicKey:
+	case *ecdsa.PublicKey:
+		switch key.Curve {
+		case elliptic.P256(), elliptic.P384(), elliptic.P521():
+		default:
+			return nil, fmt.Errorf("%w: unsupported ECDSA curve %s", errCertFuzzOracle, key.Curve.Params().Name)
+		}
+	default:
+		return nil, fmt.Errorf("%w: unsupported key type %T", errCertFuzzOracle, material)
 	}
 	der, err := x509.MarshalPKIXPublicKey(material)
 	if err != nil {

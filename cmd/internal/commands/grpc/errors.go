@@ -9,6 +9,7 @@ var (
 	// ErrInvalidMetadata identifies invalid gRPC request metadata.
 	ErrInvalidMetadata = errors.New("invalid gRPC metadata")
 	// ErrMessageLimit identifies a gRPC request that exceeds its size limit.
-	ErrMessageLimit    = errors.New("gRPC message limit exceeded")
-	errUnsupportedGRPC = errors.New("unsupported gRPC operation")
+	ErrMessageLimit      = errors.New("gRPC message limit exceeded")
+	errUnsupportedGRPC   = errors.New("unsupported gRPC operation")
+	errInvalidReflection = errors.New("invalid gRPC reflection response")
 )

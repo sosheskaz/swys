@@ -65,6 +65,11 @@ changelog:
       - "^docs:"
       - "^test:"
 
+release:
+  prerelease: auto
+  preflight:
+    fail_on_error: true
+
 # Multi-arch OCI images to GHCR, built by ko through goreleaser.
 # Disabled for snapshot builds so PR validation never pushes.
 # Refresh licenses/oci and the base-derived notices when updating this digest.
@@ -75,9 +80,13 @@ kos:
     disable: "{{ .IsSnapshot }}"
     tags:
       - "{{ .Version }}"
-      - "{{ .Major }}"
-      - "{{ .Major }}.{{ .Minor }}"
-      - latest
+      - "{{ if not .Prerelease }}{{ .Major }}{{ end }}"
+      - "{{ if not .Prerelease }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    labels:
+      org.opencontainers.image.source: https://github.com/sosheskaz/swys
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
     bare: true
     preserve_import_paths: false
     sbom: spdx
@@ -98,9 +107,9 @@ homebrew_casks:
     skip_upload: auto
     hooks:
       post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/swys"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/swys"]
           end
     completions:
       bash: completions/swys.bash

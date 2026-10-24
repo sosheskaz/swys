@@ -85,6 +85,36 @@ func TestOpenOrCreateOwnerOnlyWindowsCreatesProtectedFile(t *testing.T) {
 	assertOwnerOnlyPath(t, path)
 }
 
+func TestOpenOrCreateOwnerOnlyWindowsSuppressesInheritedACEs(t *testing.T) {
+	t.Parallel()
+
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	require.NoError(t, err)
+	parent := t.TempDir()
+	// Everyone gets inheritable read access, the current user keeps full control.
+	descriptor, err := windows.SecurityDescriptorFromString(
+		"D:P(A;OICI;GA;;;" + user.User.Sid.String() + ")(A;OICI;GR;;;WD)",
+	)
+	require.NoError(t, err)
+	dacl, _, err := descriptor.DACL()
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(
+		parent,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
+		nil,
+		dacl,
+		nil,
+	))
+
+	path := filepath.Join(parent, "private.key")
+	file, err := OpenOrCreateOwnerOnly(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	assertOwnerOnlyPath(t, path)
+}
+
 func assertOwnerOnlyPath(t *testing.T, path string) {
 	t.Helper()
 	descriptor, err := windows.GetNamedSecurityInfo(

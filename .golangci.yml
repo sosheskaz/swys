@@ -285,6 +285,20 @@ linters:
           - gosec
         text: "G402"
 
+      # WithCause attaches an unwrap-compatible cause to an error that already
+      # supplies the Connect protocol status and message.
+      - path: ^internal/connectrpc/(json|stream)\.go$
+        linters:
+          - wrapcheck
+        text: 'error returned from external package is unwrapped: sig: func \(\*connectrpc\.com/connect/v2\.Error\)\.WithCause\('
+
+      # OpenOrCreateOwnerOnly wraps this errno with ACL inspection context.
+      - path: ^internal/securefile/securefile_darwin\.go$
+        linters:
+          - wrapcheck
+        text: 'error returned from external package is unwrapped: sig: func golang\.org/x/sys/unix\.Syscall6\('
+        source: '^\s*return false, errno$'
+
     paths:
       - vendor
       - third_party
@@ -297,7 +311,10 @@ formatters:
   settings:
     gofumpt:
       module-path: github.com/sosheskaz/swys
-      extra-rules: true
+      extra:
+        group-params: true
+        clothe-returns: true
+        balance-calls: true
     gci:
       sections:
         - standard

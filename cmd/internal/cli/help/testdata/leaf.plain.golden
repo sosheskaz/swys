@@ -39,7 +39,7 @@ Inspect details or use JSON
   swys cert connect example.com:443 --select fullchain -f text
   swys cert connect example.com:443 --select root -f json
 
-JSON always contains a certificates array, with complete pem strings, certificate metadata, and source values identifying peer-supplied material or a certificate obtained from a verified chain. The top-level verification object describes the original leaf, regardless of which certificates were selected. Its chains contain leaf-to-anchor SHA-256 fingerprints. --encoding wraps the entire formatted output, including JSON when selected.
+JSON always contains a certificates array, with complete pem strings, certificate metadata, and source values identifying peer-supplied material or a certificate obtained from a verified chain. The top-level verification object describes the original leaf, regardless of which certificates were selected. Its chains contain leaf-to-anchor SHA-256 fingerprints. Raw C1 and bidirectional formatting controls in JSON strings, such as peer certificate names, are written as \u escapes; decoding the JSON yields the original values. --encoding wraps the entire formatted output, including JSON when selected.
 
 Inspection retrieves certificates even when verification fails. Successful export is not proof that the endpoint or exported CA is trusted; read the separate verification result. SwYS does not install trust anchors. PEM export succeeds with a diagnostic when extraction succeeds but verification fails. Retrieval, selection, and formatting failures leave an existing output file untouched.
 

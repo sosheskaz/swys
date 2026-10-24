@@ -40,57 +40,72 @@ func TestInterruptContextCancelsWithSignalCause(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			signals := make(chan os.Signal, 1)
-			var releases atomic.Int32
-			ctx, stop := interruptContext(t.Context(), signals, func() { releases.Add(1) }, noBackstop)
-			defer stop()
+			synctest.Test(t, func(t *testing.T) {
+				signals := make(chan os.Signal, 1)
+				var (
+					ctx                 context.Context
+					releases            atomic.Int32
+					releasedAfterCancel atomic.Bool
+				)
+				// A second signal must already get the prior disposition once
+				// the cancellation is visible, so the release must see a live
+				// context.
+				ctx, stop := interruptContext(t.Context(), signals, func() {
+					releases.Add(1)
+					releasedAfterCancel.Store(ctx.Err() != nil)
+				}, noBackstop)
+				defer stop()
 
-			signals <- test.signal
-			waitForContext(ctx, t)
+				signals <- test.signal
+				synctest.Wait()
 
-			cause := context.Cause(ctx)
-			require.EqualError(t, cause, test.message)
-			require.Equal(t, test.code, ExitCode(cause))
-			require.ErrorIs(t, cause, context.Canceled)
-			require.ErrorIs(t, ctx.Err(), context.Canceled)
-			// A second signal must already get the prior disposition once
-			// the cancellation is visible.
-			assert.Equal(t, int32(1), releases.Load(), "notification released before cancellation is observable")
+				cause := context.Cause(ctx)
+				require.EqualError(t, cause, test.message)
+				require.Equal(t, test.code, ExitCode(cause))
+				require.ErrorIs(t, cause, context.Canceled)
+				require.ErrorIs(t, ctx.Err(), context.Canceled)
+				assert.Equal(t, int32(1), releases.Load(), "notification releases")
+				assert.False(t, releasedAfterCancel.Load(), "notification released only after cancellation was observable")
+			})
 		})
 	}
 }
 
 func TestInterruptContextStopReleasesNotificationOnce(t *testing.T) {
 	t.Parallel()
-	var releases atomic.Int32
-	ctx, stop := interruptContext(t.Context(), make(chan os.Signal), func() { releases.Add(1) }, noBackstop)
+	synctest.Test(t, func(t *testing.T) {
+		var releases atomic.Int32
+		ctx, stop := interruptContext(t.Context(), make(chan os.Signal), func() { releases.Add(1) }, noBackstop)
 
-	stop()
-	stop()
+		stop()
+		stop()
 
-	waitForContext(ctx, t)
-	require.Equal(t, int32(1), releases.Load(), "notification releases")
-	cause := context.Cause(ctx)
-	require.ErrorIs(t, cause, context.Canceled)
-	assert.Equal(t, 1, ExitCode(cause), "plain cancellation without an interrupt status")
+		synctest.Wait()
+		require.Equal(t, int32(1), releases.Load(), "notification releases")
+		cause := context.Cause(ctx)
+		require.ErrorIs(t, cause, context.Canceled)
+		assert.Equal(t, 1, ExitCode(cause), "plain cancellation without an interrupt status")
+	})
 }
 
 func TestInterruptContextFollowsParentCancellation(t *testing.T) {
 	t.Parallel()
-	parent, cancelParent := context.WithCancelCause(t.Context())
-	released := make(chan struct{})
-	ctx, stop := interruptContext(parent, make(chan os.Signal), func() { close(released) }, noBackstop)
-	defer stop()
+	synctest.Test(t, func(t *testing.T) {
+		parent, cancelParent := context.WithCancelCause(t.Context())
+		released := make(chan struct{})
+		ctx, stop := interruptContext(parent, make(chan os.Signal), func() { close(released) }, noBackstop)
+		defer stop()
 
-	cancelParent(errTestInterruptCause)
+		cancelParent(errTestInterruptCause)
 
-	waitForContext(ctx, t)
-	require.ErrorIs(t, context.Cause(ctx), errTestInterruptCause)
-	select {
-	case <-released:
-	case <-time.After(10 * time.Second):
-		t.Fatal("parent cancellation did not release the signal notification")
-	}
+		synctest.Wait()
+		require.ErrorIs(t, context.Cause(ctx), errTestInterruptCause)
+		select {
+		case <-released:
+		default:
+			t.Fatal("parent cancellation did not release the signal notification")
+		}
+	})
 }
 
 func TestExitCode(t *testing.T) {
@@ -165,42 +180,56 @@ func TestInterruptOf(t *testing.T) {
 
 func TestInterruptContextArmsBackstopOnFirstSignal(t *testing.T) {
 	t.Parallel()
-	signals := make(chan os.Signal, 2)
-	armed := make(chan *Error, 2)
-	recorded := &backstop{}
-	ctx, stop := interruptContext(t.Context(), signals, func() {}, func(interrupt *Error) *backstop {
-		armed <- interrupt
-		return recorded
+	synctest.Test(t, func(t *testing.T) {
+		signals := make(chan os.Signal, 2)
+		armed := make(chan *Error, 2)
+		recorded := &backstop{}
+		ctx, stop := interruptContext(t.Context(), signals, func() {}, func(interrupt *Error) *backstop {
+			armed <- interrupt
+			return recorded
+		})
+		defer stop()
+
+		signals <- syscall.SIGTERM
+		signals <- os.Interrupt
+		synctest.Wait()
+		require.Error(t, ctx.Err(), "context was not canceled")
+
+		var got *Error
+		select {
+		case got = <-armed:
+		default:
+			t.Fatal("the first signal did not arm a backstop")
+		}
+		if got != interruptOf(ctx) || got.signal != syscall.SIGTERM || got.backstop != recorded {
+			t.Fatalf("armed for %v, want the first signal's interruption carrying the backstop", got)
+		}
+		require.False(t, recorded.isStopped(), "backstop stopped before the run finished")
+		stop()
+		synctest.Wait()
+		assert.True(t, recorded.isStopped(), "finishing the run did not stop the backstop")
+		assert.Empty(t, armed, "a later signal armed a second backstop")
 	})
-
-	signals <- syscall.SIGTERM
-	signals <- os.Interrupt
-	waitForContext(ctx, t)
-
-	if got := <-armed; got != interruptOf(ctx) || got.signal != syscall.SIGTERM || got.backstop != recorded {
-		t.Fatalf("armed for %v, want the first signal's interruption carrying the backstop", got)
-	}
-	require.False(t, recorded.isStopped(), "backstop stopped before the run finished")
-	stop()
-	waitUntil(t, recorded.isStopped, "finishing the run did not stop the backstop")
-	assert.Empty(t, armed, "a later signal armed a second backstop")
 }
 
 func TestInterruptContextDoesNotArmBackstopWithoutSignal(t *testing.T) {
 	t.Parallel()
-	parent, cancelParent := context.WithCancel(t.Context())
-	var armed atomic.Int32
-	ctx, stop := interruptContext(parent, make(chan os.Signal), func() {}, func(*Error) *backstop {
-		armed.Add(1)
-		return &backstop{}
+	synctest.Test(t, func(t *testing.T) {
+		parent, cancelParent := context.WithCancel(t.Context())
+		var armed atomic.Int32
+		ctx, stop := interruptContext(parent, make(chan os.Signal), func() {}, func(*Error) *backstop {
+			armed.Add(1)
+			return &backstop{}
+		})
+		defer stop()
+
+		cancelParent()
+		synctest.Wait()
+		require.Error(t, ctx.Err(), "context was not canceled")
+		stop()
+
+		assert.Zero(t, armed.Load(), "backstop armed without a signal")
 	})
-	defer stop()
-
-	cancelParent()
-	waitForContext(ctx, t)
-	stop()
-
-	assert.Zero(t, armed.Load(), "backstop armed without a signal")
 }
 
 func TestBackstopEndsARunThatOutlivesItsGrace(t *testing.T) {
@@ -412,25 +441,4 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
-}
-
-func waitUntil(t *testing.T, condition func() bool, failure string) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatal(failure)
-}
-
-func waitForContext(ctx context.Context, t *testing.T) {
-	t.Helper()
-	select {
-	case <-ctx.Done():
-	case <-time.After(10 * time.Second):
-		t.Fatal("context was not canceled")
-	}
 }

@@ -21,5 +21,14 @@ func passwordProcessStopped(pid int) (bool, error) {
 	if errno != 0 {
 		return false, fmt.Errorf("inspect supplier process: %w", errno)
 	}
-	return observed == uintptr(pid) && status.Stopped(), nil
+	// Go's BSD WaitStatus.Stopped reports a SIGSTOP stop as a continuation. FreeBSD
+	// reports continuation only for WCONTINUED, which this probe does not request,
+	// so any _WSTOPPED status is a stop.
+	return observed == uintptr(pid) && status&freebsdWaitStatusMask == freebsdWaitStopped, nil
 }
+
+// freebsdWaitStopped is _WSTOPPED from <sys/wait.h>.
+const (
+	freebsdWaitStatusMask = 0o177
+	freebsdWaitStopped    = 0o177
+)

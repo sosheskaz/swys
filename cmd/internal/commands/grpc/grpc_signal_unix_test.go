@@ -106,8 +106,12 @@ func TestGRPCExecuteSignalsCancelBlockingInput(t *testing.T) {
 							t.Fatalf("open FIFO writer after reader handshake: %v", result.err)
 						}
 						writer = result.file
-					case <-ctx.Done():
-						t.Fatalf("gRPC process did not open FIFO input: %v", ctx.Err())
+					case <-time.After(8 * time.Second):
+						// Stop short of the helper's context so it can still dump its goroutines.
+						quitErr := command.Process.Signal(syscall.SIGQUIT)
+						waitErr := command.Wait()
+						t.Fatalf("gRPC process did not open FIFO input (SIGQUIT: %v, exit: %v); helper stderr:\n%s",
+							quitErr, waitErr, stderr.String())
 					}
 				}
 				t.Cleanup(func() {
@@ -387,8 +391,8 @@ func TestGRPCRequestFileReadsFIFOToEOFAndEnforcesLimit(t *testing.T) { //nolint:
 			payload := bytes.Repeat([]byte{'x'}, test.size)
 			data, err := readGRPCFIFOToEOF(ctx, t, payload, test.limit)
 			if test.wantErr {
-				if !errors.Is(err, errGRPCMessageLimit) || data != nil {
-					t.Fatalf("read %d bytes with limit %d = %d bytes, %v; want nil and errGRPCMessageLimit", test.size, test.limit, len(data), err)
+				if !errors.Is(err, grpccommand.ErrMessageLimit) || data != nil {
+					t.Fatalf("read %d bytes with limit %d = %d bytes, %v; want nil and grpccommand.ErrMessageLimit", test.size, test.limit, len(data), err)
 				}
 				return
 			}
