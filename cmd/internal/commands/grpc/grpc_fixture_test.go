@@ -462,6 +462,7 @@ func startGRPCFixtureWithSchemaModeAt(
 					"forged.v1.Service\ninjected-completion",
 					"forged.v1.Service\r--output=stolen",
 					"forged.v1.Service\tdescription",
+					"\x1b[2Jforged.v1.Service",
 				},
 			},
 		})

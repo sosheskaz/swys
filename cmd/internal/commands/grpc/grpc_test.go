@@ -107,6 +107,21 @@ func TestGRPCDiscoverySelectors(t *testing.T) {
 	}
 }
 
+func TestGRPCServiceListRejectsUntrustedServiceNames(t *testing.T) {
+	t.Parallel()
+
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionUntrustedNamesV1, false)
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+			stdout, _, err := executeRootStreams(t, "grpc", address, "--plaintext", "--format", format)
+			require.ErrorContains(t, err, `invalid gRPC reflection response: invalid service name "\x1b[2Jforged.v1.Service"`)
+			assert.NotContains(t, err.Error(), "\x1b")
+			assert.Empty(t, stdout)
+		})
+	}
+}
+
 func TestGRPCExplicitEmptyDiscoverySelectorsRejectBeforeNetwork(t *testing.T) {
 	t.Parallel()
 

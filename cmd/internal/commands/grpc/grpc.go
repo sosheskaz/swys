@@ -830,6 +830,12 @@ func (schema *grpcSchema) selectDiscovery(list, describe string) (grpcDiscoveryS
 		}
 		return grpcDiscoverySelection{descriptor: protoDescriptor}, nil
 	}
+	// Reflected names are server-controlled and a text listing prints them bare.
+	for _, service := range schema.services {
+		if !protoreflect.FullName(service).IsValid() {
+			return grpcDiscoverySelection{}, fmt.Errorf("%w: invalid service name %q", errInvalidReflection, service)
+		}
+	}
 	return grpcDiscoverySelection{values: schema.services}, nil
 }
 
