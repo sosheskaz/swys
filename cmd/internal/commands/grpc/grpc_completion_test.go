@@ -208,7 +208,7 @@ func TestGRPCCompletionDoesNotPrepareCommandIO(t *testing.T) {
 	require.Equal(t, 0, calls, "application RPC calls")
 }
 
-func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
+func TestGRPCCompletionRejectsInvalidOptionsLocally(t *testing.T) {
 	t.Parallel()
 
 	_, caPath, certPath, keyPath, _ := startGRPCMTLSFixture(t)
@@ -235,6 +235,26 @@ func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
 		{
 			name:  "system roots without custom CA",
 			flags: []string{"--system-ca"},
+		},
+		{
+			name:  "negative timeout over TLS",
+			flags: []string{"--timeout=-1s"},
+		},
+		{
+			name:  "negative timeout over plaintext",
+			flags: []string{"--plaintext", "--timeout=-1s"},
+		},
+		{
+			name:  "invalid output format",
+			flags: []string{"--plaintext", "--format", "yaml"},
+		},
+		{
+			name:  "invalid output mode",
+			flags: []string{"--plaintext", "--mode=rwx"},
+		},
+		{
+			name:  "literal request over its size limit",
+			flags: []string{"--plaintext", "--max-message-size", "1", "--data", `{"x":1}`},
 		},
 	}
 
@@ -263,13 +283,13 @@ func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
 			assertQuietGRPCCompletionFailure(t, stderr)
 			assert.Zero(t, input.reads.Load(), "stdin reads")
 			if _, err := os.Stat(output); !os.IsNotExist(err) {
-				t.Errorf("invalid TLS completion prepared output file: %v", err)
+				t.Errorf("invalid completion prepared output file: %v", err)
 			}
 			calls, callMetadata, reflectionMetadata := record.snapshot()
 			v1Calls, alphaCalls := record.reflectionCounts()
 			if connections := record.connectionCount(); connections != 0 || calls != 0 || v1Calls != 0 || alphaCalls != 0 {
 				t.Errorf(
-					"invalid TLS completion reached network: connections=%d calls=%d reflection v1=%d v1alpha=%d",
+					"invalid completion reached network: connections=%d calls=%d reflection v1=%d v1alpha=%d",
 					connections,
 					calls,
 					v1Calls,
@@ -277,7 +297,7 @@ func TestGRPCCompletionRejectsInvalidTLSFlagCombinationsLocally(t *testing.T) {
 				)
 			}
 			if len(callMetadata) != 0 || len(reflectionMetadata) != 0 {
-				t.Errorf("invalid TLS completion sent metadata: call=%v reflection=%v", callMetadata, reflectionMetadata)
+				t.Errorf("invalid completion sent metadata: call=%v reflection=%v", callMetadata, reflectionMetadata)
 			}
 		})
 	}
@@ -447,6 +467,7 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		})
 	}
 	largeProtoset := writeGRPCFixtureProtoset(t, large)
+	missing := filepath.Join(t.TempDir(), "missing.pem")
 	for _, test := range []struct {
 		name string
 		args []string
@@ -462,6 +483,11 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 		{name: "CA from stdin", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--ca", "-", "--data", ""}},
 		{name: "unrelated prefix", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--data", `{"other`}},
 		{name: "template larger than 2 KiB", args: []string{"--protoset", largeProtoset, grpcFixtureMethodName, "--data", ""}},
+		{name: "invalid header", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--header", "bad header", "--data", ""}},
+		{name: "missing CA", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--ca", missing, "--data", ""}},
+		// pflag reads -td as --timeout=d, which execution rejects.
+		{name: "shorthand cluster value", args: []string{"--protoset", protoset, grpcFixtureMethodName, "-td", ""}},
+		{name: "shorthand cluster inline value", args: []string{"--protoset", protoset, grpcFixtureMethodName, "-td="}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -472,6 +498,64 @@ func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
 	}
 	values, _ := completeGRPCCommand(t, "127.0.0.1:1", "--protoset", protoset, grpcFixtureMethodName, "--data", `'{"te`)
 	assert.Len(t, values, 1, "an opening shell quote still matches the template")
+}
+
+func TestGRPCProtosetCompletionFollowsExecutionValidation(t *testing.T) {
+	t.Parallel()
+
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	missing := filepath.Join(t.TempDir(), "missing.pem")
+	oversizedToken := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(oversizedToken, []byte(strings.Repeat("t", 64<<10+1)), 0o600))
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "invalid header", args: []string{"--header", "bad header", grpcFixtureServiceName + "/"}},
+		{name: "invocation loads a missing CA", args: []string{"--ca", missing, grpcFixtureServiceName + "/"}},
+		{name: "output replaces the protoset", args: []string{"--output", protoset, "--list", ""}},
+		{name: "invalid output encoding", args: []string{"--encoding", "bogus", "--describe", ""}},
+		{name: "output mode without an output file", args: []string{"--mode", "0600", "--list", ""}},
+		{name: "credential file over its size limit", args: []string{"--auth-bearer-file", oversizedToken, "--list", ""}},
+		{
+			name: "inline value after a dash-led literal",
+			args: []string{"--auth-bearer", "-v", "--list="},
+			want: []string{grpcFixtureServiceName},
+		},
+		// Protoset discovery never dials, so execution does not read the CA.
+		{name: "discovery ignores a missing CA", args: []string{"--ca", missing, "--list", ""}, want: []string{grpcFixtureServiceName}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			values, directive := completeGRPCCommand(t, append([]string{"127.0.0.1:1", "--protoset", protoset}, test.args...)...)
+			var names []string
+			for _, value := range values {
+				name, _, _ := strings.Cut(value, "\t")
+				names = append(names, name)
+			}
+			assert.Equal(t, test.want, names)
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+}
+
+func TestGRPCDataCompletionFollowsShorthandClusters(t *testing.T) {
+	t.Parallel()
+
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	// pflag consumes boolean shorthands, so -vd means --verbose --data.
+	for _, words := range [][]string{{"-d", ""}, {"-d="}, {"-vd", ""}, {"-vd="}} {
+		t.Run(strings.Join(words, " "), func(t *testing.T) {
+			t.Parallel()
+			args := append([]string{"127.0.0.1:1", "--protoset", protoset, grpcFixtureMethodName}, words...)
+			values, directive := completeGRPCCommand(t, args...)
+			assert.Len(t, values, 1, "completion of %q", words)
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
 }
 
 func TestGRPCDataCompletionEscapesTerminalControls(t *testing.T) {

@@ -77,6 +77,20 @@ func (lifecycle *Lifecycle) PreRun(command *cobra.Command, args []string) error 
 	return err
 }
 
+// ValidateIO applies the shared I/O option checks that precede a registered
+// command's operational preparation, without opening files.
+func (lifecycle *Lifecycle) ValidateIO(command *cobra.Command) error {
+	behavior, registered := lifecycle.Behavior(command)
+	if !registered {
+		return nil
+	}
+	if err := lifecycle.validateIOCapabilities(command); err != nil {
+		return err
+	}
+	_, err := readIOSetup(command, &behavior)
+	return err
+}
+
 func (lifecycle *Lifecycle) preRun(command *cobra.Command, args []string) error {
 	if lifecycle.prepareShellCompletion(command, args) {
 		return nil

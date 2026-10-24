@@ -173,7 +173,13 @@ const (
 
 // NewCommand constructs the gRPC command and registers its I/O behavior.
 func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
+	command, _ := newGRPCCommand(lifecycle)
+	return command
+}
+
+func newGRPCCommand(lifecycle *commandio.Lifecycle) (*cobra.Command, *grpcOptions) {
 	options := &grpcOptions{}
+	completion := &grpcCompletionLine{}
 	var prepared *grpcPreparation
 	var pending *grpcPreparation
 	command := &cobra.Command{
@@ -253,9 +259,9 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags.BoolVar(&options.insecureNoVerify, tlsconfig.InsecureNoVerifyFlagName, false, tlsconfig.InsecureNoVerifyUsage)
 	auth.AddFlags(command, flags)
 	flags.BoolVarP(&options.verbose, "verbose", "v", false, "write status, metadata, and TLS details to stderr")
-	registerGRPCCompletion(command, options)
+	registerGRPCCompletion(command, options, completion)
 	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) {
-		prepareGRPCCompletion(completionCmd, args, command)
+		completion.args = prepareGRPCCompletion(completionCmd, args, command)
 	})
 	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string {
 		if options.template != "" {
@@ -274,7 +280,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	if err := help.RegisterGuides(command, grpcGuideFiles); err != nil {
 		panic(err)
 	}
-	return command
+	return command, options
 }
 
 //nolint:gocognit,gocyclo,nestif // ordered state contract remains visible
@@ -284,7 +290,8 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	if len(args) == 2 {
 		selector = args[1]
 	}
-	if err := validateGRPCOptions(cmd, args[0], selector, selectorPresent, options); err != nil {
+	payloadStdin := selectorPresent && grpcRequestUsesStdin(cmd)
+	if err := validateGRPCOptions(cmd, args[0], selector, selectorPresent, payloadStdin, options); err != nil {
 		return nil, err
 	}
 	options.outputPresentation = presentation.Output(cmd)
@@ -468,7 +475,7 @@ func marshalGRPCResponse(response proto.Message, types *dynamicpb.Types, format 
 }
 
 //nolint:gocognit,gocyclo // ordered local validation must complete before any side effect
-func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selectorPresent bool, options *grpcOptions) error {
+func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selectorPresent, payloadStdin bool, options *grpcOptions) error {
 	host, portText, err := net.SplitHostPort(endpoint)
 	invalidHostCharacter := func(char rune) bool {
 		return unicode.IsSpace(char) || char < ' ' || char == 127
@@ -544,7 +551,6 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	if err := validateGRPCTLSOptionCombinations(options); err != nil {
 		return err
 	}
-	payloadStdin := selectorPresent && grpcRequestUsesStdin(cmd)
 	if err := tlsconfig.ValidateArtifactSources(cmd, !options.plaintext, payloadStdin, ErrInvalidOptions); err != nil {
 		return err
 	}
