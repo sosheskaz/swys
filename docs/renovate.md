@@ -29,22 +29,21 @@ except the expected missing-token warning during anonymous extraction.
 Recommended policy leaves indirect Go modules disabled; they must still be
 extracted, while lookup proof uses enabled dependencies.
 
-## Linter update review
+## Update review
 
-golangci-lint patch updates retain automatic PR squash merging. Minor updates
-require manual review because analyzer and formatter changes can require policy
-decisions; major updates remain manual. Existing release-age waits and the
-policies for other tools are unchanged.
+Renovate automerges no updates. Every dependency PR, including GitHub Actions,
+tool, and linter updates, requires manual review and merge. golangci-lint
+updates deserve particular care because analyzer and formatter changes can
+require policy decisions. Release-age waits still apply before Renovate
+proposes an update.
 
-Mise updates retain `separateMinorPatch: false`. Patches remain eligible for
-auto-merge, but when both a patch and minor update are available, Renovate normally
-proposes only the minor update. A waiting minor PR can therefore hold back a
-parallel patch proposal.
+Mise updates retain `separateMinorPatch: false`. When both a patch and minor
+update are available, Renovate normally proposes only the minor update, so a
+waiting minor PR can hold back a parallel patch proposal.
 
-Repository policy does not prove that an already-enabled GitHub auto-merge
-request was cancelled. Inspect affected open PRs and explicitly disable any
-request that conflicts with manual review; do not rely on a human commit to
-clear it.
+Repository policy does not cancel a GitHub auto-merge request that was already
+enabled on an open PR. Inspect open PRs and explicitly disable any such
+request; do not rely on a human commit to clear it.
 
 ## Image release age
 
@@ -91,15 +90,13 @@ tag history is fetched incrementally rather than in full on every run. The
 cache holds lookup data for public packages and repositories. It lives in
 main's Actions cache scope: PR workflows, including those
 from forks, can restore it, and any workflow on main can write it. A tampered
-entry could steer proposed versions and digests, including automerged Actions
-updates. Tool downloads are not persisted, because Renovate would execute them
-with the write token. The repository cache stays disabled, because it would
-store Dependabot alerts.
+entry could steer the versions and digests proposed in dependency PRs. Tool
+downloads are not persisted, because Renovate would execute them with the write
+token. The repository cache stays disabled, because it would store Dependabot
+alerts.
 
-Automerge policy remains in the config. Repository automerge availability,
-required checks, and enforcement must be established before activating those
-merges; source policy and validation do not prove operational automerge. No
-production writes have been validated by this migration.
+Renovate policy enables no automerge; a person reviews and merges every
+dependency PR. No production writes have been validated by this migration.
 
 ## Distribution verification
 
