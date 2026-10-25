@@ -77,10 +77,7 @@
     {
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "minor"],
-      "automerge": true,
-      "automergeType": "pr",
-      "automergeStrategy": "squash",
-      "addLabels": ["automerge", "ci"]
+      "addLabels": ["ci"]
     },
     {
       "matchManagers": ["mise"],
@@ -92,25 +89,12 @@
         "go:golang.org/x/vuln/cmd/govulncheck"
       ],
       "matchUpdateTypes": ["patch", "minor"],
-      "automerge": true,
-      "automergeType": "pr",
-      "automergeStrategy": "squash",
-      "addLabels": ["automerge", "toolchain"]
+      "addLabels": ["toolchain"]
     },
     {
       "matchManagers": ["mise"],
       "matchDepNames": ["golangci-lint"],
-      "matchUpdateTypes": ["patch"],
-      "automerge": true,
-      "automergeType": "pr",
-      "automergeStrategy": "squash",
-      "addLabels": ["automerge", "toolchain"]
-    },
-    {
-      "matchManagers": ["mise"],
-      "matchDepNames": ["golangci-lint"],
-      "matchUpdateTypes": ["minor"],
-      "automerge": false,
+      "matchUpdateTypes": ["patch", "minor"],
       "addLabels": ["toolchain"]
     },
     {
