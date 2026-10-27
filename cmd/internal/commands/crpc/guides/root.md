@@ -154,8 +154,10 @@ also complete schema symbols. See swys help completion for shell setup.
 Completion uses --protoset when supplied; otherwise it queries reflection with
 a hard two-second cap and honors shorter connection/reflection timeouts. It
 reuses TLS, header, and address-override flags, but never invokes application
-methods, reads stdin or FIFOs, or writes output files. Unavailable reflection
-returns no suggestions. It does not crawl all service schemas or persist them.
+methods, reads stdin or FIFOs, or writes output files. It suggests schema names
+or contacts the server only when the command would accept the line with a valid
+value in place of the word being completed. Unavailable reflection returns no
+suggestions. It does not crawl all service schemas or persist them.
 
 ## Authentication and diagnostics
 

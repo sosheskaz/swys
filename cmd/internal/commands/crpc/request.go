@@ -29,29 +29,50 @@ type preparation struct {
 	close func() error
 }
 
-func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation, error) {
+// validatedLine is a command line that passed every check execution performs
+// before it reads credentials or TLS material, loads a schema, or uses the network.
+type validatedLine struct {
+	headers  *connect.Header
+	resolver netconn.Resolver
+	target   targetSelection
+}
+
+// validateLine runs those checks for execution and shell completion alike;
+// piped reports whether stdin is a pipe when --stdin auto leaves the choice open.
+func validateLine(cmd *cobra.Command, args []string, settings *options, piped func() bool) (validatedLine, error) {
 	target, err := selectTarget(args, settings)
 	if err != nil {
-		return nil, err
+		return validatedLine{}, err
 	}
 	settings.discovery = target.discovery
 	if source, ok := auth.Selected(cmd.Flags()); ok && target.base == nil {
-		return nil, fmt.Errorf("%w: --%s requires a remote target", ErrInvalidFlags, source)
+		return validatedLine{}, fmt.Errorf("%w: --%s requires a remote target", ErrInvalidFlags, source)
 	}
 	secure := target.base != nil && target.base.Scheme == "https"
-	if err := validate(cmd, settings, secure); err != nil {
-		return nil, err
+	if err := validate(cmd, settings, secure, selectsStdin(cmd, settings, piped)); err != nil {
+		return validatedLine{}, err
 	}
-
 	headers, err := parseHeaders(settings.headers)
 	if err != nil {
-		return nil, err
+		return validatedLine{}, err
 	}
-	if err := applyAuthorization(cmd, headers); err != nil {
-		return nil, err
+	if err := auth.RejectHeader(cmd.Flags(), len(headers.Values("Authorization")) != 0, ErrInvalidFlags); err != nil {
+		return validatedLine{}, err
 	}
 	resolver, err := netconn.ParseResolves(settings.resolves)
 	if err != nil {
+		return validatedLine{}, err
+	}
+	return validatedLine{target: target, headers: headers, resolver: resolver}, nil
+}
+
+func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation, error) {
+	line, err := validateLine(cmd, args, settings, pipedStdin(cmd))
+	if err != nil {
+		return nil, err
+	}
+	target, headers := line.target, line.headers
+	if err := applyAuthorization(cmd, headers); err != nil {
 		return nil, err
 	}
 	tlsOptions, err := prepareTLS(cmd, settings)
@@ -60,7 +81,7 @@ func prepare(cmd *cobra.Command, args []string, settings *options) (*preparation
 	}
 	settings.tlsConfig = tlsOptions
 	connection := connectrpc.Options{
-		TLS: tlsOptions, Resolves: resolver, ConnectTimeout: settings.connectTimeout,
+		TLS: tlsOptions, Resolves: line.resolver, ConnectTimeout: settings.connectTimeout,
 		Wait: settings.wait, MaxMessageSize: settings.maxMessageSize,
 	}
 	schema, err := loadSchema(cmd, settings, target, connection, headers)
@@ -82,16 +103,9 @@ func prepareInvocation(
 	cmd *cobra.Command, settings *options, endpoint connectrpc.Endpoint,
 	schema *protoschema.Schema, connection connectrpc.Options, headers *connect.Header,
 ) (*preparation, error) {
-	kind, err := streamType(settings.stream)
+	method, kind, err := invocationMethod(cmd, settings, schema, endpoint.Procedure)
 	if err != nil {
 		return nil, err
-	}
-	method, kind, err := resolveMethod(cmd, settings, schema, endpoint.Procedure, kind)
-	if err != nil {
-		return nil, err
-	}
-	if settings.format == formatJSON && (kind == connect.StreamTypeServer || kind == connect.StreamTypeBidi) {
-		return nil, fmt.Errorf("%w: multiple-response streams require --format jsonl", ErrInvalidFlags)
 	}
 	connection.RequireHTTP2 = kind == connect.StreamTypeBidi
 	client := connectrpc.NewClient(endpoint, connection)
@@ -129,6 +143,25 @@ func prepareInvocation(
 			return safeError(callErr)
 		},
 	}, nil
+}
+
+// invocationMethod resolves the procedure in schema, when one is loaded, and
+// checks it against --stream and --format.
+func invocationMethod(
+	cmd *cobra.Command, settings *options, schema *protoschema.Schema, procedure string,
+) (protoreflect.MethodDescriptor, connect.StreamType, error) {
+	kind, err := streamType(settings.stream)
+	if err != nil {
+		return nil, 0, err
+	}
+	method, kind, err := resolveMethod(cmd, settings, schema, procedure, kind)
+	if err != nil {
+		return nil, 0, err
+	}
+	if settings.format == formatJSON && (kind == connect.StreamTypeServer || kind == connect.StreamTypeBidi) {
+		return nil, 0, fmt.Errorf("%w: multiple-response streams require --format jsonl", ErrInvalidFlags)
+	}
+	return method, kind, nil
 }
 
 func preparedBytes(data []byte) *preparation {
