@@ -2,22 +2,23 @@ package grpc
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"os"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/sosheskaz/swys/cmd/internal/cli/auth"
 	"github.com/sosheskaz/swys/cmd/internal/cli/commandio"
+	"github.com/sosheskaz/swys/cmd/internal/cli/presentation"
 	"github.com/sosheskaz/swys/cmd/internal/cli/tlsconfig"
 	"github.com/sosheskaz/swys/internal/protoschema"
 	"github.com/sosheskaz/swys/internal/textdisplay"
@@ -49,10 +50,10 @@ func grpcTLSCompletionApplicable(cmd *cobra.Command, _ []string) bool {
 	return cmd.Flag("plaintext").Value.String() == "false"
 }
 
-func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
-	registerGRPCSelectionCompletion(command, options)
+func registerGRPCCompletion(command *cobra.Command, options *grpcOptions, line *grpcCompletionLine) {
+	registerGRPCSelectionCompletion(command, options, line)
 	mustRegisterGRPCCompletion(command, grpcDataFlagName, func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
-		return completeGRPCData(cmd, args, prefix, options), cobra.ShellCompDirectiveNoFileComp
+		return completeGRPCData(cmd, args, prefix, options, line), cobra.ShellCompDirectiveNoFileComp
 	})
 	for _, name := range []string{"header", "max-message-size", tlsconfig.ServerNameFlagName, "timeout"} {
 		mustRegisterGRPCCompletion(command, name, cobra.NoFileCompletions)
@@ -81,19 +82,19 @@ func registerGRPCCompletion(command *cobra.Command, options *grpcOptions) {
 	}
 }
 
-func registerGRPCSelectionCompletion(command *cobra.Command, options *grpcOptions) {
+func registerGRPCSelectionCompletion(command *cobra.Command, options *grpcOptions, line *grpcCompletionLine) {
 	command.ValidArgsFunction = func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 1 || !grpcSelectionCompletionAllowed(cmd, args, grpcCompleteSelector) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		return completeGRPC(cmd, args, prefix, options, grpcCompleteSelector)
+		return completeGRPC(cmd, args, prefix, options, grpcCompleteSelector, line, "")
 	}
 	for name, kind := range map[string]grpcCompletionKind{
 		grpcListFlagName:     grpcCompleteService,
 		grpcDescribeFlagName: grpcCompleteSymbol,
 		grpcTemplateFlagName: grpcCompleteTemplate,
 	} {
-		completionKind := kind
+		completionKind, flagName := kind, name
 		mustRegisterGRPCCompletion(command, name, func(cmd *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
 			if len(args) != 1 || !grpcSelectionCompletionAllowed(cmd, args, completionKind) {
 				return nil, cobra.ShellCompDirectiveNoFileComp
@@ -103,7 +104,7 @@ func registerGRPCSelectionCompletion(command *cobra.Command, options *grpcOption
 				// A template names the same unary SERVICE/METHOD as an invocation selector.
 				candidates = grpcCompleteSelector
 			}
-			return completeGRPC(cmd, args, prefix, options, candidates)
+			return completeGRPC(cmd, args, prefix, options, candidates, line, flagName)
 		})
 	}
 }
@@ -114,18 +115,20 @@ func mustRegisterGRPCCompletion(command *cobra.Command, name string, completion 
 	}
 }
 
-func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command *cobra.Command) {
+// prepareGRPCCompletion hides inapplicable flags and returns the request's
+// words when they address command.
+func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command *cobra.Command) []string {
 	if (completionCmd.Name() != cobra.ShellCompRequestCmd && completionCmd.Name() != cobra.ShellCompNoDescRequestCmd) || len(args) == 0 {
-		return
+		return nil
 	}
 	completedArgs := args[:len(args)-1]
 	actual, _, err := completionCmd.Root().Find(completedArgs)
 	if err != nil || actual != command {
-		return
+		return nil
 	}
 	probe := grpcCompletionProbe(completedArgs)
 	if probe == nil {
-		return
+		return args
 	}
 	for _, name := range []string{
 		grpcPlaintextFlagName, grpcInsecureFlagName, tlsconfig.InsecureNoVerifyFlagName, tlsconfig.SystemCAFlagName,
@@ -140,6 +143,7 @@ func prepareGRPCCompletion(completionCmd *cobra.Command, args []string, command 
 		command.Flag(name).Hidden = true
 	}
 	hideGRPCSelectionFlags(command, probe)
+	return args
 }
 
 func hideGRPCSelectionFlags(command, probe *cobra.Command) {
@@ -180,6 +184,226 @@ func grpcCompletionProbe(completedArgs []string) *cobra.Command {
 		}
 	}
 	return probe
+}
+
+// grpcCompletionLine holds the completion request's words, ending with the one
+// being completed. The completion hook records them before Cobra runs value callbacks.
+type grpcCompletionLine struct {
+	args []string
+}
+
+// validate runs execution's pre-network checks on the completed line with the
+// word being completed, flag's value or the method selector when flag is empty,
+// set to a valid placeholder. It decides request ownership from the line alone:
+// completion never inspects stdin, so only --input - gives stdin the request.
+// definitions supplies the shorthands and flag types of the completing command.
+func (line *grpcCompletionLine) validate(ctx context.Context, definitions *pflag.FlagSet, flag string) error {
+	probe, options, args, err := line.probe(flag, definitions) //nolint:contextcheck // the probe is parsed, never executed
+	if err != nil {
+		return err
+	}
+	selector, selectorPresent := "", len(args) == 2
+	if selectorPresent {
+		selector = args[1]
+	}
+	payloadStdin := selectorPresent && !probe.Flags().Changed(grpcDataFlagName) &&
+		probe.Flags().Changed(grpcInputFlagName) && grpcCompletionString(probe, grpcInputFlagName) == "-"
+	if err := validateGRPCOptions(probe, args[0], selector, selectorPresent, payloadStdin, options); err != nil {
+		return err
+	}
+	md, err := parseGRPCMetadata(options.headers)
+	if err != nil {
+		return err
+	}
+	if err := auth.RejectHeader(probe.Flags(), len(md["authorization"]) != 0, ErrInvalidOptions); err != nil {
+		return fmt.Errorf("validate completed credential: %w", err)
+	}
+	if source, ok := auth.Selected(probe.Flags()); ok && (source == auth.BearerFlagName || source == auth.BasicFlagName) {
+		// A literal credential is already on the line; credential files and variables stay unread.
+		if _, _, err := auth.Value(ctx, nil, probe.Flags(), nil, ErrInvalidOptions); err != nil {
+			return fmt.Errorf("validate completed credential: %w", err)
+		}
+	}
+	return grpcCompletionInputsUsable(probe, options, selectorPresent)
+}
+
+// probe parses the completed line on a fresh command and fills the completed word.
+func (line *grpcCompletionLine) probe(flag string, definitions *pflag.FlagSet) (*cobra.Command, *grpcOptions, []string, error) {
+	if len(line.args) == 0 {
+		return nil, nil, nil, fmt.Errorf("%w: no completed command line", ErrInvalidOptions)
+	}
+	completed, err := grpcCompletionWordsBeforeValue(line.args, flag, definitions)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	probe, options, err := parseGRPCCompletionLine(completed)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	args := probe.Flags().Args()
+	if flag == "" {
+		args = append(args, grpcCompletionPlaceholder(flag))
+	} else if err := probe.Flags().Set(flag, grpcCompletionPlaceholder(flag)); err != nil {
+		return nil, nil, nil, fmt.Errorf("set completed --%s: %w", flag, err)
+	}
+	if err := probe.ValidateArgs(args); err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrInvalidOptions, err)
+	}
+	return probe, options, args, nil
+}
+
+// grpcCompletionWordsBeforeValue returns the words before the completed one,
+// without the completed flag's name when it is a separate word.
+func grpcCompletionWordsBeforeValue(args []string, flag string, definitions *pflag.FlagSet) ([]string, error) {
+	completed, word := args[:len(args)-1], args[len(args)-1]
+	if flag == "" || strings.HasPrefix(word, "--"+flag+"=") {
+		return completed, nil
+	}
+	if head, _, inline := strings.Cut(word, "="); inline && len(head) > 1 && head[0] == '-' && head[1] != '-' {
+		return grpcCompletionShorthandWords(completed, head[1:], flag, definitions)
+	}
+	if len(completed) != 0 {
+		last := completed[len(completed)-1]
+		if last == "--"+flag {
+			return completed[:len(completed)-1], nil
+		}
+		if len(last) > 1 && last[0] == '-' && last[1] != '-' && !strings.Contains(last, "=") {
+			return grpcCompletionShorthandWords(completed[:len(completed)-1], last[1:], flag, definitions)
+		}
+	}
+	return nil, fmt.Errorf("%w: completed --%s is not a flag word", ErrInvalidOptions, flag)
+}
+
+// grpcCompletionShorthandWords follows pflag's cluster rule: boolean shorthands
+// are consumed until the first that takes a value, which must be the completed
+// flag at the cluster's end. Cobra instead picks the cluster's final letter, so
+// -td completes --data although pflag gives "d" to --timeout. The cluster's
+// boolean prefix replaces the cluster in the returned words.
+func grpcCompletionShorthandWords(words []string, cluster, flag string, definitions *pflag.FlagSet) ([]string, error) {
+	for index := range len(cluster) {
+		definition := definitions.ShorthandLookup(cluster[index : index+1])
+		if definition == nil {
+			break
+		}
+		if definition.NoOptDefVal != "" {
+			continue
+		}
+		if definition.Name != flag || index != len(cluster)-1 {
+			break
+		}
+		if index == 0 {
+			return words, nil
+		}
+		return slices.Concat(words, []string{"-" + cluster[:index]}), nil
+	}
+	return nil, fmt.Errorf("%w: -%s does not give its value to --%s", ErrInvalidOptions, cluster, flag)
+}
+
+// parseGRPCCompletionLine parses args on a fresh command and applies the shared
+// pre-run checks execution makes before its own validation; neither reads the
+// word being completed.
+func parseGRPCCompletionLine(args []string) (*cobra.Command, *grpcOptions, error) {
+	probeRoot := commandio.NewProbeRoot()
+	presentation.AddFlags(probeRoot)
+	lifecycle := commandio.NewLifecycle()
+	command, options := newGRPCCommand(lifecycle)
+	probeRoot.AddCommand(command)
+	probe, probeArgs, err := probeRoot.Find(args)
+	if err != nil {
+		return nil, nil, fmt.Errorf("find completed command: %w", err)
+	}
+	if probe != command {
+		return nil, nil, fmt.Errorf("%w: completed line does not address grpc", ErrInvalidOptions)
+	}
+	if err := probe.ParseFlags(probeArgs); err != nil {
+		return nil, nil, fmt.Errorf("parse completed flags: %w", err)
+	}
+	if _, err := presentation.Policy(probe); err != nil {
+		return nil, nil, fmt.Errorf("validate completed presentation: %w", err)
+	}
+	if err := lifecycle.ValidateIO(probe); err != nil {
+		return nil, nil, fmt.Errorf("validate completed I/O options: %w", err)
+	}
+	return probe, options, nil
+}
+
+func grpcCompletionPlaceholder(flag string) string {
+	switch flag {
+	case grpcListFlagName, grpcDescribeFlagName:
+		return "a.B"
+	case grpcDataFlagName:
+		return "{}"
+	default:
+		return "a.B/C"
+	}
+}
+
+// grpcCompletionInputsUsable checks inputs execution reads before connecting
+// without opening them: the stats of credential files and of TLS files whenever
+// execution dials, then the invocation's request. Stdin selections are left to
+// the callers' quiet rules.
+func grpcCompletionInputsUsable(probe *cobra.Command, options *grpcOptions, selectorPresent bool) error {
+	for _, name := range auth.FileFlagNames {
+		path := grpcCompletionString(probe, name)
+		if path == "" || path == "-" {
+			continue
+		}
+		info, err := regularGRPCCompletionFile(path)
+		if err != nil {
+			return err
+		}
+		// Credential files are read raw, so their size is the read size.
+		if info.Size() > auth.MaxBytes {
+			return fmt.Errorf("%w: --%s exceeds %d bytes", ErrInvalidOptions, name, auth.MaxBytes)
+		}
+	}
+	if selectorPresent || !probe.Flags().Changed("protoset") {
+		for _, path := range []string{options.ca, options.cert, options.key} {
+			if path == "" || path == "-" {
+				continue
+			}
+			if _, err := regularGRPCCompletionFile(path); err != nil {
+				return err
+			}
+		}
+	}
+	if !selectorPresent {
+		return nil
+	}
+	return grpcCompletionRequestUsable(probe, options)
+}
+
+// grpcCompletionRequestUsable applies readGRPCRequest's size limit to a literal
+// request or a request file's stat.
+func grpcCompletionRequestUsable(probe *cobra.Command, options *grpcOptions) error {
+	limit := int64(options.maxMessageSize) * 4
+	if probe.Flags().Changed(grpcDataFlagName) {
+		_, err := validateGRPCRequestSize([]byte(options.data), limit)
+		return err
+	}
+	input := grpcCompletionString(probe, grpcInputFlagName)
+	if !probe.Flags().Changed(grpcInputFlagName) || input == "-" {
+		return nil
+	}
+	info, err := regularGRPCCompletionFile(input)
+	if err != nil {
+		return err
+	}
+	if info.Size() > limit {
+		return fmt.Errorf("%w: request JSON exceeds %d bytes", ErrMessageLimit, limit)
+	}
+	return nil
+}
+
+func regularGRPCCompletionFile(path string) (os.FileInfo, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat completed file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %q is not a regular file", ErrInvalidOptions, path)
+	}
+	return info, nil
 }
 
 func grpcSelectionCompletionAllowed(command *cobra.Command, args []string, kind grpcCompletionKind) bool {
@@ -247,18 +471,20 @@ func completeGRPC(
 	prefix string,
 	options *grpcOptions,
 	kind grpcCompletionKind,
+	line *grpcCompletionLine,
+	flag string,
 ) ([]string, cobra.ShellCompDirective) {
 	directive := cobra.ShellCompDirectiveNoFileComp
 	if kind == grpcCompleteSelector && !strings.Contains(prefix, "/") {
 		directive |= cobra.ShellCompDirectiveNoSpace
 	}
-	if tlsconfig.UsesStdin(command) || !validGRPCCompletionEndpoint(args[0]) {
+	if tlsconfig.UsesStdin(command) {
 		return nil, directive
 	}
 
 	ctx, cancel := context.WithTimeout(command.Context(), grpcCompletionTimeout)
 	defer cancel()
-	schema, connection, reflectionCtx := grpcCompletionSchema(ctx, command, args[0], options)
+	schema, connection, reflectionCtx := grpcCompletionSchema(ctx, command, args[0], options, line, flag)
 	if connection != nil {
 		defer connection.Close() //nolint:errcheck // completion result is already collected
 	}
@@ -280,17 +506,17 @@ func completeGRPC(
 func grpcDataCompletionApplicable(command *cobra.Command, args []string) bool {
 	return len(args) == 2 && validGRPCMethodSelector(args[1]) && !command.Flags().Changed(grpcInputFlagName) &&
 		grpcSelectionCompletionAllowed(command, args, grpcCompleteSelector) &&
-		!tlsconfig.UsesStdin(command) && !auth.UsesStdin(command.Flags()) && validGRPCCompletionEndpoint(args[0])
+		!tlsconfig.UsesStdin(command) && !auth.UsesStdin(command.Flags())
 }
 
 // completeGRPCData offers the selected method's compact request template.
-func completeGRPCData(command *cobra.Command, args []string, prefix string, options *grpcOptions) []string {
+func completeGRPCData(command *cobra.Command, args []string, prefix string, options *grpcOptions, line *grpcCompletionLine) []string {
 	if !grpcDataCompletionApplicable(command, args) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(command.Context(), grpcCompletionTimeout)
 	defer cancel()
-	schema, connection, reflectionCtx := grpcCompletionSchema(ctx, command, args[0], options)
+	schema, connection, reflectionCtx := grpcCompletionSchema(ctx, command, args[0], options, line, grpcDataFlagName)
 	if connection != nil {
 		defer connection.Close() //nolint:errcheck // completion result is already collected
 	}
@@ -309,9 +535,14 @@ func completeGRPCData(command *cobra.Command, args []string, prefix string, opti
 	}
 	data, err := protoschema.TemplateJSON(method.Input(), false)
 	// Shells display the candidate and insert it verbatim, so escape it like
-	// --template output before applying the limit. Shells match the candidate
-	// against the typed word, which may start with a quote.
+	// --template output before applying the limits, which then measure what
+	// execution receives. Shells match the candidate against the typed word,
+	// which may start with a quote.
 	data = textdisplay.EscapeJSONControls(data)
+	if err == nil {
+		// Execution rejects an oversized --data before connecting.
+		_, err = validateGRPCRequestSize(data, int64(options.maxMessageSize)*4)
+	}
 	if err != nil || len(data) > grpcDataCompletionLimit || !strings.HasPrefix(string(data), strings.TrimLeft(prefix, `'"`)) {
 		return nil
 	}
@@ -323,11 +554,10 @@ func grpcCompletionSchema(
 	command *cobra.Command,
 	endpoint string,
 	options *grpcOptions,
+	line *grpcCompletionLine,
+	flag string,
 ) (*grpcSchema, *grpc.ClientConn, context.Context) {
-	if validateGRPCTLSOptionCombinations(options) != nil ||
-		tlsconfig.ValidateArtifactSources(command, !options.plaintext, false, ErrInvalidOptions) != nil ||
-		auth.Validate(command.Flags(), options.plaintext, false, ErrInvalidOptions) != nil {
-
+	if line.validate(ctx, command.Flags(), flag) != nil {
 		return nil, nil, ctx
 	}
 	if command.Flags().Changed("protoset") {
@@ -340,7 +570,7 @@ func grpcCompletionSchema(
 	}
 
 	requestMetadata, err := parseGRPCMetadata(grpcCompletionHeaders(options.headers))
-	if err != nil || !regularGRPCCompletionCredentialFiles(command, options) || auth.UsesStdin(command.Flags()) ||
+	if err != nil || auth.UsesStdin(command.Flags()) ||
 		applyGRPCAuthorization(command, requestMetadata) != nil {
 
 		return nil, nil, ctx
@@ -355,24 +585,6 @@ func grpcCompletionSchema(
 		return nil, connection, ctx
 	}
 	return schema, connection, ctx
-}
-
-func regularGRPCCompletionCredentialFiles(command *cobra.Command, options *grpcOptions) bool {
-	paths := make([]string, 0, 3+len(auth.FileFlagNames))
-	paths = append(paths, options.ca, options.cert, options.key)
-	for _, name := range auth.FileFlagNames {
-		paths = append(paths, grpcCompletionString(command, name))
-	}
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			return false
-		}
-	}
-	return true
 }
 
 func grpcCompletionHeaders(values []string) []string {
@@ -499,16 +711,4 @@ func grpcEnumCompletions(enums protoreflect.EnumDescriptors, prefix string) []st
 func sortedUniqueGRPCCompletions(values []string) []string {
 	sort.Strings(values)
 	return slices.Compact(values)
-}
-
-func validGRPCCompletionEndpoint(endpoint string) bool {
-	host, portText, err := net.SplitHostPort(endpoint)
-	invalidHost := strings.IndexFunc(host, func(char rune) bool {
-		return unicode.IsSpace(char) || char < ' ' || char == 127
-	}) >= 0
-	if err != nil || host == "" || invalidHost {
-		return false
-	}
-	port, err := strconv.Atoi(portText)
-	return err == nil && port >= 1 && port <= 65535
 }
