@@ -2,6 +2,7 @@ package crpc_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/sosheskaz/swys/cmd"
 	"github.com/sosheskaz/swys/cmd/internal/testcmd"
@@ -46,11 +48,52 @@ func TestCRPCCompletionUsesSchemasWithoutOperationalIO(t *testing.T) {
 	for _, test := range []struct{ flag, want string }{
 		{"--format", "jsonl\n:4\n"},
 		{"--stream", "server\tOne request and many responses\n:4\n"},
+		{"--data", templateCompletion},
 	} {
 		stdout, _, err = run(t, nil, "__complete", "crpc", "http://127.0.0.1:1"+echoMethod, "--protoset", path, test.flag, "")
 		require.NoError(t, err)
 		assert.Equal(t, test.want, stdout)
 	}
+}
+
+// templateCompletion is the completion protocol output offering example.v1.Request's template.
+var templateCompletion = `{"text":""}` + "\texample.v1.Request\n:4\n"
+
+func TestCRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
+	t.Parallel()
+	path := writeProtoset(t, schemaSet(false))
+	large := schemaSet(false)
+	request := large.File[0].MessageType[0]
+	for i := range 96 {
+		request.Field = append(request.Field, &descriptorpb.FieldDescriptorProto{
+			Name: new(fmt.Sprintf("long_template_field_name_%02d", i)), Number: new(int32(100 + i)),
+			Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+		})
+	}
+	largePath := writeProtoset(t, large)
+	for name, args := range map[string][]string{
+		"discovery":                  {"http://127.0.0.1:1", "--protoset", path, "--data", ""},
+		"input owns the request":     {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--input", "unread.json", "--data", ""},
+		"empty list conflicts":       {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--list=", "--data", ""},
+		"empty describe conflicts":   {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--describe=", "--data", ""},
+		"empty template conflicts":   {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--template=", "--data", ""},
+		"auth file from stdin":       {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--auth-bearer-file", "-", "--data", ""},
+		"CA from stdin":              {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--ca", "-", "--data", ""},
+		"auth conflict hides stdin":  {"https://127.0.0.1:1" + echoMethod, "--protoset", path, "--auth-bearer", "token", "--auth-basic-file", "-", "--data", ""},
+		"missing method":             {"http://127.0.0.1:1/example.v1.EchoService/Missing", "--protoset", path, "--data", ""},
+		"unrelated prefix":           {"http://127.0.0.1:1" + echoMethod, "--protoset", path, "--data", `{"other`},
+		"template larger than 2 KiB": {"http://127.0.0.1:1" + echoMethod, "--protoset", largePath, "--data", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			stdout, _, err := run(t, nil, append([]string{"__complete", "crpc"}, args...)...)
+			require.NoError(t, err)
+			assert.Equal(t, ":4\n", stdout)
+		})
+	}
+	stdout, _, err := run(t, nil, "__complete", "crpc", "http://127.0.0.1:1"+echoMethod, "--protoset", path, "--data", `'{"te`)
+	require.NoError(t, err)
+	assert.Equal(t, templateCompletion, stdout, "an opening shell quote still matches the template")
 }
 
 func TestCRPCCompletionHidesInapplicableFlags(t *testing.T) {

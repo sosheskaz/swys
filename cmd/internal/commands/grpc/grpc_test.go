@@ -89,6 +89,14 @@ func TestGRPCDiscoverySelectors(t *testing.T) {
 			args:       []string{"grpc", address, grpcFixtureMethodName, "--plaintext", "--describe", "fixture.v1.EchoRequest"},
 			shouldFail: true,
 		},
+		{
+			name:     "template JSON",
+			args:     []string{"grpc", address, "--plaintext", "--template", grpcFixtureMethodName, "--format", "json"},
+			want:     []string{`"text": ""`, `"labels": {}`},
+			wantJSON: true,
+		},
+		{name: "template of streaming method", args: []string{"grpc", address, "--plaintext", "--template", grpcFixtureServiceName + "/Watch"}, shouldFail: true},
+		{name: "template of missing method", args: []string{"grpc", address, "--plaintext", "--template", grpcFixtureServiceName + "/Missing"}, shouldFail: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -143,6 +151,13 @@ func TestGRPCExplicitEmptyDiscoverySelectorsRejectBeforeNetwork(t *testing.T) {
 		{name: "empty protoset", args: []string{"--protoset", ""}},
 		{name: "data without method", args: []string{"--data", "{"}},
 		{name: "input without method", args: []string{"--input", filepath.Join(t.TempDir(), "missing.json")}},
+		{name: "empty template", args: []string{"--template", ""}},
+		{name: "template without method", args: []string{"--template", grpcFixtureServiceName}},
+		{name: "method conflicts with template", args: []string{grpcFixtureMethodName, "--template", grpcFixtureMethodName}},
+		{name: "template conflicts with list", args: []string{"--template", grpcFixtureMethodName, "--list", grpcFixtureServiceName}},
+		{name: "template conflicts with describe", args: []string{"--template", grpcFixtureMethodName, "--describe", "fixture.v1.EchoRequest"}},
+		{name: "template is not text", args: []string{"--template", grpcFixtureMethodName, "--format", "text"}},
+		{name: "data with template", args: []string{"--template", grpcFixtureMethodName, "--data", "{}"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

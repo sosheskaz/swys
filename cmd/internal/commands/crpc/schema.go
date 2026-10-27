@@ -256,18 +256,9 @@ func renderTemplate(schema *protoschema.Schema, selector, format string) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	message, err := protoschema.Template(method.Input())
+	data, err := protoschema.TemplateJSON(method.Input(), format != formatJSONL)
 	if err != nil {
 		return nil, err
-	}
-	options := protojson.MarshalOptions{EmitUnpopulated: true, AllowPartial: true}
-	if format != formatJSONL {
-		options.Multiline = true
-		options.Indent = "  "
-	}
-	data, err := options.Marshal(message)
-	if err != nil {
-		return nil, fmt.Errorf("format request template: %w", err)
 	}
 	return append(data, '\n'), nil
 }

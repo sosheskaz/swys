@@ -76,6 +76,19 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) { //nolint:tparallel // su
 			want: grpcFixtureServiceName,
 		},
 		{
+			name:        "template service continues with slash",
+			args:        []string{address, "--protoset", protoset, "--template", "fixture.v1.E"},
+			want:        grpcFixtureServiceName + "/",
+			wantNoSpace: true,
+		},
+		{
+			name:     "template method contains unary methods only",
+			args:     []string{address, "--protoset", protoset, "--template", grpcFixtureServiceName + "/"},
+			want:     grpcFixtureMethodName,
+			unwanted: grpcFixtureServiceName + "/Watch",
+			kind:     "unary",
+		},
+		{
 			name: "describe service",
 			args: []string{address, "--protoset", protoset, "--describe", "fixture.v1.E"},
 			want: grpcFixtureServiceName,
@@ -151,6 +164,26 @@ func TestGRPCProtosetCompletionExamples(t *testing.T) { //nolint:tparallel // su
 	if connections := record.connectionCount(); connections != 0 {
 		t.Fatalf("offline protoset completion opened %d network connections, want none", connections)
 	}
+}
+
+func TestGRPCDataCompletionInsertsRequestTemplate(t *testing.T) {
+	t.Parallel()
+
+	address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	const template = `{"text":"","payload":"","count":"0","mode":"MODE_UNSPECIFIED","tags":[],"labels":{},"extra":{},"replyBytes":0,"delayMillis":0}`
+	for _, source := range [][]string{{address, "--plaintext"}, {address, "--protoset", protoset}} {
+		args := slices.Concat(source, []string{grpcFixtureMethodName, "--data", ""})
+		values, directive := completeGRPCCommand(t, args...)
+		assert.Equal(t, []string{template + "\tfixture.v1.EchoRequest"}, values, "completion of %v", source)
+		assertGRPCCompletionDirective(t, directive)
+	}
+	calls, _, _ := record.snapshot()
+	assert.Zero(t, calls, "completion must never invoke the method")
+
+	_, _, err := executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--data", template)
+	require.NoError(t, err, "the completed template is a valid request: %v", err)
 }
 
 func completeGRPCCommand(t *testing.T, args ...string) ([]string, cobra.ShellCompDirective) {

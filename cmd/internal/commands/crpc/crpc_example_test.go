@@ -215,4 +215,17 @@ func TestExampleCRPCCompletesAndBootstrapsRequests(t *testing.T) {
 	response, _, err := run(t, strings.NewReader(output), "crpc", server.URL+echoMethod, "--protoset", path)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"text":""}`, response)
+
+	// Tab after -d inserts the request template; reflection runs on demand without --reflect.
+	invoked := calls.Load()
+	for _, target := range [][]string{{server.URL, "example.v1.EchoService/Echo"}, {server.URL + echoMethod}} {
+		args := append(append([]string{"__complete", "crpc"}, target...), "-d", "")
+		completed, _, err := run(t, nil, args...)
+		require.NoError(t, err)
+		assert.Equal(t, templateCompletion, completed)
+	}
+	assert.Equal(t, invoked, calls.Load(), "data completion uses reflection without invoking the method")
+	response, _, err = run(t, nil, "crpc", server.URL+echoMethod, "-d", `{"text":""}`)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":""}`, response)
 }

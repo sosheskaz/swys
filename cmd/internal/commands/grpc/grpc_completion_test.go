@@ -2,6 +2,8 @@ package grpc_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +14,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
+
+	"github.com/sosheskaz/swys/cmd/internal/testcmd"
 )
 
 func TestGRPCCompletionUsesSeparateTwoSecondDeadline(t *testing.T) {
@@ -353,11 +359,15 @@ func TestGRPCCompletionFiltersContextualFlags(t *testing.T) {
 		},
 		{
 			name: "empty list still selects discovery", args: []string{"--list", ""},
-			unwanted: []string{"--describe", "--data", "--input"},
+			unwanted: []string{"--describe", "--template", "--data", "--input"},
+		},
+		{
+			name: "template selects discovery", args: []string{"--template", grpcFixtureMethodName},
+			unwanted: []string{"--list", "--describe", "--data", "--input"},
 		},
 		{
 			name: "method selects invocation", args: []string{grpcFixtureMethodName},
-			want: []string{"--data", "--input"}, unwanted: []string{"--list", "--describe"},
+			want: []string{"--data", "--input"}, unwanted: []string{"--list", "--describe", "--template"},
 		},
 		{
 			name: "empty data still selects body", args: []string{"--data", ""},
@@ -406,6 +416,8 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 		{name: "plaintext blocks typed key", args: []string{"--plaintext", "--key", ""}},
 		{name: "empty list blocks typed input", args: []string{"--list", "", "--input", ""}},
 		{name: "empty data blocks typed input", args: []string{"--data", "", "--input", ""}},
+		{name: "template blocks typed input", args: []string{"--template", grpcFixtureMethodName, "--input", ""}},
+		{name: "template formats only JSON", args: []string{"--template", grpcFixtureMethodName, "--format", ""}, want: []string{"json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -418,6 +430,78 @@ func TestGRPCCompletionFiltersTypedValues(t *testing.T) {
 			assertGRPCCompletionDirective(t, directive)
 		})
 	}
+}
+
+func TestGRPCDataCompletionIsQuietWithoutAUsableTemplate(t *testing.T) {
+	t.Parallel()
+
+	_, set, _ := grpcFixtureSchema(t)
+	protoset := writeGRPCFixtureProtoset(t, set)
+	_, large, _ := grpcFixtureSchema(t)
+	request := large.File[0].MessageType[0]
+	for i := range 96 {
+		request.Field = append(request.Field, &descriptorpb.FieldDescriptorProto{
+			Name:   proto.String(fmt.Sprintf("long_template_field_name_%02d", i)),
+			Number: proto.Int32(int32(100 + i)),
+			Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+		})
+	}
+	largeProtoset := writeGRPCFixtureProtoset(t, large)
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "no method", args: []string{"--protoset", protoset, "--data", ""}},
+		{name: "missing method", args: []string{"--protoset", protoset, grpcFixtureServiceName + "/Missing", "--data", ""}},
+		{name: "streaming method", args: []string{"--protoset", protoset, grpcFixtureServiceName + "/Watch", "--data", ""}},
+		{name: "input owns the request", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--input", "unread.json", "--data", ""}},
+		{name: "list conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--list", grpcFixtureServiceName, "--data", ""}},
+		{name: "describe conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--describe", grpcFixtureServiceName, "--data", ""}},
+		{name: "template conflicts", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--template", grpcFixtureMethodName, "--data", ""}},
+		{name: "auth file from stdin", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--auth-bearer-file", "-", "--data", ""}},
+		{name: "CA from stdin", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--ca", "-", "--data", ""}},
+		{name: "unrelated prefix", args: []string{"--protoset", protoset, grpcFixtureMethodName, "--data", `{"other`}},
+		{name: "template larger than 2 KiB", args: []string{"--protoset", largeProtoset, grpcFixtureMethodName, "--data", ""}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			values, directive := completeGRPCCommand(t, append([]string{"127.0.0.1:1"}, test.args...)...)
+			assert.Empty(t, values)
+			assertGRPCCompletionDirective(t, directive)
+		})
+	}
+	values, _ := completeGRPCCommand(t, "127.0.0.1:1", "--protoset", protoset, grpcFixtureMethodName, "--data", `'{"te`)
+	assert.Len(t, values, 1, "an opening shell quote still matches the template")
+}
+
+func TestGRPCDataCompletionEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+	// Raw C1 and bidi controls, one directly after a backslash that the
+	// serializer escapes.
+	const controls = "\xc2\x80\xc2\x85\xc2\x9b31m\xc2\x9f\\\xd8\x9c" +
+		"\xe2\x80\x8e\xe2\x80\x8f\xe2\x80\xaa\xe2\x80\xae\xe2\x81\xa6\xe2\x81\xa9"
+	address, _, _ := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
+	_, set, _ := grpcFixtureSchema(t)
+	field := set.File[0].MessageType[0].Field[0]
+	require.Equal(t, "text", field.GetName())
+	field.JsonName = proto.String(controls)
+	protoset := writeGRPCFixtureProtoset(t, set)
+
+	stdout, _, err := executeRootStreams(t, "__complete", "grpc", address, "--protoset", protoset, grpcFixtureMethodName, "--data", "")
+	require.NoError(t, err)
+	testcmd.AssertNoRawTerminalControls(t, stdout)
+	candidate, rest, _ := strings.Cut(stdout, "\t")
+	require.Equal(t, "fixture.v1.EchoRequest\n:4\n", rest, "completion = %q, want one template candidate", stdout)
+	var got, want map[string]any
+	require.NoError(t, json.Unmarshal([]byte(candidate), &got), "decode %q", candidate)
+	require.NoError(t, json.Unmarshal([]byte(`{"text":"","payload":"","count":"0","mode":"MODE_UNSPECIFIED",`+
+		`"tags":[],"labels":{},"extra":{},"replyBytes":0,"delayMillis":0}`), &want))
+	want[controls] = want["text"]
+	delete(want, "text")
+	assert.Equal(t, want, got)
+
+	_, _, err = executeRootStreams(t, "grpc", address, grpcFixtureMethodName, "--plaintext", "--protoset", protoset, "--data", candidate)
+	require.NoError(t, err, "the completed template is a valid request: %v", err)
 }
 
 func TestGRPCCompletionLiteralValuesDoNotOfferFiles(t *testing.T) {

@@ -73,10 +73,16 @@ func Selected(flags *pflag.FlagSet) (string, bool) {
 	return "", false
 }
 
-// UsesStdin reports an exact dash credential file without touching input.
+// UsesStdin reports an exact dash credential file without touching input. It
+// checks every file source, so a conflicting source Validate would reject
+// cannot hide stdin from callers that skip validation, such as completion.
 func UsesStdin(flags *pflag.FlagSet) bool {
-	source, ok := Selected(flags)
-	return ok && isFileSource(source) && flags.Lookup(source).Value.String() == "-"
+	for _, name := range FileFlagNames {
+		if flag := flags.Lookup(name); flag != nil && flag.Value.String() == "-" {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate checks selection, transport, and stdin ownership before any credential I/O.

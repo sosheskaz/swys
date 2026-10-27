@@ -65,6 +65,7 @@ type grpcOptions struct { //nolint:govet // group resolved presentation and rela
 	diagnosticPresentation textdisplay.Options
 	list                   string
 	describe               string
+	template               string
 	protoset               string
 	data                   string
 	headers                []string
@@ -235,6 +236,7 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	flags := command.PersistentFlags()
 	flags.StringVar(&options.list, "list", "", "list methods in a service")
 	flags.StringVar(&options.describe, "describe", "", "describe a protobuf symbol")
+	flags.StringVar(&options.template, grpcTemplateFlagName, "", "print an editable protobuf JSON request for a unary SERVICE/METHOD")
 	flags.StringVar(&options.protoset, "protoset", "", "read descriptors from a FileDescriptorSet instead of reflection")
 	flags.StringVarP(&options.data, "data", "d", "", "literal protobuf JSON request")
 	flags.StringArrayVarP(&options.headers, "header", "H", nil, "request metadata (name: value); repeatable")
@@ -255,7 +257,12 @@ func NewCommand(lifecycle *commandio.Lifecycle) *cobra.Command {
 	lifecycle.RegisterCompletion(func(completionCmd *cobra.Command, args []string) {
 		prepareGRPCCompletion(completionCmd, args, command)
 	})
-	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string { return []string{grpcFormatText, grpcFormatPlain, grpcFormatJSON} })
+	commandio.RegisterFlagCompletion(command, commandio.FormatFlagName, func() []string {
+		if options.template != "" {
+			return []string{grpcFormatJSON}
+		}
+		return []string{grpcFormatText, grpcFormatPlain, grpcFormatJSON}
+	})
 	tlsconfig.AddArtifactEncodingFlags(command, grpcTLSCompletionApplicable)
 	tlsconfig.RegisterArtifactEncodingCompletion(lifecycle,
 		func() *cobra.Command { return NewCommand(commandio.NewLifecycle()) }, grpcTLSCompletionApplicable)
@@ -311,7 +318,11 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 		conn, tlsCapture, err = dialGRPC(cmd, args[0], options)
 		if err == nil {
 			defer conn.Close() //nolint:errcheck // command is complete and the response is already prepared
-			schema, reflectionDetails, err = reflectGRPCSchema(ctx, conn, selector, options.list, options.describe)
+			reflected := selector
+			if reflected == "" {
+				reflected = options.template
+			}
+			schema, reflectionDetails, err = reflectGRPCSchema(ctx, conn, reflected, options.list, options.describe)
 			if options.verbose && err != nil {
 				applyGRPCTLSCapture(&reflectionDetails, tlsCapture)
 				if diagnosticErr := writeGRPCDiagnostics(cmd.ErrOrStderr(), options, reflectionDetails); diagnosticErr != nil {
@@ -325,20 +336,9 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	}
 
 	if selector == "" {
-		selection, selectErr := schema.selectDiscovery(options.list, options.describe)
-		if selectErr != nil {
-			return nil, selectErr
-		}
-		format := options.format
-		if format == "" {
-			format = grpcFormatText
-		}
-		output, renderErr := selection.render(format)
+		output, renderErr := renderGRPCDiscovery(schema, options)
 		if renderErr != nil {
 			return nil, renderErr
-		}
-		if format != grpcFormatJSON {
-			output = styleGRPCText(output, options.outputPresentation.Rich)
 		}
 		result := &grpcPreparation{output: output}
 		if options.verbose {
@@ -361,8 +361,8 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	if err != nil {
 		return nil, err
 	}
-	if method.IsStreamingClient() || method.IsStreamingServer() {
-		return nil, fmt.Errorf("%w: method %q is streaming; only unary invocation is supported", errUnsupportedGRPC, selector)
+	if err := requireUnaryGRPCMethod(method, selector); err != nil {
+		return nil, err
 	}
 	types := dynamicpb.NewTypes(schema.files)
 	request := dynamicpb.NewMessage(method.Input())
@@ -424,6 +424,35 @@ func prepareGRPC(cmd *cobra.Command, args []string, options *grpcOptions) (*grpc
 	return result, nil
 }
 
+func requireUnaryGRPCMethod(method protoreflect.MethodDescriptor, selector string) error {
+	if method.IsStreamingClient() || method.IsStreamingServer() {
+		return fmt.Errorf("%w: method %q is streaming; only unary invocation is supported", errUnsupportedGRPC, selector)
+	}
+	return nil
+}
+
+func renderGRPCDiscovery(schema *grpcSchema, options *grpcOptions) ([]byte, error) {
+	if options.template != "" {
+		return schema.template(options.template)
+	}
+	selection, err := schema.selectDiscovery(options.list, options.describe)
+	if err != nil {
+		return nil, err
+	}
+	format := options.format
+	if format == "" {
+		format = grpcFormatText
+	}
+	output, err := selection.render(format)
+	if err != nil {
+		return nil, err
+	}
+	if format != grpcFormatJSON {
+		output = styleGRPCText(output, options.outputPresentation.Rich)
+	}
+	return output, nil
+}
+
 func marshalGRPCResponse(response proto.Message, types *dynamicpb.Types, format string) ([]byte, error) {
 	var output []byte
 	var err error
@@ -453,11 +482,15 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	}
 	listChanged := cmd.Flags().Changed("list")
 	describeChanged := cmd.Flags().Changed("describe")
+	templateChanged := cmd.Flags().Changed(grpcTemplateFlagName)
 	if listChanged && options.list == "" {
 		return fmt.Errorf("%w: --list must not be empty", ErrInvalidOptions)
 	}
 	if describeChanged && options.describe == "" {
 		return fmt.Errorf("%w: --describe must not be empty", ErrInvalidOptions)
+	}
+	if templateChanged && options.template == "" {
+		return fmt.Errorf("%w: --template must not be empty", ErrInvalidOptions)
 	}
 	if selectorPresent && selector == "" {
 		return fmt.Errorf("%w: method selector must not be empty", ErrInvalidOptions)
@@ -469,16 +502,19 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 		return fmt.Errorf("%w: --data and --input require a method selector", ErrInvalidOptions)
 	}
 	selectors := 0
-	for _, selected := range []bool{selectorPresent, listChanged, describeChanged} {
+	for _, selected := range []bool{selectorPresent, listChanged, describeChanged, templateChanged} {
 		if selected {
 			selectors++
 		}
 	}
 	if selectors > 1 {
-		return fmt.Errorf("%w: method, --list, and --describe are mutually exclusive", ErrInvalidOptions)
+		return fmt.Errorf("%w: method, --list, --describe, and --template are mutually exclusive", ErrInvalidOptions)
 	}
 	if selector != "" && !validGRPCMethodSelector(selector) {
 		return fmt.Errorf("%w: method selector %q must be SERVICE/METHOD", ErrInvalidOptions, selector)
+	}
+	if options.template != "" && !validGRPCMethodSelector(options.template) {
+		return fmt.Errorf("%w: --template %q must be SERVICE/METHOD", ErrInvalidOptions, options.template)
 	}
 	if options.timeout < 0 {
 		return fmt.Errorf("%w: --timeout cannot be negative", ErrInvalidOptions)
@@ -491,6 +527,9 @@ func validateGRPCOptions(cmd *cobra.Command, endpoint, selector string, selector
 	}
 	if options.format != "" && options.format != grpcFormatText && options.format != grpcFormatPlain && options.format != grpcFormatJSON {
 		return fmt.Errorf("%w: --format must be text, plain, or json", ErrInvalidOptions)
+	}
+	if templateChanged && options.format != "" && options.format != grpcFormatJSON {
+		return fmt.Errorf("%w: --template emits protobuf JSON; --format must be json", ErrInvalidOptions)
 	}
 	outputEncoding, err := cmd.Flags().GetString(commandio.EncodingFlagName)
 	if err != nil {
@@ -838,6 +877,21 @@ func (schema *grpcSchema) selectDiscovery(list, describe string) (grpcDiscoveryS
 		}
 	}
 	return grpcDiscoverySelection{values: schema.services}, nil
+}
+
+func (schema *grpcSchema) template(selector string) ([]byte, error) {
+	method, err := schema.findMethod(selector)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireUnaryGRPCMethod(method, selector); err != nil {
+		return nil, err
+	}
+	data, err := protoschema.TemplateJSON(method.Input(), true)
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 func (selection grpcDiscoverySelection) render(format string) ([]byte, error) {
