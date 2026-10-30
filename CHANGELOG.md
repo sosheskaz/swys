@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/sosheskaz/swys/compare/v0.4.1...v0.5.0) (2026-10-30)
+
+
+### Features
+
+* complete -d with request templates and add grpc --template ([#121](https://github.com/sosheskaz/swys/issues/121)) ([ac45e87](https://github.com/sosheskaz/swys/commit/ac45e87ea9d6743f840a55262ca93419f6aea038))
+
+
+### Bug Fixes
+
+* **crpc:** complete only lines that execution accepts ([#152](https://github.com/sosheskaz/swys/issues/152)) ([cf1d821](https://github.com/sosheskaz/swys/commit/cf1d821ac74227d98b30b8aa304a841f2a6517be))
+* **grpc:** complete only lines that execution accepts ([#150](https://github.com/sosheskaz/swys/issues/150)) ([2451fcc](https://github.com/sosheskaz/swys/commit/2451fcce351dce9faa4c104ed1b099f4980bac1f))
+
+
+### Dependencies
+
+* **go:** update module golang.org/x/net to v0.62.0 [security] ([#162](https://github.com/sosheskaz/swys/issues/162)) ([3221de0](https://github.com/sosheskaz/swys/commit/3221de0806f83cf887fa491a7b3fd4a0f593ea77))
+
 ## [0.4.1](https://github.com/sosheskaz/swys/compare/v0.4.0...v0.4.1) (2026-10-24)
 
 
