@@ -218,6 +218,8 @@ linters:
         - errors.New(
         - errors.Unwrap(
         - errors.Join(
+        # Connect constructors already attach the protocol status.
+        - connectrpc.com/connect/v2.NewError(
       ignore-package-globs:
         - github.com/sosheskaz/swys/*
 
