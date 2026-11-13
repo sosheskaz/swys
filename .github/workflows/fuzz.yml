@@ -50,7 +50,7 @@ jobs:
         run: echo "::add-matcher::.github/problem-matchers/go.json"
 
       - name: Set up mise
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: 2026.9.6
           install_args: 'go jq'
@@ -96,7 +96,7 @@ jobs:
         run: echo "::add-matcher::.github/problem-matchers/go.json"
 
       - name: Set up mise
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: 2026.9.6
           install_args: 'go jq'
