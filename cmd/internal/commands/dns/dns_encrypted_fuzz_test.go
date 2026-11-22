@@ -79,7 +79,7 @@ func FuzzEncryptedDNSEndpointNormalization(f *testing.F) {
 		case 10:
 			endpoint = "@" + url.QueryEscape(token) + "@127.0.0.1"
 		}
-		args := []string{"dns", endpoint, "example.test", "--select", "values", "--timeout", "1s"}
+		args := []string{"dns", endpoint, "example.test", "--select", "values"}
 		if mode%11 < 7 {
 			args = append(args, "--ca", identity.caCertPath)
 		}
@@ -115,7 +115,7 @@ func FuzzEncryptedDNSDoTFrameLengths(f *testing.F) {
 		outputPath := writeExistingDNSOutput(t)
 		_, _, err := executeRootStreams(t,
 			"dns", endpoint, "example.test", "--ca", identity.caCertPath,
-			"--select", "values", "--output", outputPath, "--timeout", "1s")
+			"--select", "values", "--output", outputPath)
 		if delta == 0 && !corrupt {
 			if err != nil {
 				t.Fatal(err)
@@ -182,7 +182,7 @@ func FuzzEncryptedDNSDoHResponseBoundaries(f *testing.F) {
 		outputPath := writeExistingDNSOutput(t)
 		_, _, err := executeRootStreams(t,
 			"dns", endpoint, "example.test", "--ca", identity.caCertPath,
-			"--select", "values", "--output", outputPath, "--timeout", "1s")
+			"--select", "values", "--output", outputPath)
 		if size <= dns.MaxMsgSize && !truncated {
 			if err != nil {
 				t.Fatal(err)
