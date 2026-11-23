@@ -261,6 +261,8 @@ func FuzzGRPCEndpoint(f *testing.F) {
 		"[::1",
 		"\x03:4",
 		"local\u00a0host:443",
+		"-:1",
+		"-h",
 	} {
 		f.Add(seed)
 	}
@@ -269,7 +271,7 @@ func FuzzGRPCEndpoint(f *testing.F) {
 			t.Skip()
 		}
 		valid := referenceGRPCEndpoint(endpoint)
-		_, _, err := executeRootStreams(t, "grpc", endpoint, "--protoset", protoset)
+		_, _, err := executeRootStreams(t, "grpc", "--protoset", protoset, "--", endpoint)
 		if valid && err != nil {
 			t.Fatalf("valid endpoint rejected: %v; endpoint %q", err, endpoint)
 		}
@@ -302,6 +304,7 @@ func FuzzGRPCMethodSelector(f *testing.F) {
 		"fixture.v1.EchoService/",
 		"fixture.v1.EchoService/Echo/extra",
 		"bad\nservice/Echo",
+		"-h",
 	} {
 		f.Add(seed)
 	}
@@ -311,7 +314,7 @@ func FuzzGRPCMethodSelector(f *testing.F) {
 		}
 		time.Sleep(grpcFuzzNetworkDelay)
 		address, _, record := startGRPCFixture(t, grpcFixtureReflectionBoth, false)
-		_, _, err := executeRootStreams(t, "grpc", address, selector, "--plaintext", "-d", `{}`)
+		_, _, err := executeRootStreams(t, "grpc", "--plaintext", "-d", `{}`, "--", address, selector)
 		calls, _, _ := record.snapshot()
 		if selector == grpcFixtureMethodName {
 			if err != nil || calls != 1 {
